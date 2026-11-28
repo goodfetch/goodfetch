@@ -29,10 +29,12 @@ import {
   type GoodfetchError,
   type OperationNames,
 } from "./goodfetch-error.ts";
+import { refuseHandlersOnEdge } from "./edge-runtime.ts";
 import {
   EngineNotFoundError,
   PRODUCT_VERSION,
   SettingInvalidError,
+  type ExtractHandler,
   type Product,
   type RunLimit,
 } from "./generated/index.ts";
@@ -103,6 +105,12 @@ export interface ConnectOverOptions<S = Settings> {
    * SDK is silent and the engine sends no log events.
    */
   readonly logger?: Logger | undefined;
+  /**
+   * The program's own Extractor SDK handlers, registered under the names
+   * `content.extractor` chooses them by (ADR 0104). Handlers run with the
+   * program's full rights, never confined.
+   */
+  readonly extractors?: Readonly<Record<string, ExtractHandler>> | undefined;
 }
 
 /** Options of `connect()`, with `S`, the settings it takes. */
@@ -472,6 +480,7 @@ interface Opening {
   readonly settings: SettingsOnWire | undefined;
   readonly timeout: number | null | undefined;
   readonly logger: Logger | undefined;
+  readonly extractors: Readonly<Record<string, ExtractHandler>> | undefined;
   /** The project file `connect()` read, which a Connection over a transport a test holds has none of. */
   readonly project?: ProjectFile | undefined;
 }
@@ -485,7 +494,14 @@ interface Opening {
  * is 0, negative, fractional or not finite.
  */
 function opening<S>(product: ProductPackage<S>, options: ConnectOverOptions<S>): Opening {
-  const { signal, logger } = options;
+  const { signal, logger, extractors } = options;
+  if (extractors !== undefined && Object.keys(extractors).length > 0) {
+    refuseHandlersOnEdge({
+      operation: "connect",
+      names: product.operationNames,
+      handlers: "the Connection's SDK handlers",
+    });
+  }
   const settings = product.settingsOnWire(options.settings);
   const own = clientBounds(settings);
   return {
@@ -499,6 +515,7 @@ function opening<S>(product: ProductPackage<S>, options: ConnectOverOptions<S>):
     settings,
     timeout: timeoutOf(options.timeout, TIMEOUT_CONNECT),
     logger,
+    extractors,
   };
 }
 

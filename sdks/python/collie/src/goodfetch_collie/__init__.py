@@ -113,10 +113,10 @@ from goodfetch_collie_client.generated.errors import (
     NavigationFailedError,
     NavigationInterruptedError,
     NotADaemonError,
-    NotInProductError,
-    NotVerifiedError,
     NotificationChannelUnavailableError,
     NotificationHandlerFailedError,
+    NotInProductError,
+    NotVerifiedError,
     PageCheckFailedError,
     PageCrashedError,
     PageError,
@@ -192,6 +192,8 @@ from goodfetch_collie_client.generated.errors import (
 )
 from goodfetch_collie_client.generated.models import (
     ExplainedSetting,
+    ExtractContentParams,
+    ExtractContentResult,
     NotificationPayload,
     Product,
     Recording,
@@ -209,6 +211,7 @@ from goodfetch_collie_client.generated.models import (
     SettingsLayer,
     StartedAs,
 )
+from goodfetch_collie_client.generated.plugins import ExtractHandler
 from goodfetch_collie_client.generated.settings import (
     PageSettings,
     RunSettings,
@@ -315,6 +318,9 @@ __all__ = [
     "ExecutableBlockedBySmartAppControlError",
     "ExperimentalWarning",
     "ExplainedSetting",
+    "ExtractContentParams",
+    "ExtractContentResult",
+    "ExtractHandler",
     "ExtractHandlerFailedError",
     "ExtractTarget",
     "ExtractorUnavailableError",

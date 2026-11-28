@@ -5031,6 +5031,12 @@ export interface SettingLimit {
  */
 export interface ExtractContentParams {
   /**
+   * The registered SDK handler's name when the engine routes
+   * `extract.content` to a Client's SDK handler; absent for a process
+   * Plugin.
+   */
+  handler?: string | null;
+  /**
    * The page's document, serialized as HTML.
    */
   html: string;
@@ -5075,9 +5081,28 @@ export interface ExtractContentResult {
  */
 export interface ExtractHandlerFailedDetails {
   /**
+   * The exception's message when an SDK handler raised.
+   */
+  exceptionMessage?: string | null;
+  /**
+   * The frames of the program's code when an SDK handler raised; empty
+   * from Rust.
+   */
+  exceptionStack?: string | null;
+  /**
+   * The exception's type name when an SDK handler raised; `BoxError` or
+   * `panic` from Rust (ADR 0109).
+   */
+  exceptionType?: string | null;
+  /**
    * The Extractor, as `content.extractor` names it.
    */
   extractor: string;
+  /**
+   * The SDK handler's name when an SDK handler failed; absent for a
+   * process Plugin.
+   */
+  handler?: string | null;
 }
 /**
  * What `extractor_unavailable` details.

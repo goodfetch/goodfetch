@@ -20,11 +20,44 @@ pub use goodfetch_protocol::jsonrpc::TraceContext;
 use serde_json::{Map, Value};
 
 /// Reads the host program's current Trace context, which each request the
-/// Connection sends carries (ADR 0132).
+/// Connection sends carries, and builds a parented span for incoming engine
+/// requests to SDK handlers (ADR 0132).
 pub trait TraceContextSource: Debug + Send + Sync + 'static {
     /// The calling thread's current Trace context, or `None` when the
     /// program has none, such as outside any span.
     fn current(&self) -> Option<TraceContext>;
+
+    /// Opens a `tracing` span whose OpenTelemetry parent is the remote W3C
+    /// Trace context `context`, so spans created inside an SDK handler nest
+    /// under the engine's request span (ADR 0132). Returns
+    /// [`tracing::Span::none`] when OpenTelemetry is inactive.
+    fn handler_span(&self, _context: &TraceContext) -> tracing::Span {
+        tracing::Span::none()
+    }
+}
+
+/// Extracts and removes `_meta`'s [`TraceContext`] from an incoming JSON-RPC
+/// request's `params`, returning `None` when absent or unreadable (ADR 0132).
+pub(crate) fn extract(params: Option<&mut Value>) -> Option<TraceContext> {
+    let Value::Object(members) = params? else {
+        return None;
+    };
+    let Value::Object(meta) = members.remove(META)? else {
+        return None;
+    };
+    let traceparent = meta
+        .get("traceparent")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let tracestate = meta
+        .get("tracestate")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    traceparent.as_ref()?;
+    Some(TraceContext {
+        traceparent,
+        tracestate,
+    })
 }
 
 tokio::task_local! {

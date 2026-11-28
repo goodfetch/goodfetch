@@ -35,7 +35,7 @@ use std::num::NonZeroU64;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use goodfetch_protocol::connection::{EngineExitedDetails, EngineInstance};
+use goodfetch_protocol::connection::{CANCEL, EngineExitedDetails, EngineInstance};
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::jsonrpc::{
     ErrorObject, Message, Notification, Request, RequestId, Version,
@@ -799,6 +799,12 @@ impl Calls {
                 logging::relay(notification.params);
                 return;
             }
+            Ok(Message::Notification(notification)) if notification.method == CANCEL => {
+                if let Some(id) = named_request_id(notification.params.as_ref()) {
+                    streams.cancel(&id, &self.writes);
+                }
+                return;
+            }
             Ok(Message::Notification(notification)) => {
                 self.hand_over(notification);
                 return;
@@ -969,4 +975,11 @@ async fn serve(
 /// The call a notification's params name by its `id`, if any.
 fn named(params: Option<&Value>) -> Option<i64> {
     params?.get("id")?.as_i64()
+}
+
+/// The engine request a `$/cancel` notification's params name by its `id`,
+/// number or string.
+fn named_request_id(params: Option<&Value>) -> Option<RequestId> {
+    let id = params?.get("id")?;
+    RequestId::deserialize(id).ok()
 }

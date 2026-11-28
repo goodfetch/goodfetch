@@ -118,6 +118,9 @@ pub(crate) struct ConnectionContext {
     /// The run layer's `registered` values its `hello`'s SDK handlers give,
     /// beneath every other run-layer value (ADR 0104); set with the surface.
     pub(crate) registered: OnceLock<Map<String, Value>>,
+    /// The SDK handlers declared by this Connection's `hello` (ADR 0104), by
+    /// Plugin kind; set with the surface.
+    pub(crate) sdk_handlers: OnceLock<BTreeMap<String, std::collections::BTreeSet<String>>>,
     /// The driver of each kind of Run that has one, which a resume starts
     /// again.
     pub(crate) drivers: Arc<BTreeMap<RunKind, Driver>>,
@@ -299,6 +302,15 @@ impl CallContext {
     pub fn registered_settings(&self) -> &Map<String, Value> {
         self.connection
             .registered
+            .get()
+            .expect("invariant: a call runs only on a Connection whose `hello` was answered")
+    }
+
+    /// The SDK handlers declared by the Connection's `hello`, by Plugin kind
+    /// (ADR 0104): empty when none were declared.
+    pub fn sdk_handlers(&self) -> &BTreeMap<String, std::collections::BTreeSet<String>> {
+        self.connection
+            .sdk_handlers
             .get()
             .expect("invariant: a call runs only on a Connection whose `hello` was answered")
     }

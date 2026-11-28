@@ -1347,6 +1347,12 @@ class ExtractContentParams(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    handler: str | None = None
+    """
+    The registered SDK handler's name when the engine routes
+    `extract.content` to a Client's SDK handler; absent for a process
+    Plugin.
+    """
     html: str
     """The page's document, serialized as HTML."""
     url: str
@@ -1381,8 +1387,25 @@ class ExtractHandlerFailedDetails(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    exception_message: str | None = None
+    """The exception's message when an SDK handler raised."""
+    exception_stack: str | None = None
+    """
+    The frames of the program's code when an SDK handler raised; empty
+    from Rust.
+    """
+    exception_type: str | None = None
+    """
+    The exception's type name when an SDK handler raised; `BoxError` or
+    `panic` from Rust (ADR 0109).
+    """
     extractor: str
     """The Extractor, as `content.extractor` names it."""
+    handler: str | None = None
+    """
+    The SDK handler's name when an SDK handler failed; absent for a
+    process Plugin.
+    """
 
 
 class ExtractorUnavailableDetails(BaseModel):

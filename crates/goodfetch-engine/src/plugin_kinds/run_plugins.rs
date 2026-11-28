@@ -16,7 +16,7 @@
 //! shared startup/admission/confinement path and immediate revocation stop
 //! across Extractor, Secret provider and Hook kinds.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -40,7 +40,8 @@ use goodfetch_protocol::plugin::{
 use goodfetch_protocol::run::{PluginConfinement, PluginForm, PluginRun, RunId};
 use serde_json::{Value, json};
 
-use super::extractor::{ProcessExtractor, unavailable};
+use super::SdkHandlers;
+use super::extractor::{ProcessExtractor, RunExtractor, SdkExtractor, unavailable};
 use super::hook::{ProcessHook, hook_failed};
 use super::notification::{ProcessNotificationChannel, unavailable as notification_unavailable};
 use super::secret::ProcessSecretProvider;
@@ -131,6 +132,12 @@ pub struct RunPlugins {
     notification_channels: tokio::sync::Mutex<
         BTreeMap<String, Arc<tokio::sync::OnceCell<ProcessNotificationChannel>>>,
     >,
+    /// The SDK handlers declared by the Connection that owns this Run (ADR
+    /// 0104): only this Run's Connection's handlers are visible here.
+    sdk_handlers: Option<SdkHandlers>,
+    /// SDK handler names already recorded via [`Self::record_sdk_handler`] so
+    /// each name is recorded once per Run.
+    recorded_sdk_handlers: tokio::sync::Mutex<BTreeSet<String>>,
 }
 
 impl std::fmt::Debug for RunPlugins {
@@ -178,7 +185,23 @@ impl RunPlugins {
             secret_providers: tokio::sync::Mutex::new(BTreeMap::new()),
             hooks: tokio::sync::Mutex::new(BTreeMap::new()),
             notification_channels: tokio::sync::Mutex::new(BTreeMap::new()),
+            sdk_handlers: None,
+            recorded_sdk_handlers: tokio::sync::Mutex::new(BTreeSet::new()),
         }
+    }
+
+    /// Attaches the owning Connection's declared [`SdkHandlers`] so this Run
+    /// routes matching Plugin-kind calls to that Client only (ADR 0104).
+    #[must_use]
+    pub fn with_sdk_handlers(mut self, handlers: Option<SdkHandlers>) -> Self {
+        self.sdk_handlers = handlers;
+        self
+    }
+
+    /// The owning Connection's declared [`SdkHandlers`], if any.
+    #[must_use]
+    pub fn sdk_handlers(&self) -> Option<&SdkHandlers> {
+        self.sdk_handlers.as_ref()
     }
 
     /// Attaches the engine's [`AuditLog`] so Plugin revocations enforced
@@ -432,7 +455,24 @@ impl RunPlugins {
         settings: Option<&Resolved>,
         secrets: &RunSecrets,
         probe: &SandboxProbe,
-    ) -> Result<ProcessExtractor, StartError> {
+    ) -> Result<RunExtractor, StartError> {
+        if let Some(handlers) = &self.sdk_handlers
+            && handlers.has(goodfetch_protocol::plugin::extractor::EXTRACTOR.name, name)
+        {
+            if self
+                .recorded_sdk_handlers
+                .lock()
+                .await
+                .insert(name.to_owned())
+            {
+                self.record_sdk_handler(name).await;
+            }
+            return Ok(RunExtractor::Sdk(SdkExtractor::new(
+                name.to_owned(),
+                handlers.client().clone(),
+                self.clock,
+            )));
+        }
         let started = Arc::clone(
             self.extractors
                 .lock()
@@ -444,6 +484,7 @@ impl RunPlugins {
             .get_or_try_init(|| self.start(name, settings, secrets, probe))
             .await
             .cloned()
+            .map(RunExtractor::Process)
     }
 
     /// Resolves `name` as an Extractor from the store, translating a
@@ -1249,6 +1290,11 @@ impl RunPlugins {
     ///
     /// Why the store holds no such Plugin, which names it and no path.
     pub async fn check_extractor(&self, name: &str) -> Result<(), StoreError> {
+        if self.sdk_handlers.as_ref().is_some_and(|handlers| {
+            handlers.has(goodfetch_protocol::plugin::extractor::EXTRACTOR.name, name)
+        }) {
+            return Ok(());
+        }
         let store = self.store.clone();
         let name = name.to_owned();
         self.owner

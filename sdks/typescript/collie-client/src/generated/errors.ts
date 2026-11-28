@@ -765,7 +765,7 @@ export class ExecutableBlockedBySmartAppControlError extends RefusedError<"execu
 }
 
 /**
- * The Extractor `content.extractor` names answered `extract.content` with what the engine cannot take: an answer it cannot read, a result whose shape is not `{ title, text, markdown, metadata }`, or an Error code the catalog does not know. Its text is logged, never returned. The details name the Extractor and the page's URL. Fix the Extractor, or set `content.extractor` to a built-in one.
+ * The Extractor `content.extractor` names raised an exception or answered `extract.content` with what the engine cannot take: an answer it cannot read, a result whose shape is not `{ title, text, markdown, metadata }`, or an Error code the catalog does not know. For a process Plugin, its text is logged, never returned. The details name the Extractor and the page's URL, and for an SDK handler its `handler` and the exception's type, message and stack. Fix the Extractor, or set `content.extractor` to a built-in one.
  */
 export class ExtractHandlerFailedError extends ProgramError<"extract_handler_failed"> {
   /**
@@ -776,7 +776,7 @@ export class ExtractHandlerFailedError extends ProgramError<"extract_handler_fai
 
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "ExtractHandlerFailedError", code: "extract_handler_failed", group: "program", retryable: false });
-    this.typedDetails = detailsOf<ExtractHandlerFailedDetails>(fields.details, ["extractor"]);
+    this.typedDetails = detailsOf<ExtractHandlerFailedDetails>(fields.details, ["extractor"], { path: { type: "ExtractHandlerFailedDetails" }, types: collieWire.types });
   }
 }
 

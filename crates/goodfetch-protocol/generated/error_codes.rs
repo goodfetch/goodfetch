@@ -223,7 +223,7 @@ impl ErrorCode {
 
     /// `extract_handler_failed`, in the `program` group, not retryable.
     ///
-    /// The Extractor `content.extractor` names answered `extract.content` with what the engine cannot take: an answer it cannot read, a result whose shape is not `{ title, text, markdown, metadata }`, or an Error code the catalog does not know. Its text is logged, never returned. The details name the Extractor and the page's URL. Fix the Extractor, or set `content.extractor` to a built-in one.
+    /// The Extractor `content.extractor` names raised an exception or answered `extract.content` with what the engine cannot take: an answer it cannot read, a result whose shape is not `{ title, text, markdown, metadata }`, or an Error code the catalog does not know. For a process Plugin, its text is logged, never returned. The details name the Extractor and the page's URL, and for an SDK handler its `handler` and the exception's type, message and stack. Fix the Extractor, or set `content.extractor` to a built-in one.
     pub const EXTRACT_HANDLER_FAILED: Self = ErrorCode::from_static("extract_handler_failed");
 
     /// `extractor_unavailable`, in the `unavailable` group, retryable.

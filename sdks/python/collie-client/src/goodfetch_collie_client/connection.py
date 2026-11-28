@@ -308,6 +308,8 @@ class ClientConnection:
         bounds: ChannelBounds | None = None,
         reconnect: Reconnect | None = None,
         project: ProjectFile | None = None,
+        handlers: Mapping[str, Sequence[str]] | None = None,
+        serve_handlers: Mapping[str, Callable[[ServedRequest], None]] | None = None,
     ) -> ClientConnection:
         """Opens a Connection over `transport`, finishing `hello` before it returns.
 
@@ -349,6 +351,9 @@ class ClientConnection:
             project,
             needs=needs,
         )
+        if serve_handlers is not None:
+            for method, served in serve_handlers.items():
+                connection.serve(method, served)
         try:
             # The Connection's own, for every caller: no Trace context (ADR 0132).
             with untraced():
@@ -360,6 +365,7 @@ class ClientConnection:
                     if connect_started_at is None
                     else connect_started_at,
                     settings,
+                    handlers,
                 )
                 for limit in limits:
                     await connection._set_limit(limit)
@@ -898,6 +904,7 @@ class ClientConnection:
         connect_timeout: ConnectTimeout,
         connect_started_at: float,
         settings: Mapping[str, object] | None,
+        handlers: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
         params = HelloParams(
             protocol_version=ProtocolVersion(PROTOCOL_VERSION),
@@ -912,6 +919,10 @@ class ClientConnection:
             params.token = daemon.token
         if settings is not None:
             params.settings = settings_on_wire(settings)
+        if handlers:
+            params.handlers = {
+                kind: list(names) for kind, names in handlers.items() if names
+            }
         self._hello_params = params
         try:
             answer = await self._hello_answer(

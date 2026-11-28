@@ -246,6 +246,19 @@ pub(crate) fn client_span(method: &'static str) -> Span {
     )
 }
 
+/// Attaches the remote parent from `meta` to `span` when an OpenTelemetry
+/// layer takes `span` and `meta` holds a valid W3C `traceparent` (ADR 0132).
+/// Used by the Rust SDK so an SDK handler's spans nest under the engine's.
+pub fn attach_parent(span: &Span, meta: &TraceContext) {
+    if span.set_parent(Context::new()).is_err() {
+        return;
+    }
+    let received = receive(meta);
+    if let Some(parent) = received.parent {
+        let _ = span.set_parent(Context::new().with_remote_span_context(parent));
+    }
+}
+
 /// The Trace context a request sent under `span` carries in its `_meta`:
 /// none while the process exports no spans. The Rust SDK reads a program's
 /// current span through it too (ADR 0132).

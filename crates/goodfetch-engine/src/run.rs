@@ -1081,6 +1081,23 @@ async fn check_run_plugins_in_product(
     Ok(())
 }
 
+/// Checks that `content.extractor`, when resolved to a non-built-in name on
+/// `run.start`, names either an installed Extractor Plugin or an SDK handler
+/// registered on this Connection (ADR 0104).
+async fn check_run_extractor_known(
+    resolved: &crate::settings::Resolved,
+    context: &CallContext,
+) -> Result<(), CallError> {
+    let resolved = resolved.clone();
+    let handlers = context.sdk_handlers().clone();
+    let store = crate::plugin_store::PluginStore::new(context.engine().home().plugins());
+    context
+        .engine()
+        .owner()
+        .blocking(move || crate::sdk_handlers::check_extractor_known(&resolved, &handlers, &store))
+        .await
+}
+
 async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
     client_tags(&params.tags)?;
@@ -1112,6 +1129,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
         .await
         .map_err(|error| settings_error(&error, &context))?;
     check_run_plugins_in_product(&params.settings, &context).await?;
+    check_run_extractor_known(settings.resolved(), &context).await?;
     let timeout = given_timeout.unwrap_or_else(|| settings.resolved().get(&TIMEOUT_RUN));
     let started = context
         .runs()

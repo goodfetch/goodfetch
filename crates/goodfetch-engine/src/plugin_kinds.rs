@@ -27,6 +27,8 @@
 //! [`extractor`] holds the Extractor's primitives and driver, and
 //! [`run_plugins`] the process Plugins one Run starts.
 
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::future::BoxFuture;
@@ -41,9 +43,51 @@ use goodfetch_protocol::settings::{TIMEOUT_HOOK, TIMEOUT_MODEL, TIMEOUT_PLUGIN};
 use serde::Serialize;
 
 use crate::call_error::CallError;
+use crate::client::Client;
 use crate::deadline::Deadline;
 use crate::plugin_host::instance::CallFailure;
 use crate::settings::Resolved;
+
+/// The SDK handlers declared by one Connection's `hello` together with the
+/// [`Client`] handle used to route calls back to that Connection (ADR 0104).
+/// Bound to Runs started by that Connection only so another Client's Runs
+/// never route to them.
+#[derive(Clone, Debug)]
+pub struct SdkHandlers {
+    client: Client,
+    declared: Arc<BTreeMap<String, BTreeSet<String>>>,
+}
+
+impl SdkHandlers {
+    /// Binds `client` to its `hello`-declared `declared` handler map.
+    #[must_use]
+    pub fn new(client: Client, declared: BTreeMap<String, BTreeSet<String>>) -> Self {
+        Self {
+            client,
+            declared: Arc::new(declared),
+        }
+    }
+
+    /// Whether this Connection registered a handler named `name` for `kind`.
+    #[must_use]
+    pub fn has(&self, kind: &str, name: &str) -> bool {
+        self.declared
+            .get(kind)
+            .is_some_and(|names| names.contains(name))
+    }
+
+    /// The owning Connection's [`Client`].
+    #[must_use]
+    pub fn client(&self) -> &Client {
+        &self.client
+    }
+
+    /// The declared handler names by kind.
+    #[must_use]
+    pub fn declared(&self) -> &BTreeMap<String, BTreeSet<String>> {
+        &self.declared
+    }
+}
 
 pub use crate::plugin_gate::{
     EffectsGate, PluginEffectEntry, PluginEffectJournal, StreamAccountant, StreamRecord,

@@ -854,6 +854,42 @@ form = "runtime"
 
 [[member]]
 crate = "goodfetch-collie-client"
+receiver = "HandlerCall"
+member = "is_cancelled"
+entry = "none"
+reason = "Whether the engine cancelled this call with `$/cancel` or the Connection ended (ADR 0104)."
+words = ["is", "cancelled"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "HandlerCall"
+member = "cancelled"
+entry = "none"
+reason = "Resolves once the engine cancels this call with `$/cancel` or the Connection ends (ADR 0104)."
+words = ["cancelled"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "HandlerCall"
+member = "trace_context"
+entry = "none"
+reason = "The incoming W3C Trace context the engine's request carried in `_meta`, if any (ADR 0132)."
+words = ["trace", "context"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "HandlerCall"
+member = "span"
+entry = "none"
+reason = "A `tracing::Span` parented to the engine's incoming Trace context when OpenTelemetry is enabled (ADR 0132)."
+words = ["span"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
 receiver = "(crate)"
 member = "HandlerRequests"
 entry = "none"
@@ -1700,6 +1736,15 @@ member = "current"
 entry = "none"
 reason = "The calling process."
 words = ["current"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "TraceContextSource"
+member = "handler_span"
+entry = "none"
+reason = "Opens a `tracing::Span` parented to an incoming request's W3C Trace context so SDK handler spans nest under the engine's (ADR 0132)."
+words = ["handler", "span"]
 form = "runtime"
 
 [[member]]

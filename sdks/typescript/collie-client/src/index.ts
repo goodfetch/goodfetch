@@ -59,6 +59,7 @@ export {
   type WebhookHeaders,
 } from "./webhook.ts";
 export type { FieldValue, FieldValues } from "./field-values.ts";
+export { ExtractHandler } from "./generated/plugins.ts";
 export type {
   Acted,
   BlockCause,
@@ -68,6 +69,8 @@ export type {
   Completeness,
   ConsoleMessage,
   ExplainedSetting,
+  ExtractContentParams,
+  ExtractContentResult,
   FormatsRequest,
   FullNotification,
   Lifecycle,

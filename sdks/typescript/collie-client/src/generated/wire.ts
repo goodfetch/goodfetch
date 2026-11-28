@@ -64,6 +64,7 @@ export type CollieWireType =
   | "EveryTrigger"
   | "ExplainedSetting"
   | "ExportedAuditEntry"
+  | "ExtractHandlerFailedDetails"
   | "FieldTransform"
   | "FileWriteFailedDetails"
   | "FillParams"
@@ -331,6 +332,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "EveryTrigger": { fields: { "anchor": ["anchor", "time"] } },
     "ExplainedSetting": { fields: { "fixed_for_run": "fixedForRun", "locked_by": "lockedBy", "user_settable": "userSettable", "yields_to": "yieldsTo" } },
     "ExportedAuditEntry": { fields: { "run_id": "runId", "time": ["time", "time"] } },
+    "ExtractHandlerFailedDetails": { fields: { "exception_message": "exceptionMessage", "exception_stack": "exceptionStack", "exception_type": "exceptionType" } },
     "FieldTransform": { fields: { "time_zone": "timeZone" } },
     "FileWriteFailedDetails": { fields: { "os_code": "osCode" } },
     "FillParams": { fields: { "locator": ["locator", { type: "Locator" }] } },

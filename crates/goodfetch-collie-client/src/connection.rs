@@ -258,7 +258,7 @@ impl ClientConnection {
         if let Some(process) = opened.process {
             logging::spawn_under_opener(process.watch(), &handle, &tasks);
         }
-        let streams = Streams::new();
+        let streams = Streams::new(trace_context_source.clone());
         let sender = rpc::start(
             opened.link,
             &handle,

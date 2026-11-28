@@ -8323,6 +8323,14 @@
           "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
+        "handler": {
+          "arrived_in": "0.1",
+          "description": "The registered SDK handler's name when the engine routes\n`extract.content` to a Client's SDK handler; absent for a process\nPlugin.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "html": {
           "description": "The page's document, serialized as HTML.",
           "type": "string"
@@ -8375,10 +8383,42 @@
     "ExtractHandlerFailedDetails": {
       "description": "What `extract_handler_failed` details.",
       "properties": {
+        "exception_message": {
+          "arrived_in": "0.1",
+          "description": "The exception's message when an SDK handler raised.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "exception_stack": {
+          "arrived_in": "0.1",
+          "description": "The frames of the program's code when an SDK handler raised; empty\nfrom Rust.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "exception_type": {
+          "arrived_in": "0.1",
+          "description": "The exception's type name when an SDK handler raised; `BoxError` or\n`panic` from Rust (ADR 0109).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "extractor": {
           "arrived_in": "0.1",
           "description": "The Extractor, as `content.extractor` names it.",
           "type": "string"
+        },
+        "handler": {
+          "arrived_in": "0.1",
+          "description": "The SDK handler's name when an SDK handler failed; absent for a\nprocess Plugin.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "url": {
           "arrived_in": "0.1",

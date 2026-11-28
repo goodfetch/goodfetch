@@ -27,4 +27,16 @@ impl TraceContextSource for CurrentSpan {
     fn current(&self) -> Option<TraceContext> {
         goodfetch_engine::trace::sent(&tracing::Span::current())
     }
+
+    /// Opens a `tracing` span parented to the engine's incoming Trace context
+    /// so an SDK handler's spans nest under the engine's (ADR 0132).
+    fn handler_span(&self, context: &TraceContext) -> tracing::Span {
+        let span = tracing::debug_span!(
+            target: "goodfetch::sdk::handler",
+            parent: None,
+            "sdk_handler"
+        );
+        goodfetch_engine::trace::attach_parent(&span, context);
+        span
+    }
 }

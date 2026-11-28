@@ -211,6 +211,15 @@ form = "read"
 
 [[member]]
 crate = "goodfetch-collie"
+receiver = "ConnectOptions"
+member = "extractor"
+entry = "none"
+reason = "Declares an Extractor SDK handler by name in `hello` so Runs started by this connection route `extract.content` calls for it back to this Client (ADR 0104)."
+words = ["extractor"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
 receiver = "(crate)"
 member = "EngineChoice"
 entry = "none"

@@ -154,6 +154,23 @@ pub(super) async fn answered(
             .content(&url, cleaned)
             .await
             .map_err(Failure::into_error)?;
+    let (form, confined, confinement) = if extractor.is_sdk_handler() {
+        ("sdk_handler", false, "unconfined")
+    } else {
+        ("process", true, "confined")
+    };
+    crate::trace::provenance(
+        &run.trace,
+        serde_json::json!({
+            "action": "extract_content",
+            "extractor": name,
+            "form": form,
+            "confined": confined,
+            "confinement": confinement,
+            "url": url.as_str(),
+        }),
+    )
+    .await;
     let found = !text.trim().is_empty() || !markdown.trim().is_empty();
     Ok(PageFormats {
         main_content: Some(if found {

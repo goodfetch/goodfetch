@@ -18,6 +18,7 @@ use url::Url;
 
 use super::{Accounts, Failure, PluginCall, Primitive};
 use crate::call_error::{CallError, named};
+use crate::client::{Client, ClientRawError};
 use crate::clock::Clock;
 use crate::deadline::Deadline;
 use crate::plugin_host::instance::{CallFailure, CallOptions, PluginInstance};
@@ -89,6 +90,153 @@ impl ExtractPrimitives for ProcessExtractor {
     }
 }
 
+/// An Extractor implemented by an SDK handler on the Run's owning Connection
+/// (ADR 0104): sends `extract.content` with `handler` naming it, cancels with
+/// `$/cancel` if the deadline passes, and returns the raw reply without
+/// copying (ADR 0140's E1).
+#[derive(Clone, Debug)]
+pub struct SdkExtractor {
+    name: String,
+    client: Client,
+    clock: Clock,
+}
+
+impl SdkExtractor {
+    /// The SDK-handler Extractor `name` served by `client`, timed on `clock`.
+    #[must_use]
+    pub fn new(name: String, client: Client, clock: Clock) -> Self {
+        Self {
+            name,
+            client,
+            clock,
+        }
+    }
+
+    async fn call_client(
+        &self,
+        params: &ExtractContentParams,
+        deadline: Option<&Deadline>,
+    ) -> Result<Received, CallFailure> {
+        let wire_params = ExtractContentParams {
+            url: params.url.clone(),
+            html: params.html.clone(),
+            handler: Some(self.name.clone()),
+        };
+        let mut sent = self
+            .client
+            .send_raw(EXTRACT_CONTENT, &wire_params)
+            .await
+            .map_err(|_| CallFailure::Unavailable(unavailable(&self.name)))?;
+        let outcome = if let Some(deadline) = deadline {
+            match deadline
+                .within(&self.clock, WaitedFor::PLUGIN_ANSWER, sent.answer())
+                .await
+            {
+                Ok(outcome) => outcome,
+                Err(exceeded) => {
+                    sent.cancel().await;
+                    return Err(CallFailure::DeadlineExceeded(exceeded));
+                }
+            }
+        } else {
+            sent.answer().await
+        };
+        match outcome {
+            Ok(received) => Ok(received),
+            Err(ClientRawError::Gone) => Err(CallFailure::Unavailable(unavailable(&self.name))),
+            Err(ClientRawError::Answered(mut error)) => {
+                if error.data.code == EXTRACT_HANDLER_FAILED.name {
+                    error
+                        .data
+                        .details
+                        .entry("extractor".to_owned())
+                        .or_insert_with(|| serde_json::Value::String(self.name.clone()));
+                    error
+                        .data
+                        .details
+                        .entry("handler".to_owned())
+                        .or_insert_with(|| serde_json::Value::String(self.name.clone()));
+                    error
+                        .data
+                        .details
+                        .entry("url".to_owned())
+                        .or_insert_with(|| serde_json::Value::String(params.url.clone()));
+                }
+                Err(CallFailure::Answered(error))
+            }
+        }
+    }
+}
+
+impl ExtractPrimitives for SdkExtractor {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn content<'call>(
+        &'call self,
+        params: &'call ExtractContentParams,
+    ) -> BoxFuture<'call, Result<Received, CallFailure>> {
+        Box::pin(self.call_client(params, None))
+    }
+
+    fn content_under<'call>(
+        &'call self,
+        params: &'call ExtractContentParams,
+        deadline: &'call Deadline,
+    ) -> Option<BoxFuture<'call, Result<Received, CallFailure>>> {
+        Some(Box::pin(self.call_client(params, Some(deadline))))
+    }
+}
+
+/// An Extractor resolved for a Run: either a confined process Plugin or an
+/// unconfined SDK handler on the Run's owning Connection.
+#[derive(Clone, Debug)]
+pub enum RunExtractor {
+    /// A confined process Plugin instance.
+    Process(ProcessExtractor),
+    /// An unconfined SDK handler served by the Run's owning Client.
+    Sdk(SdkExtractor),
+}
+
+impl RunExtractor {
+    /// Whether this Extractor runs as an unconfined SDK handler.
+    #[must_use]
+    pub const fn is_sdk_handler(&self) -> bool {
+        matches!(self, Self::Sdk(_))
+    }
+}
+
+impl ExtractPrimitives for RunExtractor {
+    fn name(&self) -> &str {
+        match self {
+            Self::Process(extractor) => extractor.name(),
+            Self::Sdk(extractor) => extractor.name(),
+        }
+    }
+
+    fn content<'call>(
+        &'call self,
+        params: &'call ExtractContentParams,
+    ) -> BoxFuture<'call, Result<Received, CallFailure>> {
+        match self {
+            Self::Process(extractor) => extractor.content(params),
+            Self::Sdk(extractor) => extractor.content(params),
+        }
+    }
+
+    fn content_under<'call>(
+        &'call self,
+        params: &'call ExtractContentParams,
+        deadline: &'call Deadline,
+    ) -> Option<BoxFuture<'call, Result<Received, CallFailure>>> {
+        match self {
+            Self::Process(extractor) => extractor.content_under(params, deadline),
+            Self::Sdk(extractor) => extractor.content_under(params, deadline),
+        }
+    }
+}
+
 /// The Extractor's driver: it calls one implementation under a deadline,
 /// checks what it answers and accounts for the call.
 pub struct ExtractorDriver<'a> {
@@ -155,6 +303,7 @@ impl<'a> ExtractorDriver<'a> {
         let params = ExtractContentParams {
             url: url.as_str().to_owned(),
             html,
+            handler: None,
         };
         let handler_failed = || self.handler_failed(url);
         let received =
@@ -205,6 +354,10 @@ impl<'a> ExtractorDriver<'a> {
             &ExtractHandlerFailedDetails {
                 extractor: extractor.to_owned(),
                 url: url.as_str().to_owned(),
+                handler: None,
+                exception_type: None,
+                exception_message: None,
+                exception_stack: None,
             },
         )
     }

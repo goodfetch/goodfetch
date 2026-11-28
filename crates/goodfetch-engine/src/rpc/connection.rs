@@ -110,6 +110,8 @@ use crate::live_view::{self, WatchedSessions};
 use crate::log::{ConnectionLog, LogEvents};
 use crate::mask::{Masks, Scope};
 use crate::metrics::Metrics;
+use crate::plugin_kinds::SdkHandlers;
+use crate::plugin_store::PluginStore;
 use crate::product::{Identity, Requested};
 use crate::run::translated;
 use crate::runs::Runs;
@@ -128,6 +130,16 @@ use crate::transition::engine::{
 use crate::transition::{self, Refusal};
 use crate::transport::{Connection, ConnectionReader, ConnectionWriter};
 use goodfetch_protocol::run::RunKind;
+
+/// The parts of an accepted `hello` committed onto the Connection.
+struct AcceptedOpen {
+    accepted: handshake::Accepted,
+    surface: Surface,
+    form: Form,
+    settings: Map<String, Value>,
+    registered: Map<String, Value>,
+    handlers: BTreeMap<String, BTreeSet<String>>,
+}
 
 /// How many bytes one read takes from the Connection.
 const READ_CHUNK: usize = 8 * 1024;
@@ -739,6 +751,7 @@ async fn serve_carried(
         behind_gateway: OnceLock::new(),
         settings: OnceLock::new(),
         registered: OnceLock::new(),
+        sdk_handlers: OnceLock::new(),
         drivers: Arc::clone(&dispatch.drivers),
         attempt_stagings: Arc::clone(&dispatch.attempt_stagings),
         runs,
@@ -1326,7 +1339,13 @@ impl Session<'_> {
                 .map(|(timeouts, registered)| {
                     let mut accepted = accepted;
                     accepted.result.timeouts = timeouts;
-                    (accepted, surface, form, log_level, (settings, registered))
+                    (
+                        accepted,
+                        surface,
+                        form,
+                        log_level,
+                        (settings, registered, handlers),
+                    )
                 })
                 // A refused setting reads in the form the `hello` declares.
                 .map_err(|error| (error, form)),
@@ -1339,44 +1358,21 @@ impl Session<'_> {
             }
         };
         match answered {
-            Ok((mut accepted, surface, form, log_level, (settings, registered))) => {
-                record(HELLO, None);
+            Ok((accepted, surface, form, log_level, (settings, registered, handlers))) => {
                 self.connection.log.set(log_level.unwrap_or_default());
-                if let Err(refused) = self.transition(ConnectionEvent::Accepted) {
-                    let _ = refused.logged();
-                    return Flow::Close;
-                }
-                // A Connection answers one `hello`: the first sets it.
-                let principal = self.access.principal(accepted.behind_gateway);
-                let _ = self.connection.principal.set(principal);
-                let _ = self.connection.surface.set(surface);
-                let _ = self.connection.form.set(form);
-                let _ = self.connection.settings.set(settings);
-                let _ = self.connection.registered.set(registered);
-                // Each CLI command is a Connection of its own, and the Runs
-                // it starts on the Daemon outlive it (ADRs 0024 and 0088);
-                // so do those a person starts or resumes from the Kennel
-                // (ADR 0141).
-                if surface.runs_outlive_connection() {
-                    self.connection.runs.outlive_connection().await;
-                }
-                let holding = accepted.holding;
-                self.opened_client = daemon.map(|daemon| daemon.opened(surface, holding));
-                let _ = self.connection.behind_gateway.set(accepted.behind_gateway);
-                if let Access::Attached(private_endpoint) = &self.access {
-                    accepted
-                        .result
-                        .private_endpoint
-                        .clone_from(private_endpoint);
-                }
-                let line = success_line(&id, &accepted.result)
-                    .expect("invariant: a `hello` reply encodes");
-                drop(span);
-                if self.send(line).await {
-                    Flow::Continue
-                } else {
-                    Flow::Close
-                }
+                self.accept_open(
+                    id,
+                    span,
+                    AcceptedOpen {
+                        accepted,
+                        surface,
+                        form,
+                        settings,
+                        registered,
+                        handlers,
+                    },
+                )
+                .await
             }
             Err((error, form)) => {
                 record(HELLO, Some(error.code()));
@@ -1385,6 +1381,70 @@ impl Session<'_> {
                 self.send(failure_line(Some(id), &error, form)).await;
                 self.rejected()
             }
+        }
+    }
+
+    /// Commits an accepted `hello`, installs its settings and SDK handlers on
+    /// the Connection, and sends its reply.
+    async fn accept_open(
+        &mut self,
+        id: RequestId,
+        span: tracing::Span,
+        open: AcceptedOpen,
+    ) -> Flow {
+        let AcceptedOpen {
+            mut accepted,
+            surface,
+            form,
+            settings,
+            registered,
+            handlers,
+        } = open;
+        record(HELLO, None);
+        if let Err(refused) = self.transition(ConnectionEvent::Accepted) {
+            let _ = refused.logged();
+            return Flow::Close;
+        }
+        // A Connection answers one `hello`: the first sets it.
+        let principal = self.access.principal(accepted.behind_gateway);
+        let _ = self.connection.principal.set(principal);
+        let _ = self.connection.surface.set(surface);
+        let _ = self.connection.form.set(form);
+        let _ = self.connection.settings.set(settings);
+        let _ = self.connection.registered.set(registered);
+        let _ = self.connection.sdk_handlers.set(handlers.clone());
+        if !handlers.is_empty() {
+            self.connection
+                .runs
+                .set_sdk_handlers(SdkHandlers::new(self.connection.client.clone(), handlers))
+                .await;
+        }
+        // Each CLI command is a Connection of its own, and the Runs
+        // it starts on the Daemon outlive it (ADRs 0024 and 0088);
+        // so do those a person starts or resumes from the Kennel
+        // (ADR 0141).
+        if surface.runs_outlive_connection() {
+            self.connection.runs.outlive_connection().await;
+        }
+        let holding = accepted.holding;
+        self.opened_client = self
+            .connection
+            .daemon
+            .as_ref()
+            .map(|daemon| daemon.opened(surface, holding));
+        let _ = self.connection.behind_gateway.set(accepted.behind_gateway);
+        if let Access::Attached(private_endpoint) = &self.access {
+            accepted
+                .result
+                .private_endpoint
+                .clone_from(private_endpoint);
+        }
+        let line = success_line(&id, &accepted.result).expect("invariant: a `hello` reply encodes");
+        drop(span);
+        if self.send(line).await {
+            Flow::Continue
+        } else {
+            Flow::Close
         }
     }
 
@@ -1400,9 +1460,44 @@ impl Session<'_> {
     ) -> Result<(Vec<SettingLimit>, Map<String, Value>), CallError> {
         let carried = sdk_handlers::carried(self.dispatch.identity.product);
         let registered = sdk_handlers::registered(handlers, &carried)?;
-        let timeouts = self
-            .checked_settings(settings, &registered, surface, behind_gateway)
+        let store = PluginStore::new(self.connection.engine.home().plugins());
+        if !handlers.is_empty() {
+            let handlers_copy = handlers.clone();
+            let carried_copy = carried.clone();
+            let store_copy = store.clone();
+            self.connection
+                .engine
+                .owner()
+                .blocking(move || {
+                    sdk_handlers::check_clashes(&handlers_copy, &carried_copy, &store_copy)
+                })
+                .await?;
+        }
+        let (timeouts, resolved) = self
+            .checked_settings(
+                settings,
+                &registered,
+                surface,
+                behind_gateway,
+                !handlers.is_empty(),
+            )
             .await?;
+        if let Some(resolved) = resolved {
+            if !handlers.is_empty() {
+                sdk_handlers::check_ambiguous(handlers, &carried, &resolved)?;
+            }
+            if !settings.is_empty() {
+                let handlers_copy = handlers.clone();
+                let store_copy = store;
+                self.connection
+                    .engine
+                    .owner()
+                    .blocking(move || {
+                        sdk_handlers::check_extractor_known(&resolved, &handlers_copy, &store_copy)
+                    })
+                    .await?;
+            }
+        }
         Ok((timeouts, registered))
     }
 
@@ -1412,29 +1507,36 @@ impl Session<'_> {
     /// layer resolved over them as beneath a Run it starts, so a locked or
     /// capped key is refused at the `hello` rather than at each start (ADR
     /// 0083). Answers the `timeout.*` values they resolve, which `hello`'s
-    /// result reports (issue 3193). `registered`, the values its SDK
-    /// handlers give, resolves beneath `own` (ADR 0104). A `hello` with no
-    /// settings of its own and none registered reads them from the engine's
-    /// snapshot of the machine's layers, so it reads no file (ADR 0140):
-    /// none when those fail to resolve, which the first Run then refuses.
+    /// result reports (issue 3193), and the resolved settings when checked.
+    /// `registered`, the values its SDK handlers give, resolves beneath `own`
+    /// (ADR 0104). A `hello` with no settings of its own, none registered and
+    /// no handlers reads them from the engine's snapshot of the machine's
+    /// layers, so it reads no file (ADR 0140): none when those fail to
+    /// resolve, which the first Run then refuses.
     async fn checked_settings(
         &self,
         own: &Map<String, Value>,
         registered: &Map<String, Value>,
         surface: Surface,
         behind_gateway: bool,
-    ) -> Result<Vec<SettingLimit>, CallError> {
+        has_handlers: bool,
+    ) -> Result<(Vec<SettingLimit>, Option<Resolved>), CallError> {
         let settings = self.connection.engine.settings();
-        if own.is_empty() && registered.is_empty() {
+        if own.is_empty() && registered.is_empty() && !has_handlers {
             let machine = settings.snapshot().await;
-            return Ok(machine
-                .resolved()
-                .map_or_else(|_| Vec::new(), Resolved::timeouts));
+            return Ok((
+                machine
+                    .resolved()
+                    .map_or_else(|_| Vec::new(), Resolved::timeouts),
+                None,
+            ));
         }
         let identity = &self.dispatch.identity;
         let refused = |error: SettingsError| translated(&error, identity, behind_gateway);
-        check_scope(own, SettingScope::Connection, identity.product).map_err(refused)?;
-        check_client_bounds(own, surface, identity.product).map_err(refused)?;
+        if !own.is_empty() {
+            check_scope(own, SettingScope::Connection, identity.product).map_err(refused)?;
+            check_client_bounds(own, surface, identity.product).map_err(refused)?;
+        }
         settings
             .open(SettingsOpening {
                 run: None,
@@ -1447,7 +1549,10 @@ impl Session<'_> {
                 exposed: self.connection.exposed,
             })
             .await
-            .map(|(settings, _)| settings.resolved().timeouts())
+            .map(|(settings, _)| {
+                let resolved = settings.resolved().clone();
+                (resolved.timeouts(), Some(resolved))
+            })
             .map_err(refused)
     }
 
@@ -2090,6 +2195,7 @@ async fn http_connection_context(
         behind_gateway: OnceLock::from(accepted.behind_gateway),
         settings: OnceLock::from(Map::new()),
         registered: OnceLock::from(Map::new()),
+        sdk_handlers: OnceLock::from(BTreeMap::new()),
         drivers: Arc::clone(&context.dispatch.drivers),
         attempt_stagings: Arc::clone(&context.dispatch.attempt_stagings),
         runs: context.runs.clone(),

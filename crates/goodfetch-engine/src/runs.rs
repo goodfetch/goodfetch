@@ -153,6 +153,7 @@ use crate::ledger::{ChargeError, Charged, ChargingParts, RunCharging, StorageFai
 use crate::local_addresses::{self, Rotation};
 use crate::mask::{Masks, Redaction, Scope};
 use crate::metrics::{FolderStorage, Metrics};
+use crate::plugin_kinds::SdkHandlers;
 use crate::plugin_kinds::run_plugins::RunPlugins;
 use crate::politeness::{
     OnStorageFailures, PolitenessOptions, PolitenessTables, RunPoliteness, RunPolitenessParts,
@@ -1242,6 +1243,7 @@ enum Command {
     StopAll(Cause, oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>),
     StopConnection(ConnectionId, oneshot::Sender<ConnectionEnded>),
     Outlive(ConnectionId),
+    SetSdkHandlers(Option<ConnectionId>, SdkHandlers),
     LiveCount(oneshot::Sender<usize>),
     LivePlugins(oneshot::Sender<Vec<(RunId, Arc<RunPlugins>)>>),
     Health(oneshot::Sender<RegistryHealth>),
@@ -1327,7 +1329,7 @@ impl Command {
             | Self::Locate(run_id, _)
             | Self::Discard(run_id, _)
             | Self::Edit(run_id, _) => Reach::Run(run_id.clone()),
-            Self::Outlive(_) => Reach::InOrder,
+            Self::Outlive(_) | Self::SetSdkHandlers(..) => Reach::InOrder,
             Self::Drain(..) | Self::StopAll(..) | Self::StopConnection(..) => Reach::Every,
             Self::Ended(..)
             | Self::Checkpointed(..)
@@ -1769,6 +1771,7 @@ impl Runs {
             turned_busy: Vec::new(),
             draining: false,
             outliving: std::collections::BTreeSet::new(),
+            sdk_handlers: BTreeMap::new(),
             found_ended: std::collections::BTreeSet::new(),
             sampled: Vec::new(),
             discarding: std::collections::BTreeSet::new(),
@@ -2830,6 +2833,20 @@ impl Runs {
         }
     }
 
+    /// Binds `handlers` to the Runs started or resumed by this Connection
+    /// (ADR 0104), so only this Connection's Runs route calls to its SDK
+    /// handlers.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave the binding unset.
+    pub(crate) async fn set_sdk_handlers(&self, handlers: SdkHandlers) {
+        let _ = self
+            .commands
+            .send(Command::SetSdkHandlers(self.connection, handlers))
+            .await;
+    }
+
     /// Live Runs currently using the Plugin `name` (ADR 0033, issue 928).
     pub(crate) async fn runs_using_plugin(&self, name: &str) -> Vec<RunId> {
         let (answer, answered) = oneshot::channel();
@@ -3331,6 +3348,10 @@ struct Registry {
     /// The Daemon's Connections whose Runs go on once they end: the CLI's,
     /// one per command.
     outliving: std::collections::BTreeSet<ConnectionId>,
+    /// The SDK handlers declared by each Connection (ADR 0104): keyed by
+    /// `Option<ConnectionId>` (`None` on an Attached engine, `Some(id)` per
+    /// Daemon Connection) so each Client's Runs route only to its own Client.
+    sdk_handlers: BTreeMap<Option<ConnectionId>, SdkHandlers>,
     /// The Runs a start found finished: a later call that ends one did
     /// nothing, which its report says (ADR 0102).
     found_ended: std::collections::BTreeSet<RunId>,
@@ -3570,6 +3591,9 @@ impl Registry {
                 let _ = answer.send(ended);
             }
             Command::Outlive(connection) => _ = self.outliving.insert(connection),
+            Command::SetSdkHandlers(connection, handlers) => {
+                self.sdk_handlers.insert(connection, handlers);
+            }
             Command::LiveCount(answer) => _ = answer.send(self.live.len()),
             Command::LivePlugins(answer) => _ = answer.send(self.live_plugins()),
             Command::Health(answer) => {
@@ -4014,6 +4038,7 @@ impl Registry {
     /// stop with it, and answers their ends and those of the Runs that
     /// outlive it, unless the engine drains, whose drain ends them.
     async fn connection_ended(&mut self, connection: ConnectionId) -> ConnectionEnded {
+        self.sdk_handlers.remove(&Some(connection));
         let outlives = self.outliving.contains(&connection) && !self.draining;
         let stopping = self.stopping_with(connection);
         let stopping = self.stop_by_client(stopping).await;
@@ -4486,20 +4511,8 @@ impl Registry {
         let resolved = settings.as_ref().map(RunSettings::resolved);
         let share = get_or_default(resolved, &RUN_SHARE);
         let read_interval = ledger_read_interval(settings.as_ref());
-        // A kind whose contribution names no setting for it logs its
-        // Provenance (ADR 0138).
-        let logs_provenance = self
-            .driving(kind)
-            .provenance_log
-            .is_none_or(|setting| get_or_default(resolved, setting));
         let owner = Arc::new(self.owner.child_for(OwnerKind::Run));
-        let trace = run_trace::RunTrace::new(
-            Arc::clone(&owner),
-            folder,
-            keys.secrets.mask().clone(),
-            self.setup.metrics.counted_work().clone(),
-            logs_provenance,
-        );
+        let trace = self.run_trace(kind, &owner, folder, resolved, keys.secrets.mask().clone());
         let (identity, stop) = RunIdentity::new(run_identity::Parts {
             id: run_id.clone(),
             folder: folder.to_owned(),
@@ -4563,6 +4576,7 @@ impl Registry {
                     &warnings,
                     &trace,
                     &state,
+                    self.sdk_handlers.get(&connection).cloned(),
                 ),
                 charging,
                 keys,
@@ -4582,6 +4596,29 @@ impl Registry {
             runs,
         };
         (run, let_finish)
+    }
+
+    /// Builds a Run's trace writer with its kind's provenance-logging rule
+    /// (ADR 0138).
+    fn run_trace(
+        &self,
+        kind: RunKind,
+        owner: &Arc<TaskOwner>,
+        folder: &Path,
+        resolved: Option<&Resolved>,
+        mask: crate::mask::Mask,
+    ) -> run_trace::RunTrace {
+        let logs_provenance = self
+            .driving(kind)
+            .provenance_log
+            .is_none_or(|setting| get_or_default(resolved, setting));
+        run_trace::RunTrace::new(
+            Arc::clone(owner),
+            folder,
+            mask,
+            self.setup.metrics.counted_work().clone(),
+            logs_provenance,
+        )
     }
 
     /// Live `(RunId, RunPlugins)` pairs for `plugin.remove`'s live-use check.
@@ -4613,6 +4650,7 @@ impl Registry {
         warnings: &ReportWarnings,
         trace: &run_trace::RunTrace,
         state: &RunState,
+        sdk_handlers: Option<SdkHandlers>,
     ) -> Arc<RunPlugins> {
         let clock = self.setup.engine.clock();
         let plugins = Arc::new(
@@ -4629,7 +4667,8 @@ impl Registry {
             .with_streams(RunStreamAccountant::new(charging.clone(), trace.clone()))
             .with_effects_journal(RunEffectJournal::new(state.clone(), clock))
             .with_shim(self.setup.engine.plugin_shim().clone())
-            .with_governor(self.setup.governor.clone()),
+            .with_governor(self.setup.governor.clone())
+            .with_sdk_handlers(sdk_handlers),
         );
         secrets.set_plugin_provider(Arc::new(PluginSecretResolver::new(
             Arc::clone(&plugins),

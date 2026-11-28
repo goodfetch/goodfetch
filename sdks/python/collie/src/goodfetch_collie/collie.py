@@ -16,6 +16,13 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from goodfetch_collie_client._sdk_handlers import (
+    AsyncExtractor,
+    SyncExtractor,
+    declared_handlers,
+    serve_async_extractors,
+    serve_sync_extractors,
+)
 from goodfetch_collie_client.connection import ClientConnection, closed_error
 from goodfetch_collie_client.connection_type import AsyncConnection, Connection
 from goodfetch_collie_client.generated.connection import (
@@ -111,6 +118,7 @@ class AsyncCollie(AsyncConnection):
         max_listener_queue: int = MAX_LISTENER_QUEUE,
         settings: Settings | None = None,
         project: str | os.PathLike[str] | NotGiven | None = not_given,
+        extractors: Mapping[str, AsyncExtractor] | None = None,
     ) -> Connecting:
         """Reaches Collie's engine and finishes `hello`.
 
@@ -172,6 +180,11 @@ class AsyncCollie(AsyncConnection):
         cannot read (`format_version_unsupported`), raises here before any
         engine is reached.
         """
+        serve_handlers = (
+            {"extract.content": serve_async_extractors(extractors)}
+            if extractors
+            else None
+        )
         return Connecting(
             functools.partial(
                 open_engine,
@@ -183,6 +196,8 @@ class AsyncCollie(AsyncConnection):
                 max_listener_queue=max_listener_queue,
                 settings=settings,
                 project=project,
+                handlers=declared_handlers(extractors),
+                serve_handlers=serve_handlers,
             )
         )
 
@@ -498,6 +513,7 @@ class Collie(Connection):
         max_listener_queue: int = MAX_LISTENER_QUEUE,
         settings: Settings | None = None,
         project: str | os.PathLike[str] | NotGiven | None = not_given,
+        extractors: Mapping[str, SyncExtractor] | None = None,
     ) -> Collie:
         """Reaches Collie's engine and finishes `hello`.
 
@@ -548,6 +564,11 @@ class Collie(Connection):
         `setting_not_applicable` or `setting_locked`. `project` is the
         project file to read, as `AsyncCollie.connect()` reads it.
         """
+        serve_handlers = (
+            {"extract.content": serve_sync_extractors(extractors)}
+            if extractors
+            else None
+        )
         return _open_sync(
             functools.partial(
                 open_engine,
@@ -559,6 +580,8 @@ class Collie(Connection):
                 max_listener_queue=max_listener_queue,
                 settings=settings,
                 project=project,
+                handlers=declared_handlers(extractors),
+                serve_handlers=serve_handlers,
             )
         )
 
@@ -811,11 +834,15 @@ def async_connect_over(
     *,
     max_listener_queue: int = MAX_LISTENER_QUEUE,
     settings: Settings | None = None,
+    extractors: Mapping[str, AsyncExtractor] | None = None,
 ) -> Connecting:
     """Opens an `AsyncCollie` over `transport`, with no process behind it.
 
-    `max_listener_queue` and `settings` are `connect()`'s.
+    `max_listener_queue`, `settings` and `extractors` are `connect()`'s.
     """
+    serve_handlers = (
+        {"extract.content": serve_async_extractors(extractors)} if extractors else None
+    )
     return Connecting(
         functools.partial(
             open_over,
@@ -823,6 +850,8 @@ def async_connect_over(
             transport,
             max_listener_queue=max_listener_queue,
             settings=settings,
+            handlers=declared_handlers(extractors),
+            serve_handlers=serve_handlers,
         )
     )
 
@@ -832,13 +861,17 @@ def connect_over(
     *,
     max_listener_queue: int = MAX_LISTENER_QUEUE,
     settings: Settings | None = None,
+    extractors: Mapping[str, SyncExtractor] | None = None,
 ) -> Collie:
     """Opens a sync `Collie` over `transport`, with no process behind it.
 
     Its private loop drives `transport`, so a transport bound to another
-    event loop does not fit. `max_listener_queue` and `settings` are
-    `connect()`'s.
+    event loop does not fit. `max_listener_queue`, `settings` and `extractors`
+    are `connect()`'s.
     """
+    serve_handlers = (
+        {"extract.content": serve_sync_extractors(extractors)} if extractors else None
+    )
     return _open_sync(
         functools.partial(
             open_over,
@@ -846,6 +879,8 @@ def connect_over(
             transport,
             max_listener_queue=max_listener_queue,
             settings=settings,
+            handlers=declared_handlers(extractors),
+            serve_handlers=serve_handlers,
         )
     )
 

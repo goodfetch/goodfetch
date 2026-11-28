@@ -11,7 +11,7 @@
 //! (ADR 0087). It names no Product's entries, so Foxhound's stay out of
 //! this crate's API (ADR 0095).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fmt;
 use std::future::Future;
@@ -72,6 +72,7 @@ pub struct ConnectOptions {
     engine: EngineChoice,
     settings: Settings,
     project: ProjectChoice,
+    handlers: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl fmt::Debug for ConnectOptions {
@@ -88,6 +89,7 @@ impl fmt::Debug for ConnectOptions {
             .field("engine", &self.engine)
             .field("settings", &self.settings)
             .field("project", &self.project)
+            .field("handlers", &self.handlers)
             .finish()
     }
 }
@@ -189,6 +191,22 @@ impl ConnectOptions {
         self
     }
 
+    /// Declares an Extractor SDK handler named `name` on this connection
+    /// (ADR 0104): sent in `hello` so Runs started by this connection route
+    /// `extract.content` calls for `name` back to this Client.
+    #[must_use]
+    pub fn extractor(mut self, name: impl Into<String>) -> Self {
+        self.handlers
+            .entry(
+                goodfetch_protocol::plugin::extractor::EXTRACTOR
+                    .name
+                    .to_owned(),
+            )
+            .or_default()
+            .insert(name.into());
+        self
+    }
+
     /// The environment the connection reads, the one set or the
     /// process's, the connection's Limits, its `timeout` and its listener
     /// queue, once checked, the project file it read, with the `timeout`
@@ -222,6 +240,7 @@ impl ConnectOptions {
             },
             engine: self.engine,
             settings,
+            handlers: self.handlers,
         })
     }
 }
@@ -270,6 +289,8 @@ struct Parts {
     engine: EngineChoice,
     /// The connection's own settings, nested by key.
     settings: serde_json::Map<String, serde_json::Value>,
+    /// The SDK handler names declared on `hello`, by Plugin kind (ADR 0104).
+    handlers: BTreeMap<String, BTreeSet<String>>,
 }
 
 /// What the program asked of a connection, whatever engine it reaches: its
@@ -699,9 +720,11 @@ impl Opening {
             asked,
             engine: choice,
             settings,
+            handlers,
         } = options.into_parts()?;
         let hello = HelloParams {
             settings,
+            handlers,
             ..ProductConnection::hello(needs)
         };
         let auto = matches!(choice, EngineChoice::Auto);

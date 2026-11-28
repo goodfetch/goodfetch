@@ -1638,7 +1638,7 @@ async fn extractor_installed(
                 key: CONTENT_EXTRACTOR.name.to_owned(),
                 layer: Some(SettingsLayer::Run),
                 reason: format!(
-                    "{error}: name a built-in, {}, or an installed Extractor Plugin",
+                    "{error}: name a built-in ({}), install an Extractor Plugin, or register an SDK handler",
                     CONTENT_EXTRACTORS.join(", ")
                 ),
             },

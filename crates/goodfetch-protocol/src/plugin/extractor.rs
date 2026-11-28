@@ -32,6 +32,12 @@ pub struct ExtractContentParams {
     pub url: String,
     /// The page's document, serialized as HTML.
     pub html: String,
+    /// The registered SDK handler's name when the engine routes
+    /// `extract.content` to a Client's SDK handler; absent for a process
+    /// Plugin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub handler: Option<String>,
 }
 
 /// A page's main content, as an Extractor read it. Everything in it is
@@ -72,6 +78,25 @@ pub struct ExtractHandlerFailedDetails {
     /// The URL of the page it was extracting.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub url: String,
+    /// The SDK handler's name when an SDK handler failed; absent for a
+    /// process Plugin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub handler: Option<String>,
+    /// The exception's type name when an SDK handler raised; `BoxError` or
+    /// `panic` from Rust (ADR 0109).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub exception_type: Option<String>,
+    /// The exception's message when an SDK handler raised.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub exception_message: Option<String>,
+    /// The frames of the program's code when an SDK handler raised; empty
+    /// from Rust.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub exception_stack: Option<String>,
 }
 
 /// What `extractor_unavailable` details.
@@ -82,10 +107,11 @@ pub struct ExtractorUnavailableDetails {
     pub extractor: String,
 }
 
-/// An Extractor whose answer the engine cannot take (ADRs 0104 and 0127).
+/// An Extractor whose answer the engine cannot take or whose SDK handler
+/// raised (ADRs 0104 and 0127).
 pub const EXTRACT_HANDLER_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "extract_handler_failed",
-    description: "The Extractor `content.extractor` names answered `extract.content` with what the engine cannot take: an answer it cannot read, a result whose shape is not `{ title, text, markdown, metadata }`, or an Error code the catalog does not know. Its text is logged, never returned. The details name the Extractor and the page's URL. Fix the Extractor, or set `content.extractor` to a built-in one.",
+    description: "The Extractor `content.extractor` names raised an exception or answered `extract.content` with what the engine cannot take: an answer it cannot read, a result whose shape is not `{ title, text, markdown, metadata }`, or an Error code the catalog does not know. For a process Plugin, its text is logged, never returned. The details name the Extractor and the page's URL, and for an SDK handler its `handler` and the exception's type, message and stack. Fix the Extractor, or set `content.extractor` to a built-in one.",
     group: ErrorGroup::Program,
     retryable: false,
     exit_code: None,

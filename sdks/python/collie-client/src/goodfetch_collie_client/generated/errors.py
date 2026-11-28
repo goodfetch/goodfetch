@@ -514,7 +514,7 @@ class ExecutableBlockedBySmartAppControlError(RefusedError):
 
 
 class ExtractHandlerFailedError(ProgramError):
-    """The Extractor `content.extractor` names answered `extract.content` with what the engine cannot take: an answer it cannot read, a result whose shape is not `{ title, text, markdown, metadata }`, or an Error code the catalog does not know. Its text is logged, never returned. The details name the Extractor and the page's URL. Fix the Extractor, or set `content.extractor` to a built-in one."""
+    """The Extractor `content.extractor` names raised an exception or answered `extract.content` with what the engine cannot take: an answer it cannot read, a result whose shape is not `{ title, text, markdown, metadata }`, or an Error code the catalog does not know. For a process Plugin, its text is logged, never returned. The details name the Extractor and the page's URL, and for an SDK handler its `handler` and the exception's type, message and stack. Fix the Extractor, or set `content.extractor` to a built-in one."""
 
     typed_details: ExtractHandlerFailedDetails | None
     """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""

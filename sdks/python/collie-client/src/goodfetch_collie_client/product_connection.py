@@ -51,7 +51,7 @@ from goodfetch_collie_client.limits import limit_list
 from goodfetch_collie_client.listeners import MAX_LISTENER_QUEUE, listener_queue_of
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
     from datetime import timedelta
     from pathlib import Path
 
@@ -59,6 +59,7 @@ if TYPE_CHECKING:
 
     from goodfetch_collie_client._project_file import ConnectTimeout, ProjectFile
     from goodfetch_collie_client._relink import OperationClass
+    from goodfetch_collie_client._rpc import ServedRequest
     from goodfetch_collie_client.engine_choice import (
         DaemonReach,
         EngineChoice,
@@ -142,6 +143,8 @@ async def open_engine(
     max_listener_queue: int = MAX_LISTENER_QUEUE,
     settings: Mapping[str, object] | None = None,
     project: str | os.PathLike[str] | NotGiven | None = not_given,
+    handlers: Mapping[str, Sequence[str]] | None = None,
+    serve_handlers: Mapping[str, Callable[[ServedRequest], None]] | None = None,
 ) -> ClientConnection:
     """Reaches the engine `engine` chooses for `product`, then `hello` and `limits`.
 
@@ -225,6 +228,8 @@ async def open_engine(
         settings,
         bounds,
         project_file,
+        handlers,
+        serve_handlers,
     )
     if isinstance(reach, AttachedReach):
         connection = await _open_attached(
@@ -259,6 +264,8 @@ class _Opening:
     settings: Mapping[str, object] | None
     bounds: ChannelBounds
     project: ProjectFile | None
+    handlers: Mapping[str, Sequence[str]] | None = None
+    serve_handlers: Mapping[str, Callable[[ServedRequest], None]] | None = None
 
 
 _REFUSALS = frozenset({"not_in_product", "protocol_version_unsupported"})
@@ -407,6 +414,8 @@ async def _open_attached(
         settings=opening.settings,
         bounds=opening.bounds,
         project=opening.project,
+        handlers=opening.handlers,
+        serve_handlers=opening.serve_handlers,
     )
 
 
@@ -443,6 +452,8 @@ async def _open_daemon(
         bounds=opening.bounds,
         reconnect=reconnect,
         project=opening.project,
+        handlers=opening.handlers,
+        serve_handlers=opening.serve_handlers,
     )
 
 
@@ -474,6 +485,8 @@ async def open_over(
     close_timeout: float = CLOSE_TIMEOUT,
     max_listener_queue: int = MAX_LISTENER_QUEUE,
     settings: Mapping[str, object] | None = None,
+    handlers: Mapping[str, Sequence[str]] | None = None,
+    serve_handlers: Mapping[str, Callable[[ServedRequest], None]] | None = None,
 ) -> ClientConnection:
     """Finishes `hello`, naming `product`, over `transport`.
 
@@ -492,4 +505,6 @@ async def open_over(
         listener_queue=listener_queue,
         settings=settings,
         bounds=bounds,
+        handlers=handlers,
+        serve_handlers=serve_handlers,
     )

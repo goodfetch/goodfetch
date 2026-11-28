@@ -25,6 +25,7 @@ import {
   PROTOCOL_VERSION,
   ProtocolVersionUnsupportedError,
   type CollieOperationTypes,
+  type ExtractHandler,
   type GoodfetchError,
   type HelloParams,
   type HelloResult,
@@ -67,10 +68,12 @@ import {
   type TransportEnd,
 } from "./rpc.ts";
 import { resumable } from "./resumed-stream.ts";
+import { declaredHandlers, serveExtractors } from "./sdk-handlers.ts";
 import {
   carry,
-  traceContextSource,
+  traceContextHooks,
   type TraceContext,
+  type TraceContextRunner,
   type TraceContextSource,
 } from "./trace-context.ts";
 import { batchOf, type LastRead } from "./stream.ts";
@@ -275,6 +278,8 @@ export interface ClientConnectionOptions {
    * starts.
    */
   readonly logger?: Logger | undefined;
+  /** The program's Extractor SDK handlers, keyed by name (ADR 0104). */
+  readonly extractors?: Readonly<Record<string, ExtractHandler>> | undefined;
 }
 
 /** What serves one kind of the engine's requests: it answers the result, or throws the error to answer. */
@@ -311,6 +316,8 @@ export class ClientConnection implements AsyncDisposable {
   #closing: Promise<void> | undefined;
   /** Reads the Trace context each call the program makes carries (ADR 0132), set before `hello`. */
   #traceContext: TraceContextSource = () => undefined;
+  /** Runs incoming SDK handler calls under the request's `_meta` Trace context (ADR 0132). */
+  #traceRunner: TraceContextRunner = (_context, work) => work();
   /** The Schedules of the engine's major (spec 589), reached without a round trip. */
   readonly schedules: Schedules;
 
@@ -360,6 +367,12 @@ export class ClientConnection implements AsyncDisposable {
         this.#openOrThrow(operation);
       },
     });
+    if (options.extractors !== undefined && Object.keys(options.extractors).length > 0) {
+      this.serve(
+        "extract.content",
+        serveExtractors(options.extractors, () => this.#traceRunner),
+      );
+    }
     holdInRealm(this);
   }
 
@@ -373,7 +386,9 @@ export class ClientConnection implements AsyncDisposable {
   static async open(options: ClientConnectionOptions): Promise<ClientConnection> {
     const connection = new ClientConnection(options);
     try {
-      connection.#traceContext = await traceContextSource();
+      const hooks = await traceContextHooks();
+      connection.#traceContext = hooks.source;
+      connection.#traceRunner = hooks.run;
       await connection.#hello(options);
       await connection.#setLimits(options.limits ?? [], options.signal);
     } catch (error) {
@@ -810,7 +825,8 @@ export class ClientConnection implements AsyncDisposable {
   }
 
   /** `hello`'s params in the wire's form, naming the log level the engine was last told. */
-  #helloParams({ needs, daemon, settings }: ClientConnectionOptions): unknown {
+  #helloParams({ needs, daemon, settings, extractors }: ClientConnectionOptions): unknown {
+    const handlers = declaredHandlers(extractors);
     const params: HelloParams = {
       protocolVersion: PROTOCOL_VERSION,
       surface: "sdk_typescript",
@@ -820,6 +836,7 @@ export class ClientConnection implements AsyncDisposable {
       logLevel: this.#logLevel,
       ...(daemon === undefined ? {} : { token: daemon.token }),
       ...(settings === undefined ? {} : { settings }),
+      ...(handlers === undefined ? {} : { handlers }),
     };
     return toWire(params, { type: "HelloParams" satisfies CollieWireType }, collieWire.types);
   }

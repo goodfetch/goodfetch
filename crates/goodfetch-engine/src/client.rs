@@ -87,6 +87,63 @@ pub enum ClientRequestError {
     Malformed(String),
 }
 
+/// Why a raw handler request got no answer (ADR 0140's E1: zero deep copy of
+/// the reply payload).
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub enum ClientRawError {
+    /// The Connection ended before the reply, or the answer was read
+    /// already: the Client is gone.
+    Gone,
+    /// The handler answered with a JSON-RPC error object.
+    Answered(ErrorObject),
+}
+
+/// A handler request on the Connection whose reply is returned straight as
+/// [`Received`], without an intermediate `Value` copy (ADR 0140's E1).
+#[derive(Debug)]
+pub struct SentRaw {
+    id: RequestId,
+    replied: Option<oneshot::Receiver<Result<Received, ErrorObject>>>,
+    requests: mpsc::Sender<Outgoing>,
+    span: tracing::Span,
+}
+
+impl SentRaw {
+    /// The handler's raw JSON result in its original wire line.
+    ///
+    /// # Errors
+    ///
+    /// `Gone` when the Connection ends first or once the answer was read, or
+    /// `Answered` when the handler returned an error object.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future only stops waiting: the answer stays for the
+    /// next call.
+    pub async fn answer(&mut self) -> Result<Received, ClientRawError> {
+        let replied = self.replied.as_mut().ok_or(ClientRawError::Gone)?;
+        let answer = replied.await;
+        self.replied = None;
+        let answer = answer.map_err(|_| ClientRawError::Gone)?;
+        if let Err(error) = &answer {
+            trace::record_failure(&self.span, &error.data.code, error.code);
+        }
+        self.span = tracing::Span::none();
+        answer.map_err(ClientRawError::Answered)
+    }
+
+    /// Sends the Client `$/cancel` for the request, unless it is answered
+    /// already.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave the `$/cancel` unsent.
+    pub async fn cancel(&self) {
+        let _ = self.requests.send(Outgoing::Cancel(self.id.clone())).await;
+    }
+}
+
 /// A handler request on the Connection, whose answer `R` is still to come.
 #[derive(Debug)]
 pub struct Sent<R> {
@@ -147,6 +204,32 @@ impl Client {
         self.send_noted(request, params, |_| ()).await
     }
 
+    /// Sends a Plugin-kind handler request `method` with `params`, returning a
+    /// [`SentRaw`] whose reply stays in [`Received`] without copying (ADR
+    /// 0140's E1, ADR 0104).
+    ///
+    /// # Errors
+    ///
+    /// `Gone` when the Connection ends first.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may still send the request; its reply is then
+    /// discarded.
+    pub async fn send_raw(
+        &self,
+        method: &'static str,
+        params: &impl Serialize,
+    ) -> Result<SentRaw, ClientRequestError> {
+        let (id, replied, span) = self.enqueue_request(method, params, |_| ()).await?;
+        Ok(SentRaw {
+            id,
+            replied: Some(replied),
+            requests: self.requests.clone(),
+            span,
+        })
+    }
+
     /// [`Self::send`], first giving `noted` the request's id, before the
     /// request can reach the handler: what keeps the id as the call
     /// enclosing the calls its handler makes (ADR 0080) knows it before the
@@ -165,28 +248,7 @@ impl Client {
         params: &impl Serialize,
         noted: impl FnOnce(&RequestId),
     ) -> Result<Sent<R>, ClientRequestError> {
-        let span = trace::client_span(request.name);
-        let id = RequestId::Number(self.next_id.fetch_add(1, Ordering::Relaxed));
-        noted(&id);
-        trace::record_id(&span, &id);
-        // Params that are no object carry no Trace context, as `_meta` is
-        // one of an object's members.
-        let line = match trace::sent(&span) {
-            Some(meta) => request_line(&id, request.name, &WithMeta { params, meta })
-                .or_else(|_| request_line(&id, request.name, params)),
-            None => request_line(&id, request.name, params),
-        }
-        .expect("invariant: a handler request's params encode as JSON");
-        let (reply, replied) = oneshot::channel();
-        self.requests
-            .send(Outgoing::Request {
-                id: id.clone(),
-                method: request.name,
-                line,
-                reply,
-            })
-            .await
-            .map_err(|_| ClientRequestError::Gone)?;
+        let (id, replied, span) = self.enqueue_request(request.name, params, noted).await?;
         Ok(Sent {
             id,
             replied: Some(replied),
@@ -194,6 +256,44 @@ impl Client {
             span,
             answer: PhantomData,
         })
+    }
+
+    async fn enqueue_request(
+        &self,
+        method: &'static str,
+        params: &impl Serialize,
+        noted: impl FnOnce(&RequestId),
+    ) -> Result<
+        (
+            RequestId,
+            oneshot::Receiver<Result<Received, ErrorObject>>,
+            tracing::Span,
+        ),
+        ClientRequestError,
+    > {
+        let span = trace::client_span(method);
+        let id = RequestId::Number(self.next_id.fetch_add(1, Ordering::Relaxed));
+        noted(&id);
+        trace::record_id(&span, &id);
+        // Params that are no object carry no Trace context, as `_meta` is
+        // one of an object's members.
+        let line = match trace::sent(&span) {
+            Some(meta) => request_line(&id, method, &WithMeta { params, meta })
+                .or_else(|_| request_line(&id, method, params)),
+            None => request_line(&id, method, params),
+        }
+        .expect("invariant: a handler request's params encode as JSON");
+        let (reply, replied) = oneshot::channel();
+        self.requests
+            .send(Outgoing::Request {
+                id: id.clone(),
+                method,
+                line,
+                reply,
+            })
+            .await
+            .map_err(|_| ClientRequestError::Gone)?;
+        Ok((id, replied, span))
     }
 }
 

@@ -136,6 +136,7 @@ mod run;
 mod rust_client;
 mod schedules;
 mod sdk;
+mod sdk_handlers;
 mod secret_suite;
 mod secrets;
 mod security_controls;

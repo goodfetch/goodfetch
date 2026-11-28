@@ -662,6 +662,52 @@ pub struct RunLimit {
     pub amount: u64,
 }
 
+/// The `"auto"` value of `partitions` (ADR 0054): one Partition per eligible
+/// Group member.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AutoPartitions {
+    /// One Partition per eligible Group member.
+    Auto,
+}
+
+/// How many Partitions a Partitioned crawl runs as (ADR 0054): a positive
+/// integer count or `"auto"` for one per eligible Group member.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum Partitions {
+    /// A fixed count of Partitions (at least 1).
+    Count(std::num::NonZeroU32),
+    /// One Partition per eligible Group member.
+    Auto(AutoPartitions),
+}
+
+impl Partitions {
+    /// Whether this asks for more than one Partition (`Count(> 1)` or `Auto`).
+    #[must_use]
+    pub const fn is_multi(self) -> bool {
+        match self {
+            Self::Count(n) => n.get() > 1,
+            Self::Auto(_) => true,
+        }
+    }
+}
+
+/// One Partition of a started Partitioned crawl (ADR 0054): its index, its
+/// own Run ID, and the Group member it was placed on.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct StartedPartition {
+    /// Zero-based Partition index.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub partition: u32,
+    /// The Partition's Run ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// The Group member this Partition was placed on.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub member: String,
+}
+
 /// What `run.start` takes.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -726,6 +772,12 @@ pub struct RunStartParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub group_member: Option<String>,
+    /// Partition count for a Partitioned crawl (ADR 0054, Foxhound only): a
+    /// positive integer or `"auto"`. A Collie engine refuses it with
+    /// `not_in_product` (ADRs 0087 and 0095).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub partitions: Option<Partitions>,
 }
 
 /// What a start did with its Run: began it, resumed it, or found it ended
@@ -747,7 +799,7 @@ pub enum StartedAs {
 /// What a start answers once its Run is started, never at its end.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RunStarted {
-    /// The Run's ID.
+    /// The Run's ID (or the Partitioned crawl ID for a Partitioned crawl).
     #[schemars(extend("arrived_in" = "0.1"))]
     pub run_id: RunId,
     /// Whether the start began it.
@@ -760,6 +812,11 @@ pub struct RunStarted {
     /// catalog marks Foxhound's, Foxhound from then on.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub needs: Product,
+    /// For a Partitioned crawl (ADR 0054), each Partition's Run ID and Group
+    /// member placement beside the Partitioned crawl ID; empty otherwise.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub partitions: Vec<StartedPartition>,
 }
 
 /// What `run.usage`, `run.started_as`, `run.pause` and `run.migrate` take:

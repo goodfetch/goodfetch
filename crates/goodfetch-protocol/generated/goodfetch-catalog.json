@@ -598,6 +598,16 @@
       },
       "type": "object"
     },
+    "AutoPartitions": {
+      "description": "The `\"auto\"` value of `partitions` (ADR 0054): one Partition per eligible\nGroup member.",
+      "oneOf": [
+        {
+          "const": "auto",
+          "description": "One Partition per eligible Group member.",
+          "type": "string"
+        }
+      ]
+    },
     "AxisReason": {
       "description": "One reason a Run is not `verified` or not `complete` (ADR 0029).",
       "properties": {
@@ -4040,6 +4050,18 @@
             "$ref": "#/$defs/RunLimit"
           },
           "type": "array"
+        },
+        "partitions": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Partitions"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Partition count for a Partitioned crawl (ADR 0054): a positive integer\nor `\"auto\"` for one Partition per eligible Group member."
         },
         "project": {
           "anyOf": [
@@ -13008,6 +13030,21 @@
         }
       ]
     },
+    "Partitions": {
+      "anyOf": [
+        {
+          "description": "A fixed count of Partitions (at least 1).",
+          "format": "uint32",
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "$ref": "#/$defs/AutoPartitions",
+          "description": "One Partition per eligible Group member."
+        }
+      ],
+      "description": "How many Partitions a Partitioned crawl runs as (ADR 0054): a positive\ninteger count or `\"auto\"` for one per eligible Group member."
+    },
     "PathHazard": {
       "description": "What makes a name or path unsafe.",
       "oneOf": [
@@ -17997,6 +18034,18 @@
           },
           "type": "array"
         },
+        "partitions": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Partitions"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Partition count for a Partitioned crawl (ADR 0054, Foxhound only): a\npositive integer or `\"auto\"`. A Collie engine refuses it with\n`not_in_product` (ADRs 0087 and 0095)."
+        },
         "plan": {
           "arrived_in": "0.1",
           "description": "The Run's Plan file (ADR 0091), on the program's machine, relative\nto its working directory: an input of the Run, which a start that\nnames the Run again gives unchanged, else it fails with\n`run_conflict`.",
@@ -18076,10 +18125,18 @@
           "arrived_in": "0.1",
           "description": "The Product it needs (ADR 0098): Collie until it uses an entry the\ncatalog marks Foxhound's, Foxhound from then on."
         },
+        "partitions": {
+          "arrived_in": "0.1",
+          "description": "For a Partitioned crawl (ADR 0054), each Partition's Run ID and Group\nmember placement beside the Partitioned crawl ID; empty otherwise.",
+          "items": {
+            "$ref": "#/$defs/StartedPartition"
+          },
+          "type": "array"
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
-          "description": "The Run's ID."
+          "description": "The Run's ID (or the Partitioned crawl ID for a Partitioned crawl)."
         },
         "started_as": {
           "$ref": "#/$defs/StartedAs",
@@ -21232,6 +21289,34 @@
         }
       ]
     },
+    "StartedPartition": {
+      "description": "One Partition of a started Partitioned crawl (ADR 0054): its index, its\nown Run ID, and the Group member it was placed on.",
+      "properties": {
+        "member": {
+          "arrived_in": "0.1",
+          "description": "The Group member this Partition was placed on.",
+          "type": "string"
+        },
+        "partition": {
+          "arrived_in": "0.1",
+          "description": "Zero-based Partition index.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Partition's Run ID."
+        }
+      },
+      "required": [
+        "partition",
+        "run_id",
+        "member"
+      ],
+      "type": "object"
+    },
     "StateFileFormat": {
       "description": "The format of a `state_file`, detected when left out.",
       "oneOf": [
@@ -23475,6 +23560,16 @@
       },
       {
         "arrived_in": "0.1",
+        "description": "A Borrowed browser serves one Run at a time and cannot be shared across a second Run or across multiple Partitions of a Partitioned crawl.",
+        "exit_code": null,
+        "group": "refused",
+        "json_rpc_class": -32002,
+        "name": "browser_borrowed",
+        "product": "collie",
+        "retryable": false
+      },
+      {
+        "arrived_in": "0.1",
         "description": "The Browser host the engine reached is of a version this engine cannot drive. Upgrade the Browser host, which either Product's executable runs as its `browser-host` command.",
         "exit_code": 12,
         "group": "unavailable",
@@ -24633,6 +24728,26 @@
         "json_rpc_class": -32001,
         "name": "page_value_invalid",
         "product": "collie",
+        "retryable": false
+      },
+      {
+        "arrived_in": "0.1",
+        "description": "The requested Partition count exceeds the number of eligible Group members that can run this crawl. Lower `partitions`, use `auto`, or add eligible Group members.",
+        "exit_code": null,
+        "group": "refused",
+        "json_rpc_class": -32002,
+        "name": "partitions_exceed_group_members",
+        "product": "foxhound",
+        "retryable": false
+      },
+      {
+        "arrived_in": "0.1",
+        "description": "A Partitioned crawl of more than one Partition needs a Daemon group: on a standalone Daemon or an Attached engine, `partitions` can only be 1.",
+        "exit_code": null,
+        "group": "refused",
+        "json_rpc_class": -32002,
+        "name": "partitions_need_group",
+        "product": "foxhound",
         "retryable": false
       },
       {

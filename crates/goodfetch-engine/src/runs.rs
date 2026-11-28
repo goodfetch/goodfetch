@@ -232,6 +232,9 @@ pub(crate) struct RunsSetup {
     /// What the composition's areas add to each Run's progress from its
     /// committed state (ADR 0102).
     pub(crate) progress_parts: Vec<Arc<dyn ProgressPart>>,
+    /// Readers that recover extra [`LimitScope`]s stored in a resumed Run's
+    /// run file (ADR 0054 and 0087).
+    pub(crate) limit_scope_readers: Arc<[crate::run_state::LimitScopeReader]>,
     /// The composition's Clean-up rules, which choose the version each new
     /// Run holds to (ADR 0047), if it has any.
     pub(crate) clean_up: Option<Arc<dyn CleanUpVersions>>,
@@ -1214,7 +1217,7 @@ enum DrainCause {
 /// sent it (ADR 0099), none for a generated call's.
 enum Command {
     Start(
-        Box<(Start, RunSecrets, Link)>,
+        Box<(Start, Vec<LimitScope>, RunSecrets, Link)>,
         Option<ConnectionId>,
         oneshot::Sender<Result<Started, StartError>>,
     ),
@@ -1847,7 +1850,26 @@ impl Runs {
     /// # Cancel safety
     ///
     /// Dropping the future after the start was sent still starts the Run.
-    pub async fn start(&self, mut start: Start) -> Result<Started, StartError> {
+    pub async fn start(&self, start: Start) -> Result<Started, StartError> {
+        self.start_with_scopes(start, Vec::new()).await
+    }
+
+    /// Begins a Run, or returns the one its Run ID names, charging its Usage
+    /// against `extra_limit_scopes` in addition to the standard scopes (ADRs
+    /// 0041 and 0054).
+    ///
+    /// # Errors
+    ///
+    /// As [`StartError`] says.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after the start was sent still starts the Run.
+    pub async fn start_with_scopes(
+        &self,
+        mut start: Start,
+        extra_limit_scopes: Vec<LimitScope>,
+    ) -> Result<Started, StartError> {
         // A binding is never ignored (ADR 0044): local addresses that give
         // no Session an address refuse the Run before it begins.
         if let Some(rotation) = start
@@ -1874,7 +1896,7 @@ impl Runs {
             fallback = chosen.fallback;
         }
         let (settings, kind) = (start.settings.clone(), start.kind);
-        let started = self.start_chosen(start).await;
+        let started = self.start_chosen(start, extra_limit_scopes).await;
         if let (Ok(Started::New(run)), Some(rules)) = (&started, &self.clean_up) {
             rules
                 .versions
@@ -1913,7 +1935,11 @@ impl Runs {
     /// on, are written unchained, a start with no Run ID of its own taking
     /// its generated one first so that its key's use names it; a start that
     /// answers an existing Run, or fails, reports nothing.
-    async fn start_chosen(&self, mut start: Start) -> Result<Started, StartError> {
+    async fn start_chosen(
+        &self,
+        mut start: Start,
+        extra_limit_scopes: Vec<LimitScope>,
+    ) -> Result<Started, StartError> {
         let switched = start
             .settings
             .as_ref()
@@ -1930,7 +1956,7 @@ impl Runs {
         let audit = self.engine.audit().clone();
         let chosen = start.run_id.clone().filter(|_| switched.unchains());
         let newly_unchained = chosen.clone().is_some_and(|run_id| audit.unchain(run_id));
-        let started = self.start_reported(start).await;
+        let started = self.start_reported(start, extra_limit_scopes).await;
         match &started {
             Ok(Started::New(run)) => {
                 let run_id = run.identity.id().clone();
@@ -1957,7 +1983,11 @@ impl Runs {
     }
 
     /// [`Runs::start_chosen`] before its switched-off controls are reported.
-    async fn start_reported(&self, start: Start) -> Result<Started, StartError> {
+    async fn start_reported(
+        &self,
+        start: Start,
+        extra_limit_scopes: Vec<LimitScope>,
+    ) -> Result<Started, StartError> {
         let secrets = run_secrets(&self.secrets, start.settings.as_ref());
         // Only a reference a layer set resolves here: the default's item,
         // in the OS keychain or the encrypted local file, is the engine's
@@ -1982,7 +2012,7 @@ impl Runs {
         let (answer, answered) = oneshot::channel();
         self.commands
             .send(Command::Start(
-                Box::new((start, secrets, Link::to_current())),
+                Box::new((start, extra_limit_scopes, secrets, Link::to_current())),
                 self.connection,
                 answer,
             ))
@@ -3504,7 +3534,7 @@ impl Registry {
     async fn answer(&mut self, command: Command) {
         match command {
             Command::Start(start, _, answer) if self.draining => {
-                let (start, _, _) = *start;
+                let (start, _, _, _) = *start;
                 let _ = answer.send(Err(StartError::Draining {
                     run_id: start.run_id,
                 }));
@@ -4447,12 +4477,12 @@ impl Registry {
     /// reads them next.
     fn new_run(
         &mut self,
-        run_id: &RunId,
-        kind: RunKind,
+        (run_id, kind): (&RunId, RunKind),
         state: RunState,
         connection: Option<ConnectionId>,
         settings: Option<RunSettings>,
         keys: Keys,
+        extra_limit_scopes: &[LimitScope],
     ) -> (LiveRun, watch::Sender<bool>) {
         let folder = &self.folder(run_id);
         let epoch = state.epoch();
@@ -4483,14 +4513,13 @@ impl Registry {
             span: tracing::info_span!(parent: None, "run", run_id = %run_id),
             owner: Arc::clone(&owner),
         });
+        let placement = self
+            .limits
+            .placement(run_id, connection, extra_limit_scopes);
         let charging = RunCharging::new(ChargingParts {
-            charging: self.limits.charging(
-                run_id,
-                folder,
-                epoch,
-                self.limits.placement(run_id, connection),
-                read_interval,
-            ),
+            charging: self
+                .limits
+                .charging(run_id, folder, epoch, placement, read_interval),
             identity: identity.clone(),
             state: state.clone(),
             stop: stop.clone(),

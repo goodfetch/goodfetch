@@ -129,6 +129,14 @@ class BodyUnavailableError(UnavailableError):
         self.typed_details = details_of(BodyUnavailableDetails, self.details)
 
 
+class BrowserBorrowedError(RefusedError):
+    """A Borrowed browser serves one Run at a time and cannot be shared across a second Run or across multiple Partitions of a Partitioned crawl."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="browser_borrowed", group="refused", retryable=False, **fields)
+
+
 class BrowserHostOutdatedError(UnavailableError):
     """The Browser host the engine reached is of a version this engine cannot drive. Upgrade the Browser host, which either Product's executable runs as its `browser-host` command."""
 
@@ -1705,6 +1713,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "blocked": BlockedError,
     "body_not_found": BodyNotFoundError,
     "body_unavailable": BodyUnavailableError,
+    "browser_borrowed": BrowserBorrowedError,
     "browser_host_outdated": BrowserHostOutdatedError,
     "browser_host_unreachable": BrowserHostUnreachableError,
     "browser_launch_failed": BrowserLaunchFailedError,

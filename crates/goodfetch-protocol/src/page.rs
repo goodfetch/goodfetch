@@ -84,6 +84,7 @@ use self::route::{
     PAGE_HANDLER_FAILED, PAGE_ROUTE, ROUTE_ABORT, ROUTE_ALREADY_HANDLED, ROUTE_CONTINUE,
     ROUTE_FALLBACK, ROUTE_FETCH, ROUTE_FULFILL, ROUTE_HANDLE, SESSION_ROUTE,
 };
+use self::session::BROWSER_BORROWED;
 use self::session::{RUN_NEW_SESSION, SESSION_CLOSE, SESSION_NEW_PAGE};
 use self::session_pages::{PAGE_POPUP, SESSION_ON, SESSION_PAGE, SESSION_PAGES};
 use self::waits::{
@@ -2051,6 +2052,7 @@ pub const ENTRIES: Entries = Entries {
         PAGE_VALUE_INVALID,
         NOT_VERIFIED,
         PAGE_NAVIGATED_DURING_CALL,
+        BROWSER_BORROWED,
     ],
     plugin_kinds: &[],
     metrics: &[],

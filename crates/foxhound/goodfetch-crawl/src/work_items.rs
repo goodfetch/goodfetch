@@ -51,6 +51,7 @@ use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::{Map, Value};
 
 use crate::invariants::Invariants;
+use crate::partition::{ForwardedItem, PartitionRouter};
 
 /// The tables of a crawl's work items, Records and outcomes.
 pub(crate) const TABLES: RunStateTables = RunStateTables {
@@ -605,7 +606,12 @@ pub(crate) fn admit(
         adding,
         via: Via::Request,
     };
-    let (enqueued, again) = coming.admit(connection, positions, invariants.frontier())?;
+    let (enqueued, again) = coming.admit(
+        connection,
+        positions,
+        invariants.frontier(),
+        invariants.partition_router(),
+    )?;
     if again {
         positions.decide(|| Decided::Request(Box::new(coming.kept(invariants))));
     }
@@ -639,7 +645,12 @@ pub(crate) fn admit_keyed(
         adding,
         via: Via::Link(suspected),
     };
-    let (enqueued, again) = coming.admit(connection, positions, invariants.frontier())?;
+    let (enqueued, again) = coming.admit(
+        connection,
+        positions,
+        invariants.frontier(),
+        invariants.partition_router(),
+    )?;
     if again {
         positions.decide(|| Decided::Request(Box::new(coming.kept(invariants))));
     } else if let Enqueued::NotAdded {
@@ -703,7 +714,42 @@ impl Coming<'_> {
         connection: &Connection,
         positions: &mut Positions,
         invariants: &goodfetch_frontier::Invariants,
+        partition_router: Option<&Arc<dyn PartitionRouter>>,
     ) -> rusqlite::Result<(Enqueued, bool)> {
+        // Partitioned crawl F3 routing (ADR 0054, ADR 0140): check domain
+        // ownership from the partition map built once per map epoch before
+        // touching the local Frontier. Zero extra work when `None`.
+        if let Some(router) = partition_router
+            && let Some(resolved_url) = self.keyed.url_str()
+            && let Some((domain_key, target_partition)) = router.route_url(resolved_url)
+        {
+            if positions.decided.is_none() {
+                let payload_json = self
+                    .adding
+                    .payload
+                    .and_then(|p| serde_json::from_str::<Value>(p.json()).ok());
+                positions.forwarded.push(ForwardedItem {
+                    url: resolved_url.to_owned(),
+                    label: self.adding.label.to_owned(),
+                    payload: payload_json,
+                    method: self.adding.method.clone(),
+                    body: self.adding.body.cloned(),
+                    key: None,
+                    priority: self.adding.priority,
+                    forefront: self.adding.forefront,
+                    domain_key,
+                    target_partition,
+                    map_epoch: router.map_epoch(),
+                });
+            }
+            return Ok((
+                Enqueued::Added {
+                    id: format!("fwd:{target_partition}"),
+                    url: resolved_url.to_owned(),
+                },
+                positions.decided.is_some(),
+            ));
+        }
         let left = positions.admitting.left();
         let mut admitting = std::mem::take(&mut positions.admitting);
         let answer = goodfetch_frontier::admit_keyed(
@@ -746,6 +792,7 @@ impl Coming<'_> {
     fn kept(self, invariants: &Invariants) -> Request {
         Request {
             invariants: invariants.shared_frontier(),
+            partition_router: invariants.partition_router().cloned(),
             given: self.given.to_owned(),
             keyed: self.keyed.clone(),
             from: self.entering.from.cloned(),
@@ -788,6 +835,7 @@ pub(crate) enum Decided {
 #[derive(Debug)]
 pub(crate) struct Request {
     invariants: Arc<goodfetch_frontier::Invariants>,
+    partition_router: Option<Arc<dyn PartitionRouter>>,
     given: String,
     keyed: Keyed,
     from: Option<Url>,
@@ -805,6 +853,14 @@ pub(crate) struct Request {
 }
 
 impl Decided {
+    /// The [`PartitionRouter`] carried by this decided admission, if any.
+    pub(crate) fn partition_router(&self) -> Option<&Arc<dyn PartitionRouter>> {
+        match self {
+            Self::Request(request) => request.partition_router.as_ref(),
+            Self::Sitemap(_) | Self::SeenAgain(_) => None,
+        }
+    }
+
     /// Applies it in `connection`'s transaction, at its attempt's commit,
     /// at the position `positions` kept for it. A candidate is judged
     /// again by the part of its admission that needs the Run's state,
@@ -843,7 +899,12 @@ impl Decided {
                     via: request.via,
                 };
                 coming
-                    .admit(connection, positions, &request.invariants)
+                    .admit(
+                        connection,
+                        positions,
+                        &request.invariants,
+                        request.partition_router.as_ref(),
+                    )
                     .map(drop)
             }
             Self::Sitemap(seed) => {
@@ -887,9 +948,22 @@ pub(crate) struct Positions {
     added: u64,
     /// Whether a sitemap seed is among them.
     sitemap_seed: bool,
+    /// Remote-Partition items discovered during this admission batch (always
+    /// empty for single-run crawls).
+    forwarded: Vec<ForwardedItem>,
 }
 
 impl Positions {
+    /// Hands any remote-Partition items collected during this admission batch
+    /// to `router` in one call (ADR 0140, F3).
+    pub(crate) fn flush_forwarded(&mut self, router: Option<&Arc<dyn PartitionRouter>>) {
+        if !self.forwarded.is_empty()
+            && let Some(router) = router
+        {
+            router.forward(std::mem::take(&mut self.forwarded));
+        }
+    }
+
     /// The positions after everything the run file `connection` holds,
     /// admitting against the run file alone.
     pub(crate) fn of(connection: &Connection) -> rusqlite::Result<Self> {
@@ -911,6 +985,7 @@ impl Positions {
             decided: None,
             added: 0,
             sitemap_seed: false,
+            forwarded: Vec::new(),
         })
     }
 

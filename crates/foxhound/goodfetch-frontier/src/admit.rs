@@ -250,6 +250,12 @@ impl Keyed {
     pub fn plain(&self) -> Option<&str> {
         self.identity().map(|(_, fixed)| fixed.plain())
     }
+
+    /// The resolved URL string, when it was keyed.
+    #[must_use]
+    pub fn url_str(&self) -> Option<&str> {
+        self.0.as_ref().ok().map(|measured| measured.url.as_str())
+    }
 }
 
 /// A candidate the first part of admission does not key.

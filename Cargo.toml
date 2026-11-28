@@ -217,6 +217,9 @@ goodfetch-model-provider = { path = "crates/goodfetch-model-provider" }
 goodfetch-memory-site = { path = "crates/foxhound/goodfetch-memory-site" }
 # Collie's pages, Sessions and browsers (spec #577).
 goodfetch-page = { path = "crates/goodfetch-page" }
+# Foxhound's Partitioned crawls across Group members; only crates under
+# `crates/foxhound/` and `xtask` take it (ADRs 0054 and 0087).
+goodfetch-partitioned-crawl = { path = "crates/foxhound/goodfetch-partitioned-crawl" }
 goodfetch-protocol = { path = "crates/goodfetch-protocol" }
 # The page's recording navigation gate, lease check and response observer, a
 # test adapter: only ever a dev-dependency (ADR 0125).

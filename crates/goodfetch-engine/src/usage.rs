@@ -234,6 +234,52 @@ pub(crate) async fn check_run_limits(
         .map_err(|refused| raise_refused(&refused))
 }
 
+/// Gives the scope `scope` the Limits `given` as Client-set Limits (ADRs 0041
+/// and 0054).
+///
+/// # Errors
+///
+/// `invalid_params` or `not_in_product` when the scope or any Usage kind is
+/// refused by this Product, or a ledger/group authority error.
+pub async fn give_scoped_limits(
+    scope: LimitScope,
+    given: Vec<RunLimit>,
+    context: &CallContext,
+) -> Result<(), CallError> {
+    if given.is_empty() {
+        return Ok(());
+    }
+    let mut limits = Vec::with_capacity(given.len());
+    for limit in given {
+        known(
+            &scope.kind,
+            &limit.usage_kind,
+            limit.currency.as_deref(),
+            None,
+            context,
+        )?;
+        limits.push(Limit {
+            scope: scope.clone(),
+            usage_kind: limit.usage_kind,
+            currency: limit.currency,
+            period: None,
+            amount: limit.amount,
+            must_understand: true,
+            set_by: LimitSetter::Client,
+        });
+    }
+    for limit in limits {
+        write(
+            context,
+            limit,
+            |authority, limit, product, now| authority.add_limit(limit, product, now),
+            crate::ledger::Ledger::add_limit,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
 /// Gives the Run `run_id` the Limits `given` at a start that `began` it or
 /// named it again (ADR 0102).
 pub(crate) async fn give_run_limits(

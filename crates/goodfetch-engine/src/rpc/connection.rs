@@ -1703,7 +1703,9 @@ impl Session<'_> {
         params: Option<&str>,
     ) -> Result<(), (RequestId, CallError)> {
         let run_id = extract_run_id_fast(params);
-        let placement = is_placement_method(handler.operation().name).then(|| {
+        let placement = (is_placement_method(handler.operation().name)
+            && !has_partitions_param(params))
+        .then(|| {
             extract_placement_request(
                 params,
                 self.connection.settings.get(),
@@ -2103,6 +2105,42 @@ fn is_placement_method(method: &str) -> bool {
         method,
         "run.start" | "crawl.start" | "recipe.start" | "catalog_run.start" | "run.resume"
     )
+}
+
+/// Returns `true` when raw JSON `params` carries a non-null `"partitions"`
+/// field (used to let the multi-Partition coordinator handle placement instead
+/// of single-Run placement).
+fn has_partitions_param(params: Option<&str>) -> bool {
+    use serde::Deserializer as _;
+    use serde::de::{IgnoredAny, MapAccess, Visitor};
+
+    struct PartitionsVisitor;
+    impl<'de> Visitor<'de> for PartitionsVisitor {
+        type Value = bool;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("a JSON object")
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+            let mut found = false;
+            while let Some(key) = map.next_key::<Cow<'de, str>>()? {
+                if key == "partitions" {
+                    let value = map.next_value::<Option<IgnoredAny>>()?;
+                    found = value.is_some();
+                } else {
+                    let _ = map.next_value::<IgnoredAny>()?;
+                }
+            }
+            Ok(found)
+        }
+    }
+
+    let Some(text) = params else {
+        return false;
+    };
+    let mut de = serde_json::Deserializer::from_str(text);
+    de.deserialize_map(PartitionsVisitor).unwrap_or(false)
 }
 
 /// Zero-copy top-level scan of raw JSON `params` for `"run_id"` without

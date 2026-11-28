@@ -794,6 +794,7 @@ pub(crate) async fn resume(
         Ok((_, labels)) => labels,
     };
     let egress = resumed_domain_policy(settings.resolved(), run.identity.id());
+    let invariants = invariants.with_partition_router(crawls.router(run.identity.id()));
     let opened = crawls.open(&run, egress, invariants, datasets).await;
     let code_free = CodeFree::of(code_free, &crawls, &tiers, &run.identity);
     drive(

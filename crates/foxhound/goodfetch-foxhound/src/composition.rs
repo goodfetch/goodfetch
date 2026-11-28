@@ -35,12 +35,14 @@ pub fn composition() -> Composition {
 /// assert!(composition.operations().any(|operation| operation == "crawl.start"));
 /// ```
 pub fn composition_with(tiers: FetchTiers) -> Composition {
-    goodfetch_collie::composition_with(tiers.clone())
+    let crawl_runtime = goodfetch_crawl::CrawlRuntime::new(tiers.clone());
+    goodfetch_collie::composition_with(tiers)
         .with(sample::contribution())
         .with(goodfetch_frontier::contribution())
         .with(goodfetch_session_pool::contribution())
         .with(goodfetch_dataset::contribution(goodfetch_crawl::url_of))
-        .with(goodfetch_crawl::contribution(tiers))
+        .with(goodfetch_crawl::contribution_with(&crawl_runtime))
+        .with(goodfetch_partitioned_crawl::contribution(crawl_runtime))
         .with(goodfetch_sql_tab::contribution())
 }
 

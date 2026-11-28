@@ -426,3 +426,63 @@ fn a_detached_run_on_the_daemon_outlives_the_connection_that_started_it() {
         (json!(1), json!("finished"), json!("stopped"))
     );
 }
+
+/// A Collie engine refuses both `partitions` on `run.start` and the
+/// `partitioned_crawl` Limit scope on `usage.set` with `not_in_product`
+/// (ADRs 0054, 0087 and 0095).
+///
+/// Covers: story:3-120
+#[test]
+fn collie_refuses_partitions_and_partitioned_crawl_limit_scope_with_not_in_product() {
+    let env = TestEnv::new();
+
+    let (count_reply, auto_reply, scope_reply) = attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            client.send(&[hello("collie", "0.1")]).await;
+            client.next().await;
+            let count_reply = call(
+                &mut client,
+                1,
+                "run.start",
+                json!({ "run_id": "p-count", "partitions": 2 }),
+            )
+            .await;
+            let auto_reply = call(
+                &mut client,
+                2,
+                "run.start",
+                json!({ "run_id": "p-auto", "partitions": "auto" }),
+            )
+            .await;
+            let scope_reply = call(
+                &mut client,
+                3,
+                "usage.set",
+                json!({
+                    "scope": "partitioned_crawl",
+                    "scope_id": "crawl-1",
+                    "usage_kind": "requests",
+                    "amount": 100,
+                }),
+            )
+            .await;
+            (count_reply, auto_reply, scope_reply)
+        },
+    );
+
+    assert_eq!(
+        (
+            count_reply["error"]["data"]["code"].clone(),
+            auto_reply["error"]["data"]["code"].clone(),
+            scope_reply["error"]["data"]["code"].clone(),
+        ),
+        (
+            json!("not_in_product"),
+            json!("not_in_product"),
+            json!("not_in_product"),
+        ),
+        "{count_reply}\n{auto_reply}\n{scope_reply}"
+    );
+}

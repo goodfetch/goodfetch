@@ -19,8 +19,8 @@ use goodfetch_protocol::audit::RUN_ROLLED_BACK;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::checkpoint::{RunBinding, RunStatePosition};
 use goodfetch_protocol::run::{
-    Lifecycle, Presence, ProgressMessage, RunAxes, RunId, RunIndexRow, RunKind, RunStarted,
-    StartInput, StartedAs, StopReason,
+    Lifecycle, LimitScope, Presence, ProgressMessage, RunAxes, RunId, RunIndexRow, RunKind,
+    RunStarted, StartInput, StartedAs, StopReason,
 };
 use serde_json::json;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -276,13 +276,14 @@ impl Disk {
         limits: &Limits,
         connection: Option<ConnectionId>,
         settings: Option<&RunSettings>,
+        extra_limit_scopes: &[LimitScope],
     ) -> Result<Charging, StartError> {
         let now = limits.now();
         let mut charging = limits.charging(
             &self.run_id,
             &self.folder,
             1,
-            limits.placement(&self.run_id, connection),
+            limits.placement(&self.run_id, connection, extra_limit_scopes),
             ledger_read_interval(settings),
         );
         let may_start = self
@@ -550,6 +551,9 @@ struct Opening {
     events: Events,
     /// The Audit log a resume's roll-back is recorded in first.
     audit: AuditLog,
+    /// Readers that recover extra [`LimitScope`]s stored in a resumed Run's
+    /// run file (ADR 0054 and 0087).
+    limit_scope_readers: Arc<[crate::run_state::LimitScopeReader]>,
 }
 
 impl Registry {
@@ -593,6 +597,7 @@ impl Registry {
             writer: Arc::new(self.owner.child_for(OwnerKind::Run)),
             events: self.setup.events.clone(),
             audit: self.setup.engine.audit().clone(),
+            limit_scope_readers: Arc::clone(&self.setup.limit_scope_readers),
         }
     }
 
@@ -602,11 +607,11 @@ impl Registry {
     /// or was refused.
     pub(super) fn start(
         &mut self,
-        start: Box<(Start, RunSecrets, Link)>,
+        start: Box<(Start, Vec<LimitScope>, RunSecrets, Link)>,
         connection: Option<ConnectionId>,
         answer: oneshot::Sender<Result<Started, StartError>>,
     ) {
-        let (mut start, secrets, link) = *start;
+        let (mut start, extra_limit_scopes, secrets, link) = *start;
         let run_id = match &start.run_id {
             Some(run_id) => run_id.clone(),
             None => self.generated_id(),
@@ -650,7 +655,7 @@ impl Registry {
         let opening = self.opening(&run_id, connection, essential, start.settings.as_ref());
         self.beside(Some(run_id), async move {
             let started = opening
-                .start(declared, start, secrets, (row, syncing))
+                .start(declared, start, extra_limit_scopes, secrets, (row, syncing))
                 .await;
             if let Ok(Started::New(run)) = &started {
                 link.add_to(run.identity.span());
@@ -749,6 +754,7 @@ impl Registry {
             started_as: StartedAs::Ended,
             lifecycle: found.lifecycle,
             needs: found.needs,
+            partitions: Vec::new(),
         }))
     }
 
@@ -831,6 +837,7 @@ impl Opening {
         mut self,
         declared: Declared,
         start: Start,
+        extra_limit_scopes: Vec<LimitScope>,
         secrets: RunSecrets,
         (row, syncing): (RunRow, Syncing),
     ) -> Result<Started, StartError> {
@@ -867,7 +874,7 @@ impl Opening {
             return match found {
                 FoundRun::Ended(started) => Ok(Started::Ended(started)),
                 FoundRun::Interrupted => {
-                    self.may_resume_after_limit().await?;
+                    self.may_resume_after_limit(&extra_limit_scopes).await?;
                     Ok(Started::Interrupted(run_id))
                 }
             };
@@ -889,7 +896,8 @@ impl Opening {
             })));
         }
         let keys = Unlocked { secrets, key: None }.keys(&start.weakened);
-        self.begin(start, keys, row, syncing).await
+        self.begin(start, extra_limit_scopes, keys, row, syncing)
+            .await
     }
 
     /// Refuses the start of the interrupted Run that a Limit stopped while
@@ -897,7 +905,10 @@ impl Opening {
     /// and its period has not started again (ADR 0102's start table), as a
     /// new Run is refused. A Run stopped for another reason resumes
     /// whatever its Limits hold; its next charge reads them.
-    async fn may_resume_after_limit(&self) -> Result<(), StartError> {
+    async fn may_resume_after_limit(
+        &self,
+        extra_limit_scopes: &[LimitScope],
+    ) -> Result<(), StartError> {
         let run_id = self.disk.run_id.clone();
         let report = self
             .decisions
@@ -920,7 +931,7 @@ impl Opening {
         // Only whether it may start: its charging, and the interval it
         // would read at, go with this check.
         self.disk
-            .may_start(&self.limits, self.connection, None)
+            .may_start(&self.limits, self.connection, None, extra_limit_scopes)
             .await
             .map(drop)
     }
@@ -930,6 +941,7 @@ impl Opening {
     async fn begin(
         mut self,
         start: Start,
+        extra_limit_scopes: Vec<LimitScope>,
         keys: Keys,
         mut row: RunRow,
         syncing: Syncing,
@@ -938,7 +950,12 @@ impl Opening {
         self.disk.check_index().await?;
         let charging = self
             .disk
-            .may_start(&self.limits, self.connection, start.settings.as_ref())
+            .may_start(
+                &self.limits,
+                self.connection,
+                start.settings.as_ref(),
+                &extra_limit_scopes,
+            )
             .await?;
         let lock = self.disk.lock(&mut self.entropy).await?;
         let state = RunState::open(
@@ -972,29 +989,21 @@ impl Opening {
         row.started_at = self.disk.clock.point_in_time();
         let (started_at, inputs) = (row.started_at, row.inputs.clone());
         let fixed_settings = row.fixed_settings.clone();
-        let written = tags.clone();
-        state
-            .write_with(syncing, move |connection| {
-                row.insert(connection)?;
-                for (position, tag) in written.iter().enumerate() {
-                    connection
-                        .prepare_cached("INSERT INTO tags (position, tag) VALUES (?1, ?2)")?
-                        .execute((i64::try_from(position).unwrap_or(i64::MAX), tag.as_str()))?;
-                }
-                match initialize {
-                    Some(initialize) => initialize(connection),
-                    None => Ok(()),
-                }
-            })
-            .await
-            .map_err(|error| self.disk.unavailable(error.to_string()))?;
+        self.write_initial_rows(&state, syncing, row, &tags, initialize)
+            .await?;
         let (connection, writer) = (self.connection, Arc::clone(&self.writer));
         let folder = self.disk.folder.clone();
         let times = (timeout, checkpoint_interval);
         let run = self
             .go_live(Lifecycle::Running, times, move |registry| {
-                let (run, let_finish) =
-                    registry.new_run(&run_id, kind, state, connection, settings, keys);
+                let (run, let_finish) = registry.new_run(
+                    (&run_id, kind),
+                    state,
+                    connection,
+                    settings,
+                    keys,
+                    &extra_limit_scopes,
+                );
                 run.shared.charging.hold(charging);
                 Live {
                     id: run_id,
@@ -1254,13 +1263,7 @@ impl Opening {
         };
         let (lock, state) = self.reopen(&held, checkpoint, redeclared).await?;
         let recorded = self.disk.recorded().await?;
-        let id = run_id.clone();
-        self.decisions
-            .decide(move |registry| {
-                registry.ended.forget(&id);
-                registry.unrecorded.remove(&id);
-            })
-            .await?;
+        self.forget_ended(&run_id).await?;
         let progress_message = recorded
             .progress_message
             .as_deref()
@@ -1271,10 +1274,22 @@ impl Opening {
             .await
             .map_err(|error| RunError::of_state(&run_id, &folder, error))?;
         let keys = unlocked.keys(&weakened);
+        let extra_limit_scopes = self
+            .read_extra_limit_scopes(&state, &run_id, &folder)
+            .await?;
         let (id, kind, connection) = (run_id.clone(), recorded.kind, self.connection);
         let (run, let_finish) = self
             .decisions
-            .decide(move |registry| registry.new_run(&id, kind, state, connection, settings, keys))
+            .decide(move |registry| {
+                registry.new_run(
+                    (&id, kind),
+                    state,
+                    connection,
+                    settings,
+                    keys,
+                    &extra_limit_scopes,
+                )
+            })
             .await?;
         trace_changes(&run, &changed).await;
         run.shared.charging.read_limits(&self.disk.owner).await;
@@ -1322,5 +1337,64 @@ impl Opening {
             needs,
             listed,
         })
+    }
+
+    async fn write_initial_rows(
+        &self,
+        state: &RunState,
+        syncing: Syncing,
+        row: RunRow,
+        tags: &goodfetch_protocol::run::Tags,
+        initialize: Option<super::Initialize>,
+    ) -> Result<(), StartError> {
+        let written = tags.clone();
+        state
+            .write_with(syncing, move |connection| {
+                row.insert(connection)?;
+                for (position, tag) in written.iter().enumerate() {
+                    connection
+                        .prepare_cached("INSERT INTO tags (position, tag) VALUES (?1, ?2)")?
+                        .execute((i64::try_from(position).unwrap_or(i64::MAX), tag.as_str()))?;
+                }
+                match initialize {
+                    Some(initialize) => initialize(connection),
+                    None => Ok(()),
+                }
+            })
+            .await
+            .map_err(|error| self.disk.unavailable(error.to_string()))
+    }
+
+    async fn forget_ended(&self, run_id: &RunId) -> Result<(), RunError> {
+        let id = run_id.clone();
+        self.decisions
+            .decide(move |registry| {
+                registry.ended.forget(&id);
+                registry.unrecorded.remove(&id);
+            })
+            .await?;
+        Ok(())
+    }
+
+    async fn read_extra_limit_scopes(
+        &self,
+        state: &RunState,
+        run_id: &RunId,
+        folder: &Path,
+    ) -> Result<Vec<LimitScope>, RunError> {
+        let readers = Arc::clone(&self.limit_scope_readers);
+        if readers.is_empty() {
+            return Ok(Vec::new());
+        }
+        state
+            .read(move |connection| {
+                let mut scopes = Vec::new();
+                for reader in readers.iter() {
+                    scopes.extend(reader(connection)?);
+                }
+                Ok(scopes)
+            })
+            .await
+            .map_err(|error| RunError::of_state(run_id, folder, error))
     }
 }

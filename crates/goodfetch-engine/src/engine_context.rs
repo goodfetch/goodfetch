@@ -6,6 +6,11 @@
 //! Run registry and hands it down: to the registry, to each Connection's
 //! calls and to its listeners, so no module reaches these values through the
 //! Runs.
+//!
+//! Size: one concern, the engine's shared per-instance handles and peer-link
+//! traits (`GroupRouter`, `GroupPeer`, `PeerExtensionHandler`, `LocalDispatcher`)
+//! held behind `Arc<Held>` so every handler, listener and Run shares one context
+//! without cyclic ownership.
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
@@ -21,7 +26,7 @@ use goodfetch_protocol::catalog::Operation;
 use goodfetch_protocol::connection::{Form, ProductVersion, Surface};
 use goodfetch_protocol::daemon::DaemonToken;
 use goodfetch_protocol::events::{EventEnvelope, EventsSubscribeParams};
-use goodfetch_protocol::group::{ErasureTarget, PlacementRequest};
+use goodfetch_protocol::group::{ErasureTarget, LeadEpoch, MemberRoute, PlacementRequest};
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::live_view::LiveViewScreen;
 use goodfetch_protocol::page::SessionId;
@@ -57,6 +62,23 @@ use crate::user_store::{UserStore, UserStoreKind};
 /// 0102), the only caller until accounts arrive (area 12), and the
 /// partition of the user's stores it reads and writes.
 pub const CALLER: &str = "os_user";
+
+/// Boxed future answered by a [`PeerExtensionHandler`].
+pub type PeerExtensionAnswer = Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
+
+/// Handles a contribution-registered Daemon group peer-link extension RPC
+/// (`group.peer.extension`), authenticated by mTLS and fenced by `lead_epoch`
+/// (ADRs 0054, 0055 and 0087).
+pub trait PeerExtensionHandler: Send + Sync {
+    /// Handles one authenticated peer-extension request from `sender_member`
+    /// carrying `lead_epoch` and JSON `payload`.
+    fn handle(
+        &self,
+        sender_member: String,
+        lead_epoch: LeadEpoch,
+        payload: Value,
+    ) -> PeerExtensionAnswer;
+}
 
 /// The OS user's name, as the engine's environment map gives it: `USER`
 /// or `LOGNAME` on Unix, `USERNAME` on Windows; [`CALLER`] when none is
@@ -307,6 +329,62 @@ pub(crate) trait GroupRouter: Send + Sync {
     fn member_name(&self) -> &str;
 }
 
+/// Public Daemon group peer-communication interface exposed on
+/// [`EngineContext`] for contributions (such as Foxhound's Partitioned crawls)
+/// without `goodfetch-engine` naming any contribution types (ADRs 0054, 0055
+/// and 0087).
+pub trait GroupPeer: Send + Sync {
+    /// This Group member's name.
+    fn member_name(&self) -> &str;
+
+    /// Whether this Group member is currently the Lead Daemon.
+    fn is_lead(&self) -> Pin<Box<dyn Future<Output = Result<bool, CallError>> + Send>>;
+
+    /// Queries the Lead Daemon for all eligible ready Group members satisfying
+    /// `request`, ordered by descending headroom.
+    fn eligible_members(
+        &self,
+        request: PlacementRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<MemberRoute>, CallError>> + Send>>;
+
+    /// Resolves `member`'s current route (`member`, `peer_address`,
+    /// `advertise_url`), or `None` if no such member exists in the group.
+    fn member_route(
+        &self,
+        member: String,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<MemberRoute>, CallError>> + Send>>;
+
+    /// Invokes a contribution-registered peer extension `extension_method` on
+    /// `member` (dispatched locally when `member == self.member_name()`, over
+    /// mTLS `group.peer.extension` otherwise).
+    fn call_member_extension(
+        &self,
+        member: String,
+        peer_address: String,
+        extension_method: String,
+        payload: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
+
+    /// Invokes a contribution-registered peer extension `extension_method` on
+    /// the Lead Daemon (locally when this member is the Lead Daemon).
+    fn call_lead_extension(
+        &self,
+        extension_method: String,
+        payload: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
+
+    /// Invokes a catalog JSON-RPC `method` with `params` on `member` (locally
+    /// when `member == self.member_name()`, over `group.rpc.forward`
+    /// otherwise), returning its parsed JSON `result` or `CallError`.
+    fn call_member_rpc(
+        &self,
+        member: String,
+        peer_address: String,
+        method: String,
+        params: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
+}
+
 /// What the engine knows of its host beside its stores: the person it
 /// acts for, its time zone, the stream its handlers draw from and the
 /// person's folders a Plugin's confinement denies.
@@ -335,6 +413,8 @@ pub(crate) struct Host {
     /// Whether a `SIGTERM` drain on this engine classifies as a Kubernetes
     /// `StatefulSet` scale-down removal rather than a restart (ADR 0055).
     pub(crate) sigterm_is_removal: bool,
+    /// Contribution-registered peer-link extension handlers (ADR 0087).
+    pub(crate) peer_extensions: Arc<BTreeMap<&'static str, Arc<dyn PeerExtensionHandler>>>,
 }
 
 /// The user's known-certificates store, Usage ledger, Run index, Response
@@ -451,6 +531,8 @@ struct Held {
     erasure: Mutex<Option<Arc<dyn ErasureBroadcaster>>>,
     has_group_router: AtomicBool,
     group_router: Mutex<Option<Arc<dyn GroupRouter>>>,
+    group_peer: Mutex<Option<Arc<dyn GroupPeer>>>,
+    peer_extensions: Arc<BTreeMap<&'static str, Arc<dyn PeerExtensionHandler>>>,
     local_dispatcher: Mutex<Option<Arc<dyn LocalDispatcher>>>,
     runs_handle: Mutex<Option<Arc<dyn std::any::Any + Send + Sync>>>,
     live_view_handle: Arc<Mutex<Option<Arc<dyn std::any::Any + Send + Sync>>>>,
@@ -497,6 +579,7 @@ impl EngineContext {
             metrics,
             governor,
             sigterm_is_removal,
+            peer_extensions,
         } = host;
         Self {
             stores: Arc::new(stores),
@@ -523,6 +606,8 @@ impl EngineContext {
                 erasure: Mutex::new(None),
                 has_group_router: AtomicBool::new(false),
                 group_router: Mutex::new(None),
+                group_peer: Mutex::new(None),
+                peer_extensions,
                 local_dispatcher: Mutex::new(None),
                 runs_handle: Mutex::new(None),
                 live_view_handle: Arc::new(Mutex::new(None)),
@@ -594,6 +679,13 @@ impl EngineContext {
     /// Where reads and writes of these stores block, which the Run registry
     /// waits for before it stops.
     pub(crate) fn owner(&self) -> &Arc<TaskOwner> {
+        &self.stores.owner
+    }
+
+    /// The starting side of the engine's task owner, for contributions that
+    /// start background tasks or tracked blocking reads without stopping the
+    /// engine (ADR 0038 and ADR 0145).
+    pub fn task_starter(&self) -> &crate::tasks::TaskStarter {
         &self.stores.owner
     }
 
@@ -763,6 +855,33 @@ impl EngineContext {
             .clone()
     }
 
+    /// Registers or clears the public Daemon group peer handle (ADR 0054/0087).
+    pub(crate) fn set_group_peer(&self, peer: Option<Arc<dyn GroupPeer>>) {
+        *self
+            .held
+            .group_peer
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = peer;
+    }
+
+    /// The running Daemon group peer handle, if this engine belongs to a Daemon
+    /// group.
+    #[must_use]
+    pub fn group_peer(&self) -> Option<Arc<dyn GroupPeer>> {
+        self.held
+            .group_peer
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// The contribution-registered peer-link extension handlers.
+    pub(crate) fn peer_extensions(
+        &self,
+    ) -> &Arc<BTreeMap<&'static str, Arc<dyn PeerExtensionHandler>>> {
+        &self.held.peer_extensions
+    }
+
     /// Registers the local RPC dispatcher used to execute forwarded unary peer
     /// calls on the owning Group member (ADR 0055).
     pub(crate) fn set_local_dispatcher(&self, dispatcher: Option<Arc<dyn LocalDispatcher>>) {
@@ -838,6 +957,11 @@ impl EngineContext {
         *self
             .held
             .group_router
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = None;
+        *self
+            .held
+            .group_peer
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = None;
         *self

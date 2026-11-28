@@ -71,6 +71,7 @@ use crate::hooks;
 use crate::invariants::Invariants;
 use crate::labels;
 use crate::outcomes;
+use crate::partition::{MembershipWriter, PartitionRouter, PartitionStartOptions};
 use crate::policy::domain_policy;
 use crate::push;
 use crate::redeclare::Redeclared;
@@ -82,6 +83,139 @@ use crate::serving::Crawls;
 use crate::tier_choice::{self, TierChoices};
 use crate::work_items::{self, CheckedSeed};
 
+/// Shared runtime handle for Foxhound's crawl contribution, allowing
+/// `goodfetch-partitioned-crawl` to start Partition Runs, route forwarded links
+/// through Run-state admission, flush Run-state batches before handoff, and
+/// re-attach Partition routers on resume (ADRs 0054, 0087 and 0140).
+#[derive(Clone)]
+pub struct CrawlRuntime {
+    crawls: Crawls,
+    tiers: FetchTiers,
+    redeclared: Redeclared,
+    pages: code_free::Pages,
+}
+
+impl CrawlRuntime {
+    /// Creates a new crawl runtime bound to `tiers`.
+    #[must_use]
+    pub fn new(tiers: FetchTiers) -> Self {
+        Self {
+            crawls: Crawls::default(),
+            tiers,
+            redeclared: Redeclared::default(),
+            pages: code_free::Pages::default(),
+        }
+    }
+
+    /// Starts one Partition Run of a Partitioned crawl with its own
+    /// [`PartitionStartOptions`] (`extra_limit_scopes`, `PartitionRouter`,
+    /// membership persistence hook, and optional empty initial seeds).
+    ///
+    /// # Errors
+    ///
+    /// Any start refusal from `crawl.start`.
+    pub async fn start_partition(
+        &self,
+        params: CrawlStartParams,
+        initial_seeds: Vec<Seed>,
+        options: PartitionStartOptions,
+        context: CallContext,
+    ) -> Result<RunStarted, CallError> {
+        start_with_options(
+            params,
+            Some(initial_seeds),
+            Some(options),
+            context,
+            self.crawls.clone(),
+            self.tiers.clone(),
+            self.redeclared.clone(),
+            self.pages.clone(),
+        )
+        .await
+    }
+
+    /// Admits links forwarded from another Partition through this Partition's
+    /// Run-state admission with its Run invariants (one actor round trip,
+    /// deduplicated by its Frontier; ADR 0140, F3).
+    ///
+    /// # Errors
+    ///
+    /// `run_not_found` when `run_id` is not live on this engine, or any
+    /// admission error.
+    pub async fn admit_forwarded(
+        &self,
+        run_id: &RunId,
+        seeds: Vec<Seed>,
+    ) -> Result<usize, CallError> {
+        let Some(live) = self.crawls.live(run_id).await else {
+            return Err(CallError::new(
+                &RUN_NOT_FOUND,
+                format!("Partition Run `{run_id}` is not live on this Group member."),
+                &RunDetails {
+                    run_id: run_id.clone(),
+                    path: None,
+                },
+            ));
+        };
+        let count = seeds.len();
+        match live.asking.seeds(seeds).await {
+            Ok(Some(Ok(_))) => Ok(count),
+            Ok(Some(Err(refused))) => Err(refused),
+            Ok(None) => Ok(0),
+            Err(error) => Err(CallError::protocol(
+                goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
+                format!("failed to admit forwarded links into `{run_id}`: {error}"),
+            )),
+        }
+    }
+
+    /// Flushes the current Run-state batch of live Partition `run_id` (required
+    /// before a Partition handoff, 2026-11-07 Foxhound refactor amendment).
+    ///
+    /// # Errors
+    ///
+    /// `run_not_found` when not live, or a run-state flush error.
+    pub async fn flush_run_state(&self, run_id: &RunId) -> Result<(), CallError> {
+        let Some(live) = self.crawls.live(run_id).await else {
+            return Err(CallError::new(
+                &RUN_NOT_FOUND,
+                format!("Partition Run `{run_id}` is not live on this Group member."),
+                &RunDetails {
+                    run_id: run_id.clone(),
+                    path: None,
+                },
+            ));
+        };
+        live.run.state.seal().await.map_err(|error| {
+            CallError::protocol(
+                goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
+                format!("failed to flush Run state for `{run_id}`: {error}"),
+            )
+        })
+    }
+
+    /// Registers `router` for `run_id` so resuming `run_id` re-attaches it.
+    pub fn register_router(&self, run_id: RunId, router: Arc<dyn PartitionRouter>) {
+        self.crawls.register_router(run_id, router);
+    }
+
+    /// Returns the current run epoch of live Partition `run_id`, if live.
+    pub async fn live_run_epoch(&self, run_id: &RunId) -> Option<u64> {
+        self.crawls
+            .live(run_id)
+            .await
+            .map(|live| live.run.state.epoch())
+    }
+
+    /// Returns the run folder of live Partition `run_id`, if live.
+    pub async fn live_folder(&self, run_id: &RunId) -> Option<std::path::PathBuf> {
+        self.crawls
+            .live(run_id)
+            .await
+            .map(|live| live.run.identity.folder().to_path_buf())
+    }
+}
+
 /// What Foxhound's crawl adds to the engine: `crawl.start`, `crawl.serve`,
 /// a handler's enqueue and push, the seeds added to a running crawl, the reads of
 /// its outcomes, the re-admission of its failures, the work items', Records' and outcomes' tables of every
@@ -91,7 +225,14 @@ use crate::work_items::{self, CheckedSeed};
 /// Foxhound's composition also hands Collie's pages, and which finds the
 /// Run of a raw call naming a page they serve (ADR 0099).
 pub fn contribution(tiers: FetchTiers) -> Contribution {
-    let crawls = Crawls::default();
+    contribution_with(&CrawlRuntime::new(tiers))
+}
+
+/// Same as [`contribution`], sharing `runtime` with sibling Foxhound crates
+/// such as `goodfetch-partitioned-crawl` (ADR 0087).
+pub fn contribution_with(runtime: &CrawlRuntime) -> Contribution {
+    let crawls = runtime.crawls.clone();
+    let tiers = runtime.tiers.clone();
     let starting = tiers.clone();
     let serving = crawls.clone();
     let enqueuing = crawls.clone();
@@ -99,9 +240,9 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
     let retrying = crawls.clone();
     let resuming = crawls.clone();
     let staging = crawls.clone();
-    let redeclared = Redeclared::default();
+    let redeclared = runtime.redeclared.clone();
     let (redeclaring, redeclared_retry) = (redeclared.clone(), redeclared.clone());
-    let pages = code_free::Pages::default();
+    let pages = runtime.pages.clone();
     let [read_outcomes, read_failed_requests] = outcomes::handlers();
     let [add_seed, add_seeds] = seeding::handlers(&crawls);
     let [read_links, enqueue_links] = enqueue::links::handlers(&crawls, &tiers);
@@ -237,7 +378,27 @@ fn seed_inputs(seeds: &[Seed]) -> BTreeMap<StartInput, serde_json::Value> {
 }
 
 async fn start(
+    params: CrawlStartParams,
+    context: CallContext,
+    crawls: Crawls,
+    tiers: FetchTiers,
+    redeclared: Redeclared,
+    pages: code_free::Pages,
+) -> Result<RunStarted, CallError> {
+    start_with_options(
+        params, None, None, context, crawls, tiers, redeclared, pages,
+    )
+    .await
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "internal helper uniting crawl.start and Partitioned crawl member starts without duplicating validation"
+)]
+async fn start_with_options(
     mut params: CrawlStartParams,
+    override_seeds: Option<Vec<Seed>>,
+    partition_options: Option<PartitionStartOptions>,
     context: CallContext,
     crawls: Crawls,
     tiers: FetchTiers,
@@ -258,14 +419,23 @@ async fn start(
     labels.sends_from_login_pools(settings.resolved())?;
     let datasets = pages.map_or_else(|| Datasets::declare(&params.datasets), Ok)?;
     FetchTiers::check(settings.resolved(), &labels.settings)?;
-    let invariants = Invariants::of_settings(settings.resolved(), &params.labels, fragments)?;
+    let (extra_limit_scopes, partition_router, membership_writer) = match partition_options {
+        Some(opts) => (
+            opts.extra_limit_scopes,
+            Some(opts.router),
+            opts.membership_writer,
+        ),
+        None => (Vec::new(), None, None),
+    };
+    let invariants = Invariants::of_settings(settings.resolved(), &params.labels, fragments)?
+        .with_partition_router(partition_router.clone());
     let egress = domain_policy(settings.resolved())?;
     let found = schema_unchanged(&context, run_id.as_ref(), &invariants, &datasets).await?;
     let seeding = egress.clone();
     // Each seed is keyed in the write that adds it, as its gate will key
     // it, so the crawl opens with no work item to key (#2168).
     let keys = context.runs().keys(settings.resolved());
-    let seeds: Vec<Seed> = params.seeds.iter().cloned().collect();
+    let seeds: Vec<Seed> = override_seeds.unwrap_or_else(|| params.seeds.iter().cloned().collect());
     let inputs = seed_inputs(&seeds);
     // A Run that exists goes on with its seeds admitted once (ADR 0102).
     let checked = if found {
@@ -280,39 +450,75 @@ async fn start(
     let hooks = params.hooks;
     let started = context
         .runs()
-        .start(Start {
-            run_id,
-            tags: params.tags,
-            kind: RunKind::Crawl,
-            needs: Product::Foxhound,
-            inputs,
-            ended_by: DRIVING.ended_by,
-            initialize: Some(initialize(
-                invariants,
-                (declared.clone(), datasets, recording, hooks.clone()),
-                keys,
-                seeding,
-                admitted,
-            )),
-            policy_version: settings.resolved().policy_version().map(str::to_owned),
-            weakened: settings.resolved().weakened(),
-            binding: None,
-            clean_up_digest: None,
-            checkpoint_interval: checkpoint_interval(settings.resolved()),
-            timeout: settings.resolved().get(&TIMEOUT_RUN),
-            settings: Some(settings.clone()),
-            detached: params.detached,
-        })
+        .start_with_scopes(
+            Start {
+                run_id,
+                tags: params.tags,
+                kind: RunKind::Crawl,
+                needs: Product::Foxhound,
+                inputs,
+                ended_by: DRIVING.ended_by,
+                initialize: Some(initialize(
+                    invariants,
+                    (declared.clone(), datasets, recording, hooks.clone()),
+                    keys,
+                    seeding,
+                    admitted,
+                    membership_writer,
+                )),
+                policy_version: settings.resolved().policy_version().map(str::to_owned),
+                weakened: settings.resolved().weakened(),
+                binding: None,
+                clean_up_digest: None,
+                checkpoint_interval: checkpoint_interval(settings.resolved()),
+                timeout: settings.resolved().get(&TIMEOUT_RUN),
+                settings: Some(settings.clone()),
+                detached: params.detached,
+            },
+            extra_limit_scopes,
+        )
         .await
         .map_err(start_error)?;
+    finish_start(
+        started,
+        partition_router,
+        (limits, settings, egress, serving, opening),
+        (declared, crawl, hooks, labels),
+        (crawls, tiers, redeclared, context),
+    )
+    .await
+}
+
+async fn finish_start(
+    started: Started,
+    partition_router: Option<Arc<dyn PartitionRouter>>,
+    (limits, settings, egress, serving, opening): (
+        StartLimits,
+        RunSettings,
+        Policy,
+        Invariants,
+        Datasets,
+    ),
+    (declared, crawl, hooks, labels): (
+        BTreeMap<String, LabelDeclaration>,
+        Option<CodeFreeCrawl>,
+        Vec<CrawlHookDeclaration>,
+        labels::Declared,
+    ),
+    (crawls, tiers, redeclared, context): (Crawls, FetchTiers, Redeclared, CallContext),
+) -> Result<RunStarted, CallError> {
     match started {
         Started::New(run) => {
+            if let Some(router) = partition_router {
+                crawls.register_router(run.identity.id().clone(), router);
+            }
             let run = CrawlRun::of(&run, &context);
             let started = RunStarted {
                 run_id: run.identity.id().clone(),
                 started_as: StartedAs::New,
                 lifecycle: Lifecycle::Running,
                 needs: Product::Foxhound,
+                partitions: Vec::new(),
             };
             // Its Limits hold it before its driver sends a request; a
             // crawl they cannot hold ends `failed` rather than run unheld.
@@ -391,6 +597,7 @@ fn initialize(
     keys: Option<Keys>,
     seeding: Policy,
     admitted: Vec<CheckedSeed>,
+    membership_writer: Option<MembershipWriter>,
 ) -> Initialize {
     Box::new(move |connection| {
         invariants.record(connection)?;
@@ -398,6 +605,9 @@ fn initialize(
         datasets.record(connection)?;
         code_free::record(connection, recording.as_ref())?;
         hooks::record(connection, &hooks)?;
+        if let Some(writer) = membership_writer {
+            writer(connection)?;
+        }
         let mut positions = match keys {
             Some(keys) => work_items::Positions::keying(connection, keys)?,
             None => work_items::Positions::of(connection)?,

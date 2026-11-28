@@ -1111,6 +1111,26 @@ fn key_mismatch(run_id: RunId, reference: &SecretReference, wrapped_by: String) 
 }
 
 async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarted, CallError> {
+    if let Some(partitions) = params.partitions {
+        if !context.identity().product.contains(Product::Foxhound) {
+            let (message, details) = context.identity().not_in_product(
+                crate::product::Requested::Name("partitions"),
+                Product::Foxhound,
+                context.behind_gateway(),
+            );
+            return Err(CallError::new(
+                &goodfetch_protocol::connection::NOT_IN_PRODUCT,
+                message,
+                &details,
+            ));
+        }
+        if partitions.is_multi() {
+            return Err(CallError::protocol(
+                ProtocolFailure::InvalidParams,
+                "Multi-partition runs require `crawl.start` rather than `run.start`.",
+            ));
+        }
+    }
     let run_id = run_id(params.run_id.as_deref())?;
     client_tags(&params.tags)?;
     // A `timeout` of 0 is refused before any Run starts; one given is the
@@ -1168,6 +1188,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             started_as: StartedAs::New,
             lifecycle: goodfetch_protocol::run::Lifecycle::Running,
             needs: Product::Collie,
+            partitions: Vec::new(),
         },
         // The resumed Run counts its timeout on a fresh clock (ADR 0102).
         Started::Interrupted(run_id) => {
@@ -1430,6 +1451,7 @@ pub async fn resume_run(
                 started_as: StartedAs::Resumed,
                 lifecycle: Lifecycle::Running,
                 needs,
+                partitions: Vec::new(),
             };
             if let Some(driver) = context.driver(kind) {
                 identity.spawn(driver(*run.clone(), context.clone(), settings));
@@ -1447,6 +1469,7 @@ pub async fn resume_run(
             started_as: StartedAs::Ended,
             lifecycle,
             needs,
+            partitions: Vec::new(),
         }),
     }
 }

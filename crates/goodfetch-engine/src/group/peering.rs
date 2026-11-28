@@ -18,6 +18,7 @@
 //! and peer links) kept together so every peer link shares one TLS acceptor,
 //! lead-epoch gate, and refusal path.
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 
@@ -27,12 +28,13 @@ use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::group::{
     CONTROL_STATE_PUSH, CONTROL_STATE_SYNC, GROUP_ERASURE, GROUP_EVENTS_SUBSCRIBE,
     GROUP_HEADROOM_REPORT, GROUP_LEDGER, GROUP_LIVE_VIEW_MINT, GROUP_LIVE_VIEW_RELAY,
-    GROUP_MEMBER_EXISTS, GROUP_RPC_FORWARD, GROUP_RUN_HANDOFF, GROUP_RUN_INDEX_LIST_ASSIGNED,
-    GROUP_RUN_INDEX_LOOKUP, GROUP_RUN_PLACE, GROUP_TOKEN_CHECK, HELLO, JOIN, JOIN_TOKEN_REFUSED,
-    LEAVE, LeadEpoch, PEER_PROTOCOL_VERSION, PeerControlStatePushParams,
-    PeerControlStateSyncParams, PeerErasureParams, PeerEventsSubscribeParams,
-    PeerHeadroomReportParams, PeerJoinParams, PeerJoinResult, PeerLeaveParams, PeerLedgerParams,
-    PeerLiveViewMintParams, PeerLiveViewRelayParams, PeerRenewParams, PeerRpcForwardParams,
+    GROUP_MEMBER_EXISTS, GROUP_MEMBERS_ELIGIBLE, GROUP_PEER_EXTENSION, GROUP_RPC_FORWARD,
+    GROUP_RUN_HANDOFF, GROUP_RUN_INDEX_LIST_ASSIGNED, GROUP_RUN_INDEX_LOOKUP, GROUP_RUN_PLACE,
+    GROUP_TOKEN_CHECK, HELLO, JOIN, JOIN_TOKEN_REFUSED, LEAVE, LeadEpoch, PEER_PROTOCOL_VERSION,
+    PeerControlStatePushParams, PeerControlStateSyncParams, PeerErasureParams,
+    PeerEventsSubscribeParams, PeerExtensionParams, PeerHeadroomReportParams, PeerJoinParams,
+    PeerJoinResult, PeerLeaveParams, PeerLedgerParams, PeerLiveViewMintParams,
+    PeerLiveViewRelayParams, PeerMembersEligibleParams, PeerRenewParams, PeerRpcForwardParams,
     PeerRunHandoffParams, PeerRunIndexListAssignedParams, PeerRunIndexLookupParams,
     PeerRunIndexReportParams, PeerRunPlaceParams, PeerTokenCheckParams, RENEW, RUN_INDEX_REPORT,
 };
@@ -55,6 +57,7 @@ use super::{
 };
 use crate::call_error::CallError;
 use crate::clock::Clock;
+use crate::composition::PeerExtensionHandler;
 use crate::control_state::{ControlStateRegistry, ReplicatedState};
 use crate::endpoint::Refusals;
 use crate::engine_context::{EngineContext, LocalDispatcher};
@@ -107,6 +110,8 @@ pub(super) struct PeerServices {
     /// Whether a `SIGTERM` drain on this Group member classifies as a
     /// `StatefulSet` scale-down removal rather than a restart (ADR 0055).
     pub(super) sigterm_is_removal: bool,
+    /// Contribution-registered peer-link extension handlers (ADR 0087).
+    pub(super) peer_extensions: Arc<BTreeMap<&'static str, Arc<dyn PeerExtensionHandler>>>,
 }
 
 impl Default for PeerServices {
@@ -128,6 +133,7 @@ impl Default for PeerServices {
             live_view_slot: None,
             local_dispatcher: None,
             sigterm_is_removal: false,
+            peer_extensions: Arc::new(BTreeMap::new()),
         }
     }
 }
@@ -151,6 +157,7 @@ impl PeerServices {
             live_view_slot: Some(engine.live_view_slot()),
             local_dispatcher: engine.local_dispatcher(),
             sigterm_is_removal: engine.sigterm_is_removal(),
+            peer_extensions: Arc::clone(engine.peer_extensions()),
         }
     }
 
@@ -287,6 +294,9 @@ pub(super) async fn start(
     engine.set_group_router(Some(Arc::new(routing::GroupRouterImpl::new(Arc::clone(
         &peering,
     )))));
+    engine.set_group_peer(Some(Arc::new(routing::GroupPeerImpl::new(Arc::clone(
+        &peering,
+    )))));
     let local_redirect = limits::start_local_redirect(&peering).await;
     let group = engine.owner().part("daemon group");
     group.spawn(serve(
@@ -352,6 +362,7 @@ pub(super) async fn stop(engine: &EngineContext) {
     let version = running(engine).map(|p| p.identity.product_version.clone());
     engine.stop_peer_link().await;
     engine.set_group_router(None);
+    engine.set_group_peer(None);
     engine.set_erasure_broadcaster(None);
     engine.ledger().set_authority(None);
     engine.ledger().set_own_redirect_member(None);
@@ -731,58 +742,8 @@ impl Peering {
             .and_then(|chain| chain.first())
             .cloned();
         let reply = if let Some(presented) = presented {
-            match opening(&self.identity, first) {
-                Opening::Renew(request) => {
-                    Some(self.renewal(&presented, &revocations, request).await)
-                }
-                Opening::Leave(request) => Some(self.leaving(&presented, request).await),
-                Opening::RunIndexReport(request) => {
-                    Some(self.run_index_report(&presented, request).await)
-                }
-                Opening::ControlStatePush(request) => {
-                    Some(self.control_state_push(&presented, request).await)
-                }
-                Opening::ControlStateSync(request) => {
-                    Some(self.control_state_sync(&presented, request).await)
-                }
-                Opening::Ledger(request) => Some(self.ledger_request(&presented, *request).await),
-                Opening::Erasure(request) => Some(self.erasure_request(&presented, request).await),
-                Opening::TokenCheck(request) => {
-                    Some(self.token_check_request(&presented, request).await)
-                }
-                Opening::HeadroomReport(request) => {
-                    Some(self.headroom_report(&presented, request).await)
-                }
-                Opening::RunIndexLookup(request) => {
-                    Some(self.run_index_lookup(&presented, request).await)
-                }
-                Opening::RunPlace(request) => Some(self.run_place(&presented, *request).await),
-                Opening::RpcForward(request) => Some(self.rpc_forward(&presented, *request).await),
-                Opening::LiveViewMint(request) => {
-                    Some(self.live_view_mint(&presented, request).await)
-                }
-                Opening::LiveViewRelay(request) => {
-                    self.live_view_relay_peer(&presented, request, &mut stream, &mut lines)
-                        .await;
-                    None
-                }
-                Opening::EventsSubscribe(request) => {
-                    self.events_subscribe_peer(&presented, request, &mut stream)
-                        .await;
-                    None
-                }
-                Opening::RunHandoff(request) => {
-                    Some(self.receive_handoff(&presented, *request).await)
-                }
-                Opening::RunIndexListAssigned(request) => {
-                    Some(self.list_assigned_runs(&presented, request).await)
-                }
-                Opening::Refused(reply) => Some(reply),
-                Opening::Other(first) => {
-                    self.member(&mut stream, &mut lines, first).await;
-                    None
-                }
-            }
+            self.dispatch_authenticated(&presented, &revocations, first, &mut stream, &mut lines)
+                .await
         } else {
             self.join(first, &revocations).await
         };
@@ -791,6 +752,66 @@ impl Peering {
         }
         if let Err(error) = stream.shutdown().await {
             tracing::debug!(%error, "a peer link did not close cleanly");
+        }
+    }
+
+    /// Dispatches the first message of an mTLS-authenticated peer link.
+    async fn dispatch_authenticated(
+        &self,
+        presented: &CertificateDer<'_>,
+        revocations: &rustls::pki_types::CertificateRevocationListDer<'_>,
+        first: Frame,
+        stream: &mut tokio_rustls::server::TlsStream<PeerStream>,
+        lines: &mut Lines,
+    ) -> Option<Vec<u8>> {
+        match opening(&self.identity, first) {
+            Opening::Renew(request) => Some(self.renewal(presented, revocations, request).await),
+            Opening::Leave(request) => Some(self.leaving(presented, request).await),
+            Opening::RunIndexReport(request) => {
+                Some(self.run_index_report(presented, request).await)
+            }
+            Opening::ControlStatePush(request) => {
+                Some(self.control_state_push(presented, request).await)
+            }
+            Opening::ControlStateSync(request) => {
+                Some(self.control_state_sync(presented, request).await)
+            }
+            Opening::Ledger(request) => Some(self.ledger_request(presented, *request).await),
+            Opening::Erasure(request) => Some(self.erasure_request(presented, request).await),
+            Opening::TokenCheck(request) => {
+                Some(self.token_check_request(presented, request).await)
+            }
+            Opening::HeadroomReport(request) => {
+                Some(self.headroom_report(presented, request).await)
+            }
+            Opening::RunIndexLookup(request) => {
+                Some(self.run_index_lookup(presented, request).await)
+            }
+            Opening::RunPlace(request) => Some(self.run_place(presented, *request).await),
+            Opening::RpcForward(request) => Some(self.rpc_forward(presented, *request).await),
+            Opening::LiveViewMint(request) => Some(self.live_view_mint(presented, request).await),
+            Opening::LiveViewRelay(request) => {
+                self.live_view_relay_peer(presented, request, stream, lines)
+                    .await;
+                None
+            }
+            Opening::EventsSubscribe(request) => {
+                self.events_subscribe_peer(presented, request, stream).await;
+                None
+            }
+            Opening::RunHandoff(request) => Some(self.receive_handoff(presented, *request).await),
+            Opening::RunIndexListAssigned(request) => {
+                Some(self.list_assigned_runs(presented, request).await)
+            }
+            Opening::MembersEligible(request) => {
+                Some(self.members_eligible(presented, *request).await)
+            }
+            Opening::PeerExtension(request) => Some(self.peer_extension(presented, *request).await),
+            Opening::Refused(reply) => Some(reply),
+            Opening::Other(first) => {
+                self.member(stream, lines, first).await;
+                None
+            }
         }
     }
 
@@ -1044,6 +1065,10 @@ enum Opening {
     RunHandoff(Box<Asked<PeerRunHandoffParams>>),
     /// A `group.run_index.list_assigned` query, likewise.
     RunIndexListAssigned(Asked<PeerRunIndexListAssignedParams>),
+    /// A `group.members.eligible` query, likewise.
+    MembersEligible(Box<Asked<PeerMembersEligibleParams>>),
+    /// A `group.peer.extension` call, likewise.
+    PeerExtension(Box<Asked<PeerExtensionParams>>),
     /// The line refusing either.
     Refused(Vec<u8>),
     /// Another message, which opens a [`PeerLink`].
@@ -1133,6 +1158,16 @@ fn opening(identity: &Identity, first: Frame) -> Opening {
             |params: &PeerRunIndexListAssignedParams| (params.product, params.protocol_version),
         )
         .map(Opening::RunIndexListAssigned),
+        GROUP_MEMBERS_ELIGIBLE => {
+            asked(identity, id, call, |params: &PeerMembersEligibleParams| {
+                (params.product, params.protocol_version)
+            })
+            .map(|req| Opening::MembersEligible(Box::new(req)))
+        }
+        GROUP_PEER_EXTENSION => asked(identity, id, call, |params: &PeerExtensionParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(|req| Opening::PeerExtension(Box::new(req))),
         _ => return Opening::Other(Frame::Line(line)),
     };
     read.unwrap_or_else(Opening::Refused)

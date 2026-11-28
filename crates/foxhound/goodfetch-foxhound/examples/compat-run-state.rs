@@ -771,31 +771,8 @@ async fn bind(_: Value, context: CallContext) -> Result<Value, CallError> {
             .charge_part("proxy_bytes", "datacenter", 4_096, None)
             .await
             .expect("the proxy bytes are counted");
-        // Its program's own navigation read two origins' robots.txt
-        // into the Run's own copies (ADR 0098): one the site
-        // answered, one it never did.
-        for (location, answer) in [
-            (
-                "https://shop.test/robots.txt",
-                Answer::Response {
-                    status: 200,
-                    body: b"User-agent: *\nDisallow: /cart/\n".to_vec(),
-                },
-            ),
-            (
-                "https://down.test/robots.txt",
-                Answer::Unreachable(
-                    "the navigation to https://down.test/robots.txt failed: net::ERR_CONNECTION_REFUSED"
-                        .to_owned(),
-                ),
-            ),
-        ] {
-            let location = url::Url::parse(location).expect("a robots.txt URL");
-            run.own_robots_txt
-                .copy_or_fetch(&location, async { Ok(answer) })
-                .await
-                .expect("the copy is read");
-        }
+        write_partitioned_crawl_membership(&run.state).await;
+        write_paused_robots_txt(&run.own_robots_txt).await;
         run.files
             .keep_file(
                 FileKind::Download,
@@ -842,6 +819,56 @@ async fn bind(_: Value, context: CallContext) -> Result<Value, CallError> {
             .expect("the Sessions, a tier choice and a suspected trap link are kept");
     }
     Ok(json!({ "run_id": "paused" }))
+}
+
+/// Records a `partitioned_crawl_membership` row so the run-state and
+/// checkpoint compatibility corpora cover it (ADRs 0054 and 0066).
+async fn write_partitioned_crawl_membership(state: &RunState) {
+    state
+        .write(|connection| {
+            let crawl_id = RunId::parse("partitioned-1").expect("valid RunId");
+            let map = goodfetch_partitioned_crawl::rendezvous::PartitionMap::new(
+                1,
+                vec![goodfetch_partitioned_crawl::rendezvous::PartitionSlot {
+                    partition: 0,
+                    member: "member-a".to_owned(),
+                    run_id: RunId::parse("paused").expect("valid RunId"),
+                    peer_address: "127.0.0.1:9443".to_owned(),
+                }],
+            );
+            goodfetch_partitioned_crawl::store::write_partition_membership(
+                connection, &crawl_id, 0, &map,
+            )
+        })
+        .await
+        .expect("partitioned_crawl_membership is recorded");
+}
+
+/// Records two origins' robots.txt copies in the paused Run (ADR 0098):
+/// one answered by the site and one unreachable.
+async fn write_paused_robots_txt(own_robots_txt: &goodfetch_engine::robots_txt::OwnCopies) {
+    for (location, answer) in [
+        (
+            "https://shop.test/robots.txt",
+            Answer::Response {
+                status: 200,
+                body: b"User-agent: *\nDisallow: /cart/\n".to_vec(),
+            },
+        ),
+        (
+            "https://down.test/robots.txt",
+            Answer::Unreachable(
+                "the navigation to https://down.test/robots.txt failed: net::ERR_CONNECTION_REFUSED"
+                    .to_owned(),
+            ),
+        ),
+    ] {
+        let location = url::Url::parse(location).expect("a robots.txt URL");
+        own_robots_txt
+            .copy_or_fetch(&location, async { Ok(answer) })
+            .await
+            .expect("the copy is read");
+    }
 }
 
 /// The handler's enqueue, from the home page's attempt, of a request that

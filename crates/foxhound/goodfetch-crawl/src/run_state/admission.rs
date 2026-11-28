@@ -92,8 +92,10 @@ pub(crate) fn enqueue(
         forefront: params.forefront,
         depth: depth + 1,
     };
-    work_items::admit(connection, positions, invariants, egress, candidate, adding)
-        .map(|enqueued| Some(Ok(enqueued)))
+    let result = work_items::admit(connection, positions, invariants, egress, candidate, adding)
+        .map(|enqueued| Some(Ok(enqueued)));
+    positions.flush_forwarded(invariants.partition_router());
+    result
 }
 
 /// Admits `seed` within the Run's `invariants` and under its domain policy
@@ -166,7 +168,9 @@ pub(crate) fn admit_seeds(
     (egress, invariants): (&Policy, &Invariants),
     checked: &[CheckedSeed],
 ) -> rusqlite::Result<Vec<Enqueued>> {
-    work_items::admit_seeds(connection, positions, invariants, egress, checked)
+    let answers = work_items::admit_seeds(connection, positions, invariants, egress, checked)?;
+    positions.flush_forwarded(invariants.partition_router());
+    Ok(answers)
 }
 
 /// What a links call's admission reads of its params.
@@ -376,6 +380,7 @@ pub(crate) fn links(
         };
         answers.push(answer);
     }
+    positions.flush_forwarded(batch.invariants.partition_router());
     Ok(Some(Ok(LinksAdmitted {
         links: EnqueuedLinks { links: answers },
         suspected,

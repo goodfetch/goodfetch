@@ -227,6 +227,7 @@ export type CollieWireType =
   | "SigningKeyCreated"
   | "SigningKeyDirectory"
   | "SigningKeyDirectoryParams"
+  | "StartedPartition"
   | "StopReason"
   | "StructuredTriggerDescription"
   | "SystemInfo"
@@ -443,7 +444,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "RunResumeParams": { fields: { "group_member": "groupMember", "run_id": "runId" } },
     "RunSetProgressMessageParams": { fields: { "run_id": "runId" } },
     "RunStartParams": { fields: { "accept_plugin_change": "acceptPluginChange", "group_member": "groupMember", "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId" } },
-    "RunStarted": { fields: { "run_id": "runId", "started_as": "startedAs" } },
+    "RunStarted": { fields: { "partitions": ["partitions", { items: { type: "StartedPartition" } }], "run_id": "runId", "started_as": "startedAs" } },
     "RunStartedAs": { fields: { "started_as": "startedAs" } },
     "RunStatePosition": { fields: { "journal_position": "journalPosition", "run_epoch": "runEpoch" } },
     "RunStopParams": { fields: { "run_id": "runId" } },
@@ -475,6 +476,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "SigningKeyCreated": { fields: { "key_id": "keyId", "public_key": "publicKey", "signing_key": "signingKey" } },
     "SigningKeyDirectory": { fields: { "content_type": "contentType", "expires": ["expires", "time"], "key_ids": "keyIds", "signature_input": "signatureInput" } },
     "SigningKeyDirectoryParams": { fields: { "signing_keys": "signingKeys", "valid_for": "validFor" } },
+    "StartedPartition": { fields: { "run_id": "runId" } },
     "StopReason": { union: { tag: "kind", known: ["abort", "pause", "migrate", "timeout", "drain", "limit", "limit_not_understood", "lead_unreachable", "engine_lost", "engine_panicked", "resources"], path: { fields: { "period": ["period", { type: "Period" }], "resets_at": ["resetsAt", "time"], "usage_kind": "usageKind" } } } },
     "StructuredTriggerDescription": { fields: { "anchor": ["anchor", "time"], "day_of_month": "dayOfMonth", "day_of_week": "dayOfWeek", "fixed_time": "fixedTime" } },
     "SystemInfo": { fields: { "concurrency": ["concurrency", { type: "Concurrency" }], "cpu": ["cpu", { type: "CpuReading" }], "last_resort": "lastResort", "memory": ["memory", { type: "MemoryReading" }], "pressure_source": "pressureSource" } },

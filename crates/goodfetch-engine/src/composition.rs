@@ -656,11 +656,17 @@ impl Handler {
     }
 }
 
+pub use crate::engine_context::{PeerExtensionAnswer, PeerExtensionHandler};
+pub use crate::run_state::LimitScopeReader;
+
 /// What one domain crate adds to the engine.
 #[derive(Clone)]
 pub struct Contribution {
     name: &'static str,
     handlers: Vec<Handler>,
+    operation_guards: Vec<(&'static [&'static str], Guard)>,
+    peer_extensions: Vec<(&'static str, Arc<dyn PeerExtensionHandler>)>,
+    limit_scope_readers: Vec<LimitScopeReader>,
     run_state_tables: Vec<RunStateTables>,
     politeness_tables: Vec<PolitenessTables>,
     drivers: Vec<(RunKind, Driver, Driving)>,
@@ -691,6 +697,9 @@ impl Contribution {
             attempt_stagings: Vec::new(),
             name,
             handlers: Vec::new(),
+            operation_guards: Vec::new(),
+            peer_extensions: Vec::new(),
+            limit_scope_readers: Vec::new(),
             run_state_tables: Vec::new(),
             politeness_tables: Vec::new(),
             drivers: Vec::new(),
@@ -702,6 +711,39 @@ impl Contribution {
             needs_you_sources: Vec::new(),
             controls: Vec::new(),
         }
+    }
+
+    /// Attaches `guard` to each named catalog operation across the composition,
+    /// allowing this contribution to intercept calls before the operation's own
+    /// handler runs (ADR 0087).
+    #[must_use]
+    pub fn with_operation_guard(
+        mut self,
+        operations: &'static [&'static str],
+        guard: Guard,
+    ) -> Self {
+        self.operation_guards.push((operations, guard));
+        self
+    }
+
+    /// Registers a Daemon group peer-link extension handler under `method`
+    /// (ADR 0087).
+    #[must_use]
+    pub fn with_peer_extension(
+        mut self,
+        method: &'static str,
+        handler: Arc<dyn PeerExtensionHandler>,
+    ) -> Self {
+        self.peer_extensions.push((method, handler));
+        self
+    }
+
+    /// Registers a reader that recovers extra [`LimitScope`]s stored in a
+    /// resumed Run's SQLite run file (ADR 0087).
+    #[must_use]
+    pub fn with_limit_scope_reader(mut self, reader: LimitScopeReader) -> Self {
+        self.limit_scope_readers.push(reader);
+        self
     }
 
     /// The same, reporting `setting` as a switchable control (ADR 0016): a
@@ -1157,6 +1199,23 @@ impl Composition {
             .find_map(|each| each.send_window.clone())
     }
 
+    /// All peer-link extension handlers registered across contributions.
+    pub(crate) fn peer_extensions(&self) -> BTreeMap<&'static str, Arc<dyn PeerExtensionHandler>> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| &contribution.peer_extensions)
+            .map(|(method, handler)| (*method, Arc::clone(handler)))
+            .collect()
+    }
+
+    /// All Run-state extra Limit-scope readers registered across contributions.
+    pub(crate) fn limit_scope_readers(&self) -> Arc<[LimitScopeReader]> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.limit_scope_readers.iter().cloned())
+            .collect()
+    }
+
     /// Each operation's one handler.
     pub(crate) fn handlers(&self) -> Result<Handlers, CompositionError> {
         let mut handlers = Handlers::default();
@@ -1172,6 +1231,20 @@ impl Composition {
                     });
                 }
                 handlers.insert(operation, handler.clone());
+            }
+        }
+        for contribution in &self.contributions {
+            for (operations, guard) in &contribution.operation_guards {
+                for &operation in *operations {
+                    if let Some(handler) = handlers.get_mut(operation) {
+                        handler.guards = handler
+                            .guards
+                            .iter()
+                            .chain([guard])
+                            .map(Arc::clone)
+                            .collect();
+                    }
+                }
             }
         }
         Ok(handlers)

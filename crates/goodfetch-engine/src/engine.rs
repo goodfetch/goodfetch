@@ -82,6 +82,8 @@ pub struct Engine {
     politeness_tables: Vec<PolitenessTables>,
     report_parts: Vec<Arc<dyn ReportPart>>,
     progress_parts: Vec<Arc<dyn ProgressPart>>,
+    limit_scope_readers: Arc<[crate::composition::LimitScopeReader]>,
+    peer_extensions: Arc<BTreeMap<&'static str, Arc<dyn crate::composition::PeerExtensionHandler>>>,
     clean_up: Option<Arc<dyn CleanUpVersions>>,
     send_window: Option<Arc<dyn SendWindow>>,
     gates: Option<Arc<dyn Gates>>,
@@ -146,6 +148,8 @@ impl Engine {
             politeness_tables: composition.politeness_tables(),
             report_parts: composition.report_parts(),
             progress_parts: composition.progress_parts(),
+            limit_scope_readers: composition.limit_scope_readers(),
+            peer_extensions: Arc::new(composition.peer_extensions()),
             clean_up: composition.clean_up_versions()?,
             send_window: composition.send_window(),
             gates: composition.admission_gates()?,
@@ -522,6 +526,7 @@ impl Engine {
                 driving: self.driving.clone(),
                 report_parts: self.report_parts.clone(),
                 progress_parts: self.progress_parts.clone(),
+                limit_scope_readers: Arc::clone(&self.limit_scope_readers),
                 clean_up: self.clean_up.clone(),
                 send_window: self.send_window.clone(),
                 gates: self.gates.clone(),
@@ -626,6 +631,7 @@ impl Engine {
                 governor,
                 sigterm_is_removal: crate::group::classify_sigterm_drain(&dependencies.environment)
                     == crate::group::DrainMode::Removal,
+                peer_extensions: Arc::clone(&self.peer_extensions),
             },
         );
         let secrets = Secrets::new(

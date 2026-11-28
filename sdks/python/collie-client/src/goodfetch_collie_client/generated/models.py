@@ -191,6 +191,16 @@ class AuditVerifyParams(BaseModel):
     )
 
 
+class AutoPartitions(StrEnum):
+    """
+    The `"auto"` value of `partitions` (ADR 0054): one Partition per eligible
+    Group member.
+    """
+
+    auto = "auto"
+    """One Partition per eligible Group member."""
+
+
 class AxisReason(BaseModel):
     """One reason a Run is not `verified` or not `complete` (ADR 0029)."""
 
@@ -2858,6 +2868,19 @@ class PanicEnded(StrEnum):
     """The engine, which stops."""
 
 
+class Partitions1(RootModel[int]):
+    root: Annotated[int, Field(ge=1)]
+    """A fixed count of Partitions (at least 1)."""
+
+
+class Partitions(RootModel[Partitions1 | AutoPartitions]):
+    root: Partitions1 | AutoPartitions
+    """
+    How many Partitions a Partitioned crawl runs as (ADR 0054): a positive
+    integer count or `"auto"` for one per eligible Group member.
+    """
+
+
 class PathHazard(StrEnum):
     """What makes a name or path unsafe."""
 
@@ -5219,6 +5242,23 @@ class StartedAs(StrEnum):
     Its Run ID named a Run that finished, returned as it ended with no
     handler called.
     """
+
+
+class StartedPartition(BaseModel):
+    """
+    One Partition of a started Partitioned crawl (ADR 0054): its index, its
+    own Run ID, and the Group member it was placed on.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    member: str
+    """The Group member this Partition was placed on."""
+    partition: Annotated[int, Field(ge=0)]
+    """Zero-based Partition index."""
+    run_id: RunId
+    """The Partition's Run ID."""
 
 
 class StateFileFormat(StrEnum):
@@ -8752,6 +8792,12 @@ class RunStartParams(BaseModel):
     kind and currency. A start that names the Run again lowers them and
     never raises them (ADR 0102).
     """
+    partitions: Partitions | None = None
+    """
+    Partition count for a Partitioned crawl (ADR 0054, Foxhound only): a
+    positive integer or `"auto"`. A Collie engine refuses it with
+    `not_in_product` (ADRs 0087 and 0095).
+    """
     plan: str | None = None
     """
     The Run's Plan file (ADR 0091), on the program's machine, relative
@@ -8802,8 +8848,13 @@ class RunStarted(BaseModel):
     The Product it needs (ADR 0098): Collie until it uses an entry the
     catalog marks Foxhound's, Foxhound from then on.
     """
+    partitions: list[StartedPartition] | None = None
+    """
+    For a Partitioned crawl (ADR 0054), each Partition's Run ID and Group
+    member placement beside the Partitioned crawl ID; empty otherwise.
+    """
     run_id: RunId
-    """The Run's ID."""
+    """The Run's ID (or the Partitioned crawl ID for a Partitioned crawl)."""
     started_as: StartedAs
     """Whether the start began it."""
 

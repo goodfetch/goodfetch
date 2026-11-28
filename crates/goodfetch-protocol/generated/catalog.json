@@ -100,6 +100,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Borrowed browser serves one Run at a time and cannot be shared across a second Run or across multiple Partitions of a Partitioned crawl.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "browser_borrowed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Browser host the engine reached is of a version this engine cannot drive. Upgrade the Browser host, which either Product's executable runs as its `browser-host` command.",
       "exit_code": 12,
       "group": "unavailable",
@@ -1258,6 +1268,26 @@
       "json_rpc_class": -32001,
       "name": "page_value_invalid",
       "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The requested Partition count exceeds the number of eligible Group members that can run this crawl. Lower `partitions`, use `auto`, or add eligible Group members.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "partitions_exceed_group_members",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Partitioned crawl of more than one Partition needs a Daemon group: on a standalone Daemon or an Attached engine, `partitions` can only be 1.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "partitions_need_group",
+      "product": "foxhound",
       "retryable": false
     },
     {

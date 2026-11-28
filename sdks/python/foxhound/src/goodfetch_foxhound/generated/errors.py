@@ -194,6 +194,22 @@ class LeaseLostError(UnavailableError):
         super().__init__(message, code="lease_lost", group="unavailable", retryable=True, **fields)
 
 
+class PartitionsExceedGroupMembersError(RefusedError):
+    """The requested Partition count exceeds the number of eligible Group members that can run this crawl. Lower `partitions`, use `auto`, or add eligible Group members."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="partitions_exceed_group_members", group="refused", retryable=False, **fields)
+
+
+class PartitionsNeedGroupError(RefusedError):
+    """A Partitioned crawl of more than one Partition needs a Daemon group: on a standalone Daemon or an Attached engine, `partitions` can only be 1."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="partitions_need_group", group="refused", retryable=False, **fields)
+
+
 class PayloadInvalidError(ProgramError):
     """A crawl request's Payload was refused when it was enqueued, as a seed, an added seed or a handler's enqueue: it does not fit its Label's JSON Schema, each issue named by its path, or its JSON is longer than `crawl.payload.max_size`, which `limit` names. Nothing was added. Large content goes to the Key-value store, and the Payload carries its key."""
 
@@ -356,6 +372,8 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "label_unhandled": LabelUnhandledError,
     "label_unknown": LabelUnknownError,
     "lease_lost": LeaseLostError,
+    "partitions_exceed_group_members": PartitionsExceedGroupMembersError,
+    "partitions_need_group": PartitionsNeedGroupError,
     "payload_invalid": PayloadInvalidError,
     "payload_schema_changed": PayloadSchemaChangedError,
     "query_failed": QueryFailedError,

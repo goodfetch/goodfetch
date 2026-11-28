@@ -90,9 +90,15 @@ impl Limits {
     }
 
     /// Where the run `run_id` started on `connection` stands: the install,
-    /// its person, its Client connection, its own `run` scope and, on a
-    /// Daemon, the Daemon.
-    pub(crate) fn placement(&self, run_id: &RunId, connection: Option<ConnectionId>) -> Placement {
+    /// its person, its Client connection, its own `run` scope, on a Daemon the
+    /// Daemon, and any `extra` scopes contributed for the Run (such as a
+    /// composite crawl scope).
+    pub(crate) fn placement(
+        &self,
+        run_id: &RunId,
+        connection: Option<ConnectionId>,
+        extra: &[LimitScope],
+    ) -> Placement {
         let mut scopes = vec![
             LimitScope {
                 kind: INSTALL.to_owned(),
@@ -114,6 +120,7 @@ impl Limits {
                 id: major.clone(),
             });
         }
+        scopes.extend(extra.iter().cloned());
         Placement {
             product: self.product,
             scopes,

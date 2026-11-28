@@ -59,6 +59,12 @@ use goodfetch_protocol::run::durability::{
 use rusqlite::Connection;
 use tokio::sync::{mpsc, oneshot, watch};
 
+/// Reads additional [`goodfetch_protocol::run::LimitScope`]s stored inside an
+/// existing Run's SQLite run file when that Run resumes (ADRs 0054 and 0087).
+pub type LimitScopeReader = std::sync::Arc<
+    dyn Fn(&Connection) -> rusqlite::Result<Vec<goodfetch_protocol::run::LimitScope>> + Send + Sync,
+>;
+
 use crate::clock::Clock;
 use crate::metrics::Metrics;
 use crate::sqlite_store::{

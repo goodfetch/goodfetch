@@ -197,6 +197,21 @@ pub fn select_member(
     members: &[MemberRecord],
     request: &PlacementRequest,
 ) -> Result<MemberRoute, CallError> {
+    let mut ranked = eligible_members(members, request)?;
+    Ok(ranked.remove(0))
+}
+
+/// Returns all eligible ready Group members from `members` that satisfy
+/// `request`, ordered by descending Resource governor headroom with a
+/// deterministic member-name tie-breaker (ADRs 0054, 0055 and 0056).
+///
+/// # Errors
+///
+/// Same refusal rules as [`select_member`].
+pub fn eligible_members(
+    members: &[MemberRecord],
+    request: &PlacementRequest,
+) -> Result<Vec<MemberRoute>, CallError> {
     let candidates = filter_binding_and_pin(members, request)?;
 
     // 5. Readiness check.
@@ -246,7 +261,7 @@ pub fn select_member(
 
     // 7. Required capabilities check (browsers, Plugins, local addresses,
     //    local model servers).
-    let capable: Vec<&MemberRecord> = version_candidates
+    let mut capable: Vec<&MemberRecord> = version_candidates
         .into_iter()
         .filter(|m| satisfies_capabilities(&m.capabilities, request))
         .collect();
@@ -264,18 +279,15 @@ pub fn select_member(
         ));
     }
 
-    // 8. Pick the eligible Group member with the most headroom (deterministic
+    // 8. Order eligible Group members by descending headroom (deterministic
     //    tie-breaker on member name).
-    let chosen = capable
-        .into_iter()
-        .max_by(|left, right| {
-            headroom_rank(&left.headroom)
-                .cmp(&headroom_rank(&right.headroom))
-                .then_with(|| right.name.cmp(&left.name))
-        })
-        .expect("invariant: capable is non-empty");
+    capable.sort_by(|left, right| {
+        headroom_rank(&right.headroom)
+            .cmp(&headroom_rank(&left.headroom))
+            .then_with(|| left.name.cmp(&right.name))
+    });
 
-    Ok(chosen.route())
+    Ok(capable.into_iter().map(MemberRecord::route).collect())
 }
 
 /// Applies steps 1..=4 of placement filtering: membership exclusion,

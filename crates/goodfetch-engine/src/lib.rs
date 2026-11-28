@@ -124,13 +124,15 @@ mod wire;
 pub use call_error::{CallError, named};
 pub use composition::{
     Answered, CallContext, CallInput, CallStream, Composition, CompositionError, Contribution,
-    Driver, Enclose, Guard, GuardAnswer, Handler, Params, ReadParams, RunOfCall,
+    Driver, Enclose, Guard, GuardAnswer, Handler, LimitScopeReader, Params, PeerExtensionAnswer,
+    PeerExtensionHandler, ReadParams, RunOfCall,
 };
 pub use engine::{AttachedFailure, Dependencies, Engine};
-pub use engine_context::{CALLER, EngineContext};
+pub use engine_context::{CALLER, EngineContext, GroupPeer};
 pub use forward::DaemonReach;
 pub use info::contribution;
 pub use kept_by_the_daemon::kept_by_the_daemon;
 pub use product::{Channel, Identity, Requested};
 pub use run_index::RunIndex;
 pub use stored_time::StoredTime;
+pub use usage::give_scoped_limits;

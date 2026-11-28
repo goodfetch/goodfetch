@@ -336,3 +336,18 @@ how = "holds no value: Sessions' settings, Secret settings by reference"
 path = "crates/goodfetch-schedule/src/store.rs"
 count = 2
 how = "holds no value: the store's identity and each Schedule's target, trigger, time zone, state, creator and creation time"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/group/peering/handoff.rs"
+count = 1
+how = "holds no value: Checkpoint file bytes already masked and written by the Run's own checkpoint writer, streamed verbatim over mTLS for handoff"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/group/store.rs"
+count = 7
+how = "holds no value: group membership metadata, mTLS certificates, revocation lists, join token SHA-256 hashes, and lead epoch state"
+
+[[writer]]
+path = "crates/foxhound/goodfetch-partitioned-crawl/src/store.rs"
+count = 2
+how = "holds no value: Partitioned crawl ID, Partition map (member names, peer addresses, Partition Run IDs, map epoch) and creation timestamp"

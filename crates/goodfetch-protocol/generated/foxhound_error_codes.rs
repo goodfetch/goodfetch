@@ -85,6 +85,16 @@ pub const LABEL_UNKNOWN: ErrorCode = ErrorCode::from_static("label_unknown");
 /// The attempt's lease ended before it committed: its handler answered after the lease's end, or the run file holds a later lease of its work item. Its outputs are discarded, and the commit of the work item's next attempt is the one that counts.
 pub const LEASE_LOST: ErrorCode = ErrorCode::from_static("lease_lost");
 
+/// `partitions_exceed_group_members`, in the `refused` group, not retryable.
+///
+/// The requested Partition count exceeds the number of eligible Group members that can run this crawl. Lower `partitions`, use `auto`, or add eligible Group members.
+pub const PARTITIONS_EXCEED_GROUP_MEMBERS: ErrorCode = ErrorCode::from_static("partitions_exceed_group_members");
+
+/// `partitions_need_group`, in the `refused` group, not retryable.
+///
+/// A Partitioned crawl of more than one Partition needs a Daemon group: on a standalone Daemon or an Attached engine, `partitions` can only be 1.
+pub const PARTITIONS_NEED_GROUP: ErrorCode = ErrorCode::from_static("partitions_need_group");
+
 /// `payload_invalid`, in the `program` group, not retryable.
 ///
 /// A crawl request's Payload was refused when it was enqueued, as a seed, an added seed or a handler's enqueue: it does not fit its Label's JSON Schema, each issue named by its path, or its JSON is longer than `crawl.payload.max_size`, which `limit` names. Nothing was added. Large content goes to the Key-value store, and the Payload carries its key.
@@ -151,4 +161,4 @@ pub const SHEET_CAPACITY_EXCEEDED: ErrorCode = ErrorCode::from_static("sheet_cap
 pub const STAGING_FULL: ErrorCode = ErrorCode::from_static("staging_full");
 
 /// Every Error code only Foxhound's catalog carries, in the catalog's order.
-pub const ALL: &[ErrorCode] = &[ATTEMPT_ENDED, BROWSER_REQUIRED, CLIENT_GONE, DATASET_DUPLICATE, DATASET_KEY_INVALID, DATASET_UNKNOWN, EFFECT_STAGING_REFUSED, HANDLER_FAILED, HANDLER_LOST, HOOK_DUPLICATE, HOOK_INEFFECTIVE, HOOK_UNDECLARED, HOOK_UNKNOWN, LABEL_DUPLICATE, LABEL_UNHANDLED, LABEL_UNKNOWN, LEASE_LOST, PAYLOAD_INVALID, PAYLOAD_SCHEMA_CHANGED, QUERY_FAILED, QUERY_INVALID, QUERY_MEMORY_EXCEEDED, RECORD_INVALID, RESPONSE_NOT_DOCUMENT, RESPONSE_NOT_OK, RESPONSE_UNAVAILABLE, RETRY_REQUESTED, SAMPLE_CRAWL_REFUSED, SHEET_CAPACITY_EXCEEDED, STAGING_FULL];
+pub const ALL: &[ErrorCode] = &[ATTEMPT_ENDED, BROWSER_REQUIRED, CLIENT_GONE, DATASET_DUPLICATE, DATASET_KEY_INVALID, DATASET_UNKNOWN, EFFECT_STAGING_REFUSED, HANDLER_FAILED, HANDLER_LOST, HOOK_DUPLICATE, HOOK_INEFFECTIVE, HOOK_UNDECLARED, HOOK_UNKNOWN, LABEL_DUPLICATE, LABEL_UNHANDLED, LABEL_UNKNOWN, LEASE_LOST, PARTITIONS_EXCEED_GROUP_MEMBERS, PARTITIONS_NEED_GROUP, PAYLOAD_INVALID, PAYLOAD_SCHEMA_CHANGED, QUERY_FAILED, QUERY_INVALID, QUERY_MEMORY_EXCEEDED, RECORD_INVALID, RESPONSE_NOT_DOCUMENT, RESPONSE_NOT_OK, RESPONSE_UNAVAILABLE, RETRY_REQUESTED, SAMPLE_CRAWL_REFUSED, SHEET_CAPACITY_EXCEEDED, STAGING_FULL];

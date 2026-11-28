@@ -17,19 +17,21 @@ use std::time::{Duration, SystemTime};
 
 use data_encoding::HEXLOWER;
 use goodfetch_protocol::catalog::ProtocolVersion;
+use goodfetch_protocol::connection::{Form, Surface};
 use goodfetch_protocol::daemon::{ADVERTISE_URL, DaemonToken};
 use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
 use goodfetch_protocol::events::{EventEnvelope, EventsSubscribeParams, LastRead, Position};
 use goodfetch_protocol::group::{
     GROUP_EVENTS_SUBSCRIBE, GROUP_HEADROOM_REPORT, GROUP_LIVE_VIEW_MINT, GROUP_LIVE_VIEW_RELAY,
-    GROUP_RPC_FORWARD, GROUP_RUN_INDEX_LOOKUP, GROUP_RUN_PLACE, MemberCapabilities, MemberHeadroom,
-    MemberRoute, PEER_PROTOCOL_VERSION, PeerEventsSubscribeParams, PeerHeadroomReportParams,
+    GROUP_MEMBERS_ELIGIBLE, GROUP_PEER_EXTENSION, GROUP_RPC_FORWARD, GROUP_RUN_INDEX_LOOKUP,
+    GROUP_RUN_PLACE, MemberCapabilities, MemberHeadroom, MemberRoute, PEER_PROTOCOL_VERSION,
+    PeerEventsSubscribeParams, PeerExtensionParams, PeerExtensionResult, PeerHeadroomReportParams,
     PeerHeadroomReportResult, PeerLiveViewMintParams, PeerLiveViewMintResult,
-    PeerLiveViewRelayParams, PeerRpcForwardParams, PeerRpcForwardResult, PeerRunIndexLookupParams,
-    PeerRunIndexLookupResult, PeerRunPlaceParams, PeerRunPlaceResult, PlacementRequest, RUN_MOVED,
-    RunMovedDetails,
+    PeerLiveViewRelayParams, PeerMembersEligibleParams, PeerMembersEligibleResult,
+    PeerRpcForwardParams, PeerRpcForwardResult, PeerRunIndexLookupParams, PeerRunIndexLookupResult,
+    PeerRunPlaceParams, PeerRunPlaceResult, PlacementRequest, RUN_MOVED, RunMovedDetails,
 };
-use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
+use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure, RequestId};
 use goodfetch_protocol::live_view::LiveViewScreen;
 use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::run::{RunId, RunOwner};
@@ -42,14 +44,15 @@ use super::wire::{Lines, OPENING_TIMEOUT, connect_peer_tls, write};
 use super::{Asked, Peering, ask_lead, ask_peer, presented_name};
 use crate::call_error::CallError;
 use crate::engine_context::{
-    EventsRoute, ForwardedCall, ForwardedEventsFuture, GroupRouter, LiveViewRelay, LiveViewRoute,
-    RoutedCall,
+    EventsRoute, ForwardedCall, ForwardedEventsFuture, GroupPeer, GroupRouter, LiveViewRelay,
+    LiveViewRoute, RoutedCall,
 };
 use crate::forward::answered_failure;
 use crate::framing::{Frame, Incoming, decode};
 use crate::group::operations::{internal, store_failed};
 use crate::group::placement::{
-    MemberRecord, headroom_changed_noticeably, headroom_from_system_info, select_member,
+    MemberRecord, eligible_members, headroom_changed_noticeably, headroom_from_system_info,
+    select_member,
 };
 use crate::group::{failure_line, result_line, store};
 use crate::live_view::{Admission, LiveView, serve_relayed};
@@ -455,6 +458,96 @@ impl GroupRouter for GroupRouterImpl {
     }
 }
 
+/// Public [`GroupPeer`] bridge exposed on `EngineContext::group_peer()` for
+/// contribution crates (ADRs 0054, 0055 and 0087).
+pub(super) struct GroupPeerImpl {
+    peering: Arc<Peering>,
+}
+
+impl GroupPeerImpl {
+    pub(super) fn new(peering: Arc<Peering>) -> Self {
+        Self { peering }
+    }
+}
+
+impl GroupPeer for GroupPeerImpl {
+    fn member_name(&self) -> &str {
+        self.peering.name()
+    }
+
+    fn is_lead(&self) -> Pin<Box<dyn Future<Output = Result<bool, CallError>> + Send>> {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move {
+            let Some((kept, _)) = store::identity(&peering.store)
+                .await
+                .map_err(|error| store_failed(&error))?
+            else {
+                return Ok(false);
+            };
+            Ok(kept.is_lead())
+        })
+    }
+
+    fn eligible_members(
+        &self,
+        request: PlacementRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<MemberRoute>, CallError>> + Send>> {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move { peering.query_eligible_members(&request).await })
+    }
+
+    fn member_route(
+        &self,
+        member: String,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<MemberRoute>, CallError>> + Send>> {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move { peering.resolve_member_route(&member).await })
+    }
+
+    fn call_member_extension(
+        &self,
+        member: String,
+        peer_address: String,
+        extension_method: String,
+        payload: serde_json::Value,
+    ) -> Pin<Box<dyn Future<Output = Result<serde_json::Value, CallError>> + Send>> {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move {
+            peering
+                .invoke_member_extension(&member, &peer_address, extension_method, payload)
+                .await
+        })
+    }
+
+    fn call_lead_extension(
+        &self,
+        extension_method: String,
+        payload: serde_json::Value,
+    ) -> Pin<Box<dyn Future<Output = Result<serde_json::Value, CallError>> + Send>> {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move {
+            peering
+                .invoke_lead_extension(extension_method, payload)
+                .await
+        })
+    }
+
+    fn call_member_rpc(
+        &self,
+        member: String,
+        peer_address: String,
+        method: String,
+        params: serde_json::Value,
+    ) -> Pin<Box<dyn Future<Output = Result<serde_json::Value, CallError>> + Send>> {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move {
+            peering
+                .invoke_member_rpc(&member, &peer_address, method, params)
+                .await
+        })
+    }
+}
+
 impl Peering {
     /// Marks `run_id` as moved off this Group member to `new_owner` so any
     /// forwarded call arriving here answers `run_moved` immediately.
@@ -665,6 +758,274 @@ impl Peering {
         let _ = self.require_confirmed_lead()?;
         let members = self.all_member_records().await?;
         select_member(&members, request)
+    }
+
+    /// Answers `group.members.eligible` on the Lead Daemon.
+    pub(super) async fn members_eligible(
+        &self,
+        presented: &CertificateDer<'_>,
+        request: Asked<PeerMembersEligibleParams>,
+    ) -> Vec<u8> {
+        match self
+            .handle_members_eligible(presented, request.settled, request.params)
+            .await
+        {
+            Ok(result) => result_line(&request.id, &result),
+            Err(error) => failure_line(Some(request.id), &error),
+        }
+    }
+
+    async fn handle_members_eligible(
+        &self,
+        presented: &CertificateDer<'_>,
+        settled: ProtocolVersion,
+        params: PeerMembersEligibleParams,
+    ) -> Result<PeerMembersEligibleResult, CallError> {
+        let lead_epoch = self.admit_epoch(params.lead_epoch).await?;
+        let _ = self.require_confirmed_lead()?;
+        let _ = presented_name(presented, &params.member)?;
+        let members = self.all_member_records().await?;
+        let eligible = eligible_members(&members, &params.request)?;
+        Ok(PeerMembersEligibleResult {
+            protocol_version: settled,
+            lead_epoch,
+            members: eligible,
+        })
+    }
+
+    /// Answers `group.peer.extension` on any Group member by delegating to the
+    /// contribution-registered peer extension handler.
+    pub(super) async fn peer_extension(
+        &self,
+        presented: &CertificateDer<'_>,
+        request: Asked<PeerExtensionParams>,
+    ) -> Vec<u8> {
+        match self
+            .handle_peer_extension(presented, request.settled, request.params)
+            .await
+        {
+            Ok(result) => result_line(&request.id, &result),
+            Err(error) => failure_line(Some(request.id), &error),
+        }
+    }
+
+    async fn handle_peer_extension(
+        &self,
+        presented: &CertificateDer<'_>,
+        settled: ProtocolVersion,
+        params: PeerExtensionParams,
+    ) -> Result<PeerExtensionResult, CallError> {
+        let lead_epoch = self.admit_epoch(params.lead_epoch).await?;
+        let sender = presented_name(presented, &params.member)?;
+        let result = self
+            .dispatch_local_extension(
+                sender.as_str().to_owned(),
+                lead_epoch,
+                &params.extension_method,
+                params.payload,
+            )
+            .await?;
+        Ok(PeerExtensionResult {
+            protocol_version: settled,
+            lead_epoch,
+            result,
+        })
+    }
+
+    async fn dispatch_local_extension(
+        &self,
+        sender_member: String,
+        lead_epoch: goodfetch_protocol::group::LeadEpoch,
+        method: &str,
+        payload: serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let Some(handler) = self.services.peer_extensions.get(method) else {
+            return Err(CallError::protocol(
+                ProtocolFailure::MethodNotFound,
+                format!("No peer extension handler is registered for `{method}`."),
+            ));
+        };
+        handler.handle(sender_member, lead_epoch, payload).await
+    }
+
+    async fn query_eligible_members(
+        &self,
+        request: &PlacementRequest,
+    ) -> Result<Vec<MemberRoute>, CallError> {
+        let Some((kept, lead_epoch)) = store::identity(&self.store)
+            .await
+            .map_err(|error| store_failed(&error))?
+        else {
+            return Err(internal(&"this Daemon is not in a group"));
+        };
+        if kept.is_lead() {
+            let _ = self.require_confirmed_lead()?;
+            let members = self.all_member_records().await?;
+            return eligible_members(&members, request);
+        }
+        let params = PeerMembersEligibleParams {
+            protocol_version: PEER_PROTOCOL_VERSION,
+            product: self.identity.product,
+            product_version: self.identity.product_version.clone(),
+            lead_epoch,
+            member: kept.name.clone(),
+            request: request.clone(),
+        };
+        let answered = ask_lead::<PeerMembersEligibleResult>(
+            &kept,
+            self.clock,
+            GROUP_MEMBERS_ELIGIBLE,
+            &params,
+        )
+        .await?;
+        if answered.lead_epoch > lead_epoch {
+            let _ = self.admit_epoch(answered.lead_epoch).await;
+        }
+        Ok(answered.members)
+    }
+
+    async fn resolve_member_route(&self, member: &str) -> Result<Option<MemberRoute>, CallError> {
+        let Some((kept, _)) = store::identity(&self.store)
+            .await
+            .map_err(|error| store_failed(&error))?
+        else {
+            return Ok(None);
+        };
+        if kept.is_lead() {
+            return self.member_route_on_lead(member).await;
+        }
+        let eligible = self
+            .query_eligible_members(&PlacementRequest {
+                receiving_member: self.name.clone(),
+                group_member: Some(member.to_owned()),
+                ..PlacementRequest::default()
+            })
+            .await;
+        Ok(eligible.ok().and_then(|mut routes| routes.drain(..).next()))
+    }
+
+    async fn invoke_member_extension(
+        &self,
+        member: &str,
+        peer_address: &str,
+        extension_method: String,
+        payload: serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let Some((kept, lead_epoch)) = store::identity(&self.store)
+            .await
+            .map_err(|error| store_failed(&error))?
+        else {
+            return Err(internal(&"this Daemon is not in a group"));
+        };
+        if member == self.name {
+            return self
+                .dispatch_local_extension(self.name.clone(), lead_epoch, &extension_method, payload)
+                .await;
+        }
+        let params = PeerExtensionParams {
+            protocol_version: PEER_PROTOCOL_VERSION,
+            product: self.identity.product,
+            product_version: self.identity.product_version.clone(),
+            lead_epoch,
+            member: kept.name.clone(),
+            extension_method,
+            payload,
+        };
+        let answered = ask_peer::<PeerExtensionResult>(
+            &kept,
+            member,
+            peer_address,
+            self.clock,
+            GROUP_PEER_EXTENSION,
+            &params,
+        )
+        .await?;
+        if answered.lead_epoch > lead_epoch {
+            let _ = self.admit_epoch(answered.lead_epoch).await;
+        }
+        Ok(answered.result)
+    }
+
+    async fn invoke_lead_extension(
+        &self,
+        extension_method: String,
+        payload: serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let Some((kept, lead_epoch)) = store::identity(&self.store)
+            .await
+            .map_err(|error| store_failed(&error))?
+        else {
+            return Err(internal(&"this Daemon is not in a group"));
+        };
+        if kept.is_lead() {
+            return self
+                .dispatch_local_extension(self.name.clone(), lead_epoch, &extension_method, payload)
+                .await;
+        }
+        let params = PeerExtensionParams {
+            protocol_version: PEER_PROTOCOL_VERSION,
+            product: self.identity.product,
+            product_version: self.identity.product_version.clone(),
+            lead_epoch,
+            member: kept.name.clone(),
+            extension_method,
+            payload,
+        };
+        let answered =
+            ask_lead::<PeerExtensionResult>(&kept, self.clock, GROUP_PEER_EXTENSION, &params)
+                .await?;
+        if answered.lead_epoch > lead_epoch {
+            let _ = self.admit_epoch(answered.lead_epoch).await;
+        }
+        Ok(answered.result)
+    }
+
+    async fn invoke_member_rpc(
+        &self,
+        member: &str,
+        peer_address: &str,
+        method: String,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let params_raw = serde_json::to_string(&params).map_err(|error| internal(&error))?;
+        let call = ForwardedCall {
+            id: RequestId::Number(1),
+            method,
+            params_raw: Some(params_raw),
+            surface: Surface::Rust,
+            form: Form::Rust,
+            behind_gateway: false,
+            answers_as_a_person: false,
+        };
+        let raw_line = if member == self.name {
+            let Some(dispatcher) = &self.services.local_dispatcher else {
+                return Err(internal(&"local RPC dispatcher is not wired on this peer"));
+            };
+            dispatcher.dispatch(call).await
+        } else {
+            let route = MemberRoute {
+                member: member.to_owned(),
+                peer_address: peer_address.to_owned(),
+                advertise_url: None,
+            };
+            self.forward_unary_once(&route, &call, None).await?
+        };
+        let reply: serde_json::Value =
+            serde_json::from_slice(&raw_line).map_err(|error| internal(&error))?;
+        if let Some(error_val) = reply.get("error") {
+            let error: ErrorObject =
+                serde_json::from_value(error_val.clone()).map_err(|e| internal(&e))?;
+            return Err(
+                match goodfetch_protocol::entries::error_code(&error.data.code) {
+                    Some(def) => CallError::new(def, error.message, &error.data.details),
+                    None => internal(&format!("{}: {}", error.data.code, error.message)),
+                },
+            );
+        }
+        Ok(reply
+            .get("result")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null))
     }
 
     /// Merges the Lead Daemon's `members` table with reported [`MemberRecord`]s

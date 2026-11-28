@@ -107,6 +107,12 @@ CREATE TABLE outcomes (
             outcome TEXT NOT NULL
         ) STRICT;
 CREATE TABLE page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL, source BLOB) STRICT;
+CREATE TABLE partitioned_crawl_membership (
+            id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+            crawl_id TEXT NOT NULL,
+            partition_index INTEGER NOT NULL,
+            map_json TEXT NOT NULL
+        ) STRICT;
 CREATE TABLE payload_cap (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
             max_size INTEGER NOT NULL

@@ -62,6 +62,16 @@ pub const GROUP_RUN_HANDOFF: &str = "group.run.handoff";
 /// index still assigns to it (ADR 0055).
 pub const GROUP_RUN_INDEX_LIST_ASSIGNED: &str = "group.run_index.list_assigned";
 
+/// The method a Group member sends the Lead Daemon over the peer link to list
+/// all eligible Group members satisfying a [`PlacementRequest`] (ADRs 0054 and
+/// 0055).
+pub const GROUP_MEMBERS_ELIGIBLE: &str = "group.members.eligible";
+
+/// The method a Group member sends another Group member over the peer link to
+/// invoke a contribution-registered peer extension handler (ADRs 0054, 0055
+/// and 0087).
+pub const GROUP_PEER_EXTENSION: &str = "group.peer.extension";
+
 /// The Error code answered by a former owner when a Run has moved to another
 /// Group member (ADR 0055).
 pub const RUN_MOVED: ErrorCodeDefinition = ErrorCodeDefinition {
@@ -354,6 +364,66 @@ pub struct PeerRunPlaceResult {
     /// The selected Group member and its route.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub placed: MemberRoute,
+}
+
+/// What a Group member sends in `group.members.eligible`: the same placement
+/// request payload as [`PeerRunPlaceParams`].
+pub type PeerMembersEligibleParams = PeerRunPlaceParams;
+
+/// What the Lead Daemon answers to `group.members.eligible`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PeerMembersEligibleResult {
+    /// The settled peer protocol version.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub protocol_version: ProtocolVersion,
+    /// The highest lead epoch the Lead Daemon has recorded.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lead_epoch: LeadEpoch,
+    /// All eligible Group members ordered by headroom (best first).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub members: Vec<MemberRoute>,
+}
+
+/// What a Group member sends in `group.peer.extension`: an authenticated,
+/// lead-epoch-fenced envelope carrying a contribution's peer method and JSON
+/// payload (ADR 0087).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PeerExtensionParams {
+    /// The peer protocol version the sender speaks.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub protocol_version: ProtocolVersion,
+    /// The Product it runs, which must be the group's.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub product: Product,
+    /// Its Product version.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub product_version: ProductVersion,
+    /// The highest lead epoch the sender has recorded.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lead_epoch: LeadEpoch,
+    /// The sending Group member's name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub member: String,
+    /// The contribution-registered peer method name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub extension_method: String,
+    /// The JSON payload for the extension handler.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub payload: serde_json::Value,
+}
+
+/// What a Group member answers to `group.peer.extension`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PeerExtensionResult {
+    /// The settled peer protocol version.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub protocol_version: ProtocolVersion,
+    /// The highest lead epoch the receiver has recorded.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lead_epoch: LeadEpoch,
+    /// The JSON response returned by the extension handler.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub result: serde_json::Value,
 }
 
 /// What a Group member sends to the owning Group member in `group.rpc.forward`

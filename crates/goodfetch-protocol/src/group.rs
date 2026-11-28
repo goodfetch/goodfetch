@@ -53,13 +53,16 @@ pub use limits::{
 };
 pub use routing::{
     GROUP_EVENTS_SUBSCRIBE, GROUP_HEADROOM_REPORT, GROUP_LIVE_VIEW_MINT, GROUP_LIVE_VIEW_RELAY,
-    GROUP_RPC_FORWARD, GROUP_RUN_HANDOFF, GROUP_RUN_INDEX_LIST_ASSIGNED, GROUP_RUN_INDEX_LOOKUP,
-    GROUP_RUN_PLACE, MemberCapabilities, MemberHeadroom, MemberRoute, PeerEventsSubscribeParams,
-    PeerHeadroomReportParams, PeerHeadroomReportResult, PeerLiveViewMintParams,
-    PeerLiveViewMintResult, PeerLiveViewRelayParams, PeerRpcForwardParams, PeerRpcForwardResult,
-    PeerRunHandoffParams, PeerRunHandoffResult, PeerRunIndexListAssignedParams,
-    PeerRunIndexListAssignedResult, PeerRunIndexLookupParams, PeerRunIndexLookupResult,
-    PeerRunPlaceParams, PeerRunPlaceResult, PlacementRequest, RUN_MOVED, RunMovedDetails,
+    GROUP_MEMBERS_ELIGIBLE, GROUP_PEER_EXTENSION, GROUP_RPC_FORWARD, GROUP_RUN_HANDOFF,
+    GROUP_RUN_INDEX_LIST_ASSIGNED, GROUP_RUN_INDEX_LOOKUP, GROUP_RUN_PLACE, MemberCapabilities,
+    MemberHeadroom, MemberRoute, PeerEventsSubscribeParams, PeerExtensionParams,
+    PeerExtensionResult, PeerHeadroomReportParams, PeerHeadroomReportResult,
+    PeerLiveViewMintParams, PeerLiveViewMintResult, PeerLiveViewRelayParams,
+    PeerMembersEligibleParams, PeerMembersEligibleResult, PeerRpcForwardParams,
+    PeerRpcForwardResult, PeerRunHandoffParams, PeerRunHandoffResult,
+    PeerRunIndexListAssignedParams, PeerRunIndexListAssignedResult, PeerRunIndexLookupParams,
+    PeerRunIndexLookupResult, PeerRunPlaceParams, PeerRunPlaceResult, PlacementRequest, RUN_MOVED,
+    RunMovedDetails,
 };
 
 use schemars::JsonSchema;

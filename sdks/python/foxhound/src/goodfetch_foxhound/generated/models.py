@@ -24,6 +24,7 @@ from goodfetch_collie_client.generated.models import (
     PageField,
     PageId,
     PageResponse,
+    Partitions,
     PlanReport,
     PluginRun,
     ProgressMessage,
@@ -3203,6 +3204,11 @@ class CrawlStartParams(BaseModel):
     The Run's own Limits, as `run.start` takes them (ADRs 0041 and
     0080): at most one per Usage kind and currency. A start that names
     the Run again lowers them and never raises them (ADR 0102).
+    """
+    partitions: Partitions | None = None
+    """
+    Partition count for a Partitioned crawl (ADR 0054): a positive integer
+    or `"auto"` for one Partition per eligible Group member.
     """
     project: ProjectSettings | None = None
     """The project configuration the Client found, layer 3 (ADR 0083)."""

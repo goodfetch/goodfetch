@@ -3117,6 +3117,7 @@ dependencies = [
  "goodfetch-frontier",
  "goodfetch-memory-site",
  "goodfetch-page",
+ "goodfetch-partitioned-crawl",
  "goodfetch-protocol",
  "goodfetch-runtime",
  "goodfetch-session-pool",
@@ -3326,6 +3327,29 @@ dependencies = [
  "toml 1.1.8+spec-1.1.0",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "goodfetch-partitioned-crawl"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-crawl",
+ "goodfetch-dataset",
+ "goodfetch-dev-workspace-hack",
+ "goodfetch-engine",
+ "goodfetch-frontier",
+ "goodfetch-protocol",
+ "goodfetch-simulation",
+ "goodfetch-test-support",
+ "goodfetch-workspace-hack",
+ "proptest",
+ "proptest-state-machine",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

@@ -226,6 +226,14 @@ export type SettingsLayer =
  */
 export type RunId = string;
 /**
+ * The `"auto"` value of `partitions` (ADR 0054): one Partition per eligible
+ * Group member.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "AutoPartitions".
+ */
+export type AutoPartitions = "auto";
+/**
  * Why a site refused a page (ADR 0035), on the wire as written.
  *
  * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
@@ -1605,6 +1613,14 @@ export type PageValueKind =
   | "regexp"
   | "error"
   | "object";
+/**
+ * How many Partitions a Partitioned crawl runs as (ADR 0054): a positive
+ * integer count or `"auto"` for one per eligible Group member.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Partitions".
+ */
+export type Partitions = number | AutoPartitions;
 /**
  * What makes a name or path unsafe.
  *
@@ -9673,6 +9689,12 @@ export interface RunStartParams {
    */
   limits?: RunLimit[];
   /**
+   * Partition count for a Partitioned crawl (ADR 0054, Foxhound only): a
+   * positive integer or `"auto"`. A Collie engine refuses it with
+   * `not_in_product` (ADRs 0087 and 0095).
+   */
+  partitions?: Partitions | null;
+  /**
    * The Run's Plan file (ADR 0091), on the program's machine, relative
    * to its working directory: an input of the Run, which a start that
    * names the Run again gives unchanged, else it fails with
@@ -9731,13 +9753,39 @@ export interface RunStarted {
    */
   needs: Product;
   /**
-   * The Run's ID.
+   * For a Partitioned crawl (ADR 0054), each Partition's Run ID and Group
+   * member placement beside the Partitioned crawl ID; empty otherwise.
+   */
+  partitions?: StartedPartition[];
+  /**
+   * The Run's ID (or the Partitioned crawl ID for a Partitioned crawl).
    */
   runId: RunId;
   /**
    * Whether the start began it.
    */
   startedAs: StartedAs;
+}
+/**
+ * One Partition of a started Partitioned crawl (ADR 0054): its index, its
+ * own Run ID, and the Group member it was placed on.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "StartedPartition".
+ */
+export interface StartedPartition {
+  /**
+   * The Group member this Partition was placed on.
+   */
+  member: string;
+  /**
+   * Zero-based Partition index.
+   */
+  partition: number;
+  /**
+   * The Partition's Run ID.
+   */
+  runId: RunId;
 }
 /**
  * What `run.started_as` answers: how the start that opened the Run's

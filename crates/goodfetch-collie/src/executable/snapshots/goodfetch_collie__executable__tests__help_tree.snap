@@ -805,14 +805,16 @@ Options:
           Optional Group member pin in a Daemon group (ADR 0055): the Lead Daemon places the Run on this named Group member when eligible
       --limit <KIND=AMOUNT>
           Holds the Run to AMOUNT of the Usage kind KIND: a count, such as `requests=500`, or a price with its currency, such as `paid_fetch=0.50USD`; repeatable, and a start that names the Run again only lowers a Limit
+      --partitions <PARTITIONS>
+          Partition count for a Partitioned crawl (ADR 0054, Foxhound only): a positive integer or `"auto"`. A Collie engine refuses it with `not_in_product` (ADRs 0087 and 0095)
       --plan <PLAN>
           The Run's Plan file (ADR 0091), on the program's machine, relative to its working directory: an input of the Run, which a start that names the Run again gives unchanged, else it fails with `run_conflict`
       --project <PROJECT>
           The project configuration the Client found, layer 3 (ADR 0083)
-      --recording <RECORDING>
-          The Response recording the Run replays or records (ADR 0105): an input of the Run, as `plan` is
       --color <WHEN>
           When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --recording <RECORDING>
+          The Response recording the Run replays or records (ADR 0105): an input of the Run, as `plan` is
       --run-id <RUN_ID>
           The Run's ID; the engine generates a lowercase ULID when it is absent. An existing ID reaches that Run when the caller and the inputs match, as `run.start` says, and fails with `run_conflict` otherwise
       --set <KEY=VALUE>

@@ -534,9 +534,11 @@ impl TaskStarter {
     }
 
     /// Starts an actor as [`TaskStarter::actor`] does, which also ends once
-    /// `handle` breaks: its mailbox is then closed and drained, waiting for
-    /// every permit already taken and dropping those messages, so no caller
-    /// awaits an answer forever whoever still holds a sender (issue 2594).
+    /// `handle` breaks: its mailbox is dropped then, with every message it
+    /// still holds, so a sender's later message is refused, whoever holds a
+    /// sender still. It does not wait for already-reserved permits so an
+    /// owner can finish stopping even while a caller still holds one (issue
+    /// 1763); callers awaiting a reply race `sender.closed()` (issue 2594).
     ///
     /// # Errors
     ///
@@ -561,8 +563,6 @@ impl TaskStarter {
                             break;
                         }
                     }
-                    mailbox.close();
-                    while mailbox.recv().await.is_some() {}
                 };
                 self.actors.spawn(watched(handling, panics));
             }
@@ -594,8 +594,6 @@ impl TaskStarter {
                             if handled.is_err() {
                                 panics.tell(crash_report::take_written().as_deref());
                             }
-                            mailbox.close();
-                            runtime.block_on(async { while mailbox.recv().await.is_some() {} });
                             drop(mailbox);
                             let _ = finished.send(());
                         })?;

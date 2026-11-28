@@ -799,15 +799,23 @@ impl ReservedWrite {
             job: Job::Write,
             syncing,
         });
-        async move {
-            // A write the writer ran answers before its mailbox goes; one
-            // sent once it went waits in no mailbox.
-            tokio::select! {
-                biased;
-                answered = answered => answered.map_err(|_| RunStateError::Closed)?,
-                () = mailbox.closed() => Err(RunStateError::Closed),
-            }
-        }
+        async move { await_answer(&mailbox, answered).await }
+    }
+}
+
+/// Awaits a writer reply, racing the mailbox closing so a message sent between
+/// permit reservation and actor exit never hangs while other handles live
+/// (issue 2594).
+async fn await_answer<T>(
+    mailbox: &mpsc::Sender<Queued>,
+    answered: oneshot::Receiver<Result<T, RunStateError>>,
+) -> Result<T, RunStateError> {
+    // A write the writer ran answers before its mailbox goes; one sent once it
+    // went waits in no mailbox.
+    tokio::select! {
+        biased;
+        answered = answered => answered.map_err(|_| RunStateError::Closed)?,
+        () = mailbox.closed() => Err(RunStateError::Closed),
     }
 }
 
@@ -1095,7 +1103,7 @@ impl RunState {
             })
             .await
             .map_err(|_| RunStateError::Closed)?;
-        answered.await.map_err(|_| RunStateError::Closed)?
+        await_answer(&self.mailbox, answered).await
     }
 
     /// Writes the open batch, if one is open, and answers once it is in the
@@ -1122,7 +1130,7 @@ impl RunState {
             })
             .await
             .map_err(|_| RunStateError::Closed)?;
-        answered.await.map_err(|_| RunStateError::Closed)?
+        await_answer(&self.mailbox, answered).await
     }
 
     /// Prepares each of `statements` on every connection the writer commits
@@ -1151,7 +1159,7 @@ impl RunState {
             })
             .await
             .map_err(|_| RunStateError::Closed)?;
-        answered.await.map_err(|_| RunStateError::Closed)?
+        await_answer(&self.mailbox, answered).await
     }
 
     /// A place in the writer's queue, for a write the caller queues once it

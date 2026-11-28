@@ -8090,6 +8090,38 @@ export interface SettingDiff {
   table?: PolicyTable | null;
 }
 /**
+ * Payload of `politeness.store_degraded` (ADRs 0024 and 0053): emitted on
+ * each affected Run's event stream when the Politeness store becomes
+ * unreachable, when degraded admission stops at `politeness.degraded_max`,
+ * and when the store reconnects.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PolitenessStoreDegraded".
+ */
+export interface PolitenessStoreDegraded {
+  /**
+   * Whether `politeness.degraded_max` has elapsed and admission to shared
+   * keys is stopped until the store reconnects.
+   */
+  admissionStopped: boolean;
+  /**
+   * Whether the Politeness store is currently unreachable (degraded).
+   */
+  degraded: boolean;
+  /**
+   * The configured `politeness.degraded_max` window in milliseconds.
+   */
+  degradedMaxMs: number;
+  /**
+   * Why the Politeness store became unreachable, when `degraded` is `true`.
+   */
+  reason?: string | null;
+  /**
+   * The affected Run's ID.
+   */
+  runId: RunId;
+}
+/**
  * What `locator.press` takes: the locator whose element gets the key, and
  * the key.
  *

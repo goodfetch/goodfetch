@@ -10,9 +10,13 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 
-use crate::catalog::{Authority, Entries, ProtocolVersion, Setting, ValueKind};
+use crate::catalog::{
+    Authority, Entries, Event, EventClass, Instrument, Metric, ProtocolVersion, Setting, Stability,
+    ValueKind, schema_of,
+};
+use crate::run::RunId;
 
 pub mod store;
 
@@ -126,18 +130,89 @@ pub struct PermitRow {
     pub taken_at: i64,
 }
 
+fn ten_minutes() -> Value {
+    json!(600_000)
+}
+
+/// `politeness.degraded_max` (ADRs 0053 and 0086).
+pub const POLITENESS_DEGRADED_MAX: Setting = Setting {
+    name: "politeness.degraded_max",
+    description: "How long a cut-off engine keeps admitting requests to shared keys within its last granted share when the Politeness store is unreachable, counted on each side's clock from the moment the engine sent its last acknowledged heartbeat: 10 minutes by default. Past it, the cut-off engine admits nothing to shared keys until it reconnects, while its Runs stay live and resumable, and the store frees its reservation once `politeness.degraded_max` plus its longest reported request timeout has passed. Set in user configuration or an Operator policy only.",
+    kind: ValueKind::Duration,
+    default: ten_minutes,
+    clearable: false,
+    authority: Authority::Machine,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// Payload of `politeness.store_degraded` (ADRs 0024 and 0053): emitted on
+/// each affected Run's event stream when the Politeness store becomes
+/// unreachable, when degraded admission stops at `politeness.degraded_max`,
+/// and when the store reconnects.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PolitenessStoreDegraded {
+    /// The affected Run's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// Whether the Politeness store is currently unreachable (degraded).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub degraded: bool,
+    /// Whether `politeness.degraded_max` has elapsed and admission to shared
+    /// keys is stopped until the store reconnects.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub admission_stopped: bool,
+    /// The configured `politeness.degraded_max` window in milliseconds.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub degraded_max_ms: u64,
+    /// Why the Politeness store became unreachable, when `degraded` is `true`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub reason: Option<String>,
+}
+
+/// Lossless event emitted on each affected Run's stream when the Politeness
+/// store enters degraded mode, stops degraded admission at
+/// `politeness.degraded_max`, or reconnects (ADRs 0024 and 0053).
+pub const POLITENESS_STORE_DEGRADED_EVENT: Event = Event {
+    name: "politeness.store_degraded",
+    description: "The Politeness store became unreachable (entering bounded degraded admission within granted shares), reached `politeness.degraded_max` and stopped admission to shared keys, or reconnected (ADR 0053).",
+    class: EventClass::Lossless,
+    payload: schema_of::<PolitenessStoreDegraded>,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `goodfetch.politeness.store_degraded`: whether this engine's Politeness
+/// store is currently unreachable and running in degraded mode (ADRs 0050 and
+/// 0053).
+pub const POLITENESS_STORE_DEGRADED_METRIC: Metric = Metric {
+    name: "goodfetch.politeness.store_degraded",
+    description: "1 while this engine's Politeness store is unreachable and running in degraded mode, else 0 (ADR 0053).",
+    instrument: Instrument::Gauge,
+    unit: "{engine}",
+    labels: &[],
+    stability: Stability::Experimental,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
     operations: &[],
-    events: &[],
+    events: &[POLITENESS_STORE_DEGRADED_EVENT],
     handler_requests: &[],
     error_codes: &[],
     plugin_kinds: &[],
-    metrics: &[],
+    metrics: &[POLITENESS_STORE_DEGRADED_METRIC],
     settings: &[
         POLITENESS_SHARING,
         POLITENESS_DELEGATION,
+        POLITENESS_DEGRADED_MAX,
         POLITENESS_PROXY_CONCURRENCY,
         POLITENESS_PROXY_RATE,
         store::POLITENESS_STORE,

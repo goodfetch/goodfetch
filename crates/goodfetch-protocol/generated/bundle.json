@@ -18509,6 +18509,48 @@
       ],
       "type": "object"
     },
+    "PolitenessStoreDegraded": {
+      "description": "Payload of `politeness.store_degraded` (ADRs 0024 and 0053): emitted on\neach affected Run's event stream when the Politeness store becomes\nunreachable, when degraded admission stops at `politeness.degraded_max`,\nand when the store reconnects.",
+      "properties": {
+        "admission_stopped": {
+          "arrived_in": "0.1",
+          "description": "Whether `politeness.degraded_max` has elapsed and admission to shared\nkeys is stopped until the store reconnects.",
+          "type": "boolean"
+        },
+        "degraded": {
+          "arrived_in": "0.1",
+          "description": "Whether the Politeness store is currently unreachable (degraded).",
+          "type": "boolean"
+        },
+        "degraded_max_ms": {
+          "arrived_in": "0.1",
+          "description": "The configured `politeness.degraded_max` window in milliseconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "Why the Politeness store became unreachable, when `degraded` is `true`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The affected Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "degraded",
+        "admission_stopped",
+        "degraded_max_ms"
+      ],
+      "type": "object"
+    },
     "PolitenessStoreLayout": {
       "additionalProperties": false,
       "description": "The Politeness store's frozen-major key and script layout, recorded in\nthe Compatibility corpus under the Usage-ledger family (ADRs 0053 and\n0066).",
@@ -30691,6 +30733,11 @@
                     },
                     "type": "object"
                   },
+                  "degraded_max": {
+                    "description": "How long a cut-off engine keeps admitting requests to shared keys within its last granted share when the Politeness store is unreachable, counted on each side's clock from the moment the engine sent its last acknowledged heartbeat: 10 minutes by default. Past it, the cut-off engine admits nothing to shared keys until it reconnects, while its Runs stay live and resumable, and the store frees its reservation once `politeness.degraded_max` plus its longest reported request timeout has passed. Set in user configuration or an Operator policy only.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "domain": {
                     "additionalProperties": false,
                     "properties": {
@@ -33236,6 +33283,11 @@
                       }
                     },
                     "type": "object"
+                  },
+                  "degraded_max": {
+                    "description": "How long a cut-off engine keeps admitting requests to shared keys within its last granted share when the Politeness store is unreachable, counted on each side's clock from the moment the engine sent its last acknowledged heartbeat: 10 minutes by default. Past it, the cut-off engine admits nothing to shared keys until it reconnects, while its Runs stay live and resumable, and the store frees its reservation once `politeness.degraded_max` plus its longest reported request timeout has passed. Set in user configuration or an Operator policy only.",
+                    "minimum": 0,
+                    "type": "integer"
                   },
                   "delegation": {
                     "description": "Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.",
@@ -38249,6 +38301,11 @@
                       }
                     },
                     "type": "object"
+                  },
+                  "degraded_max": {
+                    "description": "How long a cut-off engine keeps admitting requests to shared keys within its last granted share when the Politeness store is unreachable, counted on each side's clock from the moment the engine sent its last acknowledged heartbeat: 10 minutes by default. Past it, the cut-off engine admits nothing to shared keys until it reconnects, while its Runs stay live and resumable, and the store frees its reservation once `politeness.degraded_max` plus its longest reported request timeout has passed. Set in user configuration or an Operator policy only.",
+                    "minimum": 0,
+                    "type": "integer"
                   },
                   "delegation": {
                     "description": "Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.",
@@ -43278,6 +43335,11 @@
                       }
                     },
                     "type": "object"
+                  },
+                  "degraded_max": {
+                    "description": "How long a cut-off engine keeps admitting requests to shared keys within its last granted share when the Politeness store is unreachable, counted on each side's clock from the moment the engine sent its last acknowledged heartbeat: 10 minutes by default. Past it, the cut-off engine admits nothing to shared keys until it reconnects, while its Runs stay live and resumable, and the store frees its reservation once `politeness.degraded_max` plus its longest reported request timeout has passed. Set in user configuration or an Operator policy only.",
+                    "minimum": 0,
+                    "type": "integer"
                   },
                   "delegation": {
                     "description": "Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.",

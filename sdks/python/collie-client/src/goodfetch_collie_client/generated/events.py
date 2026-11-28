@@ -10,7 +10,7 @@ from typing import Final
 
 from pydantic import BaseModel
 
-from .models import ConsoleMessage, DownloadProgress, GroupLeadReachabilityChanged, NeedsYouChange, PageDownload, PageExchange, PageFired, PageOpened, PagePopup, PageRequest, PageWebSocket, Resync, RunAborting, RunAxes, RunCheckpointing, RunMigrating, RunProgress, RunStopping, SampleEchoed, SystemInfo, WebError, WebSocketClosed, WebSocketFrame
+from .models import ConsoleMessage, DownloadProgress, GroupLeadReachabilityChanged, NeedsYouChange, PageDownload, PageExchange, PageFired, PageOpened, PagePopup, PageRequest, PageWebSocket, PolitenessStoreDegraded, Resync, RunAborting, RunAxes, RunCheckpointing, RunMigrating, RunProgress, RunStopping, SampleEchoed, SystemInfo, WebError, WebSocketClosed, WebSocketFrame
 
 EVENTS: Final[Mapping[str, type[BaseModel]]] = {
     "browser_cache.download_progress": DownloadProgress,
@@ -31,6 +31,7 @@ EVENTS: Final[Mapping[str, type[BaseModel]]] = {
     "page.request_finished": PageRequest,
     "page.response": PageExchange,
     "page.web_socket": PageWebSocket,
+    "politeness.store_degraded": PolitenessStoreDegraded,
     "run.aborting": RunAborting,
     "run.axes_changed": RunAxes,
     "run.checkpointing": RunCheckpointing,
@@ -63,6 +64,7 @@ EVENTS: Final[Mapping[str, type[BaseModel]]] = {
 - `page.request_finished`: A request of the page got its whole response, its body included. Sent on each `page.on` call that listens to `request_finished`.
 - `page.response`: A request of the page got its response's head: the request and its response, whose body `response.body` reads, and which says whether a site's service worker supplied it. Sent on each `page.on` call that listens to `response`.
 - `page.web_socket`: The page opened a WebSocket, whose frames and close follow as `web_socket.frame_sent`, `web_socket.frame_received` and `web_socket.close`. Sent, with those, on each `page.on` call that listens to `web_socket`.
+- `politeness.store_degraded`: The Politeness store became unreachable (entering bounded degraded admission within granted shares), reached `politeness.degraded_max` and stopped admission to shared keys, or reconnected (ADR 0053).
 - `run.aborting`: A Run is being aborted: it stops at its next safe point. Lossless.
 - `run.axes_changed`: A Run's Lifecycle, Verdict or Completeness changed: it started running, or it ended. Lossless: while a subscriber's queue is full, the Run waits.
 - `run.checkpointing`: A Checkpoint of a Run is being written: on `run.checkpoint`, a pause, a migration, a clean stop or the periodic `checkpoint.interval`. Lossless.
@@ -94,6 +96,7 @@ EXPERIMENTAL_EVENTS: Final[frozenset[str]] = frozenset({
     "page.request_finished",
     "page.response",
     "page.web_socket",
+    "politeness.store_degraded",
     "run.aborting",
     "run.axes_changed",
     "run.checkpointing",

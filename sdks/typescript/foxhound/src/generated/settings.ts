@@ -3236,6 +3236,7 @@ const SPELLING: Spelling = {
       initial: "initial",
       max: "max",
     }],
+    degradedMax: "degraded_max",
     delegation: "delegation",
     domain: ["domain", {
       adaptiveDelay: "adaptive_delay",

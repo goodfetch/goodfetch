@@ -537,6 +537,11 @@ prefix = "politeness-store"
 
 [[area]]
 number = 3
+kind = "event"
+prefix = "politeness."
+
+[[area]]
+number = 3
 kind = "command"
 prefix = "daemon."
 

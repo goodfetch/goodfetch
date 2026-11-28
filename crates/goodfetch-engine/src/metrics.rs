@@ -22,6 +22,7 @@ use goodfetch_protocol::ops::{
     PANIC_ENDED_LABEL, RECYCLE_REASON_LABEL, RUN_ACTIVE, RUN_ENDED, RUN_KIND_LABEL, SURFACE_LABEL,
     VERDICT_LABEL,
 };
+use goodfetch_protocol::politeness::POLITENESS_STORE_DEGRADED_METRIC;
 use goodfetch_protocol::run::{RunKind, RunReport};
 use goodfetch_protocol::storage::{
     AVAILABLE, HOLDS_LABEL, INODES_AVAILABLE, LEVEL, SampledFolder, StorageLevel,
@@ -50,6 +51,7 @@ struct Instruments {
     client_connected: UpDownCounter<i64>,
     daemon_draining: Gauge<u64>,
     group_lead_unreachable: Gauge<u64>,
+    politeness_store_degraded: Gauge<u64>,
     engine_panics: Counter<u64>,
     governor_saturation: Gauge<f64>,
     governor_target: Gauge<u64>,
@@ -107,45 +109,50 @@ impl Default for Metrics {
     }
 }
 
+fn register_observables(meter: &Meter) -> (watch::Sender<Arc<[FolderStorage]>>, CountedWork) {
+    let (storage, read) = watch::channel(Arc::from([]));
+    storage_gauge(meter, &AVAILABLE, read.clone(), |folder| Some(folder.free));
+    storage_gauge(meter, &INODES_AVAILABLE, read.clone(), |folder| {
+        folder.free_inodes
+    });
+    storage_gauge(meter, &LEVEL, read, |folder| Some(folder.level.gauge()));
+    let counted_work = CountedWork::default();
+    let counted = counted_work.clone();
+    meter
+        .u64_observable_counter(COUNTED_WORK.name)
+        .with_description(COUNTED_WORK.description)
+        .with_unit(COUNTED_WORK.unit)
+        .with_callback(move |observer: &dyn AsyncInstrument<u64>| {
+            for row in Row::ALL {
+                observer.observe(
+                    counted.read(row),
+                    &[
+                        KeyValue::new(COUNTED_WORK_PATH_LABEL.name, row.path()),
+                        KeyValue::new(COUNTED_WORK_WORK_LABEL.name, row.work()),
+                    ],
+                );
+            }
+        })
+        .build();
+    // Read at each collection, as `daemon.status` reads it; nothing to
+    // observe where no allocator counts (#1769).
+    meter
+        .u64_observable_gauge(DAEMON_HEAP.name)
+        .with_description(DAEMON_HEAP.description)
+        .with_unit(DAEMON_HEAP.unit)
+        .with_callback(|observer: &dyn AsyncInstrument<u64>| {
+            if let Some(held) = crate::heap::live() {
+                observer.observe(held, &[]);
+            }
+        })
+        .build();
+    (storage, counted_work)
+}
+
 impl Metrics {
     /// The instruments of `meter`.
     pub fn new(meter: &Meter) -> Self {
-        let (storage, read) = watch::channel(Arc::from([]));
-        storage_gauge(meter, &AVAILABLE, read.clone(), |folder| Some(folder.free));
-        storage_gauge(meter, &INODES_AVAILABLE, read.clone(), |folder| {
-            folder.free_inodes
-        });
-        storage_gauge(meter, &LEVEL, read, |folder| Some(folder.level.gauge()));
-        let counted_work = CountedWork::default();
-        let counted = counted_work.clone();
-        meter
-            .u64_observable_counter(COUNTED_WORK.name)
-            .with_description(COUNTED_WORK.description)
-            .with_unit(COUNTED_WORK.unit)
-            .with_callback(move |observer: &dyn AsyncInstrument<u64>| {
-                for row in Row::ALL {
-                    observer.observe(
-                        counted.read(row),
-                        &[
-                            KeyValue::new(COUNTED_WORK_PATH_LABEL.name, row.path()),
-                            KeyValue::new(COUNTED_WORK_WORK_LABEL.name, row.work()),
-                        ],
-                    );
-                }
-            })
-            .build();
-        // Read at each collection, as `daemon.status` reads it; nothing to
-        // observe where no allocator counts (#1769).
-        meter
-            .u64_observable_gauge(DAEMON_HEAP.name)
-            .with_description(DAEMON_HEAP.description)
-            .with_unit(DAEMON_HEAP.unit)
-            .with_callback(|observer: &dyn AsyncInstrument<u64>| {
-                if let Some(held) = crate::heap::live() {
-                    observer.observe(held, &[]);
-                }
-            })
-            .build();
+        let (storage, counted_work) = register_observables(meter);
         Self(Arc::new(Instruments {
             meter: meter.clone(),
             browser_running: meter
@@ -192,6 +199,11 @@ impl Metrics {
                 .u64_gauge(GROUP_LEAD_UNREACHABLE.name)
                 .with_description(GROUP_LEAD_UNREACHABLE.description)
                 .with_unit(GROUP_LEAD_UNREACHABLE.unit)
+                .build(),
+            politeness_store_degraded: meter
+                .u64_gauge(POLITENESS_STORE_DEGRADED_METRIC.name)
+                .with_description(POLITENESS_STORE_DEGRADED_METRIC.description)
+                .with_unit(POLITENESS_STORE_DEGRADED_METRIC.unit)
                 .build(),
             governor_saturation: meter
                 .f64_gauge(SATURATION.name)
@@ -328,6 +340,14 @@ impl Metrics {
         self.0
             .group_lead_unreachable
             .record(u64::from(unreachable), &[]);
+    }
+
+    /// Whether this engine's Politeness store is currently unreachable and
+    /// running in degraded mode (ADRs 0050 and 0053).
+    pub(crate) fn politeness_store_degraded(&self, degraded: bool) {
+        self.0
+            .politeness_store_degraded
+            .record(u64::from(degraded), &[]);
     }
 
     /// The Resource governor's sample `info`: each kind's target, what

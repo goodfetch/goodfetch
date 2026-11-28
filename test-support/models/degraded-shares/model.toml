@@ -1,0 +1,12 @@
+# Politeness store outages: granted shares, stale reservations, bounded
+# degraded admission, Delegation expiry under outage, and atomic in-flight
+# registration on reconnect (ADRs 0053, 0060 and 0142).
+# `goodfetch-engine`'s `politeness::store_backend` traces these transitions
+# under `goodfetch::politeness`.
+spec = "DegradedShares.tla"
+traces = [
+  "crates/goodfetch-engine/src/politeness/store_backend.rs",
+  "crates/goodfetch-engine/src/politeness/store/",
+]
+trace_spec = "TraceDegradedShares.tla"
+trace_files = ["crates/goodfetch-engine/tests/trace/degraded-shares.ndjson"]

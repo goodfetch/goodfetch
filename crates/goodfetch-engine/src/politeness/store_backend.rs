@@ -1,4 +1,4 @@
-//! The Politeness store backend (ADRs 0053, 0059 and 0142): serves
+//! The Politeness store backend (ADRs 0053, 0059, 0060 and 0142): serves
 //! `politeness.sharing: shared` across machines through Valkey or Redis.
 //!
 //! A key only this engine uses is served from memory under a Delegation
@@ -11,26 +11,44 @@
 //! Active shared Permit leases are renewed in the background while their
 //! requests remain in flight.
 //!
+//! Every engine heartbeats each active key with its longest request timeout
+//! and receives its store-computed degraded share (`heartbeat.lua`). When the
+//! store becomes unreachable, a Delegation holder keeps serving its delegated
+//! key until the Delegation expires, then follows ADR 0053's degraded shares:
+//! keeping held Permits until their leases expire, waiting the longest
+//! reported request timeout, then admitting within its last granted share
+//! scaled by each Run's cap for at most `politeness.degraded_max` (counted on
+//! this engine's clock from the moment the last acknowledged heartbeat was
+//! sent). Past `politeness.degraded_max`, admission to shared keys stops while
+//! Runs stay live and resumable. Reconnection is automatic with exponential
+//! backoff and atomically registers all in-flight Permits BEFORE freeing the
+//! engine's stale reservation on the store.
+//!
+//! Transitions are emitted under the `goodfetch::politeness` tracing target
+//! for TLA+ trace validation (ADR 0060).
+//!
 //! Size: one actor module owning the Politeness store's Delegations, shared
-//! Permit leases, pub/sub wake/recall loop, and heartbeat renewal together.
+//! Permit leases, heartbeats, degraded-share admission, automatic
+//! reconnection, and pub/sub wake/recall loop together.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::{Duration, SystemTime};
 
 use goodfetch_counted_work::{CountedWork, Row};
-use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::store::{
-    DelegationAcquire, PeekShared, PolitenessStore, StoreError, TakeShared, WakeEvent, WakeEvents,
-    WakeSubscriptions,
+    DelegationAcquire, DelegationHeartbeat, HeartbeatParams, PeekShared, PolitenessStore,
+    StoreError, TakeShared, WakeEvent, WakeEvents, WakeSubscriptions,
 };
 use super::{
     DELEGATIONS_PER_TRANSACTION, Ending, Hold, Holder, KeyState, MAILBOX, Permit, PolitenessError,
-    PolitenessOptions, SharedRule, Take, Taken, Verdict, Wake, memory,
+    PolitenessOptions, SharedRule, StoreDegradedStatus, Take, Taken, Verdict, Wake, memory,
 };
 use crate::clock::Clock;
+use crate::metrics::Metrics;
 use crate::tasks::TaskOwner;
 
 /// How long shared key state (`:state` hash) lives without updates.
@@ -41,6 +59,24 @@ pub(super) const DEFAULT_DELEGATION_TTL: Duration = Duration::from_secs(15);
 
 /// Default lease duration of a shared Permit in the store (renewed every lease / 3).
 pub(super) const DEFAULT_PERMIT_LEASE: Duration = Duration::from_secs(30);
+
+/// Default heartbeat TTL (never longer than `DEFAULT_PERMIT_LEASE`, ADR 0053).
+pub(super) const DEFAULT_HEARTBEAT_TTL: Duration = Duration::from_secs(15);
+
+/// Default `politeness.degraded_max` (10 minutes, ADR 0053).
+pub(super) const DEFAULT_DEGRADED_MAX: Duration = Duration::from_secs(600);
+
+/// Default longest request timeout reported in heartbeats.
+pub(super) const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Initial reconnection backoff when the Politeness store becomes unreachable.
+pub(super) const DEFAULT_RECONNECT_INITIAL: Duration = Duration::from_millis(100);
+
+/// Maximum reconnection backoff duration.
+const MAX_RECONNECT_BACKOFF: Duration = Duration::from_secs(5);
+
+/// Tracing target for TLA+ degraded-shares model transitions (ADR 0060).
+const TRACE_TARGET: &str = "goodfetch::politeness";
 
 /// Handle to the async store actor, held inside [`super::Politeness`].
 pub(super) struct StoreBackend {
@@ -56,6 +92,7 @@ impl StoreBackend {
         engine: String,
         clock: Clock,
         wakes: broadcast::Sender<Wake>,
+        degraded: watch::Sender<StoreDegradedStatus>,
         owner: &TaskOwner,
     ) -> Result<Self, PolitenessError> {
         let (subs, events) = store
@@ -63,6 +100,8 @@ impl StoreBackend {
             .await
             .map_err(|error| store_error(&error))?;
         let (mailbox, commands) = mpsc::channel(MAILBOX);
+        // ADR 0053: a heartbeat goes stale no later than a permit's lease expires.
+        let heartbeat_ttl = options.store_heartbeat_ttl.min(options.store_permit_lease);
         let actor = StoreActor {
             store,
             subs,
@@ -71,11 +110,20 @@ impl StoreBackend {
             work: options.work.clone(),
             delegation_ttl: options.store_delegation_ttl,
             permit_lease: options.store_permit_lease,
+            heartbeat_ttl,
+            degraded_max: options.store_degraded_max,
+            request_timeout: options.store_request_timeout,
+            reconnect_initial: options.store_reconnect_initial,
             wakes,
+            degraded,
+            metrics: options.metrics.clone(),
+            connection: ConnectionState::Connected,
             memory: memory::Store::default(),
             delegations: BTreeMap::new(),
             recalled: HashMap::new(),
             active_leases: BTreeMap::new(),
+            degraded_permits: BTreeMap::new(),
+            heartbeats: BTreeMap::new(),
             next_shared_id: -1,
             shared: HashSet::new(),
             subscribed: HashMap::new(),
@@ -84,7 +132,7 @@ impl StoreBackend {
             recall_retries: Vec::new(),
         };
         let cancelled = owner.token().clone();
-        owner.spawn(actor.run(commands, events, cancelled));
+        owner.spawn(actor.run(commands, Some(events), cancelled));
         Ok(Self { mailbox })
     }
 
@@ -261,6 +309,15 @@ where
     }
 }
 
+enum ConnectionState {
+    Connected,
+    Degraded {
+        reason: String,
+        next_reconnect_at: Instant,
+        backoff: Duration,
+    },
+}
+
 struct StoreDelegation {
     runs: Vec<Holder>,
     rule: SharedRule,
@@ -273,6 +330,25 @@ struct ActiveLease {
     token: String,
     last_renewed: Instant,
     last_in_flight: u64,
+}
+
+struct DegradedPermit {
+    key: String,
+    token: String,
+    last_in_flight: u64,
+}
+
+struct KeyHeartbeat {
+    reported_cap: Option<u64>,
+    reported_timeout: Duration,
+    last_hb_sent_at: Option<Instant>,
+    granted_share: u64,
+    acked_share: u64,
+    max_cap: u64,
+    max_timeout: Duration,
+    degraded_admit_at: Option<Instant>,
+    degraded_entered: bool,
+    degraded_stopped: bool,
 }
 
 struct AskedStoreTake {
@@ -288,14 +364,26 @@ struct StoreActor {
     work: CountedWork,
     delegation_ttl: Duration,
     permit_lease: Duration,
+    heartbeat_ttl: Duration,
+    degraded_max: Duration,
+    request_timeout: Duration,
+    reconnect_initial: Duration,
     wakes: broadcast::Sender<Wake>,
+    degraded: watch::Sender<StoreDegradedStatus>,
+    metrics: Option<Metrics>,
+    connection: ConnectionState,
     memory: memory::Store,
     delegations: BTreeMap<String, StoreDelegation>,
     /// Local delegated permit ID -> `(key, store_token)` for permits promoted
-    /// to store leases when their Delegation was recalled.
+    /// to store leases (or degraded permits on outage expiry).
     recalled: HashMap<i64, (String, String)>,
     /// Active non-delegated (or recalled) store Permit leases, by local permit ID.
     active_leases: BTreeMap<i64, ActiveLease>,
+    /// Permits admitted locally during a degraded period (or promoted from an
+    /// expired Delegation while cut off), registered atomically on reconnect.
+    degraded_permits: BTreeMap<i64, DegradedPermit>,
+    /// Heartbeat and store-granted degraded share state per active key.
+    heartbeats: BTreeMap<String, KeyHeartbeat>,
     next_shared_id: i64,
     /// Keys shared across engines (do not ask for a Delegation until alone).
     shared: HashSet<String>,
@@ -303,23 +391,32 @@ struct StoreActor {
     subscribed: HashMap<String, String>,
     /// Channel name -> Politeness key.
     channel_to_key: HashMap<String, String>,
-    /// Waiting local Run IDs per key (woken on pub/sub wake or recall).
+    /// Waiting local Run IDs per key (woken on pub/sub wake, recall, or reconnect).
     waiters: BTreeMap<String, Vec<String>>,
     /// Fallback wake deadlines `(when, key)` when a recall went unanswered
     /// (e.g., the previous Delegation holder crashed and its TTL will expire).
     recall_retries: Vec<(Instant, String)>,
 }
 
+async fn next_wake_event(events: &mut Option<WakeEvents>) -> Option<(String, WakeEvent)> {
+    match events {
+        Some(stream) => stream.next().await,
+        None => std::future::pending().await,
+    }
+}
+
 impl StoreActor {
     async fn run(
         mut self,
         mut commands: mpsc::Receiver<StoreCommand>,
-        mut events: WakeEvents,
+        mut events: Option<WakeEvents>,
         cancelled: CancellationToken,
     ) {
         let tick_period = (self.delegation_ttl / 3)
             .min(self.permit_lease / 3)
-            .max(Duration::from_millis(25));
+            .min(self.heartbeat_ttl / 3)
+            .min(Duration::from_millis(50))
+            .max(Duration::from_millis(15));
         let mut heartbeat = tokio::time::interval(tick_period);
         heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         // Consume the immediate first tick so it fires after one interval.
@@ -328,12 +425,12 @@ impl StoreActor {
         loop {
             tokio::select! {
                 () = cancelled.cancelled() => {
-                    self.release_all_delegations().await;
+                    self.clean_shutdown().await;
                     break;
                 }
                 first = commands.recv() => {
                     let Some(first) = first else {
-                        self.release_all_delegations().await;
+                        self.clean_shutdown().await;
                         break;
                     };
                     let mut batch = vec![first];
@@ -342,19 +439,183 @@ impl StoreActor {
                     }
                     self.handle_batch(batch).await;
                 }
-                event = events.next() => {
-                    match event {
-                        Some((channel, event)) => self.handle_wake_event(&channel, event).await,
-                        None => {
-                            tracing::debug!("the Politeness store pub/sub connection ended");
-                        }
+                event = next_wake_event(&mut events), if events.is_some() => {
+                    if let Some((channel, event)) = event {
+                        self.handle_wake_event(&channel, event).await;
+                    } else {
+                        events = None;
+                        tracing::debug!("the Politeness store pub/sub connection ended");
+                        self.enter_degraded("the Politeness store connection dropped".to_owned());
                     }
                 }
                 _ = heartbeat.tick() => {
-                    self.heartbeat_tick().await;
+                    if let Some(reconnected_events) = self.heartbeat_tick().await {
+                        events = Some(reconnected_events);
+                    }
                 }
             }
         }
+    }
+
+    fn is_degraded(&self) -> bool {
+        matches!(self.connection, ConnectionState::Degraded { .. })
+    }
+
+    fn enter_degraded(&mut self, reason: String) {
+        if self.is_degraded() {
+            return;
+        }
+        let now = self.clock.now();
+        tracing::warn!(%reason, engine = %self.engine, "the Politeness store is unreachable; entering degraded mode");
+        self.connection = ConnectionState::Degraded {
+            reason: reason.clone(),
+            next_reconnect_at: now + self.reconnect_initial,
+            backoff: self.reconnect_initial,
+        };
+        let keys: Vec<String> = self.heartbeats.keys().cloned().collect();
+        for key in keys {
+            let has_live_delegation = self.has_live_delegation(&key);
+            let max_lease_end = self.max_lease_expiry(&key);
+            if let Some(hb) = self.heartbeats.get_mut(&key) {
+                if has_live_delegation {
+                    // While Delegation is still live, it keeps serving until
+                    // `delegation.expires_at`; degraded_admit_at is set on expiry.
+                    hb.degraded_admit_at = None;
+                } else {
+                    let hb_stale = hb
+                        .last_hb_sent_at
+                        .map_or(now, |sent| sent + self.heartbeat_ttl);
+                    let leases_end = max_lease_end.map_or(hb_stale, |lease| lease.max(hb_stale));
+                    hb.degraded_admit_at = Some(leases_end + hb.max_timeout);
+                }
+                hb.degraded_entered = false;
+                hb.degraded_stopped = false;
+            }
+            tracing::trace!(
+                target: TRACE_TARGET,
+                transition = "cut_off",
+                engine = %self.engine,
+                key = %key,
+            );
+        }
+        self.publish_degraded_status(true, false, Some(reason));
+    }
+
+    fn all_degraded_stopped(&self) -> bool {
+        self.heartbeats
+            .values()
+            .filter(|hb| hb.last_hb_sent_at.is_some())
+            .all(|hb| hb.degraded_stopped)
+    }
+
+    fn publish_degraded_status(
+        &self,
+        degraded: bool,
+        admission_stopped: bool,
+        reason: Option<String>,
+    ) {
+        if let Some(metrics) = &self.metrics {
+            metrics.politeness_store_degraded(degraded);
+        }
+        let next = StoreDegradedStatus {
+            degraded,
+            admission_stopped,
+            degraded_max: self.degraded_max,
+            reason,
+        };
+        self.degraded.send_if_modified(|current| {
+            if *current == next {
+                false
+            } else {
+                *current = next;
+                true
+            }
+        });
+    }
+
+    fn max_lease_expiry(&self, key: &str) -> Option<Instant> {
+        self.active_leases
+            .values()
+            .filter(|lease| lease.key == key)
+            .map(|lease| lease.last_renewed + self.permit_lease)
+            .max()
+    }
+
+    fn local_in_flight_count(&self, key: &str) -> u64 {
+        let active = self
+            .active_leases
+            .values()
+            .filter(|lease| lease.key == key)
+            .count();
+        let degraded = self
+            .degraded_permits
+            .values()
+            .filter(|permit| permit.key == key)
+            .count();
+        let mem = self.memory.in_flight(key);
+        mem.saturating_add(u64::try_from(active.saturating_add(degraded)).unwrap_or(u64::MAX))
+    }
+
+    fn ensure_heartbeat_entry(&mut self, key: &str, cap: Option<u64>) {
+        let entry = self
+            .heartbeats
+            .entry(key.to_owned())
+            .or_insert_with(|| KeyHeartbeat {
+                reported_cap: cap,
+                reported_timeout: self.request_timeout,
+                last_hb_sent_at: None,
+                granted_share: 0,
+                acked_share: 0,
+                max_cap: cap.unwrap_or(0),
+                max_timeout: self.request_timeout,
+                degraded_admit_at: None,
+                degraded_entered: false,
+                degraded_stopped: false,
+            });
+        if let Some(new_cap) = cap {
+            entry.reported_cap = Some(entry.reported_cap.map_or(new_cap, |old| old.max(new_cap)));
+        }
+    }
+
+    async fn send_key_heartbeat(&mut self, key: &str, tokens: &[String]) -> Result<(), StoreError> {
+        let Some(hb) = self.heartbeats.get(key) else {
+            return Ok(());
+        };
+        let params = HeartbeatParams {
+            key,
+            engine_id: &self.engine,
+            heartbeat_ttl: self.heartbeat_ttl,
+            degraded_max: self.degraded_max,
+            timeout: hb.reported_timeout,
+            cap: hb.reported_cap,
+            acked_share: hb.acked_share,
+            permit_lease: self.permit_lease,
+            in_flight_tokens: tokens,
+        };
+        let before = self.clock.now();
+        let ack = self.store.heartbeat(&params).await?;
+        if ack.live_engines == 0 {
+            // Another engine holds a live Delegation; wait for recall before
+            // registering this engine's heartbeat and share.
+            return Ok(());
+        }
+        if let Some(hb) = self.heartbeats.get_mut(key) {
+            hb.last_hb_sent_at = Some(before);
+            hb.granted_share = ack.granted_share;
+            hb.acked_share = ack.granted_share;
+            hb.max_cap = ack.max_cap;
+            hb.max_timeout = Duration::from_millis(ack.max_timeout_ms);
+        }
+        if tokens.is_empty() {
+            tracing::trace!(
+                target: TRACE_TARGET,
+                transition = "heartbeat",
+                engine = %self.engine,
+                key = %key,
+                share = ack.granted_share,
+            );
+        }
+        Ok(())
     }
 
     async fn handle_batch(&mut self, batch: Vec<StoreCommand>) {
@@ -412,9 +673,14 @@ impl StoreActor {
         answer: oneshot::Sender<Result<Taken, PolitenessError>>,
         asked: &mut Vec<AskedStoreTake>,
     ) {
+        self.ensure_heartbeat_entry(&take.key, take.rule.0.concurrency());
         let delegates = take.rule.0.delegates();
         if delegates && self.has_live_delegation(&take.key) {
             let taken = self.taken_delegated(&take);
+            let _ = answer.send(Ok(taken));
+        } else if self.is_degraded() {
+            self.expire_delegation_if_needed(&take.key);
+            let taken = self.taken_degraded(&take);
             let _ = answer.send(Ok(taken));
         } else if delegates && take.holder.delegates && !self.shared.contains(&*take.key) {
             // Drop any expired local delegation before attempting a fresh one.
@@ -442,26 +708,54 @@ impl StoreActor {
             .is_some_and(|delegation| now >= delegation.expires_at);
         if expired {
             tracing::debug!(key, "a store Delegation expired locally");
+            tracing::trace!(
+                target: TRACE_TARGET,
+                transition = "expire_delegation",
+                engine = %self.engine,
+                key = %key,
+            );
             if let Some(delegation) = self.delegations.remove(key) {
                 let (permits, waiting) = self.memory.recall_view(key);
-                for permit_id in permits {
-                    let token = self.permit_token(permit_id);
-                    self.recalled
-                        .insert(permit_id, (key.to_owned(), token.clone()));
-                    self.active_leases.insert(
-                        permit_id,
-                        ActiveLease {
-                            key: key.to_owned(),
-                            token,
-                            last_renewed: now,
-                            last_in_flight: 1,
-                        },
-                    );
+                let in_flight = u64::try_from(permits.len()).unwrap_or(u64::MAX);
+                if self.is_degraded() {
+                    for permit_id in permits {
+                        let token = self.permit_token(permit_id);
+                        self.recalled
+                            .insert(permit_id, (key.to_owned(), token.clone()));
+                        self.degraded_permits.insert(
+                            permit_id,
+                            DegradedPermit {
+                                key: key.to_owned(),
+                                token,
+                                last_in_flight: in_flight,
+                            },
+                        );
+                    }
+                    if let Some(hb) = self.heartbeats.get_mut(key) {
+                        hb.degraded_admit_at = Some(delegation.expires_at + hb.max_timeout);
+                    }
+                    // Keep local rule state in memory.tables so Retry-After,
+                    // backoff and halving continue locally during the outage.
+                } else {
+                    for permit_id in permits {
+                        let token = self.permit_token(permit_id);
+                        self.recalled
+                            .insert(permit_id, (key.to_owned(), token.clone()));
+                        self.active_leases.insert(
+                            permit_id,
+                            ActiveLease {
+                                key: key.to_owned(),
+                                token,
+                                last_renewed: now,
+                                last_in_flight: in_flight,
+                            },
+                        );
+                    }
+                    delegation.rule.0.forget(&mut self.memory.tables, key);
                 }
                 for run_id in waiting {
                     self.record_waiter(key, &run_id);
                 }
-                delegation.rule.0.forget(&mut self.memory.tables, key);
                 self.memory.recall(key);
                 self.wake_local_waiters(key);
             }
@@ -488,6 +782,208 @@ impl StoreActor {
         taken
     }
 
+    fn check_degraded_window(
+        &mut self,
+        take: &Take<'_>,
+        now: Instant,
+    ) -> Result<(u64, u64), Taken> {
+        let key = &*take.key;
+        let wait_none = |this: &mut Self| {
+            if take.in_turn.waits() {
+                this.record_waiter(key, &take.holder.run_id);
+            }
+            Taken::Wait(None)
+        };
+        let Some((last_hb, admit_at, granted_share, max_cap)) =
+            self.heartbeats.get(key).and_then(|hb| {
+                let last_hb = hb.last_hb_sent_at?;
+                let admit_at = hb
+                    .degraded_admit_at
+                    .unwrap_or(last_hb + self.heartbeat_ttl + hb.max_timeout);
+                Some((last_hb, admit_at, hb.granted_share, hb.max_cap))
+            })
+        else {
+            return Err(wait_none(self));
+        };
+        if now >= last_hb + self.degraded_max {
+            if let Some(hb_mut) = self.heartbeats.get_mut(key)
+                && !hb_mut.degraded_stopped
+            {
+                hb_mut.degraded_stopped = true;
+                tracing::trace!(
+                    target: TRACE_TARGET,
+                    transition = "stop_degraded",
+                    engine = %self.engine,
+                    key = %key,
+                );
+                if self.all_degraded_stopped() {
+                    let reason = match &self.connection {
+                        ConnectionState::Degraded { reason, .. } => Some(reason.clone()),
+                        ConnectionState::Connected => None,
+                    };
+                    self.publish_degraded_status(true, true, reason);
+                }
+            }
+            return Err(wait_none(self));
+        }
+        if now < admit_at {
+            let wait = admit_at.saturating_duration_since(now);
+            if take.in_turn.waits() {
+                self.record_waiter(key, &take.holder.run_id);
+            }
+            return Err(Taken::Wait(Some((take.now + wait, Hold::Delay))));
+        }
+        if let Some(hb_mut) = self.heartbeats.get_mut(key)
+            && !hb_mut.degraded_entered
+        {
+            hb_mut.degraded_entered = true;
+            tracing::trace!(
+                target: TRACE_TARGET,
+                transition = "enter_degraded",
+                engine = %self.engine,
+                key = %key,
+                share = granted_share,
+            );
+        }
+        Ok((granted_share, max_cap))
+    }
+
+    fn taken_degraded(&mut self, take: &Take<'_>) -> Taken {
+        let key = &*take.key;
+        let now = self.clock.now();
+        let (granted_share, max_cap) = match self.check_degraded_window(take, now) {
+            Ok(window) => window,
+            Err(wait) => return wait,
+        };
+        let local_in_flight = self.local_in_flight_count(key);
+        let verdict = take.rule.0.admit_degraded_store(
+            &mut self.memory.tables,
+            key,
+            local_in_flight,
+            granted_share,
+            max_cap,
+            take.now,
+        );
+        match verdict {
+            Verdict::Go => {
+                self.remove_waiter(key, &take.holder.run_id);
+                let id = self.next_shared_id;
+                self.next_shared_id -= 1;
+                let token = self.permit_token(id);
+                let in_flight = local_in_flight + 1;
+                self.degraded_permits.insert(
+                    id,
+                    DegradedPermit {
+                        key: key.to_owned(),
+                        token,
+                        last_in_flight: in_flight,
+                    },
+                );
+                tracing::trace!(
+                    target: TRACE_TARGET,
+                    transition = "take_degraded",
+                    engine = %self.engine,
+                    key = %key,
+                    in_flight,
+                    share = granted_share,
+                );
+                Taken::Granted(Permit {
+                    id,
+                    key: key.to_owned(),
+                    send_at: None,
+                    delegated: false,
+                })
+            }
+            Verdict::Until(until, hold) => Taken::Wait(Some((until, hold))),
+            Verdict::Refused(until) => Taken::Refused(until),
+            Verdict::Busy => {
+                if take.in_turn.waits() {
+                    self.record_waiter(key, &take.holder.run_id);
+                }
+                Taken::Wait(None)
+            }
+        }
+    }
+
+    async fn try_acquire_delegation(&mut self, key: &str, rule: &SharedRule) {
+        if let Err(error) = self.ensure_subscribed(key).await {
+            if matches!(error, StoreError::Unreachable(_)) {
+                self.enter_degraded(error.to_string());
+            } else {
+                tracing::warn!(%error, key, "could not subscribe to Politeness store wakes before delegating");
+            }
+            return;
+        }
+        let before = self.clock.now();
+        let reported_cap = self
+            .heartbeats
+            .get(key)
+            .and_then(|hb| hb.reported_cap)
+            .or_else(|| rule.0.concurrency());
+        self.work.count(Row::PolitenessDelegationTransactions);
+        let hb = DelegationHeartbeat {
+            heartbeat_ttl: self.heartbeat_ttl,
+            degraded_max: self.degraded_max,
+            timeout: self.request_timeout,
+            cap: reported_cap,
+        };
+        match self
+            .store
+            .delegate_with_heartbeat(key, &self.engine, self.delegation_ttl, hb)
+            .await
+        {
+            Ok(DelegationAcquire::Granted { state }) => {
+                self.work.count(Row::PolitenessDelegations);
+                if let Some(part) = rule.0.store_part()
+                    && let Some(bytes) = state.get(part)
+                {
+                    rule.0
+                        .decode_store_into(&mut self.memory.tables, key, bytes);
+                }
+                self.delegations.insert(
+                    key.to_owned(),
+                    StoreDelegation {
+                        runs: Vec::new(),
+                        rule: rule.clone(),
+                        expires_at: before + self.delegation_ttl,
+                        last_renewed: self.clock.now(),
+                    },
+                );
+                let cap_val = reported_cap.unwrap_or(0);
+                if let Some(entry) = self.heartbeats.get_mut(key) {
+                    entry.last_hb_sent_at = Some(before);
+                    entry.granted_share = cap_val;
+                    entry.acked_share = cap_val;
+                    entry.max_cap = cap_val;
+                    entry.max_timeout = self.request_timeout;
+                }
+                tracing::trace!(
+                    target: TRACE_TARGET,
+                    transition = "heartbeat",
+                    engine = %self.engine,
+                    key = %key,
+                    share = cap_val,
+                );
+                tracing::trace!(
+                    target: TRACE_TARGET,
+                    transition = "acquire_delegation",
+                    engine = %self.engine,
+                    key = %key,
+                );
+            }
+            Ok(DelegationAcquire::HeldByOther { .. } | DelegationAcquire::Shared) => {
+                self.shared.insert(key.to_owned());
+            }
+            Err(error) => {
+                if matches!(error, StoreError::Unreachable(_)) {
+                    self.enter_degraded(error.to_string());
+                } else {
+                    tracing::warn!(%error, key, "could not acquire Politeness store Delegation; falling back to shared take");
+                }
+            }
+        }
+    }
+
     async fn take_asked_delegations(&mut self, asked: Vec<AskedStoreTake>) {
         let mut seen = HashSet::new();
         let unique_keys: Vec<(String, SharedRule)> = asked
@@ -504,48 +1000,18 @@ impl StoreActor {
 
         for chunk in unique_keys.chunks(DELEGATIONS_PER_TRANSACTION) {
             for (key, rule) in chunk {
-                if let Err(error) = self.ensure_subscribed(key).await {
-                    tracing::warn!(%error, key, "could not subscribe to Politeness store wakes before delegating");
-                    continue;
+                if self.is_degraded() {
+                    break;
                 }
-                let before = self.clock.now();
-                self.work.count(Row::PolitenessDelegationTransactions);
-                match self
-                    .store
-                    .delegate(key, &self.engine, self.delegation_ttl)
-                    .await
-                {
-                    Ok(DelegationAcquire::Granted { state }) => {
-                        self.work.count(Row::PolitenessDelegations);
-                        if let Some(part) = rule.0.store_part()
-                            && let Some(bytes) = state.get(part)
-                        {
-                            rule.0
-                                .decode_store_into(&mut self.memory.tables, key, bytes);
-                        }
-                        self.delegations.insert(
-                            key.clone(),
-                            StoreDelegation {
-                                runs: Vec::new(),
-                                rule: rule.clone(),
-                                expires_at: before + self.delegation_ttl,
-                                last_renewed: self.clock.now(),
-                            },
-                        );
-                    }
-                    Ok(DelegationAcquire::HeldByOther { .. } | DelegationAcquire::Shared) => {
-                        self.shared.insert(key.clone());
-                    }
-                    Err(error) => {
-                        tracing::warn!(%error, key, "could not acquire Politeness store Delegation; falling back to shared take");
-                    }
-                }
+                self.try_acquire_delegation(key, rule).await;
             }
         }
 
         for item in asked {
             let answer = if self.has_live_delegation(&item.take.key) {
                 Ok(self.taken_delegated(&item.take))
+            } else if self.is_degraded() {
+                Ok(self.taken_degraded(&item.take))
             } else {
                 self.taken_shared(&item.take).await
             };
@@ -553,49 +1019,80 @@ impl StoreActor {
         }
     }
 
+    async fn prepare_shared_take(
+        &mut self,
+        take: &Take<'_>,
+    ) -> Result<Result<(Option<u64>, Option<(&'static str, Vec<u8>)>), Taken>, PolitenessError>
+    {
+        let key = &*take.key;
+        let Some(part) = take.rule.0.store_part() else {
+            return Ok(Ok((take.rule.0.concurrency(), None)));
+        };
+        self.work.count(Row::PolitenessTransactions);
+        let peek = match self.store.peek_shared(key, &self.engine).await {
+            Ok(peek) => peek,
+            Err(error) if matches!(error, StoreError::Unreachable(_)) => {
+                self.enter_degraded(error.to_string());
+                return Ok(Err(self.taken_degraded(take)));
+            }
+            Err(error) => return Err(store_error(&error)),
+        };
+        let (in_flight, state_map) = match peek {
+            PeekShared::Recalled => {
+                if take.in_turn.waits() {
+                    self.record_waiter(key, &take.holder.run_id);
+                    self.schedule_recall_retry(key);
+                }
+                return Ok(Err(Taken::Wait(None)));
+            }
+            PeekShared::Ready { in_flight, state } => (in_flight, state),
+        };
+        let stored = state_map.get(part).map(Vec::as_slice);
+        let (verdict, effective_cap, updated) = take.rule.0.admit_and_start_store(
+            &mut self.memory.tables,
+            key,
+            stored,
+            in_flight,
+            take.now,
+        );
+        match verdict {
+            Verdict::Go => Ok(Ok((effective_cap, updated.map(|bytes| (part, bytes))))),
+            Verdict::Until(until, hold) => Ok(Err(Taken::Wait(Some((until, hold))))),
+            Verdict::Refused(until) => Ok(Err(Taken::Refused(until))),
+            Verdict::Busy => {
+                if take.in_turn.waits() {
+                    self.record_waiter(key, &take.holder.run_id);
+                }
+                Ok(Err(Taken::Wait(None)))
+            }
+        }
+    }
+
     async fn taken_shared(&mut self, take: &Take<'_>) -> Result<Taken, PolitenessError> {
         let key = &*take.key;
-        self.ensure_subscribed(key).await?;
-
-        let store_part = take.rule.0.store_part();
-        let (cap, state_update) = if let Some(part) = store_part {
-            self.work.count(Row::PolitenessTransactions);
-            let peek = self
-                .store
-                .peek_shared(key, &self.engine)
-                .await
-                .map_err(|error| store_error(&error))?;
-            let (in_flight, state_map) = match peek {
-                PeekShared::Recalled => {
-                    if take.in_turn.waits() {
-                        self.record_waiter(key, &take.holder.run_id);
-                        self.schedule_recall_retry(key);
-                    }
-                    return Ok(Taken::Wait(None));
-                }
-                PeekShared::Ready { in_flight, state } => (in_flight, state),
-            };
-            let stored = state_map.get(part).map(Vec::as_slice);
-            let (verdict, effective_cap, updated) = take.rule.0.admit_and_start_store(
-                &mut self.memory.tables,
-                key,
-                stored,
-                in_flight,
-                take.now,
-            );
-            match verdict {
-                Verdict::Go => (effective_cap, updated.map(|bytes| (part, bytes))),
-                Verdict::Until(until, hold) => return Ok(Taken::Wait(Some((until, hold)))),
-                Verdict::Refused(until) => return Ok(Taken::Refused(until)),
-                Verdict::Busy => {
-                    if take.in_turn.waits() {
-                        self.record_waiter(key, &take.holder.run_id);
-                    }
-                    return Ok(Taken::Wait(None));
-                }
+        if let Err(error) = self.ensure_subscribed(key).await {
+            if matches!(error, StoreError::Unreachable(_)) {
+                self.enter_degraded(error.to_string());
+                return Ok(self.taken_degraded(take));
             }
-        } else {
-            (take.rule.0.concurrency(), None)
+            return Err(store_error(&error));
+        }
+
+        let needs_initial_hb = self
+            .heartbeats
+            .get(key)
+            .is_none_or(|hb| hb.last_hb_sent_at.is_none());
+        if needs_initial_hb && let Err(error) = self.send_key_heartbeat(key, &[]).await {
+            if matches!(error, StoreError::Unreachable(_)) {
+                self.enter_degraded(error.to_string());
+                return Ok(self.taken_degraded(take));
+            }
+            return Err(store_error(&error));
+        }
+
+        let (cap, state_update) = match self.prepare_shared_take(take).await? {
+            Ok(prepared) => prepared,
+            Err(early) => return Ok(early),
         };
 
         let id = self.next_shared_id;
@@ -607,7 +1104,7 @@ impl StoreActor {
             .map(|(part, bytes)| (*part, bytes.as_slice()));
 
         self.work.count(Row::PolitenessTransactions);
-        let result = self
+        let result = match self
             .store
             .take_shared(
                 key,
@@ -620,7 +1117,14 @@ impl StoreActor {
                 state_arg,
             )
             .await
-            .map_err(|error| store_error(&error))?;
+        {
+            Ok(result) => result,
+            Err(error) if matches!(error, StoreError::Unreachable(_)) => {
+                self.enter_degraded(error.to_string());
+                return Ok(self.taken_degraded(take));
+            }
+            Err(error) => return Err(store_error(&error)),
+        };
 
         match result {
             TakeShared::Granted { in_flight } => {
@@ -633,6 +1137,13 @@ impl StoreActor {
                         last_renewed: self.clock.now(),
                         last_in_flight: in_flight,
                     },
+                );
+                tracing::trace!(
+                    target: TRACE_TARGET,
+                    transition = "take_shared",
+                    engine = %self.engine,
+                    key = %key,
+                    in_flight,
                 );
                 Ok(Taken::Granted(Permit {
                     id,
@@ -658,6 +1169,65 @@ impl StoreActor {
         }
     }
 
+    async fn give_back_shared_permit(
+        &mut self,
+        permit: &Permit,
+        promoted: Option<(String, String)>,
+        rule: &SharedRule,
+        ending: Ending,
+        now: SystemTime,
+    ) -> Result<Option<SystemTime>, PolitenessError> {
+        let lease = self.active_leases.remove(&permit.id);
+        let token = promoted
+            .map(|(_, token)| token)
+            .or_else(|| lease.as_ref().map(|active| active.token.clone()))
+            .unwrap_or_else(|| self.permit_token(permit.id));
+        let others = lease
+            .as_ref()
+            .map_or(0, |active| active.last_in_flight.saturating_sub(1));
+        let (ready_at, updated_bytes) =
+            rule.0
+                .ended_store(&mut self.memory.tables, &permit.key, others, ending, now);
+
+        tracing::trace!(
+            target: TRACE_TARGET,
+            transition = "give_back",
+            engine = %self.engine,
+            key = %permit.key,
+        );
+
+        if self.is_degraded() {
+            self.wake_local_waiters(&permit.key);
+            return Ok(ready_at);
+        }
+
+        let state_part = rule.0.store_part();
+        let state_arg = match (state_part, updated_bytes.as_deref()) {
+            (Some(part), Some(bytes)) => Some((part, bytes)),
+            _ => None,
+        };
+
+        self.work.count(Row::PolitenessTransactions);
+        match self
+            .store
+            .give_back_shared(&permit.key, &self.engine, &token, STATE_TTL, state_arg)
+            .await
+        {
+            Ok(given) => {
+                if given.alone {
+                    self.shared.remove(&permit.key);
+                }
+                Ok(ready_at)
+            }
+            Err(error) if matches!(error, StoreError::Unreachable(_)) => {
+                self.enter_degraded(error.to_string());
+                self.wake_local_waiters(&permit.key);
+                Ok(ready_at)
+            }
+            Err(error) => Err(store_error(&error)),
+        }
+    }
+
     async fn handle_give_back(
         &mut self,
         permit: &Permit,
@@ -671,49 +1241,54 @@ impl StoreActor {
             None
         };
 
-        if !permit.delegated || promoted.is_some() {
-            let lease = self.active_leases.remove(&permit.id);
-            let token = promoted
-                .map(|(_, token)| token)
-                .or_else(|| lease.as_ref().map(|active| active.token.clone()))
-                .unwrap_or_else(|| self.permit_token(permit.id));
-            let others = lease
-                .as_ref()
-                .map_or(0, |active| active.last_in_flight.saturating_sub(1));
-            let (ready_at, updated_bytes) =
+        if let Some(degraded_permit) = self.degraded_permits.remove(&permit.id) {
+            let others = degraded_permit.last_in_flight.saturating_sub(1);
+            let (ready_at, _) =
                 rule.0
                     .ended_store(&mut self.memory.tables, &permit.key, others, ending, now);
-            let state_part = rule.0.store_part();
-            let state_arg = match (state_part, updated_bytes.as_deref()) {
-                (Some(part), Some(bytes)) => Some((part, bytes)),
-                _ => None,
-            };
-
-            self.work.count(Row::PolitenessTransactions);
-            let given = self
-                .store
-                .give_back_shared(&permit.key, &self.engine, &token, STATE_TTL, state_arg)
-                .await
-                .map_err(|error| store_error(&error))?;
-            if given.alone {
-                self.shared.remove(&permit.key);
-            }
+            tracing::trace!(
+                target: TRACE_TARGET,
+                transition = "give_back",
+                engine = %self.engine,
+                key = %permit.key,
+            );
+            self.wake_local_waiters(&permit.key);
             return Ok(ready_at);
+        }
+
+        if !permit.delegated || promoted.is_some() {
+            return self
+                .give_back_shared_permit(permit, promoted, rule, ending, now)
+                .await;
         }
 
         // Delegated Permit: served completely in memory (`E6.transactions = 0`).
         let (ready_at, turn) = rule
             .0
             .given_back_in_memory(&mut self.memory, permit, ending, now);
+        tracing::trace!(
+            target: TRACE_TARGET,
+            transition = "give_back",
+            engine = %self.engine,
+            key = %permit.key,
+        );
         if ending != Ending::Done
+            && !self.is_degraded()
             && let Some(part) = rule.0.store_part()
             && let Some(bytes) = rule.0.encode_store_from(&self.memory.tables, &permit.key)
         {
             self.work.count(Row::PolitenessOriginTransactions);
-            self.store
+            if let Err(error) = self
+                .store
                 .save_state(&permit.key, STATE_TTL, part, &bytes)
                 .await
-                .map_err(|error| store_error(&error))?;
+            {
+                if matches!(error, StoreError::Unreachable(_)) {
+                    self.enter_degraded(error.to_string());
+                } else {
+                    return Err(store_error(&error));
+                }
+            }
         }
         if let Some(turn) = turn {
             let _ = self.wakes.send(turn.wake);
@@ -722,8 +1297,14 @@ impl StoreActor {
         let idle = self.delegations.get(&permit.key).is_some_and(|delegation| {
             delegation.runs.is_empty() && self.memory.in_flight(&permit.key) == 0
         });
-        if idle {
-            self.release_delegation_key(&permit.key, false).await?;
+        if idle
+            && !self.is_degraded()
+            && let Err(error) = self.release_delegation_key(&permit.key, false).await
+        {
+            if self.is_degraded() {
+                return Ok(ready_at);
+            }
+            return Err(error);
         }
         Ok(ready_at)
     }
@@ -744,8 +1325,10 @@ impl StoreActor {
                 idle_keys.push(key.clone());
             }
         }
-        for key in idle_keys {
-            self.release_delegation_key(&key, false).await?;
+        if !self.is_degraded() {
+            for key in idle_keys {
+                let _ = self.release_delegation_key(&key, false).await;
+            }
         }
         Ok(())
     }
@@ -755,14 +1338,20 @@ impl StoreActor {
             && self.has_live_delegation(&delegated_key)
         {
             let persist = change.apply_in_memory(&mut self.memory);
-            if let (Some(bytes), Some((store_key, part))) = (persist, change.store_target()) {
+            if !self.is_degraded()
+                && let (Some(bytes), Some((store_key, part))) = (persist, change.store_target())
+            {
                 self.work.count(Row::PolitenessOriginTransactions);
                 if let Err(error) = self
                     .store
                     .save_state(&store_key, STATE_TTL, part, &bytes)
                     .await
                 {
-                    tracing::warn!(%error, key = %store_key, "could not persist site ask to Politeness store");
+                    if matches!(error, StoreError::Unreachable(_)) {
+                        self.enter_degraded(error.to_string());
+                    } else {
+                        tracing::warn!(%error, key = %store_key, "could not persist site ask to Politeness store");
+                    }
                 }
             }
             return;
@@ -771,8 +1360,17 @@ impl StoreActor {
             change.apply_in_memory(&mut self.memory);
             return;
         };
+        if self.is_degraded() {
+            change.apply_in_memory(&mut self.memory);
+            return;
+        }
         let loaded = match self.store.load_state(&store_key, part).await {
             Ok(bytes) => bytes,
+            Err(error) if matches!(error, StoreError::Unreachable(_)) => {
+                self.enter_degraded(error.to_string());
+                change.apply_in_memory(&mut self.memory);
+                return;
+            }
             Err(error) => {
                 change.fail(store_error(&error));
                 return;
@@ -784,7 +1382,11 @@ impl StoreActor {
                 .save_state(&store_key, STATE_TTL, part, &updated)
                 .await
         {
-            tracing::warn!(%error, key = %store_key, "could not save shared Politeness state");
+            if matches!(error, StoreError::Unreachable(_)) {
+                self.enter_degraded(error.to_string());
+            } else {
+                tracing::warn!(%error, key = %store_key, "could not save shared Politeness state");
+            }
         }
     }
 
@@ -798,7 +1400,12 @@ impl StoreActor {
                     tracing::warn!(%error, key, "could not release recalled store Delegation");
                 }
             }
-            WakeEvent::Recall { .. } => {}
+            WakeEvent::Delegated { holder } if holder != self.engine => {
+                // Another engine took the Delegation while we were idle; drop
+                // our old heartbeat record so we don't keep a stale share.
+                self.heartbeats.remove(&key);
+            }
+            WakeEvent::Recall { .. } | WakeEvent::Delegated { .. } => {}
             WakeEvent::Recalled | WakeEvent::Wake => {
                 self.recall_retries.retain(|(_, k)| k != &key);
                 self.wake_local_waiters(&key);
@@ -832,7 +1439,8 @@ impl StoreActor {
         }
 
         self.work.count(Row::PolitenessRunTransactions);
-        self.store
+        if let Err(error) = self
+            .store
             .release_delegation(
                 key,
                 &self.engine,
@@ -842,7 +1450,15 @@ impl StoreActor {
                 &state_args,
             )
             .await
-            .map_err(|error| store_error(&error))?;
+        {
+            if matches!(error, StoreError::Unreachable(_)) {
+                // Keep the Delegation locally if it hasn't expired yet.
+                self.delegations.insert(key.to_owned(), delegation);
+                self.enter_degraded(error.to_string());
+                return Ok(());
+            }
+            return Err(store_error(&error));
+        }
 
         let now_instant = self.clock.now();
         let in_flight = u64::try_from(tokens.len()).unwrap_or(u64::MAX);
@@ -873,31 +1489,22 @@ impl StoreActor {
         Ok(())
     }
 
-    async fn release_all_delegations(&mut self) {
-        let keys: Vec<String> = self.delegations.keys().cloned().collect();
-        for key in keys {
+    async fn clean_shutdown(&mut self) {
+        if self.is_degraded() {
+            return;
+        }
+        let delegation_keys: Vec<String> = self.delegations.keys().cloned().collect();
+        for key in delegation_keys {
             let _ = self.release_delegation_key(&key, false).await;
+        }
+        // ADR 0053: an engine that exits cleanly deletes its own heartbeat record.
+        let hb_keys: Vec<String> = self.heartbeats.keys().cloned().collect();
+        for key in hb_keys {
+            let _ = self.store.leave_engine(&key, &self.engine).await;
         }
     }
 
-    async fn heartbeat_tick(&mut self) {
-        let now = self.clock.now();
-
-        // Fire any fallback wake timers for unanswered recalls (e.g. crashed holder).
-        let mut due_keys = Vec::new();
-        self.recall_retries.retain(|(when, key)| {
-            if *when <= now {
-                due_keys.push(key.clone());
-                false
-            } else {
-                true
-            }
-        });
-        for key in due_keys {
-            self.wake_local_waiters(&key);
-        }
-
-        // Renew held Delegations whose heartbeat interval elapsed.
+    async fn renew_due_delegations(&mut self, now: Instant) -> bool {
         let delegation_interval = self.delegation_ttl / 3;
         let due_delegations: Vec<String> = self
             .delegations
@@ -919,6 +1526,12 @@ impl StoreActor {
                         delegation.expires_at = before + self.delegation_ttl;
                         delegation.last_renewed = self.clock.now();
                     }
+                    tracing::trace!(
+                        target: TRACE_TARGET,
+                        transition = "renew_delegation",
+                        engine = %self.engine,
+                        key = %key,
+                    );
                 }
                 Ok(false) => {
                     tracing::debug!(key, "store Delegation was lost on renewal");
@@ -929,8 +1542,63 @@ impl StoreActor {
                 }
                 Err(error) => {
                     tracing::debug!(%error, key, "store Delegation renewal failed; expiry unchanged");
+                    if matches!(error, StoreError::Unreachable(_)) {
+                        self.enter_degraded(error.to_string());
+                        self.expire_delegation_if_needed(&key);
+                        return false;
+                    }
                     self.expire_delegation_if_needed(&key);
                 }
+            }
+        }
+        true
+    }
+
+    async fn heartbeat_tick(&mut self) -> Option<WakeEvents> {
+        let now = self.clock.now();
+
+        if self.is_degraded() {
+            return self.degraded_tick(now).await;
+        }
+
+        // Fire any fallback wake timers for unanswered recalls (e.g. crashed holder).
+        let mut due_keys = Vec::new();
+        self.recall_retries.retain(|(when, key)| {
+            if *when <= now {
+                due_keys.push(key.clone());
+                false
+            } else {
+                true
+            }
+        });
+        for key in due_keys {
+            self.wake_local_waiters(&key);
+        }
+
+        if !self.renew_due_delegations(now).await {
+            return None;
+        }
+
+        // Send periodic engine heartbeats for every active key to refresh
+        // liveness and store-computed degraded shares (ADR 0053).
+        let hb_interval = self.heartbeat_ttl / 3;
+        let now = self.clock.now();
+        let due_hbs: Vec<String> = self
+            .heartbeats
+            .iter()
+            .filter(|(_, hb)| {
+                hb.last_hb_sent_at
+                    .is_none_or(|sent| now.saturating_duration_since(sent) >= hb_interval)
+            })
+            .map(|(key, _)| key.clone())
+            .collect();
+        for key in due_hbs {
+            if let Err(error) = self.send_key_heartbeat(&key, &[]).await {
+                if matches!(error, StoreError::Unreachable(_)) {
+                    self.enter_degraded(error.to_string());
+                    return None;
+                }
+                tracing::debug!(%error, key, "Politeness store heartbeat failed");
             }
         }
 
@@ -956,21 +1624,220 @@ impl StoreActor {
                     tracing::debug!(key, "shared Permit lease expired before renewal");
                 }
                 Err(error) => {
+                    if matches!(error, StoreError::Unreachable(_)) {
+                        self.enter_degraded(error.to_string());
+                        return None;
+                    }
                     tracing::debug!(%error, key, "shared Permit lease renewal failed");
                 }
             }
         }
+        None
     }
 
-    async fn ensure_subscribed(&mut self, key: &str) -> Result<(), PolitenessError> {
+    async fn degraded_tick(&mut self, now: Instant) -> Option<WakeEvents> {
+        // Expire any held Delegations whose TTL elapsed during the outage so
+        // they transition to ADR 0053's degraded-share wait and admission.
+        let delegation_keys: Vec<String> = self.delegations.keys().cloned().collect();
+        for key in delegation_keys {
+            self.expire_delegation_if_needed(&key);
+        }
+
+        // Check `politeness.degraded_max` expiry and degraded-admission readiness.
+        let mut wake_keys = Vec::new();
+        let mut newly_stopped = false;
+        for (key, hb) in &mut self.heartbeats {
+            let Some(last_hb) = hb.last_hb_sent_at else {
+                continue;
+            };
+            let stop_at = last_hb + self.degraded_max;
+            if now >= stop_at {
+                if !hb.degraded_stopped {
+                    hb.degraded_stopped = true;
+                    newly_stopped = true;
+                    tracing::trace!(
+                        target: TRACE_TARGET,
+                        transition = "stop_degraded",
+                        engine = %self.engine,
+                        key = %key,
+                    );
+                }
+                continue;
+            }
+            if let Some(admit_at) = hb.degraded_admit_at
+                && now >= admit_at
+                && !hb.degraded_entered
+            {
+                wake_keys.push(key.clone());
+            }
+        }
+        if newly_stopped && self.all_degraded_stopped() {
+            let reason = match &self.connection {
+                ConnectionState::Degraded { reason, .. } => Some(reason.clone()),
+                ConnectionState::Connected => None,
+            };
+            self.publish_degraded_status(true, true, reason);
+        }
+        for key in wake_keys {
+            self.wake_local_waiters(&key);
+        }
+
+        // Attempt automatic reconnection with exponential backoff.
+        let should_retry = match &self.connection {
+            ConnectionState::Degraded {
+                next_reconnect_at, ..
+            } => now >= *next_reconnect_at,
+            ConnectionState::Connected => false,
+        };
+        if !should_retry {
+            return None;
+        }
+        match self.try_reconnect().await {
+            Ok(new_events) => {
+                self.connection = ConnectionState::Connected;
+                self.publish_degraded_status(false, false, None);
+                let all_keys: Vec<String> = self.waiters.keys().cloned().collect();
+                for key in all_keys {
+                    self.wake_local_waiters(&key);
+                }
+                tracing::info!(engine = %self.engine, "reconnected to the Politeness store");
+                Some(new_events)
+            }
+            Err(error) => {
+                let next_now = self.clock.now();
+                if let ConnectionState::Degraded {
+                    next_reconnect_at,
+                    backoff,
+                    ..
+                } = &mut self.connection
+                {
+                    *backoff = (*backoff * 2).min(MAX_RECONNECT_BACKOFF);
+                    *next_reconnect_at = next_now + *backoff;
+                }
+                tracing::debug!(%error, engine = %self.engine, "Politeness store reconnect attempt failed");
+                None
+            }
+        }
+    }
+
+    async fn try_reconnect(&mut self) -> Result<WakeEvents, StoreError> {
+        let new_store = self.store.reconnect().await?;
+        let (mut new_subs, new_events) = new_store.open_wake_bus().await?;
+
+        let keys_to_subscribe: Vec<String> = self
+            .subscribed
+            .keys()
+            .chain(self.heartbeats.keys())
+            .cloned()
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        let mut subscribed = HashMap::with_capacity(keys_to_subscribe.len());
+        let mut channel_to_key = HashMap::with_capacity(keys_to_subscribe.len());
+        for key in keys_to_subscribe {
+            let channel = new_subs.subscribe(&key).await?;
+            subscribed.insert(key.clone(), channel.clone());
+            channel_to_key.insert(channel, key);
+        }
+
+        self.store = new_store;
+        self.subs = new_subs;
+        self.subscribed = subscribed;
+        self.channel_to_key = channel_to_key;
+
+        // Reconcile any Delegations held during the outage: if a Delegation
+        // survived on the server, renew it; otherwise expire it locally so
+        // its in-flight Permits are registered atomically below.
+        let delegation_keys: Vec<String> = self.delegations.keys().cloned().collect();
+        for key in delegation_keys {
+            if self.has_live_delegation(&key) {
+                let before = self.clock.now();
+                match self
+                    .store
+                    .renew_delegation(&key, &self.engine, self.delegation_ttl)
+                    .await
+                {
+                    Ok(true) => {
+                        if let Some(delegation) = self.delegations.get_mut(&key) {
+                            delegation.expires_at = before + self.delegation_ttl;
+                            delegation.last_renewed = self.clock.now();
+                        }
+                    }
+                    Ok(false) => {
+                        if let Some(delegation) = self.delegations.get_mut(&key) {
+                            delegation.expires_at = before;
+                        }
+                        self.expire_delegation_if_needed(&key);
+                    }
+                    Err(error) => return Err(error),
+                }
+            } else {
+                self.expire_delegation_if_needed(&key);
+            }
+        }
+
+        // ADR 0053: on reconnecting, register all requests in flight as
+        // Permits BEFORE the store frees our stale reservation.
+        let keys_to_sync: Vec<String> = self.heartbeats.keys().cloned().collect();
+        let now = self.clock.now();
+        for key in keys_to_sync {
+            let mut tokens: Vec<String> = self
+                .active_leases
+                .values()
+                .filter(|lease| lease.key == key)
+                .map(|lease| lease.token.clone())
+                .collect();
+            let degraded_ids: Vec<(i64, String, u64)> = self
+                .degraded_permits
+                .iter()
+                .filter(|(_, permit)| permit.key == key)
+                .map(|(id, permit)| (*id, permit.token.clone(), permit.last_in_flight))
+                .collect();
+            for (_, token, _) in &degraded_ids {
+                tokens.push(token.clone());
+            }
+
+            self.send_key_heartbeat(&key, &tokens).await?;
+
+            for lease in self.active_leases.values_mut() {
+                if lease.key == key {
+                    lease.last_renewed = now;
+                }
+            }
+            for (id, token, last_in_flight) in degraded_ids {
+                self.degraded_permits.remove(&id);
+                self.active_leases.insert(
+                    id,
+                    ActiveLease {
+                        key: key.clone(),
+                        token,
+                        last_renewed: now,
+                        last_in_flight,
+                    },
+                );
+            }
+            if let Some(hb) = self.heartbeats.get_mut(&key) {
+                hb.degraded_admit_at = None;
+                hb.degraded_entered = false;
+                hb.degraded_stopped = false;
+            }
+            tracing::trace!(
+                target: TRACE_TARGET,
+                transition = "reconnect",
+                engine = %self.engine,
+                key = %key,
+                registered = tokens.len(),
+            );
+        }
+
+        Ok(new_events)
+    }
+
+    async fn ensure_subscribed(&mut self, key: &str) -> Result<(), StoreError> {
         if self.subscribed.contains_key(key) {
             return Ok(());
         }
-        let channel = self
-            .subs
-            .subscribe(key)
-            .await
-            .map_err(|error| store_error(&error))?;
+        let channel = self.subs.subscribe(key).await?;
         self.subscribed.insert(key.to_owned(), channel.clone());
         self.channel_to_key.insert(channel, key.to_owned());
         Ok(())

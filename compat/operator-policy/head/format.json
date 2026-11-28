@@ -692,6 +692,11 @@
                 },
                 "type": "object"
               },
+              "degraded_max": {
+                "description": "How long a cut-off engine keeps admitting requests to shared keys within its last granted share when the Politeness store is unreachable, counted on each side's clock from the moment the engine sent its last acknowledged heartbeat: 10 minutes by default. Past it, the cut-off engine admits nothing to shared keys until it reconnects, while its Runs stay live and resumable, and the store frees its reservation once `politeness.degraded_max` plus its longest reported request timeout has passed. Set in user configuration or an Operator policy only.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "domain": {
                 "additionalProperties": false,
                 "properties": {
@@ -3237,6 +3242,11 @@
                   }
                 },
                 "type": "object"
+              },
+              "degraded_max": {
+                "description": "How long a cut-off engine keeps admitting requests to shared keys within its last granted share when the Politeness store is unreachable, counted on each side's clock from the moment the engine sent its last acknowledged heartbeat: 10 minutes by default. Past it, the cut-off engine admits nothing to shared keys until it reconnects, while its Runs stay live and resumable, and the store frees its reservation once `politeness.degraded_max` plus its longest reported request timeout has passed. Set in user configuration or an Operator policy only.",
+                "minimum": 0,
+                "type": "integer"
               },
               "delegation": {
                 "description": "Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.",
@@ -8250,6 +8260,11 @@
                   }
                 },
                 "type": "object"
+              },
+              "degraded_max": {
+                "description": "How long a cut-off engine keeps admitting requests to shared keys within its last granted share when the Politeness store is unreachable, counted on each side's clock from the moment the engine sent its last acknowledged heartbeat: 10 minutes by default. Past it, the cut-off engine admits nothing to shared keys until it reconnects, while its Runs stay live and resumable, and the store frees its reservation once `politeness.degraded_max` plus its longest reported request timeout has passed. Set in user configuration or an Operator policy only.",
+                "minimum": 0,
+                "type": "integer"
               },
               "delegation": {
                 "description": "Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.",

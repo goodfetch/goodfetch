@@ -1,0 +1,12 @@
+{"transition":"heartbeat","engine":"trace-e1","key":"trace.example","share":2}
+{"transition":"acquire_delegation","engine":"trace-e1","key":"trace.example"}
+{"transition":"cut_off","engine":"trace-e1","key":"trace.example"}
+{"transition":"expire_delegation","engine":"trace-e1","key":"trace.example"}
+{"transition":"enter_degraded","engine":"trace-e1","key":"trace.example","share":2}
+{"transition":"take_degraded","engine":"trace-e1","key":"trace.example","in_flight":1,"share":2}
+{"transition":"give_back","engine":"trace-e1","key":"trace.example"}
+{"transition":"take_degraded","engine":"trace-e1","key":"trace.example","in_flight":1,"share":2}
+{"transition":"reconnect","engine":"trace-e1","key":"trace.example","registered":1}
+{"transition":"give_back","engine":"trace-e1","key":"trace.example"}
+{"transition":"cut_off","engine":"trace-e1","key":"trace.example"}
+{"transition":"stop_degraded","engine":"trace-e1","key":"trace.example"}

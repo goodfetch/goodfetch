@@ -154,8 +154,8 @@ use crate::mask::{Masks, Redaction, Scope};
 use crate::metrics::{FolderStorage, Metrics};
 use crate::plugin_kinds::run_plugins::RunPlugins;
 use crate::politeness::{
-    OnStorageFailures, PolitenessOptions, PolitenessTables, RunPoliteness, RunPolitenessParts,
-    SharedPoliteness, SharedPolitenessParts,
+    OnStorageFailures, OnStoreDegraded, PolitenessOptions, PolitenessTables, RunPoliteness,
+    RunPolitenessParts, SharedPoliteness, SharedPolitenessParts, StoreDegradedStatus,
 };
 use crate::robots_txt::OwnCopies;
 use crate::run_files::{self, KeepError, KeptExport, RunFiles};
@@ -1769,9 +1769,13 @@ impl Runs {
             registry: Arc::new(owner.part("Run registry")),
             live,
         };
+        let mut politeness_options = setup.politeness.clone();
+        if politeness_options.metrics.is_none() {
+            politeness_options.metrics = Some(setup.metrics.clone());
+        }
         let politeness = Arc::new(SharedPoliteness::new(SharedPolitenessParts {
             path: setup.engine.home().politeness_file(),
-            options: setup.politeness.clone(),
+            options: politeness_options,
             tables: setup.politeness_tables.clone(),
             holder_gone,
             engine: format!("{:016x}", setup.entropy.next_u64()),
@@ -4577,6 +4581,11 @@ impl Registry {
             folder: folder.to_owned(),
             admits: self.driving(kind).admits,
             on_storage_failures: stop_on_politeness_failures(identity.clone(), stop.clone()),
+            on_store_degraded: Some(watch_politeness_store_degraded(
+                identity.clone(),
+                self.setup.events.clone(),
+                warnings.clone(),
+            )),
         });
         let governor = self.setup.governor.join_run(share, folder.to_owned());
         let files = RunFiles::new(
@@ -5735,6 +5744,86 @@ fn report_storage_failed(registry: mpsc::WeakSender<Command>) -> StorageFailed {
 /// `stop`.
 fn stop_on_politeness_failures(identity: RunIdentity, stop: StopAsker) -> OnStorageFailures {
     Box::new(move |failures, folder| stop_on_failures(&identity, &stop, failures, folder))
+}
+
+/// Watches the Politeness store's degraded status for the Run of `identity`,
+/// emitting `politeness.store_degraded` on the Run's event stream and
+/// recording `politeness_store_degraded` in its report warnings (ADRs 0024
+/// and 0053).
+fn watch_politeness_store_degraded(
+    identity: RunIdentity,
+    events: Events,
+    warnings: ReportWarnings,
+) -> OnStoreDegraded {
+    Box::new(move |mut receiver: watch::Receiver<StoreDegradedStatus>| {
+        let run_id = identity.id().clone();
+        let events = events.clone();
+        let warnings = warnings.clone();
+        let cancelled = identity.owner().child_token();
+        let span = identity.span().clone();
+        let task = async move {
+            let mut last_emitted: Option<StoreDegradedStatus> = None;
+            let mut warned_degraded = false;
+            let mut warned_stopped = false;
+            loop {
+                let current = receiver.borrow_and_update().clone();
+                let should_emit = match &last_emitted {
+                    None => current.degraded,
+                    Some(prev) => prev != &current,
+                };
+                if should_emit {
+                    let degraded_max_ms =
+                        u64::try_from(current.degraded_max.as_millis()).unwrap_or(u64::MAX);
+                    let payload = goodfetch_protocol::politeness::PolitenessStoreDegraded {
+                        run_id: run_id.clone(),
+                        degraded: current.degraded,
+                        admission_stopped: current.admission_stopped,
+                        degraded_max_ms,
+                        reason: current.reason.clone(),
+                    };
+                    events
+                        .publish(
+                            &goodfetch_protocol::politeness::POLITENESS_STORE_DEGRADED_EVENT,
+                            Some(run_id.as_str()),
+                            &payload,
+                        )
+                        .await;
+                    if current.degraded && !warned_degraded {
+                        warned_degraded = true;
+                        let _ = warnings
+                            .warn(RunWarning {
+                                code: goodfetch_protocol::run::warning::POLITENESS_STORE_DEGRADED.to_owned(),
+                                message: "The Politeness store was unreachable, and the Run took a degraded share.".to_owned(),
+                                sessions: Vec::new(),
+                                folder: None,
+                            })
+                            .await;
+                    }
+                    if current.admission_stopped && !warned_stopped {
+                        warned_stopped = true;
+                        let _ = warnings
+                            .warn(RunWarning {
+                                code: goodfetch_protocol::run::warning::POLITENESS_STORE_DEGRADED.to_owned(),
+                                message: "The Politeness store outage exceeded politeness.degraded_max; admission to shared keys stopped until reconnection.".to_owned(),
+                                sessions: Vec::new(),
+                                folder: None,
+                            })
+                            .await;
+                    }
+                    last_emitted = Some(current);
+                }
+                tokio::select! {
+                    () = cancelled.cancelled() => break,
+                    changed = receiver.changed() => {
+                        if changed.is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+        };
+        identity.owner().spawn(task.instrument(span));
+    })
 }
 
 /// How a Run's `settings` write its run file: `run_state.durability`'s

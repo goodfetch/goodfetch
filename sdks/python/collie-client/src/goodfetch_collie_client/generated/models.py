@@ -8431,6 +8431,32 @@ class PolicyWritten(BaseModel):
     """The file's digest after the write, the version new Runs name."""
 
 
+class PolitenessStoreDegraded(BaseModel):
+    """
+    Payload of `politeness.store_degraded` (ADRs 0024 and 0053): emitted on
+    each affected Run's event stream when the Politeness store becomes
+    unreachable, when degraded admission stops at `politeness.degraded_max`,
+    and when the store reconnects.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    admission_stopped: bool
+    """
+    Whether `politeness.degraded_max` has elapsed and admission to shared
+    keys is stopped until the store reconnects.
+    """
+    degraded: bool
+    """Whether the Politeness store is currently unreachable (degraded)."""
+    degraded_max_ms: Annotated[int, Field(ge=0)]
+    """The configured `politeness.degraded_max` window in milliseconds."""
+    reason: str | None = None
+    """Why the Politeness store became unreachable, when `degraded` is `true`."""
+    run_id: RunId
+    """The affected Run's ID."""
+
+
 class PressParams(BaseModel):
     """
     What `locator.press` takes: the locator whose element gets the key, and

@@ -25,6 +25,7 @@ use crate::governor::SYSTEM_INFO;
 use crate::group::GROUP_LEAD_REACHABILITY_CHANGED;
 use crate::jsonrpc::RequestId;
 use crate::needs_you::{NEEDS_YOU_CHANGED, NeedsYouItem};
+use crate::politeness::POLITENESS_STORE_DEGRADED_EVENT;
 use crate::run::{RUN_AXES_CHANGED, RunAxes, RunId};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -216,6 +217,7 @@ pub const EVENTS_SUBSCRIBE: Operation = Operation {
         &NEEDS_YOU_CHANGED,
         &SYSTEM_INFO,
         &GROUP_LEAD_REACHABILITY_CHANGED,
+        &POLITENESS_STORE_DEGRADED_EVENT,
     ],
     cancellable: true,
     input: None,

@@ -346,6 +346,7 @@ age_notice = true
 [settings.politeness]
 sharing = "shared"
 delegation = true
+degraded_max = 30000
 store = { addressing = { kind = "server", url = "rediss://valkey.example:6380" }, namespace = "crawl", password = "env:VALKEY_PASSWORD", username = "crawler" }
 
 [settings.politeness.proxy]
@@ -830,6 +831,7 @@ age_notice = true
 [lock.politeness]
 sharing = "shared"
 delegation = true
+degraded_max = 30000
 store = { addressing = { kind = "server", url = "rediss://valkey.example:6380" }, namespace = "crawl", password = "env:VALKEY_PASSWORD", username = "crawler" }
 
 [lock.politeness.proxy]
@@ -1098,6 +1100,9 @@ max_requests_per_minute = 4
 
 [cap.usage]
 ledger_read_interval = 30000
+
+[cap.politeness]
+degraded_max = 30000
 
 [cap.politeness.proxy]
 concurrency = 4

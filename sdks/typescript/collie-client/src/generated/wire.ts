@@ -151,6 +151,7 @@ export type CollieWireType =
   | "Period"
   | "PlanReport"
   | "PluginRun"
+  | "PolitenessStoreDegraded"
   | "PressParams"
   | "PreviewOccurrence"
   | "PrivateEndpoint"
@@ -400,6 +401,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "Period": { fields: { "time_zone": "timeZone" } },
     "PlanReport": { fields: { "steps_changed": "stepsChanged" } },
     "PluginRun": { fields: { "confinement_missing": "confinementMissing", "network_level": "networkLevel" } },
+    "PolitenessStoreDegraded": { fields: { "admission_stopped": "admissionStopped", "degraded_max_ms": "degradedMaxMs", "run_id": "runId" } },
     "PressParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
     "PreviewOccurrence": { fields: { "at": ["at", "time"] } },
     "PrivateEndpoint": { fields: { "token_file": "tokenFile" } },
@@ -665,6 +667,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "page.request_finished": { type: "PageRequest" },
     "page.response": { type: "PageExchange" },
     "page.web_socket": { type: "PageWebSocket" },
+    "politeness.store_degraded": { type: "PolitenessStoreDegraded" },
     "run.aborting": { type: "RunAborting" },
     "run.axes_changed": { type: "RunAxes" },
     "run.checkpointing": { type: "RunCheckpointing" },

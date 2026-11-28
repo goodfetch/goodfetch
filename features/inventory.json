@@ -3416,6 +3416,17 @@
       ]
     },
     {
+      "id": "event:politeness.store_degraded",
+      "kind": "event",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "event:run.aborting",
       "kind": "event",
       "area": 3,
@@ -11221,6 +11232,17 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:politeness.degraded_max",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },

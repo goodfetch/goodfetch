@@ -11,7 +11,12 @@
     clippy::disallowed_methods,
     reason = "test support runs the container engine or local valkey-server and polls for the socket on the real clock, outside any async worker and any simulated clock (ADR 0062)"
 )]
+#![expect(
+    clippy::disallowed_types,
+    reason = "test support reserves free loopback ports and probes Valkey's TCP listener outside any async worker or Simulation (ADR 0062)"
+)]
 
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::time::{Duration, Instant};
@@ -31,6 +36,12 @@ const START_DEADLINE: Duration = Duration::from_secs(20);
 /// How often the socket or cluster readiness is polled.
 const POLL: Duration = Duration::from_millis(20);
 
+/// How a [`Valkey`] test instance is reached.
+enum ValkeyEndpoint {
+    Unix(PathBuf),
+    Tcp(SocketAddr),
+}
+
 /// A Valkey server (container on Linux, Homebrew process on macOS), until
 /// the value drops.
 pub struct Valkey {
@@ -39,8 +50,8 @@ pub struct Valkey {
     #[cfg(target_os = "linux")]
     container: String,
     #[cfg(target_os = "macos")]
-    child: std::process::Child,
-    socket: PathBuf,
+    child: Option<std::process::Child>,
+    endpoint: ValkeyEndpoint,
 }
 
 impl Valkey {
@@ -69,15 +80,7 @@ impl Valkey {
             std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o777);
             std::fs::set_permissions(&folder, permissions).expect("the socket's folder opens");
             let output = run(Command::new(engine)
-                .args([
-                    "run",
-                    "--detach",
-                    "--rm",
-                    "--network",
-                    "none",
-                    "--user",
-                    "0:0",
-                ])
+                .args(["run", "--detach", "--network", "none", "--user", "0:0"])
                 .args(["--entrypoint", "valkey-server", "--volume"])
                 .arg(format!("{}:/run/valkey", folder.display()))
                 .arg(&image)
@@ -98,27 +101,83 @@ impl Valkey {
             Self {
                 engine,
                 container: String::from_utf8_lossy(&output.stdout).trim().to_owned(),
-                socket: folder.join("valkey.sock"),
+                endpoint: ValkeyEndpoint::Unix(folder.join("valkey.sock")),
             }
         };
 
         #[cfg(target_os = "macos")]
         let valkey = {
             let socket = folder.join("valkey.sock");
-            let child = Command::new("valkey-server")
-                .args(["--port", "0", "--unixsocket"])
-                .arg(&socket)
+            let child = spawn_macos_unix(&socket);
+            Self {
+                child: Some(child),
+                endpoint: ValkeyEndpoint::Unix(socket),
+            }
+        };
+
+        valkey.wait_listening();
+        valkey
+    }
+
+    /// Starts a restartable Valkey server listening on a free loopback TCP
+    /// port (`127.0.0.1:<port>`), suitable for Toxiproxy routing and mid-run
+    /// container stop/restart outage tests (ADRs 0053 and 0060).
+    ///
+    /// # Panics
+    ///
+    /// If no container engine or Homebrew `valkey-server` answers, the image
+    /// is missing, or the server does not listen within its deadline.
+    #[must_use]
+    pub fn start_tcp(_env: &TestEnv) -> Self {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+            .expect("a free loopback TCP port is available for Valkey");
+        let addr = listener.local_addr().expect("bound listener has addr");
+        drop(listener);
+        let port = addr.port().to_string();
+
+        #[cfg(target_os = "linux")]
+        let valkey = {
+            let engine = engine();
+            let image = image();
+            let output = run(Command::new(engine)
                 .args([
-                    "--unixsocketperm",
-                    "700",
+                    "run",
+                    "--detach",
+                    "--network",
+                    "host",
+                    "--entrypoint",
+                    "valkey-server",
+                ])
+                .arg(&image)
+                .args([
+                    "--bind",
+                    "127.0.0.1",
+                    "--port",
+                    &port,
                     "--save",
                     "",
                     "--appendonly",
                     "no",
-                ])
-                .spawn()
-                .expect("Homebrew `valkey-server` starts (`brew install valkey`)");
-            Self { child, socket }
+                ]));
+            assert!(
+                output.status.success(),
+                "{engine} cannot start TCP {image}: {}; `ci/valkey/fetch.sh` pulls it",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+            Self {
+                engine,
+                container: String::from_utf8_lossy(&output.stdout).trim().to_owned(),
+                endpoint: ValkeyEndpoint::Tcp(addr),
+            }
+        };
+
+        #[cfg(target_os = "macos")]
+        let valkey = {
+            let child = spawn_macos_tcp(&port);
+            Self {
+                child: Some(child),
+                endpoint: ValkeyEndpoint::Tcp(addr),
+            }
         };
 
         valkey.wait_listening();
@@ -128,7 +187,79 @@ impl Valkey {
     /// The URL the `redis` client connects to.
     #[must_use]
     pub fn url(&self) -> String {
-        format!("redis+unix://{}", self.socket.display())
+        match &self.endpoint {
+            ValkeyEndpoint::Unix(socket) => format!("redis+unix://{}", socket.display()),
+            ValkeyEndpoint::Tcp(addr) => format!("redis://{addr}"),
+        }
+    }
+
+    /// The loopback TCP address when started via [`Valkey::start_tcp`].
+    #[must_use]
+    pub fn addr(&self) -> Option<SocketAddr> {
+        match &self.endpoint {
+            ValkeyEndpoint::Unix(_) => None,
+            ValkeyEndpoint::Tcp(addr) => Some(*addr),
+        }
+    }
+
+    /// Stops the Valkey container/process mid-run without removing it, so
+    /// [`Valkey::restart`] can start it again at the same endpoint (ADR 0060).
+    ///
+    /// # Panics
+    ///
+    /// If stopping the container fails.
+    pub fn stop(&mut self) {
+        #[cfg(target_os = "linux")]
+        {
+            let output = run(Command::new(self.engine).args(["stop", "-t", "1", &self.container]));
+            assert!(
+                output.status.success(),
+                "{} stop failed: {}",
+                self.engine,
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+            if let ValkeyEndpoint::Unix(socket) = &self.endpoint {
+                let _ = std::fs::remove_file(socket);
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(mut child) = self.child.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            if let ValkeyEndpoint::Unix(socket) = &self.endpoint {
+                let _ = std::fs::remove_file(socket);
+            }
+        }
+    }
+
+    /// Starts a previously stopped Valkey container/process again and waits
+    /// until it is listening (ADR 0060).
+    ///
+    /// # Panics
+    ///
+    /// If starting fails or Valkey does not listen within its deadline.
+    pub fn restart(&mut self) {
+        #[cfg(target_os = "linux")]
+        {
+            let output = run(Command::new(self.engine).args(["start", &self.container]));
+            assert!(
+                output.status.success(),
+                "{} start failed: {}",
+                self.engine,
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let child = match &self.endpoint {
+                ValkeyEndpoint::Unix(socket) => spawn_macos_unix(socket),
+                ValkeyEndpoint::Tcp(addr) => spawn_macos_tcp(&addr.port().to_string()),
+            };
+            self.child = Some(child);
+        }
+        self.wait_listening();
     }
 
     /// The server's `INFO` of `section`, read with `valkey-cli`, so a test
@@ -140,14 +271,37 @@ impl Valkey {
     #[must_use]
     pub fn info(&self, section: &str) -> String {
         #[cfg(target_os = "linux")]
-        let output = run(Command::new(self.engine)
-            .args(["exec", &self.container, "valkey-cli", "-s"])
-            .args(["/run/valkey/valkey.sock", "INFO", section]));
+        let output = match &self.endpoint {
+            ValkeyEndpoint::Unix(_) => run(Command::new(self.engine)
+                .args(["exec", &self.container, "valkey-cli", "-s"])
+                .args(["/run/valkey/valkey.sock", "INFO", section])),
+            ValkeyEndpoint::Tcp(addr) => run(Command::new(self.engine).args([
+                "exec",
+                &self.container,
+                "valkey-cli",
+                "-h",
+                "127.0.0.1",
+                "-p",
+                &addr.port().to_string(),
+                "INFO",
+                section,
+            ])),
+        };
         #[cfg(target_os = "macos")]
-        let output = run(Command::new("valkey-cli")
-            .arg("-s")
-            .arg(&self.socket)
-            .args(["INFO", section]));
+        let output = match &self.endpoint {
+            ValkeyEndpoint::Unix(socket) => run(Command::new("valkey-cli")
+                .arg("-s")
+                .arg(socket)
+                .args(["INFO", section])),
+            ValkeyEndpoint::Tcp(addr) => run(Command::new("valkey-cli").args([
+                "-h",
+                "127.0.0.1",
+                "-p",
+                &addr.port().to_string(),
+                "INFO",
+                section,
+            ])),
+        };
         assert!(
             output.status.success(),
             "valkey-cli INFO {section}: {}",
@@ -158,7 +312,16 @@ impl Valkey {
 
     fn wait_listening(&self) {
         let started = Instant::now();
-        while !self.socket.exists() {
+        loop {
+            let ready = match &self.endpoint {
+                ValkeyEndpoint::Unix(socket) => socket.exists(),
+                ValkeyEndpoint::Tcp(addr) => {
+                    TcpStream::connect_timeout(addr, Duration::from_millis(100)).is_ok()
+                }
+            };
+            if ready {
+                return;
+            }
             assert!(
                 started.elapsed() < START_DEADLINE,
                 "Valkey did not listen within {START_DEADLINE:?}: {}",
@@ -182,20 +345,54 @@ impl Valkey {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn spawn_macos_unix(socket: &std::path::Path) -> std::process::Child {
+    Command::new("valkey-server")
+        .args(["--port", "0", "--unixsocket"])
+        .arg(socket)
+        .args([
+            "--unixsocketperm",
+            "700",
+            "--save",
+            "",
+            "--appendonly",
+            "no",
+        ])
+        .spawn()
+        .expect("Homebrew `valkey-server` starts (`brew install valkey`)")
+}
+
+#[cfg(target_os = "macos")]
+fn spawn_macos_tcp(port: &str) -> std::process::Child {
+    Command::new("valkey-server")
+        .args([
+            "--bind",
+            "127.0.0.1",
+            "--port",
+            port,
+            "--save",
+            "",
+            "--appendonly",
+            "no",
+        ])
+        .spawn()
+        .expect("Homebrew `valkey-server` starts (`brew install valkey`)")
+}
+
 impl Drop for Valkey {
     fn drop(&mut self) {
         #[cfg(target_os = "linux")]
         {
-            // Removing it stops it; a failure leaves a container `--rm` removes
-            // once it stops, and fails no test.
             let _removed = Command::new(self.engine)
                 .args(["rm", "--force", &self.container])
                 .output();
         }
         #[cfg(target_os = "macos")]
         {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
+            if let Some(mut child) = self.child.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
         }
     }
 }
@@ -322,10 +519,6 @@ impl Drop for ValkeyCluster {
 /// Picks three distinct loopback ports whose cluster bus ports (`port + 10000`)
 /// are also unbound.
 #[cfg(target_os = "linux")]
-#[expect(
-    clippy::disallowed_types,
-    reason = "test support reserves free loopback ports for the Valkey Cluster container, outside any async worker or Simulation (ADR 0062)"
-)]
 fn pick_cluster_ports() -> [u16; 3] {
     use std::net::{Ipv4Addr, TcpListener};
 

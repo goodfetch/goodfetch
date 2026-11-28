@@ -11,16 +11,20 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_protocol::politeness::store::{POLITENESS_STORE, PolitenessStoreConfiguration};
-use goodfetch_protocol::politeness::{POLITENESS_DELEGATION, POLITENESS_SHARING};
+use goodfetch_protocol::politeness::{
+    POLITENESS_DEGRADED_MAX, POLITENESS_DELEGATION, POLITENESS_SHARING,
+};
 use goodfetch_protocol::secrets::TIMEOUT_SECRET;
+use goodfetch_protocol::settings::{TIMEOUT_ACTION, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use tokio::sync::{OnceCell, watch};
 
 use super::store::PolitenessStore;
 use super::{
     Holder, HolderGone, OwnPoliteness, Politeness, PolitenessError, PolitenessOptions,
-    PolitenessTables,
+    PolitenessTables, StoreDegradedStatus,
 };
 use crate::clock::Clock;
+use crate::dns::HostMapping;
 use crate::mask::Redaction;
 use crate::secrets::{Purpose, Secrets};
 use crate::settings::Resolved;
@@ -31,6 +35,12 @@ use crate::tasks::TaskOwner;
 /// them, and stops the Run at its next safe point at the first (ADR 0122).
 pub type OnStorageFailures =
     Box<dyn Fn(watch::Receiver<Option<String>>, Option<&Path>) + Send + Sync>;
+
+/// What the Runs' registry does when a Run opens a store-backed Politeness:
+/// watches its degraded status to emit `politeness.store_degraded` on the
+/// Run's event stream and record a `politeness_store_degraded` warning in
+/// its report (ADRs 0024 and 0053).
+pub type OnStoreDegraded = Box<dyn Fn(watch::Receiver<StoreDegradedStatus>) + Send + Sync>;
 
 /// The per-user Politeness file and optional Politeness store the engine's
 /// Runs share, opened the first time one shares them (ADR 0053), as one
@@ -139,12 +149,27 @@ impl SharedPoliteness {
             }
             None => None,
         };
-        let connected = PolitenessStore::connect(configuration, password.as_ref())
-            .await
-            .map_err(|error| PolitenessError::Store(error.to_string()))?;
+        let resolve = HostMapping::of(settings);
+        let mut options = self.options.clone();
+        options.store_degraded_max = settings.get::<Duration>(&POLITENESS_DEGRADED_MAX);
+        let longest_timeout = settings
+            .get::<Duration>(&TIMEOUT_NAVIGATION)
+            .max(settings.get::<Duration>(&TIMEOUT_FIRST_BYTE))
+            .max(settings.get::<Duration>(&TIMEOUT_ACTION));
+        if longest_timeout > Duration::ZERO
+            && options.store_request_timeout == super::store_backend::DEFAULT_REQUEST_TIMEOUT
+        {
+            options.store_request_timeout = longest_timeout;
+        }
+        let command_timeout = options.store_heartbeat_ttl.min(Duration::from_secs(5));
+        let connected =
+            PolitenessStore::connect_with_resolve(configuration, password.as_ref(), &resolve)
+                .await
+                .map_err(|error| PolitenessError::Store(error.to_string()))?
+                .with_command_timeout(command_timeout);
         let politeness = Politeness::open_store(
             connected,
-            &self.options,
+            &options,
             self.engine.clone(),
             self.clock,
             &self.owner,
@@ -182,6 +207,7 @@ struct Opening {
     epoch: u64,
     folder: PathBuf,
     on_storage_failures: OnStorageFailures,
+    on_store_degraded: Option<OnStoreDegraded>,
 }
 
 /// What a live Run's Politeness is built from.
@@ -199,6 +225,8 @@ pub struct RunPolitenessParts {
     pub admits: bool,
     /// What watches the storage failures of the file once it opens.
     pub on_storage_failures: OnStorageFailures,
+    /// What watches degraded periods of the Politeness store once opened.
+    pub on_store_degraded: Option<OnStoreDegraded>,
 }
 
 impl RunPoliteness {
@@ -216,6 +244,7 @@ impl RunPoliteness {
             epoch: parts.epoch,
             folder: parts.folder,
             on_storage_failures: parts.on_storage_failures,
+            on_store_degraded: parts.on_store_degraded,
         }))
     }
 
@@ -257,7 +286,11 @@ impl RunPoliteness {
                     return Politeness::in_memory(&this.shared.options, &this.shared.owner);
                 }
                 if let Some(config) = &store_config {
-                    return this.shared.store(config, settings).await;
+                    let store = this.shared.store(config, settings).await?;
+                    if let Some(watch_degraded) = &this.on_store_degraded {
+                        watch_degraded(store.store_degraded());
+                    }
+                    return Ok(store);
                 }
                 let file = this.shared.file().await?;
                 (this.on_storage_failures)(file.storage_failures(), this.shared.path.parent());

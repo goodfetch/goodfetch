@@ -2476,6 +2476,18 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
+      "description": "The Politeness store became unreachable (entering bounded degraded admission within granted shares), reached `politeness.degraded_max` and stopped admission to shared keys, or reconnected (ADR 0053).",
+      "name": "politeness.store_degraded",
+      "payload": {
+        "$ref": "#/$defs/PolitenessStoreDegraded"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
       "description": "A Run is being aborted: it stops at its next safe point. Lossless.",
       "name": "run.aborting",
       "payload": {
@@ -3157,6 +3169,16 @@
       "product": "collie",
       "stability": "experimental",
       "unit": "{daemon}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "1 while this engine's Politeness store is unreachable and running in degraded mode, else 0 (ADR 0053).",
+      "instrument": "gauge",
+      "labels": [],
+      "name": "goodfetch.politeness.store_degraded",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "{engine}"
     },
     {
       "arrived_in": "0.1",
@@ -4037,7 +4059,8 @@
         "run.axes_changed",
         "needs_you.changed",
         "engine.system_info",
-        "group.lead_reachability_changed"
+        "group.lead_reachability_changed",
+        "politeness.store_degraded"
       ],
       "kind": "sequence",
       "name": "events.subscribe",
@@ -10975,6 +10998,29 @@
         "toward": "lower"
       },
       "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 600000,
+      "deprecated": null,
+      "description": "How long a cut-off engine keeps admitting requests to shared keys within its last granted share when the Politeness store is unreachable, counted on each side's clock from the moment the engine sent its last acknowledged heartbeat: 10 minutes by default. Past it, the cut-off engine admits nothing to shared keys until it reconnects, while its Runs stay live and resumable, and the store frees its reservation once `politeness.degraded_max` plus its longest reported request timeout has passed. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "politeness.degraded_max",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
     },
     {
       "arrived_in": "0.1",

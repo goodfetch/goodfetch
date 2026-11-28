@@ -27,6 +27,11 @@
       "part": "wakes",
       "kind": "pubsub",
       "purpose": "Wake notifications for returned Permits and Delegation recalls."
+    },
+    {
+      "part": "engines",
+      "kind": "hash",
+      "purpose": "Per-engine heartbeat records, stale reservations and granted degraded shares."
     }
   ],
   "scripts": [
@@ -64,7 +69,8 @@
       "key_parts": [
         "delegation",
         "permits",
-        "state"
+        "state",
+        "engines"
       ],
       "uses_server_time": true
     },
@@ -91,6 +97,7 @@
         "delegation",
         "permits",
         "state",
+        "engines",
         "wakes"
       ],
       "uses_server_time": true
@@ -102,6 +109,7 @@
         "permits",
         "pace",
         "state",
+        "engines",
         "wakes"
       ],
       "uses_server_time": true
@@ -111,6 +119,7 @@
       "key_parts": [
         "permits",
         "state",
+        "engines",
         "wakes"
       ],
       "uses_server_time": true
@@ -119,6 +128,22 @@
       "name": "save_state",
       "key_parts": [
         "state"
+      ],
+      "uses_server_time": false
+    },
+    {
+      "name": "heartbeat",
+      "key_parts": [
+        "engines",
+        "permits",
+        "delegation"
+      ],
+      "uses_server_time": true
+    },
+    {
+      "name": "leave_engine",
+      "key_parts": [
+        "engines"
       ],
       "uses_server_time": false
     }

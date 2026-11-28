@@ -64,7 +64,8 @@ pub mod store;
 mod store_backend;
 
 pub use live::{
-    OnStorageFailures, RunPoliteness, RunPolitenessParts, SharedPoliteness, SharedPolitenessParts,
+    OnStorageFailures, OnStoreDegraded, RunPoliteness, RunPolitenessParts, SharedPoliteness,
+    SharedPolitenessParts,
 };
 pub use memory::MemoryTables;
 
@@ -248,6 +249,23 @@ pub struct PolitenessTables {
     pub prepared: &'static [&'static str],
 }
 
+/// Current reachability and degraded-admission state of the Politeness store
+/// (ADR 0053), observed by each live Run that shares the store so it can emit
+/// `politeness.store_degraded` on its event stream and record a
+/// `politeness_store_degraded` warning in its report.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StoreDegradedStatus {
+    /// Whether the Politeness store is currently unreachable (degraded).
+    pub degraded: bool,
+    /// Whether `politeness.degraded_max` has elapsed and admission to shared
+    /// keys is stopped until the store reconnects.
+    pub admission_stopped: bool,
+    /// Configured `politeness.degraded_max` window.
+    pub degraded_max: std::time::Duration,
+    /// Why the Politeness store became unreachable, when `degraded` is `true`.
+    pub reason: Option<String>,
+}
+
 /// How the Politeness file or store opens.
 #[derive(Clone, Debug)]
 pub struct PolitenessOptions {
@@ -263,6 +281,22 @@ pub struct PolitenessOptions {
     /// Lease duration of a shared Permit in the Politeness store (renewed
     /// while its request stays in flight every third of this duration).
     pub store_permit_lease: std::time::Duration,
+    /// Heartbeat TTL in the Politeness store (clamped to `<= store_permit_lease`,
+    /// ADR 0053: a heartbeat goes stale no later than a permit's lease expires).
+    pub store_heartbeat_ttl: std::time::Duration,
+    /// Maximum duration a cut-off engine admits within its last granted share
+    /// before stopping admission to shared keys (`politeness.degraded_max`,
+    /// 10 minutes by default, ADR 0053).
+    pub store_degraded_max: std::time::Duration,
+    /// Longest request timeout this engine reports in its Politeness store
+    /// heartbeats (ADR 0053).
+    pub store_request_timeout: std::time::Duration,
+    /// Initial backoff duration before retrying a failed Politeness store
+    /// reconnection (doubles up to 5 s, ADR 0053).
+    pub store_reconnect_initial: std::time::Duration,
+    /// Optional runtime metrics updated with `goodfetch.politeness.store_degraded`
+    /// (ADRs 0050 and 0053).
+    pub metrics: Option<crate::metrics::Metrics>,
 }
 
 impl Default for PolitenessOptions {
@@ -272,6 +306,11 @@ impl Default for PolitenessOptions {
             work: CountedWork::default(),
             store_delegation_ttl: store_backend::DEFAULT_DELEGATION_TTL,
             store_permit_lease: store_backend::DEFAULT_PERMIT_LEASE,
+            store_heartbeat_ttl: store_backend::DEFAULT_HEARTBEAT_TTL,
+            store_degraded_max: store_backend::DEFAULT_DEGRADED_MAX,
+            store_request_timeout: store_backend::DEFAULT_REQUEST_TIMEOUT,
+            store_reconnect_initial: store_backend::DEFAULT_RECONNECT_INITIAL,
+            metrics: None,
         }
     }
 }
@@ -686,6 +725,16 @@ trait Erased: Send + Sync {
         now: SystemTime,
     ) -> (Verdict, Option<u64>, Option<Vec<u8>>);
 
+    fn admit_degraded_store(
+        &self,
+        tables: &mut MemoryTables,
+        key: &str,
+        in_flight: u64,
+        granted_share: u64,
+        max_cap: u64,
+        now: SystemTime,
+    ) -> Verdict;
+
     fn ended_store(
         &self,
         tables: &mut MemoryTables,
@@ -812,6 +861,40 @@ impl<R: PermitRule> Erased for R {
             None
         };
         (verdict, cap, updated)
+    }
+
+    fn admit_degraded_store(
+        &self,
+        tables: &mut MemoryTables,
+        key: &str,
+        in_flight: u64,
+        granted_share: u64,
+        max_cap: u64,
+        now: SystemTime,
+    ) -> Verdict {
+        let reads = self.reads(Step::Take);
+        let mut state = R::State::load_from(tables, key, reads);
+        let cap = self.effective_cap(&state);
+        if max_cap > 0 {
+            let run_cap = cap.unwrap_or(max_cap).min(max_cap);
+            let scaled = if run_cap == 0 || granted_share == 0 {
+                0
+            } else {
+                ((granted_share.saturating_mul(run_cap)) / max_cap)
+                    .max(1)
+                    .min(granted_share)
+                    .min(run_cap)
+            };
+            if in_flight >= scaled {
+                return Verdict::Busy;
+            }
+        }
+        let verdict = self.admit(&state, in_flight, now);
+        if verdict == Verdict::Go {
+            let writes = self.started(&mut state, now);
+            state.save_to(tables, key, &writes);
+        }
+        verdict
     }
 
     fn ended_store(
@@ -1124,6 +1207,9 @@ struct Inner {
     /// The first transaction that met a full disk or an I/O error, as
     /// SQLite named it, once one did (ADR 0122).
     failures: watch::Sender<Option<String>>,
+    /// The Politeness store's reachability and degraded-admission state
+    /// (ADR 0053).
+    degraded: watch::Sender<StoreDegradedStatus>,
     work: CountedWork,
 }
 
@@ -1294,13 +1380,27 @@ impl Politeness {
         owner: &TaskOwner,
     ) -> Result<Self, PolitenessError> {
         let (wakes, _) = broadcast::channel(WAKES);
-        let backend =
-            store_backend::StoreBackend::start(store, options, engine, clock, wakes.clone(), owner)
-                .await?;
+        let degraded = watch::Sender::new(StoreDegradedStatus {
+            degraded: false,
+            admission_stopped: false,
+            degraded_max: options.store_degraded_max,
+            reason: None,
+        });
+        let backend = store_backend::StoreBackend::start(
+            store,
+            options,
+            engine,
+            clock,
+            wakes.clone(),
+            degraded.clone(),
+            owner,
+        )
+        .await?;
         Ok(Self(Arc::new(Inner {
             kind: PolitenessKind::Store(backend),
             wakes,
             failures: watch::Sender::new(None),
+            degraded,
             work: options.work.clone(),
         })))
     }
@@ -1321,6 +1421,7 @@ impl Politeness {
             },
             wakes,
             failures: watch::Sender::new(None),
+            degraded: watch::Sender::new(StoreDegradedStatus::default()),
             work,
         }))
     }
@@ -1349,6 +1450,14 @@ impl Politeness {
     /// on it.
     pub fn storage_failures(&self) -> watch::Receiver<Option<String>> {
         self.0.failures.subscribe()
+    }
+
+    /// The Politeness store's reachability and degraded-admission state
+    /// (ADR 0053): watched by Runs sharing the store to emit
+    /// `politeness.store_degraded` events and record `politeness_store_degraded`
+    /// warnings.
+    pub fn store_degraded(&self) -> watch::Receiver<StoreDegradedStatus> {
+        self.0.degraded.subscribe()
     }
 
     /// The wakes this engine's waiters receive, from the moment it is

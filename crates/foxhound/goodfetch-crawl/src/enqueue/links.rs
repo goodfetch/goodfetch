@@ -289,6 +289,7 @@ async fn enqueue_links_by_clicking_elements(
         egress: &egress,
         label: &params.label,
         keeps_fragment: invariants.keeps_fragment(&params.label),
+        avoids_trap_links: invariants.avoids_trap_links(&params.label),
         base: &base,
         encoding: goodfetch_frontier::Encoding::for_label(b"utf-8")
             .expect("invariant: utf-8 is a known encoding"),
@@ -424,6 +425,7 @@ async fn prepared(
         egress: &egress,
         label: &params.label,
         keeps_fragment: invariants.keeps_fragment(&params.label),
+        avoids_trap_links: invariants.avoids_trap_links(&params.label),
         base: &base,
         encoding: served.encoding,
         narrowing: Narrowing {
@@ -466,6 +468,9 @@ struct Reading<'a> {
     label: &'a str,
     /// Whether a request of the call's Label keeps its URL's fragment.
     keeps_fragment: bool,
+    /// Whether links enqueued to the call's Label avoid trap links
+    /// (`crawl.trap_links.avoid`).
+    avoids_trap_links: bool,
     base: &'a Url,
     encoding: &'static goodfetch_frontier::Encoding,
     narrowing: Narrowing<'a>,
@@ -497,11 +502,15 @@ impl Reading<'_> {
                 .check(self.label, payload.as_deref(), self.work)
                 .err();
         }
-        let trap = match Judged::of(sight) {
-            Some(Judged::Trap(trap)) => return Link::Trap { href, trap },
-            Some(Judged::Suspected(trap)) => Some(Suspected::Hidden(trap)),
-            Some(Judged::Revealable) => Some(Suspected::Revealable),
-            None => None,
+        let trap = if self.avoids_trap_links {
+            match Judged::of(sight) {
+                Some(Judged::Trap(trap)) => return Link::Trap { href, trap },
+                Some(Judged::Suspected(trap)) => Some(Suspected::Hidden(trap)),
+                Some(Judged::Revealable) => Some(Suspected::Revealable),
+                None => None,
+            }
+        } else {
+            None
         };
         let Chosen::Payload(payload) = chosen else {
             return Link::Skipped { href };

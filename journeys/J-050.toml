@@ -1,0 +1,33 @@
+#:schema ./journey.schema.json
+id = "J-050"
+title = "Crawl a site with honeypot links and a labyrinth; no trap is fetched and the decoy is reported"
+goal = """
+A person crawls a site with honeypot links in the browser with robots.txt off \
+so only trap-link avoidance protects the traps, and crawls a labyrinth page \
+marked noindex against a Page check expecting real item content. No honeypot \
+link MUST be fetched by the Proving ground, every visible item link MUST be \
+fetched, and the labyrinth page MUST be reported as blocked with Block cause \
+`decoy`."""
+area = 8
+product = "foxhound"
+status = "active"
+covers = ["story:8-230", "story:8-231", "block-cause:decoy"]
+
+[proving_ground]
+seed = 8
+tasks = []
+
+[surfaces]
+cli = "M1"
+
+[[steps]]
+text = "Crawl the site's hidden-links page in the browser with robots.txt off so only trap-link avoidance protects the honeypots"
+
+[[steps]]
+text = "Crawl the labyrinth page with a Page check expecting real item content"
+
+[[expect]]
+text = "No honeypot link is fetched by the Proving ground, and every visible item link is fetched"
+
+[[expect]]
+text = "The labyrinth page is reported as blocked with Block cause decoy in its outcomes and Run report"

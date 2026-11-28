@@ -412,6 +412,9 @@ exclude = ["example"]
 [settings.crawl.payload]
 max_size = 4
 
+[settings.crawl.trap_links]
+avoid = true
+
 [settings.fetch]
 tier = "auto"
 tier_race = true
@@ -902,6 +905,9 @@ exclude = ["example"]
 
 [lock.crawl.payload]
 max_size = 4
+
+[lock.crawl.trap_links]
+avoid = true
 
 [lock.fetch]
 tier = "auto"

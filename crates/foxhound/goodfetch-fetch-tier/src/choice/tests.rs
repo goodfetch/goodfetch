@@ -254,6 +254,35 @@ fn a_requests_http_leaves_from_its_labels_choice_else_the_runs(
     );
 }
 
+/// A Label accepts `crawl.trap_links.avoid` as a Boolean and refuses a
+/// non-Boolean with `setting_invalid`.
+///
+/// Covers: setting:crawl.trap_links.avoid
+#[test]
+fn a_label_sets_crawl_trap_links_avoid_as_a_boolean() {
+    let labels = LabelSettings::of(&declared(&[
+        (
+            "traps",
+            json!({ "crawl": { "trap_links": { "avoid": false } } }),
+        ),
+        (
+            "strict",
+            json!({ "crawl": { "trap_links": { "avoid": true } } }),
+        ),
+        ("plain", json!({})),
+    ]))
+    .unwrap();
+    let entries: Vec<(&str, bool)> = labels.avoid_trap_links().collect();
+    assert_eq!(entries, vec![("strict", true), ("traps", false)]);
+
+    let error = LabelSettings::of(&declared(&[(
+        "bad",
+        json!({ "crawl": { "trap_links": { "avoid": "off" } } }),
+    )]))
+    .unwrap_err();
+    assert_eq!(error.code(), "setting_invalid");
+}
+
 /// The Run's `fetch.http_from` under `run`, its Run layer, and whether the
 /// Run's settings weaken it.
 fn run_http_from(run: Value) -> (HttpFrom, bool) {

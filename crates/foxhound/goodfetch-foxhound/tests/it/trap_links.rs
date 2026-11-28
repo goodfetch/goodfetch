@@ -14,8 +14,10 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use std::collections::BTreeSet;
+
 use goodfetch_test_client::Attached;
-use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
+use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv, cli as command_line};
 use serde_json::{Value, json};
 
 use crate::fetch_tiers::{engine, expecting, provenance, settings, tiers};
@@ -589,5 +591,224 @@ fn a_discarded_run_writes_no_suspected_trap_link_entry() {
             ],
         ),
         "{answered}"
+    );
+}
+
+/// The `setting` of each `feature_switched_off` entry in `env`'s Audit log.
+fn switched_off_in_audit_log(env: &TestEnv) -> BTreeSet<String> {
+    let exported = command_line(env, env!("CARGO_BIN_EXE_goodfetch-foxhound"))
+        .args(["audit", "export"])
+        .run()
+        .unwrap();
+    exported
+        .stdout
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|entry| entry["kind"] == "feature_switched_off")
+        .filter_map(|entry| entry["details"]["setting"].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// The keys listed in `report["result"]["weakened"]`.
+fn weakened_keys(report: &Value) -> BTreeSet<String> {
+    report["result"]["weakened"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry["key"].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// The codes listed in `report["result"]["warnings"]`.
+fn warning_codes(report: &Value) -> BTreeSet<String> {
+    report["result"]["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry["code"].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// With `crawl.trap_links.avoid: false` at the Run level (and robots.txt
+/// off), trap links on `/hidden-links` are added and fetched without
+/// `trap_link` refusal or `trap_link_suspected` Provenance entries; the
+/// Audit log records `feature_switched_off` for `crawl.trap_links.avoid`,
+/// and the Run report lists `crawl.trap_links.avoid` in `weakened` with
+/// the warning `trap_links_off`.
+///
+/// Covers: story:8-230, setting:crawl.trap_links.avoid
+#[test]
+fn crawl_trap_links_avoid_off_fetches_traps_records_audit_and_reports_weakened() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let seeds = [json!({ "url": proving_ground.url(HOST, "/hidden-links"), "label": "links" })];
+
+    let mut answered = Value::Null;
+    let report = crawl_declaring(
+        &mut engine,
+        "trap-links-avoid-off",
+        &seeds,
+        &json!({ "links": {}, "item": {} }),
+        &settings(
+            &proving_ground,
+            &json!({
+                "fetch": { "tier": "browser" },
+                "crawl": { "trap_links": { "avoid": false } },
+                "site_preferences": { "respect_robots_txt": false },
+            }),
+        ),
+        &mut enqueuing("links", "item", &mut answered),
+    );
+    let suspected = provenance(&env, "trap-links-avoid-off", "trap_link_suspected");
+    let observations = proving_ground.observations().unwrap();
+    assert!(engine.finished());
+
+    let kinds: Vec<String> = answers(&answered)
+        .into_iter()
+        .map(|(kind, _)| kind)
+        .collect();
+    assert_eq!(kinds, vec!["added".to_owned(); 24], "{answered}");
+    assert!(
+        honeypots_fetched(&observations) >= 4,
+        "expected honeypots under /hp/ to be fetched with crawl.trap_links.avoid: false"
+    );
+    assert!(
+        suspected.is_empty(),
+        "expected no trap_link_suspected Provenance entries when avoidance is off: {suspected:?}"
+    );
+    assert!(
+        switched_off_in_audit_log(&env).contains("crawl.trap_links.avoid"),
+        "expected Audit log to record feature_switched_off for crawl.trap_links.avoid"
+    );
+    assert!(
+        weakened_keys(&report).contains("crawl.trap_links.avoid"),
+        "expected Run report weakened to list crawl.trap_links.avoid: {report}"
+    );
+    assert!(
+        warning_codes(&report).contains("trap_links_off"),
+        "expected Run report warnings to contain trap_links_off: {report}"
+    );
+}
+
+/// With `crawl.trap_links.avoid: false` set only on a declared Label while
+/// the Run keeps the default `true`, links enqueued to that Label are added
+/// and fetched without trap-link judgement, the Audit log records the
+/// switch-off, and the Run report lists `crawl.trap_links.avoid` in
+/// `weakened` with the warning `trap_links_off`.
+///
+/// Covers: story:8-230, setting:crawl.trap_links.avoid
+#[test]
+fn crawl_trap_links_avoid_off_on_a_label_fetches_traps_and_records_weakening() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let seeds = [json!({ "url": proving_ground.url(HOST, "/hidden-links"), "label": "links" })];
+
+    let mut answered = Value::Null;
+    let report = crawl_declaring(
+        &mut engine,
+        "trap-links-label-off",
+        &seeds,
+        &json!({
+            "links": {},
+            "item": { "settings": { "crawl": { "trap_links": { "avoid": false } } } },
+        }),
+        &settings(
+            &proving_ground,
+            &json!({
+                "fetch": { "tier": "browser" },
+                "site_preferences": { "respect_robots_txt": false },
+            }),
+        ),
+        &mut enqueuing("links", "item", &mut answered),
+    );
+    let suspected = provenance(&env, "trap-links-label-off", "trap_link_suspected");
+    let observations = proving_ground.observations().unwrap();
+    assert!(engine.finished());
+
+    let kinds: Vec<String> = answers(&answered)
+        .into_iter()
+        .map(|(kind, _)| kind)
+        .collect();
+    assert_eq!(kinds, vec!["added".to_owned(); 24], "{answered}");
+    assert!(
+        honeypots_fetched(&observations) >= 4,
+        "expected honeypots under /hp/ to be fetched when Label sets crawl.trap_links.avoid: false"
+    );
+    assert!(suspected.is_empty(), "{suspected:?}");
+    assert!(
+        switched_off_in_audit_log(&env).contains("crawl.trap_links.avoid"),
+        "expected Audit log to record feature_switched_off for Label-level crawl.trap_links.avoid"
+    );
+    assert!(
+        weakened_keys(&report).contains("crawl.trap_links.avoid"),
+        "expected Run report weakened to list crawl.trap_links.avoid: {report}"
+    );
+    assert!(
+        warning_codes(&report).contains("trap_links_off"),
+        "expected Run report warnings to contain trap_links_off: {report}"
+    );
+}
+
+/// Trap-link avoidance is never about Site preferences: with
+/// `crawl.trap_links.avoid: false` and robots.txt left on (the default),
+/// `/hp/*` honeypot links are added by `enqueueLinks` but still not fetched
+/// because `robots.txt` disallows them, while allowed item pages are fetched.
+///
+/// Covers: story:8-230, story:8-231, setting:crawl.trap_links.avoid
+#[test]
+fn robots_txt_still_blocks_trap_links_when_avoidance_is_off() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let seeds = [json!({ "url": proving_ground.url(HOST, "/hidden-links"), "label": "links" })];
+
+    let mut answered = Value::Null;
+    crawl_declaring(
+        &mut engine,
+        "trap-links-robots-obeyed",
+        &seeds,
+        &json!({ "links": {}, "item": {} }),
+        &settings(
+            &proving_ground,
+            &json!({
+                "fetch": { "tier": "browser" },
+                "crawl": { "trap_links": { "avoid": false } },
+            }),
+        ),
+        &mut enqueuing("links", "item", &mut answered),
+    );
+    let ended = endings(&mut engine, "trap-links-robots-obeyed");
+    let observations = proving_ground.observations().unwrap();
+    assert!(engine.finished());
+
+    let kinds: Vec<String> = answers(&answered)
+        .into_iter()
+        .map(|(kind, _)| kind)
+        .collect();
+    assert_eq!(kinds, vec!["added".to_owned(); 24], "{answered}");
+    assert_eq!(
+        honeypots_fetched(&observations),
+        0,
+        "robots.txt must still prevent fetching disallowed /hp/* traps when crawl.trap_links.avoid is false"
+    );
+    let hp_endings: Vec<&Value> = ended
+        .iter()
+        .filter(|(path, _)| path.starts_with("/hp/"))
+        .map(|(_, ending)| ending)
+        .collect();
+    assert!(
+        !hp_endings.is_empty()
+            && hp_endings.iter().all(|e| {
+                e[0] == "skipped" || (e[0] == "failed" && e[1] == "site_preferences_refused")
+            }),
+        "expected /hp/* requests to be refused by robots.txt, saw {hp_endings:?}"
+    );
+    assert!(
+        fetched_once(&observations)
+            .iter()
+            .any(|path| path == "/items/I-0001"),
+        "expected allowed item pages to still be fetched"
     );
 }

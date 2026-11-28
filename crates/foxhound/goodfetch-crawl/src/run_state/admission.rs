@@ -30,7 +30,7 @@ use rusqlite::Connection;
 
 use crate::invariants::Invariants;
 use crate::staging::{Answered, Staging};
-use crate::work_items::{self, Adding, AttemptKey, CheckedSeed, Positions};
+use crate::work_items::{self, Adding, AttemptKey, CheckedSeed, Positions, TrapJudgement};
 
 /// A handler's enqueue as its call's task read it: its params, its Payload
 /// serialized once, and the base URL of the document it names, if any.
@@ -351,6 +351,7 @@ pub(crate) fn links(
         return Ok(Some(Err(refused.clone())));
     }
     let method = HttpMethod::get();
+    let avoids_trap_links = batch.invariants.avoids_trap_links(&params.label);
     let mut answers = Vec::with_capacity(batch.links.len());
     let mut added: u64 = 0;
     let mut suspected = Vec::new();
@@ -391,6 +392,11 @@ pub(crate) fn links(
                     forefront: false,
                     depth: depth + 1,
                 };
+                let trap_judgement = if avoids_trap_links {
+                    TrapJudgement::Judged(trap.map(Suspected::mark))
+                } else {
+                    TrapJudgement::Unjudged
+                };
                 let enqueued = work_items::admit_keyed(
                     connection,
                     positions,
@@ -400,7 +406,7 @@ pub(crate) fn links(
                         from: Some(&from),
                         depth: depth + 1,
                     },
-                    (adding, trap.map(Suspected::mark)),
+                    (adding, trap_judgement),
                 )?;
                 match enqueued {
                     Enqueued::Added { id, url } => {

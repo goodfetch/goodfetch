@@ -401,6 +401,22 @@ pub mod crawl {
             }
         }
     }
+
+    /// The `crawl.trap_links.*` settings.
+    pub mod trap_links {
+
+        /// Whether the Frontier avoids links a person cannot see (ADR 0035), set for the Run or for one of its Labels, whose own value wins for its requests. On by default: on the browser tier, invisible trap links are not added, with `trap_link`, and on the HTTP tier, markup-hidden links are marked as suspected traps that a browser tier never follows (`decoy`). Off, `trap_links::judge` runs on no link of a links batch and nothing of it is written, so hidden links are added and followed like any other; Site preferences such as robots.txt and use signals are still obeyed (ADR 0086). Switching it off is recorded in the Audit log as `feature_switched_off`, listed in the Run report's `weakened`, and carries the warning `trap_links_off` (ADR 0023).
+        ///
+        /// `crawl.trap_links.avoid`.
+        pub const AVOID: crate::settings::Setting<bool> = crate::settings::Setting::new(
+            "crawl.trap_links.avoid",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+                ::goodfetch_protocol::catalog::SettingScope::Label,
+            ],
+        );
+    }
 }
 
 /// The `dataset.*` settings.

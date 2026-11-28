@@ -848,6 +848,29 @@ fn no_fragment() -> Value {
     Value::Bool(false)
 }
 
+/// `crawl.trap_links.avoid` (ADRs 0023, 0035 and 0086).
+pub const CRAWL_TRAP_LINKS_AVOID: Setting = Setting {
+    name: "crawl.trap_links.avoid",
+    description: "Whether the Frontier avoids links a person cannot see (ADR 0035), set for the Run or for one of its Labels, whose own value wins for its requests. On by default: on the browser tier, invisible trap links are not added, with `trap_link`, and on the HTTP tier, markup-hidden links are marked as suspected traps that a browser tier never follows (`decoy`). Off, `trap_links::judge` runs on no link of a links batch and nothing of it is written, so hidden links are added and followed like any other; Site preferences such as robots.txt and use signals are still obeyed (ADR 0086). Switching it off is recorded in the Audit log as `feature_switched_off`, listed in the Run report's `weakened`, and carries the warning `trap_links_off` (ADR 0023).",
+    kind: ValueKind::Boolean,
+    default: trap_links_avoid_on,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: Some(trap_links_avoid_off),
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn trap_links_avoid_on() -> Value {
+    Value::Bool(true)
+}
+
+fn trap_links_avoid_off(value: &Value) -> bool {
+    value == &Value::Bool(false)
+}
+
 /// `frontier.learning` (ADRs 0005 and 0138).
 pub const FRONTIER_LEARNING: Setting = Setting {
     name: "frontier.learning",
@@ -1033,6 +1056,7 @@ pub const ENTRIES: Entries = Entries {
         CRAWL_PATH_BUDGETS,
         CRAWL_PAYLOAD_MAX_SIZE,
         CRAWL_KEEP_URL_FRAGMENT,
+        CRAWL_TRAP_LINKS_AVOID,
         FRONTIER_LEARNING,
     ],
     hook_stages: &[],

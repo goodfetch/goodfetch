@@ -11,6 +11,7 @@ use crate::catalog::{
     Authority, Entries, ProtocolVersion, Setting, SharedType, SharedTypeValue, ValueKind,
 };
 use crate::foxhound::fetch::FETCH_HTTP_FROM;
+use crate::foxhound::frontier::CRAWL_TRAP_LINKS_AVOID;
 pub use crate::politeness::POLITENESS_WEAKENED;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -495,17 +496,18 @@ pub const FETCH_BLOCK_CLASSIFICATION: Setting = Setting {
 pub const FEATURE_SWITCHED_OFF: SharedTypeValue = SharedTypeValue {
     shared_type: SharedType::AuditKind,
     name: "feature_switched_off",
-    description: "A run switched off a per-page feature that is on by default, `provenance.log`, `dataset.records`, `fetch.block_classification` or the browser-fetch of `fetch.http_from` (its value `transport`), once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0138): no page of the run does that feature's work.",
+    description: "A run switched off a per-page feature that is on by default, `provenance.log`, `dataset.records`, `fetch.block_classification`, `crawl.trap_links.avoid` or the browser-fetch of `fetch.http_from` (its value `transport`), once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0138): no page of the run does that feature's work.",
     arrived_in: ARRIVED_IN,
 };
 
 /// The per-page features [`FEATURE_SWITCHED_OFF`] records switched off
 /// (ADR 0138).
-pub const SWITCHED_OFF_FEATURES: [&Setting; 4] = [
+pub const SWITCHED_OFF_FEATURES: [&Setting; 5] = [
     &PROVENANCE_LOG,
     &DATASET_RECORDS,
     &FETCH_BLOCK_CLASSIFICATION,
     &FETCH_HTTP_FROM,
+    &CRAWL_TRAP_LINKS_AVOID,
 ];
 
 /// Every entry this module defines.

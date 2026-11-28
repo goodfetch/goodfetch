@@ -13,7 +13,7 @@ use crate::foxhound::crawl::{CRAWL_CONTENT_TYPES, CRAWL_RETRY_HANDLER_FAILED};
 use crate::foxhound::fetch::{
     FETCH_ENCODING, FETCH_HTTP_FROM, FETCH_KEPT_RESPONSES_URLS, FETCH_TIER,
 };
-use crate::foxhound::frontier::CRAWL_KEEP_URL_FRAGMENT;
+use crate::foxhound::frontier::{CRAWL_KEEP_URL_FRAGMENT, CRAWL_TRAP_LINKS_AVOID};
 use crate::page::access_mode::{BROWSER_ACCESS_MODE, IDENTIFIED_ITEMS, STEALTH_ITEMS};
 use crate::page::emulation::EMULATION_SETTINGS;
 use crate::page::{
@@ -54,13 +54,14 @@ const SESSION_SETTINGS: [&Setting; 9] = [
 /// is refused every other key: the Run's proxy, Politeness and bounds
 /// always, and the rest of ADR 0093's Label settings until this engine
 /// applies them (issue 1472).
-pub const LABEL_SETTINGS: [&Setting; 11] = [
+pub const LABEL_SETTINGS: [&Setting; 12] = [
     &FETCH_TIER,
     &FETCH_HTTP_FROM,
     &FETCH_ENCODING,
     &FETCH_KEPT_RESPONSES_URLS,
     &CRAWL_CONTENT_TYPES,
     &CRAWL_KEEP_URL_FRAGMENT,
+    &CRAWL_TRAP_LINKS_AVOID,
     &CRAWL_RETRY_HANDLER_FAILED,
     &CONTENT_EXTRACTOR,
     &TIMEOUT_HOOK,

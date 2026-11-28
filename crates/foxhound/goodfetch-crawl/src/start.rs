@@ -55,7 +55,9 @@ use goodfetch_protocol::foxhound::crawl::{
     CRAWL_KEEP_ALIVE, CRAWL_SERVE, CRAWL_START, CrawlStartParams, CrawlStarted, LabelDeclaration,
     Seed,
 };
-use goodfetch_protocol::foxhound::frontier::{Enqueued, PAYLOAD_SCHEMA_CHANGED};
+use goodfetch_protocol::foxhound::frontier::{
+    CRAWL_TRAP_LINKS_AVOID, Enqueued, PAYLOAD_SCHEMA_CHANGED,
+};
 use goodfetch_protocol::foxhound::hook::CrawlHookDeclaration;
 use goodfetch_protocol::foxhound::settings::{
     FEATURE_SWITCHED_OFF, PROVENANCE_LOG, SWITCHED_OFF_FEATURES,
@@ -65,7 +67,7 @@ use goodfetch_protocol::run::{
     Lifecycle, RUN_NOT_FOUND, RunDetails, RunId, RunKind, RunParams, RunReport, RunStarted,
     RunWarning, StartInput, StartedAs,
 };
-use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
+use goodfetch_protocol::settings::{RunOrigin, SettingsLayer, TIMEOUT_RUN, WeakenedSetting};
 use goodfetch_protocol::site_preferences::{
     PERSONAL_DATA_KEYWORD, PERSONAL_DATA_NOTICE as PERSONAL_DATA_AUDIT, SITE_PREFERENCES_PURPOSE,
 };
@@ -287,12 +289,18 @@ async fn start(
     let label_settings = goodfetch_fetch_tier::LabelSettings::of(&params.labels)?;
     servable::check(settings.resolved(), &label_settings)?;
     let fragments = labels::Fragments::of(settings.resolved(), &label_settings);
+    let avoid_trap_links = labels::TrapLinksAvoidance::of(settings.resolved(), &label_settings);
     let labels = labels::Declared::of(&params.labels, fragments.clone(), settings.resolved())?;
     labels.sends_from_login_pools(settings.resolved())?;
     let datasets = pages.map_or_else(|| Datasets::declare(&params.datasets), Ok)?;
     FetchTiers::check(settings.resolved(), &labels.settings)?;
     sinks.check(settings.resolved(), datasets.declarations())?;
-    let invariants = Invariants::of_settings(settings.resolved(), &params.labels, fragments)?;
+    let invariants = Invariants::of_settings(
+        settings.resolved(),
+        &params.labels,
+        fragments,
+        avoid_trap_links.clone(),
+    )?;
     let egress = domain_policy(settings.resolved())?;
     let existing_seeds =
         schema_unchanged(&context, run_id.as_ref(), &invariants, &datasets).await?;
@@ -320,6 +328,7 @@ async fn start(
     let recording = crawl.clone();
     let hooks = params.hooks;
     let new_answers: Arc<OnceLock<Vec<Enqueued>>> = Arc::default();
+    let weakened = weakened_settings(settings.resolved(), &avoid_trap_links);
     let started = context
         .runs()
         .start(Start {
@@ -338,7 +347,7 @@ async fn start(
                 Arc::clone(&new_answers),
             )),
             policy_version: settings.resolved().policy_version().map(str::to_owned),
-            weakened: settings.resolved().weakened(),
+            weakened,
             binding: None,
             clean_up_digest: None,
             checkpoint_interval: checkpoint_interval(settings.resolved()),
@@ -563,6 +572,72 @@ async fn notify_personal_data(
     }
 }
 
+/// Weakened settings of a crawl: the Run's own, plus `crawl.trap_links.avoid`
+/// when a declared Label switches it off while the Run leaves it on.
+fn weakened_settings(
+    resolved: &Resolved,
+    avoid_trap_links: &labels::TrapLinksAvoidance,
+) -> Vec<WeakenedSetting> {
+    let mut weakened = resolved.weakened();
+    if avoid_trap_links.any_label_off()
+        && !weakened
+            .iter()
+            .any(|setting| setting.key == CRAWL_TRAP_LINKS_AVOID.name)
+    {
+        weakened.push(WeakenedSetting {
+            key: CRAWL_TRAP_LINKS_AVOID.name.to_owned(),
+            value: serde_json::Value::Bool(false),
+            layer: SettingsLayer::Run,
+            origin: Some(RunOrigin::Settings),
+            preset: None,
+        });
+    }
+    weakened
+}
+
+/// Records `feature_switched_off` in the Audit log once for a new crawl when
+/// a declared Label switches `crawl.trap_links.avoid` off while the Run
+/// itself leaves it on (when the Run switches it off, the engine's recorded
+/// weakening writes the entry).
+async fn record_label_trap_links_off(
+    run: &CrawlRun,
+    labels: &labels::Declared,
+    resolved: &Resolved,
+    context: &CallContext,
+) {
+    let avoidance = labels::TrapLinksAvoidance::of(resolved, &labels.settings);
+    if !resolved.get::<bool>(&CRAWL_TRAP_LINKS_AVOID) || !avoidance.any_label_off() {
+        return;
+    }
+    let origin = Origin {
+        actor: Actor::Engine,
+        surface: Some(context.surface()),
+        layer: Some(SettingsLayer::Run),
+        run_id: Some(run.identity.id().clone()),
+    };
+    if let Err(error) = context
+        .engine()
+        .audit()
+        .record(
+            &origin,
+            &FEATURE_SWITCHED_OFF,
+            serde_json::json!({
+                "setting": CRAWL_TRAP_LINKS_AVOID.name,
+                "value": false,
+                "default": (CRAWL_TRAP_LINKS_AVOID.default)(),
+            }),
+            run.identity.clock().timestamp(),
+        )
+        .await
+    {
+        tracing::error!(
+            %error,
+            run_id = %run.identity.id(),
+            "the Label-level trap-links switch-off was not recorded in the Audit log"
+        );
+    }
+}
+
 /// Starts delivery for a newly created crawl Run after applying its Limits.
 async fn start_new(
     (run, context): (goodfetch_engine::runs::RunParts, &CallContext),
@@ -584,6 +659,7 @@ async fn start_new(
     // before it does any work (ADR 0026).
     let run = CrawlRun::started(&run, context, (sinks, settings.resolved())).await?;
     notify_personal_data(&run, &opening, settings.resolved(), context).await;
+    record_label_trap_links_off(&run, &labels, settings.resolved(), context).await;
     let started = RunStarted {
         run_id: run.identity.id().clone(),
         started_as: StartedAs::New,

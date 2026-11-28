@@ -326,6 +326,16 @@ class ConnectionCrawlScopeSettings(TypedDict):
     """
 
 
+class ConnectionCrawlTrapLinksSettings(TypedDict):
+    """The `crawl.trap_links` settings of `FoxhoundSettings`."""
+
+    avoid: NotRequired[bool]
+    """Whether the Frontier avoids links a person cannot see (ADR 0035), set for the Run or for one of its Labels, whose own value wins for its requests. On by default: on the browser tier, invisible trap links are not added, with `trap_link`, and on the HTTP tier, markup-hidden links are marked as suspected traps that a browser tier never follows (`decoy`). Off, `trap_links::judge` runs on no link of a links batch and nothing of it is written, so hidden links are added and followed like any other; Site preferences such as robots.txt and use signals are still obeyed (ADR 0086). Switching it off is recorded in the Audit log as `feature_switched_off`, listed in the Run report's `weakened`, and carries the warning `trap_links_off` (ADR 0023).
+
+    `crawl.trap_links.avoid`.
+    """
+
+
 class ConnectionCrawlSettings(TypedDict):
     """The `crawl` settings of `FoxhoundSettings`."""
 
@@ -438,6 +448,8 @@ class ConnectionCrawlSettings(TypedDict):
     """
 
     scope: NotRequired[ConnectionCrawlScopeSettings]
+
+    trap_links: NotRequired[ConnectionCrawlTrapLinksSettings]
 
 
 class ConnectionDatasetQuerySettings(TypedDict):
@@ -2426,6 +2438,16 @@ class RunCrawlScopeSettings(TypedDict):
     """
 
 
+class RunCrawlTrapLinksSettings(TypedDict):
+    """The `crawl.trap_links` settings of `CrawlSettings`."""
+
+    avoid: NotRequired[bool]
+    """Whether the Frontier avoids links a person cannot see (ADR 0035), set for the Run or for one of its Labels, whose own value wins for its requests. On by default: on the browser tier, invisible trap links are not added, with `trap_link`, and on the HTTP tier, markup-hidden links are marked as suspected traps that a browser tier never follows (`decoy`). Off, `trap_links::judge` runs on no link of a links batch and nothing of it is written, so hidden links are added and followed like any other; Site preferences such as robots.txt and use signals are still obeyed (ADR 0086). Switching it off is recorded in the Audit log as `feature_switched_off`, listed in the Run report's `weakened`, and carries the warning `trap_links_off` (ADR 0023).
+
+    `crawl.trap_links.avoid`.
+    """
+
+
 class RunCrawlSettings(TypedDict):
     """The `crawl` settings of `CrawlSettings`."""
 
@@ -2538,6 +2560,8 @@ class RunCrawlSettings(TypedDict):
     """
 
     scope: NotRequired[RunCrawlScopeSettings]
+
+    trap_links: NotRequired[RunCrawlTrapLinksSettings]
 
 
 class RunDatasetQuerySettings(TypedDict):
@@ -3902,6 +3926,16 @@ class LabelCrawlRetrySettings(TypedDict):
     """
 
 
+class LabelCrawlTrapLinksSettings(TypedDict):
+    """The `crawl.trap_links` settings of `LabelSettings`."""
+
+    avoid: NotRequired[bool]
+    """Whether the Frontier avoids links a person cannot see (ADR 0035), set for the Run or for one of its Labels, whose own value wins for its requests. On by default: on the browser tier, invisible trap links are not added, with `trap_link`, and on the HTTP tier, markup-hidden links are marked as suspected traps that a browser tier never follows (`decoy`). Off, `trap_links::judge` runs on no link of a links batch and nothing of it is written, so hidden links are added and followed like any other; Site preferences such as robots.txt and use signals are still obeyed (ADR 0086). Switching it off is recorded in the Audit log as `feature_switched_off`, listed in the Run report's `weakened`, and carries the warning `trap_links_off` (ADR 0023).
+
+    `crawl.trap_links.avoid`.
+    """
+
+
 class LabelCrawlSettings(TypedDict):
     """The `crawl` settings of `LabelSettings`."""
 
@@ -3918,6 +3952,8 @@ class LabelCrawlSettings(TypedDict):
     """
 
     retry: NotRequired[LabelCrawlRetrySettings]
+
+    trap_links: NotRequired[LabelCrawlTrapLinksSettings]
 
 
 class LabelFetchKeptResponsesSettings(TypedDict):

@@ -110,7 +110,7 @@ use goodfetch_protocol::foxhound::hook::CrawlHookDeclaration;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::report::{
     BLOCK_CLASSIFICATION_OFF, LEARNING_OFF, LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK, PROVENANCE_OFF,
-    RECORDS_OFF,
+    RECORDS_OFF, TRAP_LINKS_OFF,
 };
 use goodfetch_protocol::foxhound::session_pool::{ESCALATION_PROXY_KINDS, ServingSession};
 use goodfetch_protocol::foxhound::settings::{
@@ -295,6 +295,14 @@ pub(crate) async fn drive(
         if !settings.resolved().get::<bool>(setting) {
             warn_switched_off(&run, code, message).await;
         }
+    }
+    if labels::TrapLinksAvoidance::of(settings.resolved(), &fetching.labels.settings).any_off() {
+        warn_switched_off(
+            &run,
+            TRAP_LINKS_OFF,
+            "`crawl.trap_links.avoid` is off: the Frontier did not judge or filter trap links, so hidden links may have been fetched.",
+        )
+        .await;
     }
     arrivals
         .invariants
@@ -801,13 +809,20 @@ pub(crate) async fn resume(
             ))
         })
         .await;
-    let left = left.map(|(left, declared, fragments, choices, declarations)| {
-        let labels = labels::Declared::of(&declared, fragments, settings.resolved()).unwrap_or_else(|error| {
-            tracing::warn!(%error, run_id = %run.identity.id(), "the resumed crawl's Labels no longer read; its requests take the Run's tier and pool");
-            labels::Declared::none(settings.resolved())
-        });
-        (left, (labels, choices, declarations))
-    });
+    let left = left.map(
+        |(left, declared, fragments, choices, (code_free, datasets, invariants))| {
+            let labels = labels::Declared::of(&declared, fragments, settings.resolved())
+                .unwrap_or_else(|error| {
+                    tracing::warn!(%error, run_id = %run.identity.id(), "the resumed crawl's Labels no longer read; its requests take the Run's tier and pool");
+                    labels::Declared::none(settings.resolved())
+                });
+            let invariants = invariants.with_avoid_trap_links(labels::TrapLinksAvoidance::of(
+                settings.resolved(),
+                &labels.settings,
+            ));
+            (left, (labels, choices, (code_free, datasets, invariants)))
+        },
+    );
     let (labels, choices, (code_free, datasets, invariants)) = match left {
         Err(error) => {
             tracing::error!(%error, run_id = %run.identity.id(), "the resumed crawl's work items could not be recovered");

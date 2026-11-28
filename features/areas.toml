@@ -916,6 +916,13 @@ number = 6
 kind = "setting"
 prefix = "crawl.keep_url_fragment"
 
+# Area 8, Stealth and Challenge solving, Foxhound: trap-link avoidance
+# (ADRs 0023 and 0035, #1157).
+[[area]]
+number = 8
+kind = "setting"
+prefix = "crawl.trap_links."
+
 # The Frontier's learning from the crawl's pages, switchable (ADR 0138).
 [[area]]
 number = 6

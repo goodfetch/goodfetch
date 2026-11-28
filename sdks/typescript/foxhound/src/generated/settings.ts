@@ -373,6 +373,14 @@ export interface FoxhoundSettings {
        */
       readonly strategy?: "same_hostname" | "same_domain" | "same_origin" | "all";
     };
+    readonly trapLinks?: {
+      /**
+       * Whether the Frontier avoids links a person cannot see (ADR 0035), set for the Run or for one of its Labels, whose own value wins for its requests. On by default: on the browser tier, invisible trap links are not added, with `trap_link`, and on the HTTP tier, markup-hidden links are marked as suspected traps that a browser tier never follows (`decoy`). Off, `trap_links::judge` runs on no link of a links batch and nothing of it is written, so hidden links are added and followed like any other; Site preferences such as robots.txt and use signals are still obeyed (ADR 0086). Switching it off is recorded in the Audit log as `feature_switched_off`, listed in the Run report's `weakened`, and carries the warning `trap_links_off` (ADR 0023).
+       *
+       * `crawl.trap_links.avoid`.
+       */
+      readonly avoid?: boolean;
+    };
   };
   readonly dataset?: {
     readonly query?: {
@@ -1819,6 +1827,14 @@ export interface CrawlSettings {
        */
       readonly strategy?: "same_hostname" | "same_domain" | "same_origin" | "all";
     };
+    readonly trapLinks?: {
+      /**
+       * Whether the Frontier avoids links a person cannot see (ADR 0035), set for the Run or for one of its Labels, whose own value wins for its requests. On by default: on the browser tier, invisible trap links are not added, with `trap_link`, and on the HTTP tier, markup-hidden links are marked as suspected traps that a browser tier never follows (`decoy`). Off, `trap_links::judge` runs on no link of a links batch and nothing of it is written, so hidden links are added and followed like any other; Site preferences such as robots.txt and use signals are still obeyed (ADR 0086). Switching it off is recorded in the Audit log as `feature_switched_off`, listed in the Run report's `weakened`, and carries the warning `trap_links_off` (ADR 0023).
+       *
+       * `crawl.trap_links.avoid`.
+       */
+      readonly avoid?: boolean;
+    };
   };
   readonly dataset?: {
     readonly query?: {
@@ -2951,6 +2967,14 @@ export interface LabelSettings {
        */
       readonly handlerFailed?: boolean;
     };
+    readonly trapLinks?: {
+      /**
+       * Whether the Frontier avoids links a person cannot see (ADR 0035), set for the Run or for one of its Labels, whose own value wins for its requests. On by default: on the browser tier, invisible trap links are not added, with `trap_link`, and on the HTTP tier, markup-hidden links are marked as suspected traps that a browser tier never follows (`decoy`). Off, `trap_links::judge` runs on no link of a links batch and nothing of it is written, so hidden links are added and followed like any other; Site preferences such as robots.txt and use signals are still obeyed (ADR 0086). Switching it off is recorded in the Audit log as `feature_switched_off`, listed in the Run report's `weakened`, and carries the warning `trap_links_off` (ADR 0023).
+       *
+       * `crawl.trap_links.avoid`.
+       */
+      readonly avoid?: boolean;
+    };
   };
   readonly fetch?: {
     /**
@@ -3104,6 +3128,9 @@ const SPELLING: Spelling = {
       exclude: "exclude",
       include: "include",
       strategy: "strategy",
+    }],
+    trapLinks: ["trap_links", {
+      avoid: "avoid",
     }],
   }],
   daemon: ["daemon", {

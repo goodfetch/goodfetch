@@ -7650,6 +7650,34 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "deprecated": null,
+      "description": "Whether the Frontier avoids links a person cannot see (ADR 0035), set for the Run or for one of its Labels, whose own value wins for its requests. On by default: on the browser tier, invisible trap links are not added, with `trap_link`, and on the HTTP tier, markup-hidden links are marked as suspected traps that a browser tier never follows (`decoy`). Off, `trap_links::judge` runs on no link of a links batch and nothing of it is written, so hidden links are added and followed like any other; Site preferences such as robots.txt and use signals are still obeyed (ADR 0086). Switching it off is recorded in the Audit log as `feature_switched_off`, listed in the Run report's `weakened`, and carries the warning `trap_links_off` (ADR 0023).",
+      "fixed_for_run": false,
+      "name": "crawl.trap_links.avoid",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "label"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakening": {
+        "values": [
+          false
+        ]
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "machine",
       "clearable": false,
       "default": "127.0.0.1:7600",
@@ -16182,7 +16210,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "A run switched off a per-page feature that is on by default, `provenance.log`, `dataset.records`, `fetch.block_classification` or the browser-fetch of `fetch.http_from` (its value `transport`), once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0138): no page of the run does that feature's work.",
+      "description": "A run switched off a per-page feature that is on by default, `provenance.log`, `dataset.records`, `fetch.block_classification`, `crawl.trap_links.avoid` or the browser-fetch of `fetch.http_from` (its value `transport`), once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0138): no page of the run does that feature's work.",
       "name": "feature_switched_off",
       "product": "foxhound",
       "type": "audit_kind"

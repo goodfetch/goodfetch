@@ -24,7 +24,7 @@ use goodfetch_protocol::foxhound::fetch::{
     FETCH_KEPT_RESPONSES_URLS, FETCH_TIER, FETCH_TIER_RACE, FETCH_TIERS, FetchTier,
     HTTP_FROM_VALUES,
 };
-use goodfetch_protocol::foxhound::frontier::CRAWL_KEEP_URL_FRAGMENT;
+use goodfetch_protocol::foxhound::frontier::{CRAWL_KEEP_URL_FRAGMENT, CRAWL_TRAP_LINKS_AVOID};
 use goodfetch_protocol::page::{CONTENT_EXTRACTOR, CONTENT_EXTRACTORS};
 use goodfetch_protocol::setting_scopes::LABEL_SETTINGS;
 use goodfetch_protocol::settings::page_check::PageCheck;
@@ -61,6 +61,7 @@ pub struct LabelSettings {
     content_types: BTreeMap<String, ContentTypes>,
     page_checks: BTreeMap<String, PageCheck>,
     fragments: BTreeMap<String, bool>,
+    avoid_trap_links: BTreeMap<String, bool>,
     kept_responses: BTreeMap<String, bool>,
     extractors: BTreeMap<String, BuiltIn>,
     hook_timeouts: BTreeMap<String, u64>,
@@ -162,6 +163,7 @@ impl LabelSettings {
         let mut content_types = BTreeMap::new();
         let mut page_checks = BTreeMap::new();
         let mut fragments = BTreeMap::new();
+        let mut avoid_trap_links = BTreeMap::new();
         let mut kept_responses = BTreeMap::new();
         let mut extractors = BTreeMap::new();
         let mut hook_timeouts = BTreeMap::new();
@@ -195,6 +197,10 @@ impl LabelSettings {
                 }
                 if key == CRAWL_KEEP_URL_FRAGMENT.name {
                     fragments.insert(name.clone(), boolean(name, &key, &value)?);
+                    continue;
+                }
+                if key == CRAWL_TRAP_LINKS_AVOID.name {
+                    avoid_trap_links.insert(name.clone(), boolean(name, &key, &value)?);
                     continue;
                 }
                 if key == FETCH_KEPT_RESPONSES_URLS.name {
@@ -245,6 +251,7 @@ impl LabelSettings {
             content_types,
             page_checks,
             fragments,
+            avoid_trap_links,
             kept_responses,
             extractors,
             hook_timeouts,
@@ -289,6 +296,13 @@ impl LabelSettings {
     /// it leaves it to the Run.
     pub fn keeps_fragment(&self, label: &str) -> Option<bool> {
         self.fragments.get(label).copied()
+    }
+
+    /// Each declared Label that sets `crawl.trap_links.avoid`, with its value.
+    pub fn avoid_trap_links(&self) -> impl Iterator<Item = (&str, bool)> {
+        self.avoid_trap_links
+            .iter()
+            .map(|(name, avoids)| (name.as_str(), *avoids))
     }
 
     /// Whether the Label `label` sets `fetch.kept_responses.urls`, and to

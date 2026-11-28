@@ -17,7 +17,7 @@ use goodfetch_frontier::{Bounds, Scope};
 use goodfetch_protocol::foxhound::crawl::LabelDeclaration;
 use rusqlite::Connection;
 
-use crate::labels::Fragments;
+use crate::labels::{Fragments, TrapLinksAvoidance};
 
 #[cfg(test)]
 pub(crate) mod fixture;
@@ -28,11 +28,12 @@ pub(crate) struct Invariants {
     frontier: Arc<goodfetch_frontier::Invariants>,
     payloads: Arc<PayloadRules>,
     fragments: Arc<Fragments>,
+    avoid_trap_links: Arc<TrapLinksAvoidance>,
 }
 
 impl Invariants {
     /// The invariants of the Frontier's `frontier`, the Payload rules
-    /// `payloads` and the Labels' `fragments`.
+    /// `payloads` and the Labels' `fragments`, with trap-link avoidance on.
     pub(crate) fn new(
         frontier: goodfetch_frontier::Invariants,
         payloads: PayloadRules,
@@ -42,11 +43,18 @@ impl Invariants {
             frontier: Arc::new(frontier),
             payloads: Arc::new(payloads),
             fragments: Arc::new(fragments),
+            avoid_trap_links: Arc::new(TrapLinksAvoidance::default()),
         }
     }
 
+    /// Replaces the crawl's trap-link avoidance settings.
+    pub(crate) fn with_avoid_trap_links(mut self, avoid: TrapLinksAvoidance) -> Self {
+        self.avoid_trap_links = Arc::new(avoid);
+        self
+    }
+
     /// The invariants of a crawl started under `settings` with its
-    /// declared `labels` and their `fragments`.
+    /// declared `labels`, their `fragments` and `avoid_trap_links`.
     ///
     /// # Errors
     ///
@@ -57,16 +65,16 @@ impl Invariants {
         settings: &Resolved,
         labels: &BTreeMap<String, LabelDeclaration>,
         fragments: Fragments,
+        avoid_trap_links: TrapLinksAvoidance,
     ) -> Result<Self, CallError> {
         let frontier = goodfetch_frontier::Invariants::new(
             Scope::of_settings(settings)?,
             Bounds::of_settings(settings),
         )?;
-        Ok(Self::new(
-            frontier,
-            PayloadRules::of(settings, labels)?,
-            fragments,
-        ))
+        Ok(
+            Self::new(frontier, PayloadRules::of(settings, labels)?, fragments)
+                .with_avoid_trap_links(avoid_trap_links),
+        )
     }
 
     /// The invariants the run file `connection` holds, as the Run resumes
@@ -139,5 +147,11 @@ impl Invariants {
     /// Whether a request of `label` keeps its URL's fragment.
     pub(crate) fn keeps_fragment(&self, label: &str) -> bool {
         self.fragments.keeps(label)
+    }
+
+    /// Whether links enqueued to `label` avoid trap links
+    /// (`crawl.trap_links.avoid`).
+    pub(crate) fn avoids_trap_links(&self, label: &str) -> bool {
+        self.avoid_trap_links.avoids(label)
     }
 }

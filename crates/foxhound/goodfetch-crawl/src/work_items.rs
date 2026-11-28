@@ -677,13 +677,27 @@ pub(crate) fn admit(
     Ok(enqueued)
 }
 
+/// Whether a link admitted through [`admit_keyed`] was judged by
+/// `trap_links` (`crawl.trap_links.avoid` on) or left unjudged (off, so
+/// nothing of `trap_links` is read or written).
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum TrapJudgement {
+    /// `crawl.trap_links.avoid` is off: neither mark nor clear trap-link
+    /// state.
+    Unjudged,
+    /// `crawl.trap_links.avoid` is on: the link's suspected trap mark, if
+    /// any (`None` for a link a person sees).
+    Judged(Option<Mark>),
+}
+
 /// Admits the link given as `given` and keyed as `keyed` through the
 /// Frontier as [`admit`] does, entering as `entering` says: the part of a
 /// page's link's admission that needs the Run's state (#2244), its key
-/// made on the task that serves its call. The request it adds is marked as
-/// `suspected` says its link is suspected a trap, and a request it reaches
-/// again, answered `duplicate`, is told how it was seen (ADR 0035). While
-/// an attempt stages, both are kept in `positions` as decided, for the
+/// made on the task that serves its call. When `trap_judgement` is
+/// [`TrapJudgement::Judged`], the request it adds is marked as `suspected`
+/// says its link is suspected a trap, and a request it reaches again,
+/// answered `duplicate`, is told how it was seen (ADR 0035). While an
+/// attempt stages, both are kept in `positions` as decided, for the
 /// attempt's commit to apply (#2245).
 ///
 /// # Errors
@@ -695,22 +709,27 @@ pub(crate) fn admit_keyed(
     invariants: &Invariants,
     (given, keyed): (&str, &Keyed),
     entering: Entering<'_>,
-    (adding, suspected): (Adding<'_>, Option<Mark>),
+    (adding, trap_judgement): (Adding<'_>, TrapJudgement),
 ) -> rusqlite::Result<Enqueued> {
+    let via = match trap_judgement {
+        TrapJudgement::Unjudged => Via::Request,
+        TrapJudgement::Judged(suspected) => Via::Link(suspected),
+    };
     let coming = Coming {
         given,
         keyed,
         entering,
         adding,
-        via: Via::Link(suspected),
+        via,
     };
     let (enqueued, again) = coming.admit(connection, positions, invariants.frontier())?;
     if again {
         positions.decide(|| Decided::Request(Box::new(coming.kept(invariants))));
-    } else if let Enqueued::NotAdded {
-        reason: NotAddedReason::Duplicate,
-        ..
-    } = &enqueued
+    } else if let TrapJudgement::Judged(suspected) = trap_judgement
+        && let Enqueued::NotAdded {
+            reason: NotAddedReason::Duplicate,
+            ..
+        } = &enqueued
         && let Some(revealable) = reaching_again(suspected)
     {
         let frontier = invariants.shared_frontier();

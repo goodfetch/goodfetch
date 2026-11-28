@@ -23,7 +23,7 @@ use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{HttpFrom, LabelSettings};
 use goodfetch_protocol::foxhound::crawl::LabelDeclaration;
 use goodfetch_protocol::foxhound::fetch::FETCH_HTTP_FROM;
-use goodfetch_protocol::foxhound::frontier::CRAWL_KEEP_URL_FRAGMENT;
+use goodfetch_protocol::foxhound::frontier::{CRAWL_KEEP_URL_FRAGMENT, CRAWL_TRAP_LINKS_AVOID};
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::{
     SESSION_SOURCE, SETTING_LOCKED, SettingLimit, SettingLockedDetails, SettingsLayer,
@@ -244,6 +244,54 @@ impl Fragments {
             layer: SettingsLayer::Run,
         }
         .into())
+    }
+}
+
+/// Whether each crawl request avoids trap links (`crawl.trap_links.avoid`,
+/// ADRs 0023 and 0035): those of each Label that sets it, as it sets it,
+/// and every other's as the Run sets it (on by default).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TrapLinksAvoidance {
+    run: bool,
+    labels: BTreeMap<String, bool>,
+}
+
+impl Default for TrapLinksAvoidance {
+    fn default() -> Self {
+        Self {
+            run: true,
+            labels: BTreeMap::new(),
+        }
+    }
+}
+
+impl TrapLinksAvoidance {
+    /// What the Run's `settings` and its Labels' `labels` set.
+    pub(crate) fn of(settings: &Resolved, labels: &LabelSettings) -> Self {
+        Self {
+            run: settings.get(&CRAWL_TRAP_LINKS_AVOID),
+            labels: labels
+                .avoid_trap_links()
+                .map(|(label, avoids)| (label.to_owned(), avoids))
+                .collect(),
+        }
+    }
+
+    /// Whether links enqueued to `label` avoid trap links.
+    pub(crate) fn avoids(&self, label: &str) -> bool {
+        self.labels.get(label).copied().unwrap_or(self.run)
+    }
+
+    /// Whether the Run itself leaves trap-link avoidance on, while at least
+    /// one declared Label switches it off.
+    pub(crate) fn any_label_off(&self) -> bool {
+        self.labels.values().any(|avoids| !*avoids)
+    }
+
+    /// Whether trap-link avoidance is off for the Run or for any declared
+    /// Label.
+    pub(crate) fn any_off(&self) -> bool {
+        !self.run || self.any_label_off()
     }
 }
 

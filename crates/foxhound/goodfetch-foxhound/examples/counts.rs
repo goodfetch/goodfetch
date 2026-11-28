@@ -919,7 +919,7 @@ fn undelegated_at(name: &'static str, settings: Value) -> Cell {
 /// then reads no document (#1921); and the Block classification with
 /// `frontier.learning` off, scenario 1's combination, whose pages no reader
 /// needs a tree of and which then hands none to the analysis pool (#2189).
-fn switched_off() -> [Cell; 4] {
+fn switched_off() -> [Cell; 5] {
     [
         Cell {
             name: "provenance_off",
@@ -965,6 +965,15 @@ fn switched_off() -> [Cell; 4] {
                 Row::PageBlockClassifications,
                 Row::PageAnalysisHandoffs,
             ],
+            removes_syncs: false,
+            handler: false,
+            limit: false,
+        },
+        Cell {
+            name: "trap_links_avoid_off",
+            settings: scoped(json!({ "crawl": { "trap_links": { "avoid": false } } })),
+            frontier: FRONTIER,
+            removes: &[],
             removes_syncs: false,
             handler: false,
             limit: false,

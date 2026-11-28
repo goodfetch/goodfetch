@@ -551,3 +551,77 @@ fn a_sites_429_through_a_proxy_backs_its_domain_off_and_lowers_no_ceiling() {
         (true, Vec::new()),
     );
 }
+
+/// A site's 429 carrying a `Proxy-Status` error on an `http:` page
+/// fetched directly on the `http` tier via `proxy.bypass` in a Run that
+/// sets `proxy.server` backs its domain off: `forwarded` is judged by the
+/// route the document actually took, not by the Run's settings (ADR 0053,
+/// issue 1772).
+///
+/// Covers: story:5-133, setting:proxy.server, setting:proxy.bypass, format:politeness-file
+#[cfg(unix)]
+#[test]
+fn a_sites_429_on_a_bypassed_http_tier_fetch_backs_its_domain_off() {
+    use std::io::{Read as _, Write as _};
+
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let file = env.home().join("politeness.sqlite");
+    let open = format!(
+        "http://{}",
+        proving_ground.description().fixtures.proxies["open"]
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind bypassed site listener");
+    let port = listener.local_addr().expect("listener address").port();
+    let server = std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut buffer = [0u8; 4096];
+            let _ = stream.read(&mut buffer);
+            let _ = stream.write_all(
+                b"HTTP/1.1 429 Too Many Requests\r\n\
+                  Proxy-Status: cdn.test; error=http_request_denied\r\n\
+                  Content-Type: text/html; charset=utf-8\r\n\
+                  Content-Length: 13\r\n\
+                  Connection: close\r\n\
+                  \r\n\
+                  <html></html>",
+            );
+            let _ = stream.flush();
+        }
+    });
+
+    let mut engine = engine(&env);
+    let finished = crawled(
+        &mut engine,
+        &json!({
+            "labels": { "page": {} },
+            "run_id": "bypassed-429",
+            "seeds": [{
+                "url": format!("http://bypass.scope.test:{port}/rate-limit"),
+                "label": "page",
+            }],
+            "settings": crawl_settings(
+                &proving_ground,
+                Tier::Http,
+                &[("bypass.scope.test", "127.0.0.1")],
+                &json!({
+                    "proxy": {
+                        "server": open,
+                        "bypass": "bypass.scope.test",
+                    },
+                }),
+            ),
+        }),
+    );
+    assert!(engine.finished());
+    server.join().expect("bypassed site thread finished");
+
+    assert!(
+        held_for(
+            &file,
+            "scope.test",
+            Duration::from_millis(BACKOFF_INITIAL_MS / 2)
+        ),
+        "a site's 429 on a proxy.bypass hop must back off its domain: {finished}"
+    );
+}

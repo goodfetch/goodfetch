@@ -9,7 +9,7 @@ from typing import Literal, TypeAlias
 
 from goodfetch_collie_client.generated.shared_types import AuditKind as CollieAuditKind, BlockCause as CollieBlockCause, CompletenessReasonCode as CollieCompletenessReasonCode, LimitScope as CollieLimitScope, NotificationEvent as CollieNotificationEvent, RunWarningCode as CollieRunWarningCode, UsageKind as CollieUsageKind
 
-AuditKind: TypeAlias = CollieAuditKind | Literal["feature_switched_off", "learning_switched_off"]
+AuditKind: TypeAlias = CollieAuditKind | Literal["feature_switched_off", "learning_switched_off", "run_data_erased"]
 """A `audit_kind`, a type both Products share (ADR 0095).
 
 Collie's values and Foxhound's own below; a value this package does not know is
@@ -17,6 +17,7 @@ kept as received (ADR 0079).
 
 - `feature_switched_off`: A run switched off a per-page feature that is on by default, `provenance.log`, `dataset.records`, `fetch.block_classification` or the browser-fetch of `fetch.http_from` (its value `transport`), once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0138): no page of the run does that feature's work.
 - `learning_switched_off`: A run switched `frontier.learning` off, once per run, with the key, its value, its built-in default and the layer that set it (ADR 0138): its Frontier learns no URL rule from its pages.
+- `run_data_erased`: A person erased data from a Run's stored Records, Baseline rows, Checkpoint or Response cache entries (`dataset.erase` or `run.erase`, ADR 0016), recording the operation and counts without repeating any erased personal value.
 """
 
 BlockCause: TypeAlias = CollieBlockCause | Literal["decoy"]

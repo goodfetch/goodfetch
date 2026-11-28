@@ -748,6 +748,18 @@ number = 4
 kind = "setting"
 prefix = "audit."
 
+# Area 4's personal data retention and erasure (#694): `datasets.<name>.retention`
+# and `run.erase`.
+[[area]]
+number = 4
+kind = "setting"
+prefix = "datasets"
+
+[[area]]
+number = 4
+kind = "operation"
+prefix = "run.erase"
+
 # Area 4's switchable security controls (#614): the `security.*` settings.
 [[area]]
 number = 4

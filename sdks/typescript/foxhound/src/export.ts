@@ -91,6 +91,8 @@ export class Export {
   readonly sha256: string;
   /** The run epoch of the Run's state it was written from (ADR 0003). */
   readonly runEpoch: number;
+  /** The Dataset's fields marked with `"x-goodfetch-personal": true` (ADR 0016). */
+  readonly personalColumns: readonly string[];
 
   private constructor(connection: ClientConnection, descriptor: WireExport) {
     this.#connection = connection;
@@ -102,6 +104,7 @@ export class Export {
     this.size = descriptor.size;
     this.sha256 = descriptor.sha256;
     this.runEpoch = descriptor.runEpoch;
+    this.personalColumns = descriptor.personalColumns ?? [];
   }
 
   /**

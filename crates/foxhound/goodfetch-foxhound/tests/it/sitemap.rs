@@ -57,8 +57,10 @@ fn settings(proving_ground: &ProvingGround, more: &Value) -> Value {
         settings.extend(more.clone());
     }
     // The Proving ground serves on loopback: its hosts are listed beside
-    // any egress setting `more` gives.
-    settings["egress"]["private_ranges"] = json!([SITE, PARTNER, BLOCKED, OVER_LIMIT]);
+    // any egress setting `more` gives unless the test overrides them.
+    if settings["egress"].get("private_ranges").is_none() {
+        settings["egress"]["private_ranges"] = json!([SITE, PARTNER, BLOCKED, OVER_LIMIT]);
+    }
     settings
 }
 
@@ -227,7 +229,7 @@ fn handled(requests: &[(&str, &str)]) -> Vec<(String, String)> {
 /// scope `out_of_scope` and never fetched, and one listed twice
 /// `duplicate`, each in its sitemap's counts.
 ///
-/// Covers: story:6-203, story:6-205, operation:crawl.start, operation:run.seeds
+/// Covers: story:4-99, story:6-203, story:6-205, operation:crawl.start, operation:run.seeds
 #[test]
 fn a_sitemap_index_seeds_its_entries_with_the_first_matching_rules_label() {
     let env = TestEnv::new();
@@ -336,7 +338,7 @@ fn a_sitemap_nested_deeper_than_crawl_max_sitemap_nesting_is_not_fetched() {
 /// crawl asked for, and the partner's robots.txt is never fetched (ADR
 /// 0138).
 ///
-/// Covers: story:6-205, story:6-203, operation:crawl.start
+/// Covers: story:4-99, story:6-205, story:6-203, operation:crawl.start
 #[rstest]
 #[case::respected(true, &["/cross.xml", "/robots.txt"])]
 /// Covers: setting:site_preferences.respect_robots_txt
@@ -375,6 +377,126 @@ fn a_robots_txt_seed_admits_its_own_hosts_entries_from_the_sitemap_it_cross_subm
                 .iter()
                 .map(|&target| target.to_owned())
                 .collect::<Vec<_>>(),
+        )
+    );
+}
+
+/// A robots.txt seed that cross-submits a sitemap on another host fetches
+/// that sitemap only if the domain policy allows its host: when
+/// `egress.blocked_domains` refuses the partner host, the cross-submitted
+/// sitemap is not fetched, is reported as a `domain_policy` failure and
+/// yields no requests (ADR 0120, U15 and U20).
+///
+/// Covers: story:4-99, setting:egress.blocked_domains, operation:crawl.start
+#[test]
+fn a_robots_txt_seed_refuses_a_cross_submitted_sitemap_on_a_policy_refused_host() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let url = |host: &str, path: &str| proving_ground.url(host, path);
+    let robots = url(SITE, "/robots.txt");
+    let seed = json!({
+        "sitemap": robots,
+        "rules": [{ "pattern": "**/books/*", "label": "book" }],
+    });
+
+    let crawled = crawl_sitemap(
+        &proving_ground,
+        &seed,
+        &json!({ "egress": { "blocked_domains": [PARTNER] } }),
+    );
+
+    assert_eq!(
+        (
+            crawled.handled,
+            without_messages(&crawled.report["sitemaps"]),
+            targets(&crawled.observations, SITE),
+            targets(&crawled.observations, PARTNER),
+        ),
+        (
+            Vec::new(),
+            json!([counts(
+                &robots,
+                0,
+                &[failure(&url(PARTNER, "/cross.xml"), "domain_policy", None)],
+                0,
+                &[],
+            )]),
+            vec!["/robots.txt".to_owned()],
+            Vec::<String>::new(),
+        )
+    );
+}
+
+/// A sitemap on a host the domain policy refuses — whether refused at
+/// admission by `egress.blocked_domains` or at fetch time because its
+/// address is outside `egress.private_ranges` — is never fetched, and the
+/// Proving ground's connection record shows zero connections beyond the
+/// observations request itself (ADR 0120, U20).
+///
+/// Covers: story:4-99, setting:egress.blocked_domains, setting:egress.private_ranges, operation:crawl.start, operation:run.seeds
+#[rstest]
+#[case::blocked_domain(
+    json!({ "egress": { "blocked_domains": [BLOCKED] } }),
+    false,
+)]
+#[case::private_range_refused(
+    json!({ "egress": { "private_ranges": [] } }),
+    true,
+)]
+fn a_sitemap_on_a_host_the_policy_refuses_is_not_fetched_with_no_connection(
+    #[case] egress: Value,
+    #[case] admitted: bool,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let sitemap = proving_ground.url(BLOCKED, "/sitemap.xml");
+    let seed = json!({
+        "sitemap": sitemap,
+        "rules": [{ "pattern": "**/books/*", "label": "book" }],
+    });
+
+    let crawled = crawl_sitemap(&proving_ground, &seed, &egress);
+
+    // The observations' own read is the one connection with no request.
+    let connections = crawled.observations["connections"]
+        .as_array()
+        .unwrap()
+        .len()
+        - 1;
+    let expected_seeds = if admitted {
+        json!([added("1", &sitemap)])
+    } else {
+        json!([{
+            "kind": "not_added",
+            "reason": "domain_policy",
+            "url": sitemap,
+        }])
+    };
+    let expected_sitemaps = if admitted {
+        json!([counts(
+            &sitemap,
+            0,
+            &[failure(&sitemap, "domain_policy", None)],
+            0,
+            &[],
+        )])
+    } else {
+        Value::Null
+    };
+    assert_eq!(
+        (
+            crawled.seeds,
+            crawled.handled,
+            without_messages(&crawled.report["sitemaps"]),
+            targets(&crawled.observations, BLOCKED),
+            connections,
+        ),
+        (
+            expected_seeds,
+            Vec::new(),
+            expected_sitemaps,
+            Vec::<String>::new(),
+            0,
         )
     );
 }

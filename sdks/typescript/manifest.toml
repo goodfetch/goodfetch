@@ -556,6 +556,15 @@ form = "read"
 [[member]]
 package = "@goodfetch/foxhound"
 receiver = "Export"
+member = "personalColumns"
+entry = "none"
+reason = "The Dataset's fields marked with x-goodfetch-personal in its JSON Schema (ADR 0016)."
+words = ["personal", "columns"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Export"
 member = "saveAs"
 entry = "export.save_as"
 words = ["save", "as"]

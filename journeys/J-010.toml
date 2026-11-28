@@ -10,7 +10,7 @@ no browser background traffic."""
 area = 4
 product = "foxhound"
 status = "active"
-covers = ["row:SC-10"]
+covers = ["story:4-80", "story:4-81", "row:SC-10"]
 
 [proving_ground]
 seed = 10

@@ -1101,6 +1101,17 @@ impl BrowserPages for Opener {
         })
     }
 
+    fn forwarded<'a>(&'a self, page_id: &'a PageId, url: &'a str) -> Opening<'a, bool> {
+        Box::pin(async move {
+            let Ok(page) = self.pages.sessions.page(page_id).await else {
+                return false;
+            };
+            page.driver
+                .proxy()
+                .is_some_and(|proxy| proxy.forwarded(url))
+        })
+    }
+
     fn fetch<'a>(
         &'a self,
         run_id: &'a RunId,
@@ -1146,6 +1157,13 @@ impl BrowserPages for Opener {
                 .engine_page(&session, &value, EngineWork::Request)
                 .await?;
             let fetched = browser_fetch::send(engine_page.driver(), &steps, &sent).await;
+            let forwarded = fetched.as_ref().is_ok_and(|fetched| {
+                !fetched.response.from_service_worker
+                    && engine_page
+                        .driver()
+                        .proxy()
+                        .is_some_and(|proxy| proxy.forwarded(&fetched.response.url))
+            });
             engine_page.close().await;
             let fetched = fetched?;
             let headers = fetched
@@ -1168,6 +1186,7 @@ impl BrowserPages for Opener {
                         FetchedBody::Cut { received, expected }
                     }
                 },
+                forwarded,
             })
         })
     }

@@ -461,3 +461,67 @@ async def test_leaves_the_path_as_it_was_when_the_engine_fails_the_call_mid_stre
     assert path.read_text() == "what it held"
     assert names_in(tmp_path) == ["data.csv"]
     await connection.close()
+
+
+async def test_rejects_hostile_paths_before_calling_engine_or_writing(
+    tmp_path: Path,
+) -> None:
+    """Hostile paths fail with `path_not_writable` in local and streamed saves."""
+    engine = PlayedEngine()
+    connection = await connected(engine)
+    hostile_paths = [
+        "../escape.json",
+        str(tmp_path / ".." / "escape.json"),
+        str(tmp_path / "CON"),
+        str(tmp_path / "aux.txt"),
+        f"{tmp_path}/trailing.",
+        f"{tmp_path}/trailing ",
+        f"{tmp_path}/bad\x00name.json",
+        f"{tmp_path}/bad\x07name.json",
+        "\\\\?\\C:\\evil.json",
+        "\\\\.\\pipe\\evil",
+        "\\\\host\\share\\evil.json",
+        f"{tmp_path}/file.json:stream",
+        f"{tmp_path}/bad<name>.json",
+        f"{tmp_path}/{'a' * 256}.json",
+        f"{tmp_path}/cafe\u0301.json",
+        ".",
+        f"{tmp_path}/.",
+    ]
+
+    for hostile in hostile_paths:
+        write_error = await failure(write_file_whole(hostile, b"{}", call="save_as"))
+        assert isinstance(write_error, PathNotWritableError), hostile
+        assert write_error.details["reason"] == "invalid_filename", hostile
+        assert write_error.details["path"] == hostile
+
+        save_error = await failure(
+            save_file(
+                connection,
+                "export.save_as",
+                {"export_id": "e1"},
+                hostile,
+                call="save_as",
+            )
+        )
+        assert isinstance(save_error, PathNotWritableError), hostile
+        assert save_error.details["reason"] == "invalid_filename", hostile
+
+    assert names_in(tmp_path) == []
+    await connection.close()
+
+
+async def test_allows_leading_and_intermediate_current_dir_segments(
+    tmp_path: Path,
+) -> None:
+    """`./out.json` and `dir/./nested.json` are accepted save paths (ADR 0116)."""
+    before = Path.cwd()
+    os.chdir(tmp_path)
+    try:
+        await write_file_whole("./out.json", b"{}", call="save_as")
+        await write_file_whole("dir/./nested.json", b"[]", call="save_as")
+    finally:
+        os.chdir(before)
+
+    assert (tmp_path / "out.json").read_bytes() == b"{}"
+    assert (tmp_path / "dir" / "nested.json").read_bytes() == b"[]"

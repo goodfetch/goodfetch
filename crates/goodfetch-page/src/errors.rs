@@ -76,8 +76,9 @@ pub(crate) enum Unanswered {
 }
 
 /// The error of the navigation or request to `url` the gate refused,
-/// `site_preferences_refused` or `response_limit_exceeded`, that
-/// `refusal` refused at the page's navigation gate (ADRs 0086 and 0093).
+/// `egress_refused`, `site_preferences_refused` or `response_limit_exceeded`,
+/// that `refusal` refused at the page's navigation gate (ADRs 0017, 0086 and
+/// 0093).
 pub(crate) fn gate_refused(url: &str, refusal: &GateRefusal) -> CallError {
     match refusal {
         GateRefusal::Preference { reason, message } => CallError::new(
@@ -89,6 +90,7 @@ pub(crate) fn gate_refused(url: &str, refusal: &GateRefusal) -> CallError {
             },
         ),
         GateRefusal::PastALimit(limit) => limit.error(),
+        GateRefusal::Egress(refused) => refused.error(),
     }
 }
 

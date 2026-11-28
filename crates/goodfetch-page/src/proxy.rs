@@ -789,6 +789,16 @@ impl SessionProxy {
         bypass::bypassed(self.bypass.as_deref(), url)
     }
 
+    /// Whether a request to `url` is forwarded directly by an HTTP or HTTPS
+    /// proxy (an `http:` URL not sent around it by `proxy.bypass` and not
+    /// sent through a SOCKS proxy): the only case where the proxy itself
+    /// can write a `Proxy-Status` member on a response that reaches callers.
+    pub(crate) fn forwarded(&self, url: &str) -> bool {
+        url::Url::parse(url).is_ok_and(|url| url.scheme() == "http")
+            && !self.bypasses(url)
+            && !self.server.scheme.is_socks()
+    }
+
     /// A response to `url` through the proxy, carrying the `Proxy-Status`
     /// field `proxy_status`: one the proxy forwarded itself only for an
     /// `http:` URL sent to an HTTP or HTTPS proxy and not around it, the
@@ -807,7 +817,7 @@ impl SessionProxy {
                 || self.through_relay.answered(url));
         Answer::Response {
             proxy_status,
-            forwarded: proxied && (!socks || relays),
+            forwarded: self.forwarded(url) || (proxied && relays),
         }
     }
 

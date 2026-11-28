@@ -16,13 +16,19 @@ use serde::{Deserialize, Serialize};
 
 use super::{Family, Miss, Outcome, SsrfCase, SsrfTable, SsrfTableError, run_cases};
 
-/// The layers Collie carries and the runners that apply the table to each.
+/// The layers a Product carries and the runners that apply the table to each.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SsrfLayers {
     /// The families every layer meets: each layer runs their cases, or says
     /// in `not_run` why it never meets one.
     pub every_layer: Vec<Family>,
+    /// Families of the table owned by another Product's layer list, by
+    /// family with why, so this Product's completeness check accounts for
+    /// every family of the table without duplicating another Product's
+    /// layers (ADR 0094).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub outside_product: BTreeMap<Family, String>,
     /// The layers, by name in snake case.
     pub layers: BTreeMap<String, Layer>,
 }
@@ -123,8 +129,12 @@ pub struct LayerGaps {
     pub gaps: Vec<LayerGap>,
 }
 
-/// The committed layers' text.
+/// The committed Collie layers' text.
 const COMMITTED: &str = include_str!("../../../../test-support/fixtures/ssrf/layers.toml");
+
+/// The committed Foxhound layers' text.
+const COMMITTED_FOXHOUND: &str =
+    include_str!("../../../../test-support/fixtures/ssrf/foxhound-layers.toml");
 
 impl SsrfLayers {
     /// The layers written in `text`.
@@ -137,7 +147,7 @@ impl SsrfLayers {
         Ok(toml::from_str(text)?)
     }
 
-    /// The committed layers, `test-support/fixtures/ssrf/layers.toml`.
+    /// The committed Collie layers, `test-support/fixtures/ssrf/layers.toml`.
     ///
     /// # Errors
     ///
@@ -145,6 +155,17 @@ impl SsrfLayers {
     /// Quick suite catches.
     pub fn committed() -> Result<Self, SsrfTableError> {
         Self::parse(COMMITTED)
+    }
+
+    /// The committed Foxhound layers,
+    /// `test-support/fixtures/ssrf/foxhound-layers.toml`.
+    ///
+    /// # Errors
+    ///
+    /// [`SsrfTableError::Malformed`] when the committed file is, which the
+    /// Quick suite catches.
+    pub fn committed_foxhound() -> Result<Self, SsrfTableError> {
+        Self::parse(COMMITTED_FOXHOUND)
     }
 
     /// Checks the layers against `table` and the test files `source` reads
@@ -162,7 +183,7 @@ impl SsrfLayers {
         source: impl Fn(&str) -> Option<String>,
     ) -> Result<(), LayerGaps> {
         let mut gaps = Vec::new();
-        let mut covered = BTreeSet::new();
+        let mut covered: BTreeSet<Family> = self.outside_product.keys().copied().collect();
         for (name, layer) in &self.layers {
             let run: BTreeSet<Family> = layer
                 .runners
@@ -344,6 +365,25 @@ impl Runner {
         };
         let table = SsrfTable::committed().map_err(|_| unknown())?;
         let layers = SsrfLayers::committed().map_err(|_| unknown())?;
+        layers.runner(&table, layer, file, test)
+    }
+
+    /// The committed Foxhound runner `test` of `file` (the caller's `file!()`)
+    /// on `layer`, its cases from the committed table.
+    ///
+    /// # Errors
+    ///
+    /// [`RunnerError::Unknown`] when the committed Foxhound layers name no
+    /// such runner, or a committed file is malformed, which the Quick suite
+    /// catches; [`RunnerError::NoCase`] when the committed table has no
+    /// case of a family the runner's entry gives it.
+    pub fn committed_foxhound(layer: &str, file: &str, test: &str) -> Result<Self, RunnerError> {
+        let unknown = || RunnerError::Unknown {
+            layer: layer.to_owned(),
+            test: format!("{file}::{test}"),
+        };
+        let table = SsrfTable::committed().map_err(|_| unknown())?;
+        let layers = SsrfLayers::committed_foxhound().map_err(|_| unknown())?;
         layers.runner(&table, layer, file, test)
     }
 

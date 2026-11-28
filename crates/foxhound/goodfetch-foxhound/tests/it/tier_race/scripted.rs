@@ -239,6 +239,7 @@ impl BrowserPages for Scripted {
                     status: 404,
                     headers: Vec::new(),
                     body: FetchedBody::Whole(Vec::new()),
+                    forwarded: false,
                 });
             };
             if let Some(hold) = self.hold_charge.as_ref().filter(|hold| hold.path == path) {
@@ -261,6 +262,7 @@ impl BrowserPages for Scripted {
                 status: answer.status,
                 headers,
                 body: FetchedBody::Whole(answer.html.clone().into_bytes()),
+                forwarded: false,
             })
         })
     }
@@ -336,6 +338,7 @@ impl Transport for Plain {
                 certificate_exception: None,
                 custom_tls: false,
                 origin: None,
+                forwarded: false,
             })
         })
     }

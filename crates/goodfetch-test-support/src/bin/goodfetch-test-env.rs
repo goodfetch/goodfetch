@@ -146,6 +146,10 @@ enum Subcommand {
     /// Relays stdin to the socket of a Daemon and the socket to stdout, as
     /// a Client process a test kills.
     DaemonClient(DaemonClientArguments),
+    /// Runs a command on a pseudo-terminal (`ConPTY` on Windows), optionally
+    /// waiting for a prompt and sending one line, printing its transcript to
+    /// stdout and exiting with the child's status.
+    Pty(PtyArguments),
 }
 
 #[derive(clap::Args)]
@@ -153,6 +157,19 @@ struct DaemonClientArguments {
     /// The Daemon's runtime file, which names its socket.
     #[arg(long)]
     runtime_file: std::path::PathBuf,
+}
+
+#[derive(clap::Args)]
+struct PtyArguments {
+    /// Text to wait for before sending `--send-line`.
+    #[arg(long)]
+    expect: Option<String>,
+    /// Line to send once `--expect` matches (or immediately if unset).
+    #[arg(long)]
+    send_line: Option<String>,
+    /// Program and arguments to run on the pseudo-terminal.
+    #[arg(last = true, required = true)]
+    child: Vec<std::ffi::OsString>,
 }
 
 #[cfg(target_os = "linux")]
@@ -212,6 +229,7 @@ fn main() -> ExitCode {
         #[cfg(target_os = "linux")]
         Some(Subcommand::DnsNamespace(namespace)) => return dns_namespace(namespace),
         Some(Subcommand::DaemonClient(client)) => return reported(daemon_client(&client)),
+        Some(Subcommand::Pty(pty_args)) => return run_pty(&pty_args),
         None => {}
     }
     let result = if arguments.print_schemas {
@@ -226,6 +244,40 @@ fn main() -> ExitCode {
         serve(&arguments)
     };
     reported(result)
+}
+
+/// Runs a command on a pseudo-terminal (`ConPTY` on Windows) for TypeScript
+/// and Python interactive CLI tests (ADR 0062).
+#[expect(
+    clippy::disallowed_methods,
+    reason = "goodfetch-test-env spawns the child process directly on a pseudo-terminal outside any async worker"
+)]
+fn run_pty(arguments: &PtyArguments) -> ExitCode {
+    let Some((program, args)) = arguments.child.split_first() else {
+        return reported(Err("`pty` requires a command after `--`".into()));
+    };
+    let mut command = std::process::Command::new(program);
+    command.args(args);
+    command.env("COLUMNS", "100");
+    command.env("TERM", "xterm-256color");
+    command.env_remove("NO_COLOR");
+    match goodfetch_test_support::run_command_in_pty(
+        command,
+        arguments.expect.as_deref(),
+        arguments.send_line.as_deref(),
+    ) {
+        Ok(output) => {
+            if let Err(error) = write_text(&output.stripped()) {
+                return reported(Err(error));
+            }
+            let code = output
+                .exit
+                .and_then(|value| u8::try_from(value).ok())
+                .unwrap_or(1);
+            ExitCode::from(code)
+        }
+        Err(error) => reported(Err(Box::new(error))),
+    }
 }
 
 /// The status of `result`, whose failure goes to stderr.

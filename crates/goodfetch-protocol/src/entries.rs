@@ -539,6 +539,7 @@ mod tests {
                     "dataset.search",
                     "record.search",
                     "dataset.erase",
+                    "run.erase",
                 ],
             ]
             .concat()

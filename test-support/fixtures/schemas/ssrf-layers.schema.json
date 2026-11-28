@@ -151,7 +151,7 @@
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "The layers Collie carries and the runners that apply the table to each.",
+  "description": "The layers a Product carries and the runners that apply the table to each.",
   "properties": {
     "every_layer": {
       "description": "The families every layer meets: each layer runs their cases, or says\nin `not_run` why it never meets one.",
@@ -165,6 +165,13 @@
         "$ref": "#/$defs/Layer"
       },
       "description": "The layers, by name in snake case.",
+      "type": "object"
+    },
+    "outside_product": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Families of the table owned by another Product's layer list, by\nfamily with why, so this Product's completeness check accounts for\nevery family of the table without duplicating another Product's\nlayers (ADR 0094).",
       "type": "object"
     }
   },

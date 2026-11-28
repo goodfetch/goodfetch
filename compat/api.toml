@@ -410,11 +410,31 @@ reason = "`politeness_weakened` joined Collie's `AuditKind` so Collie records a 
 
 [[announced]]
 entry = "foxhound settings politeness.domain.concurrency"
-reason = "Foxhound's per-domain concurrency defaults to 1 (ADR 0086, issue 1499), replacing the temporary `null` placeholder; values above 1 or `null` press harder and are reported in `weakened`."
+reason = "Foxhound's per-domain concurrency defaults to 1 (ADR 0086, issue 1499), replacing the temporary `null` placeholder; values above 1 or `null` press harder and are reported in `weakened`, and a Client acting for a model no longer sets a value harder than 1 and the layers below (owner, 2026-11-10/11, issue 2446)."
 
 [[announced]]
 entry = "foxhound settings politeness.domain.delay"
-reason = "Foxhound's per-domain delay defaults to 1000 ms (ADR 0086, issue 1499), replacing the temporary `null` placeholder; values under 1000 ms or `null` press harder and are reported in `weakened`."
+reason = "Foxhound's per-domain delay defaults to 1000 ms (ADR 0086, issue 1499), replacing the temporary `null` placeholder; values under 1000 ms or `null` press harder and are reported in `weakened`, and a Client acting for a model no longer sets a value shorter than 1000 ms (or `null`) and shorter than the layers below (owner, 2026-11-10/11, issue 2446)."
+
+[[announced]]
+entry = "foxhound settings politeness.backoff.enabled"
+reason = "A Client acting for a model no longer switches `politeness.backoff.enabled` off unless the layers below already do (owner, 2026-11-10, issue 2446): its `false` is `setting_locked`."
+
+[[announced]]
+entry = "foxhound settings politeness.backoff.initial"
+reason = "A Client acting for a model no longer shortens `politeness.backoff.initial` below 2000 ms and below the layers below (owner, 2026-11-10/11, issue 2446): a shorter value is `setting_locked`."
+
+[[announced]]
+entry = "foxhound settings politeness.backoff.max"
+reason = "A Client acting for a model no longer shortens `politeness.backoff.max` below 60000 ms and below the layers below (owner, 2026-11-10/11, issue 2446): a shorter value is `setting_locked`."
+
+[[announced]]
+entry = "foxhound settings site_preferences.respect_robots_txt"
+reason = "A Client acting for a model no longer switches `site_preferences.respect_robots_txt` off unless the layers below already do (owner, 2026-11-10, issue 2446): its `false` is `setting_locked`."
+
+[[announced]]
+entry = "foxhound settings site_preferences.robots_txt_user_agent"
+reason = "A Client acting for a model no longer sets `site_preferences.robots_txt_user_agent` (owner, 2026-11-10, issue 2446): any value from it is `setting_locked`."
 
 [[announced]]
 entry = "typescript @goodfetch/collie-client/generated Surface"

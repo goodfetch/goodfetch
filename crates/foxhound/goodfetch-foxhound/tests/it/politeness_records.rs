@@ -16,7 +16,9 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use goodfetch_test_client::Attached;
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::Surface;
+use goodfetch_test_client::{Attached, Hello};
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv, cli};
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -382,5 +384,184 @@ fn a_record_fetched_against_robots_txt_is_marked_ignored_in_its_provenance() {
                 "/private/catalog/1".to_owned(),
             ],
         )
+    );
+}
+
+/// On a forced `browser` tier with `site_preferences.respect_robots_txt` off
+/// (issue 1649): with `site_preferences.mark_robots_txt_ignored` off (its
+/// default), robots.txt is neither fetched nor read and neither Record carries
+/// a mark; with it on, robots.txt is read once from the shared copy without
+/// obeying it, the Record of a disallowed URL carries `robots_txt: "ignored"`
+/// in its Provenance, and the Record of an allowed URL carries no mark.
+///
+/// Covers: story:4-118, setting:fetch.tier, setting:site_preferences.respect_robots_txt, setting:site_preferences.mark_robots_txt_ignored
+#[test]
+fn a_browser_tier_record_fetched_against_robots_txt_is_marked_ignored_in_its_provenance() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let paths = ["/catalog/1", "/private/catalog/1"];
+    let robots_txt_requests = |proving_ground: &ProvingGround| -> usize {
+        ReceivedRequests::of(&proving_ground.observations().unwrap())
+            .every()
+            .filter(|request| request.host == HOST && request.target == "/robots.txt")
+            .count()
+    };
+
+    let mut engine = crate::fetch_tiers::engine(&env);
+    crawl(
+        &mut engine,
+        &proving_ground,
+        "browser-unmarked",
+        &paths,
+        &settings(
+            &proving_ground,
+            &json!({
+                "fetch": { "tier": "browser" },
+                "site_preferences": { "respect_robots_txt": false },
+            }),
+        ),
+    );
+    let unmarked = records(&mut engine, "browser-unmarked");
+    let robots_after_unmarked = robots_txt_requests(&proving_ground);
+
+    crawl(
+        &mut engine,
+        &proving_ground,
+        "browser-ignoring",
+        &paths,
+        &settings(
+            &proving_ground,
+            &json!({
+                "fetch": { "tier": "browser" },
+                "site_preferences": {
+                    "respect_robots_txt": false,
+                    "mark_robots_txt_ignored": true,
+                },
+            }),
+        ),
+    );
+    let ignoring = records(&mut engine, "browser-ignoring");
+    let robots_after_ignoring = robots_txt_requests(&proving_ground);
+    assert!(engine.finished());
+
+    assert_eq!(
+        (
+            robots_after_unmarked,
+            marks(&unmarked),
+            robots_after_ignoring,
+            marks(&ignoring),
+        ),
+        (
+            0,
+            vec![
+                ("/catalog/1".to_owned(), Value::Null),
+                ("/private/catalog/1".to_owned(), Value::Null),
+            ],
+            1,
+            vec![
+                ("/catalog/1".to_owned(), Value::Null),
+                ("/private/catalog/1".to_owned(), json!("ignored")),
+            ],
+        )
+    );
+}
+
+/// #2446 through the protocol: on a Connection whose `hello` surface is
+/// `mcp`, `politeness.domain.concurrency: 16` with nothing set below is
+/// refused with `setting_locked` naming the key; the same Connection's
+/// `concurrency: 1` and `delay: 5000` start and finish the crawl; and the
+/// program's own `null` over configured `concurrency: 4` starts the crawl,
+/// lists `politeness.domain.concurrency` in `weakened` and writes
+/// `politeness_weakened`.
+///
+/// Covers: story:4-117, error:setting_locked, setting:politeness.domain.concurrency, setting:politeness.domain.delay
+#[test]
+fn an_mcp_client_cannot_press_harder_while_gentle_values_and_programs_null_work() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let ip = proving_ground.address().ip().to_string();
+    env.user_configuration(&format!(
+        "network.resolve.\"{HOST}\" = [\"{ip}\"]\negress.private_ranges = [\"{HOST}\"]\n"
+    ));
+
+    let mut mcp = crate::opened_by(
+        Attached::start(&env, FOXHOUND),
+        Hello::needing(Product::Foxhound).surface(Surface::Mcp),
+    );
+    let refused = mcp.call(
+        "start-hard",
+        "crawl.start",
+        &json!({
+            "run_id": "mcp-hard",
+            "seeds": [{ "url": proving_ground.url(HOST, "/catalog/1"), "label": "page" }],
+            "settings": {
+                "fetch": { "tier": "http" },
+                "politeness": { "domain": { "concurrency": 16 } },
+            },
+            "datasets": [{ "name": "pages" }],
+            "labels": { "page": {} },
+        }),
+        &mut |_| None,
+    );
+    assert_eq!(
+        (
+            refused["error"]["data"]["code"].as_str(),
+            refused["error"]["data"]["key"].as_str(),
+        ),
+        (
+            Some("setting_locked"),
+            Some("politeness.domain.concurrency")
+        ),
+        "{refused}"
+    );
+
+    let gentle = crawl(
+        &mut mcp,
+        &proving_ground,
+        "mcp-gentle",
+        &["/catalog/1"],
+        &json!({
+            "fetch": { "tier": "http" },
+            "politeness": { "domain": { "concurrency": 1, "delay": 5_000 } },
+        }),
+    );
+    assert!(mcp.finished());
+    assert_eq!(
+        weakened_politeness(&gentle),
+        Vec::<Value>::new(),
+        "{gentle}"
+    );
+
+    let program_env = TestEnv::new();
+    program_env.user_configuration(&format!(
+        "network.resolve.\"{HOST}\" = [\"{ip}\"]\negress.private_ranges = [\"{HOST}\"]\npoliteness.domain.concurrency = 4\n"
+    ));
+    let mut program = crate::site::engine_on(&program_env, &proving_ground);
+    let cleared = crawl(
+        &mut program,
+        &proving_ground,
+        "program-null",
+        &["/catalog/1"],
+        &json!({
+            "fetch": { "tier": "http" },
+            "politeness": { "domain": { "concurrency": null } },
+        }),
+    );
+    assert!(program.finished());
+
+    assert_eq!(
+        (
+            weakened_politeness(&cleared),
+            politeness_weakened(&program_env)
+        ),
+        (
+            vec![json!(["politeness.domain.concurrency", null, "run"])],
+            vec![json!([
+                "program-null",
+                "run",
+                { "setting": "politeness.domain.concurrency", "value": null, "default": 1 },
+            ])],
+        ),
+        "{cleared}"
     );
 }

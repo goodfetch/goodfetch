@@ -484,6 +484,19 @@ impl Declarations {
         &self.0
     }
 
+    /// The sorted field paths marked with `"x-goodfetch-personal": true` in
+    /// the JSON Schema of the declared Dataset `name` (ADR 0016); empty when
+    /// none are marked or the Dataset has no schema.
+    #[must_use]
+    pub fn personal_fields(&self, name: &str) -> Vec<String> {
+        self.0
+            .iter()
+            .find(|declared| declared.name == name)
+            .and_then(|declared| declared.schema.as_ref())
+            .map(goodfetch_protocol::site_preferences::personal_fields)
+            .unwrap_or_default()
+    }
+
     /// Answers whether the crawl declares the Dataset `name`, for a reader
     /// of its Records.
     ///

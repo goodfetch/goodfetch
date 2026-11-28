@@ -1409,7 +1409,8 @@ impl PageContext {
     }
 
     /// Aborts `held`, which the page's navigation gate refused, and answers
-    /// `site_preferences_refused`: a navigation call waiting on the page
+    /// its refusal (`egress_refused`, `site_preferences_refused` or
+    /// `response_limit_exceeded`): a navigation call waiting on the page
     /// raises it; with none waiting, its `page.request_failed` carries it,
     /// the Run trace records it and the waiters armed for it raise it.
     /// Aborted, the page keeps its document. A service worker's request

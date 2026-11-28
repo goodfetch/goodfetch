@@ -291,6 +291,7 @@ fn whole(head: ResponseHead, body: Bytes, origin: Option<ResponseOrigin>) -> Sen
         certificate_exception: None,
         custom_tls: false,
         origin,
+        forwarded: false,
     }
 }
 
@@ -307,6 +308,7 @@ fn cut_body(head: ResponseHead, body: Bytes) -> Sent {
         certificate_exception: None,
         custom_tls: false,
         origin: None,
+        forwarded: false,
     }
 }
 

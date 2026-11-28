@@ -119,6 +119,11 @@ class AsyncExport:
         """The run epoch of the Run's state it was written from (ADR 0003)."""
         return self._descriptor.run_epoch
 
+    @property
+    def personal_columns(self) -> list[str]:
+        """Dataset fields marked `"x-goodfetch-personal": true` (ADR 0016)."""
+        return list(self._descriptor.personal_columns or [])
+
     async def save_as(self, path: str | os.PathLike[str]) -> ExportSaved:
         """Saves this Export's file to `path`, whole or not at all (ADR 0116).
 
@@ -226,6 +231,11 @@ class Export:
     def run_epoch(self) -> int:
         """The run epoch of the Run's state it was written from (ADR 0003)."""
         return self._async_export.run_epoch
+
+    @property
+    def personal_columns(self) -> list[str]:
+        """Dataset fields marked `"x-goodfetch-personal": true` (ADR 0016)."""
+        return self._async_export.personal_columns
 
     def save_as(self, path: str | os.PathLike[str]) -> ExportSaved:
         """Saves this Export's file to `path`, as `AsyncExport.save_as` does.

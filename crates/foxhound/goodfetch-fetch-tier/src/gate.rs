@@ -646,6 +646,11 @@ impl NavigationGate for Gate {
         Box::pin(async move {
             match Url::parse(&navigation.url) {
                 Ok(url) if matches!(url.scheme(), "http" | "https") => {
+                    self.0
+                        .of_run
+                        .address_check(&url)
+                        .await
+                        .map_err(Refusal::Egress)?;
                     self.admitted(&url).await.map_err(refusal)
                 }
                 _ => Ok(Permit::unlimited()),

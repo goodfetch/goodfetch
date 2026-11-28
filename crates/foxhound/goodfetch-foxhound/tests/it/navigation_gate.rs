@@ -2124,3 +2124,94 @@ fn a_handlers_navigations_through_a_fresh_egress_relay_leave_the_delay_apart() {
         "{sent:?} {arrived:?}"
     );
 }
+
+/// A browser page's `goto` to a host whose address the Run's egress policy
+/// refuses answers `egress_refused` with its URL and rule through the
+/// navigation gate, before robots.txt is fetched, and a proxied Session still
+/// has robots.txt applied on navigations to allowed hosts (#1778).
+///
+/// Covers: story:4-10, story:5-134, error:egress_refused, error:site_preferences_refused, operation:page.goto, operation:run.new_page
+#[test]
+fn a_browser_goto_to_a_refused_address_answers_egress_refused_and_proxied_sessions_keep_robots_txt()
+{
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+
+    // Allow only `CATALOG_HOST` in `egress.private_ranges` so `ROBOTS_HOST`
+    // resolves to the Proving ground's private address under the default
+    // egress policy.
+    let refused_url = proving_ground.url(ROBOTS_HOST, "/catalog/1");
+    let mut private_refusal = Value::Null;
+    let first = crawl_with(
+        &mut engine,
+        "browser-egress-refused",
+        &[json!({ "url": proving_ground.url(CATALOG_HOST, "/catalog/1"), "label": "page" })],
+        &settings(
+            &proving_ground,
+            &json!({ "egress": { "private_ranges": [CATALOG_HOST] } }),
+        ),
+        &mut |inside, handle| {
+            let page_id = new_page(inside, handle);
+            private_refusal = inside.call(
+                "page.goto",
+                &json!({ "page_id": page_id, "url": refused_url }),
+            );
+            json!({ "result": { "records": [] } })
+        },
+    );
+
+    // Through a proxy, an allowed host's robots.txt still refuses disallowed
+    // paths and admits allowed ones.
+    let proxy = proving_ground.description().fixtures.proxies["open"].clone();
+    let disallowed = proving_ground.url(ROBOTS_HOST, "/private/catalog/2");
+    let allowed = proving_ground.url(ROBOTS_HOST, "/catalog/3");
+    let mut proxied_answers = Vec::new();
+    let second = crawl_with(
+        &mut engine,
+        "proxied-robots",
+        &[json!({ "url": proving_ground.url(CATALOG_HOST, "/catalog/1"), "label": "page" })],
+        &settings(
+            &proving_ground,
+            &json!({ "proxy": { "server": format!("http://{proxy}") } }),
+        ),
+        &mut |inside, handle| {
+            let page_id = new_page(inside, handle);
+            for url in [&disallowed, &allowed] {
+                proxied_answers
+                    .push(inside.call("page.goto", &json!({ "page_id": page_id, "url": url })));
+            }
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finished());
+
+    let egress_data = &private_refusal["error"]["data"];
+    assert_eq!(
+        (
+            &first["result"]["lifecycle"],
+            &egress_data["code"],
+            &egress_data["url"],
+            &egress_data["rule"],
+            &second["result"]["lifecycle"],
+            refusal(&proxied_answers[0]),
+            proxied_answers[1]["result"]["response"]["status"].clone(),
+            requested(&proving_ground, ROBOTS_HOST, "/private/catalog/2"),
+        ),
+        (
+            &json!("finished"),
+            &json!("egress_refused"),
+            &json!(refused_url),
+            &json!("private_address"),
+            &json!("finished"),
+            (
+                json!("site_preferences_refused"),
+                json!("robots_txt"),
+                json!(disallowed),
+            ),
+            json!(200),
+            0,
+        ),
+        "private_refusal={private_refusal}\nproxied_answers={proxied_answers:?}"
+    );
+}

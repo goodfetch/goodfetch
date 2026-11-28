@@ -3110,6 +3110,11 @@ class Export(BaseModel):
     """Its format."""
     last_number: Annotated[int, Field(ge=0)]
     """The number of the last Record it holds, 0 when it holds none."""
+    personal_columns: list[str] | None = None
+    """
+    The Dataset's fields marked with `"x-goodfetch-personal": true` in its
+    JSON Schema, sorted (ADR 0016); empty when none are marked.
+    """
     records: Annotated[int, Field(ge=0)]
     """How many Records it holds."""
     run_epoch: Annotated[int, Field(ge=0)]

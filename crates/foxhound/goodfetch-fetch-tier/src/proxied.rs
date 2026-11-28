@@ -226,7 +226,12 @@ impl Transport for Proxied {
                         body: sent.body,
                         permit,
                     });
-                    Ok(Sent { body, ..sent })
+                    let forwarded = opened.proxy.forwarded(url);
+                    Ok(Sent {
+                        body,
+                        forwarded,
+                        ..sent
+                    })
                 }
                 Err(failure) => {
                     let network_error = failure.network_error();

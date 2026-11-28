@@ -3740,7 +3740,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Erases every Record of one Dataset of a run that no engine runs, a person's answer that applies at once: its committed and rejected Records and their full-text index rows are deleted from the run file, their pages overwritten, and the run's kept Exports, written before, are deleted too, while the crawl still declares the Dataset, which reads empty from then on. It cannot be undone. It is offered to a person only, never to an agent or a program (ADR 0031): any other surface is refused with `person_required`. A run this engine runs fails with `run_live`, one another engine writes with `run_in_use`, a Dataset the crawl does not declare with `dataset_unknown`, and a run that does not exist with `run_not_found`.",
+      "description": "Erases every Record of one Dataset of a run that no engine runs, a person's answer that applies at once: its committed and rejected Records and their full-text index rows are deleted from the run file, their pages overwritten, and the run's kept Exports, written before, are deleted too, while the crawl still declares the Dataset, which reads empty from then on. Each erase writes an Audit log entry. It cannot be undone. It is offered to a person only, never to an agent or a program (ADR 0031): any other surface is refused with `person_required`. A run this engine runs fails with `run_live`, one another engine writes with `run_in_use`, a Dataset the crawl does not declare with `dataset_unknown`, and a run that does not exist with `run_not_found`.",
       "events": [],
       "kind": "round_trip",
       "name": "dataset.erase",
@@ -5077,6 +5077,25 @@
       "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/RunDiscarded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Erases every matching Record, Baseline row, Checkpoint field and Response cache entry of one run that no engine runs, matching by `value`, `key` or both (at least one must be non-empty): its matching committed and rejected Records and full-text index rows are deleted with secure deletion, matching Checkpoint fields and kept Exports are scrubbed or deleted, matching Response cache entries and unheld bodies are purged, and an Audit log entry is written without repeating the erased personal value. It cannot be undone. It is offered to a person only, in an interactive CLI prompt, the Kennel or a person-attended Client, never under `--json`, a Recipe, an agent or a program (ADR 0016): any other surface is refused with `person_required`. A run this engine runs fails with `run_live`, one another engine writes with `run_in_use`, and a run that does not exist with `run_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.erase",
+      "params": {
+        "$ref": "#/$defs/RunEraseParams"
+      },
+      "product": "foxhound",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/RunErased"
       },
       "stability": "experimental"
     },
@@ -8059,6 +8078,46 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": {},
+      "deprecated": null,
+      "description": "Per-Dataset settings, each by its Dataset's name, as `datasets.<name>.*`: `retention`, how long in milliseconds the engine keeps committed Records of that Dataset before deleting them (none by default: nothing is deleted). Applied when the Run starts and then on a timer task of the Run's tasks, never on a Record's commit or an attempt (ADRs 0016 and 0140). Empty by default. Set on a connection or a crawl's Run; a Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
+      "name": "datasets",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "additionalProperties": {
+          "additionalProperties": false,
+          "description": "Per-Dataset settings, as `datasets.<name>.*` (ADR 0016).",
+          "properties": {
+            "retention": {
+              "arrived_in": "0.1",
+              "description": "How long, in milliseconds, the engine keeps committed Records of this\nDataset before deleting them; none by default (nothing is deleted).",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "type": "object"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "fixed",
       "clearable": false,
       "default": true,
@@ -10954,11 +11013,11 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "not_weakened_by_model",
       "clearable": false,
       "default": true,
       "deprecated": null,
-      "description": "Whether a domain that answers 429, 502, 503 or 504, or does not answer in time, is backed off, and its `Retry-After` waited out, for every run of the user that shares Politeness. Off, the run ignores both, and it is listed in the run's result.",
+      "description": "Whether a domain that answers 429, 502, 503 or 504, or does not answer in time, is backed off, and its `Retry-After` waited out, for every run of the user that shares Politeness. Off, the run ignores both, and it is listed in the run's result; a Client acting for a model never switches it off unless the layers below already do.",
       "fixed_for_run": false,
       "name": "politeness.backoff.enabled",
       "product": "foxhound",
@@ -10981,11 +11040,11 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "not_weakened_by_model",
       "clearable": false,
       "default": 2000,
       "deprecated": null,
-      "description": "The shortest wait of a domain's backoff: each wait is drawn at random between it and three times the previous wait (the first between it and three times it), never above `politeness.backoff.max`: 2 s. A shorter value is listed in the run's result.",
+      "description": "The shortest wait of a domain's backoff: each wait is drawn at random between it and three times the previous wait (the first between it and three times it), never above `politeness.backoff.max`: 2 s. A shorter value is listed in the run's result; a Client acting for a model never sets a value shorter than 2 s and shorter than the layers below.",
       "fixed_for_run": false,
       "name": "politeness.backoff.initial",
       "product": "foxhound",
@@ -11008,11 +11067,11 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "not_weakened_by_model",
       "clearable": false,
       "default": 60000,
       "deprecated": null,
-      "description": "The longest wait of a domain's backoff: 60 s. A `Retry-After` may hold the domain longer, up to `politeness.retry_after.max`. A shorter value is listed in the run's result.",
+      "description": "The longest wait of a domain's backoff: 60 s. A `Retry-After` may hold the domain longer, up to `politeness.retry_after.max`. A shorter value is listed in the run's result; a Client acting for a model never sets a value shorter than 60 s and shorter than the layers below.",
       "fixed_for_run": false,
       "name": "politeness.backoff.max",
       "product": "foxhound",
@@ -11129,11 +11188,11 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "not_weakened_by_model",
       "clearable": true,
       "default": 1,
       "deprecated": null,
-      "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder.",
+      "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder; a Client acting for a model never sets a value harder than 1 and the layers below.",
       "fixed_for_run": false,
       "name": "politeness.domain.concurrency",
       "product": "foxhound",
@@ -11155,11 +11214,11 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "not_weakened_by_model",
       "clearable": true,
       "default": 1000,
       "deprecated": null,
-      "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder.",
+      "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder; a Client acting for a model never sets a value shorter than 1 s (or `null`) and shorter than the layers below.",
       "fixed_for_run": false,
       "name": "politeness.domain.delay",
       "product": "foxhound",
@@ -14909,11 +14968,11 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "not_weakened_by_model",
       "clearable": false,
       "default": true,
       "deprecated": null,
-      "description": "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder.",
+      "description": "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder; a Client acting for a model never switches it off unless the layers below already do.",
       "fixed_for_run": false,
       "name": "site_preferences.respect_robots_txt",
       "product": "foxhound",
@@ -14960,11 +15019,11 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "not_by_model",
       "clearable": true,
       "default": null,
       "deprecated": null,
-      "description": "The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder.",
+      "description": "The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder; a Client acting for a model never sets it.",
       "fixed_for_run": false,
       "name": "site_preferences.robots_txt_user_agent",
       "product": "foxhound",
@@ -16768,6 +16827,13 @@
       "name": "run",
       "product": "collie",
       "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A person erased data from a Run's stored Records, Baseline rows, Checkpoint or Response cache entries (`dataset.erase` or `run.erase`, ADR 0016), recording the operation and counts without repeating any erased personal value.",
+      "name": "run_data_erased",
+      "product": "foxhound",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

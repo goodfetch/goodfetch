@@ -29,6 +29,7 @@ mod records;
 mod rejected_records;
 mod rejections;
 mod resume;
+mod retention;
 mod run_tables;
 
 use goodfetch_engine::Contribution;
@@ -41,6 +42,9 @@ pub use pipeline::{PartColumns, PartRecord, WriteExportError, write_export};
 pub use records::{Checked, Committing, Query, RECORD_COLUMNS, commit, dataset_record, read};
 pub use rejections::{Rejection, RequestUrl, fuzz_rejection};
 pub use resume::Began;
+pub use retention::{
+    configured as configured_retentions, prune_expired, start_pruning as start_retention_pruning,
+};
 pub use run_tables::{ColumnType, RUN_FILE_TABLES, RunColumn, RunFileTable, RunTable};
 
 /// The tables of a crawl's Datasets in every run file: `datasets`, each
@@ -113,6 +117,7 @@ pub fn contribution(request_url: RequestUrl) -> Contribution {
             .with_handler(reader::handler())
             .with_handler(page::handler())
             .with_handler(erase::handler())
+            .with_handler(erase::run_handler())
             .with_handler(rejected_records::handler(request_url)),
         Contribution::with_handler,
     )

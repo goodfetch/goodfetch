@@ -225,6 +225,7 @@ fn blank(
         unaccepted: None,
         certificate_exception: None,
         origin: None,
+        forwarded: false,
         text: None,
         pass: None,
     };

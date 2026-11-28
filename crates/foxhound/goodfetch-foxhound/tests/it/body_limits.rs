@@ -91,7 +91,7 @@ fn ended(engine: &mut Attached, run_id: &str) -> Vec<(String, Value, Value, Valu
 /// refusal from `page.request` to a bomb, to an endless body and to a host
 /// whose `TDMRep` file nests past the depth.
 ///
-/// Covers: row:SC-05, error:response_limit_exceeded, setting:fetch.tier, setting:tls.trusted_cas, setting:crawl.content_types, setting:site_preferences.purpose, setting:network.max_json_depth, operation:page.request
+/// Covers: story:4-107, row:SC-05, error:response_limit_exceeded, setting:fetch.tier, setting:tls.trusted_cas, setting:crawl.content_types, setting:site_preferences.purpose, setting:network.max_json_depth, operation:page.request
 #[test]
 fn every_body_past_a_limit_fails_its_request_and_its_page_request_on_the_http_tier() {
     let env = TestEnv::new();
@@ -313,4 +313,103 @@ fn the_runs_json_depth_decides_what_its_tdmrep_read_refuses(
         (url, json!("succeeded"), Value::Null, Value::Null)
     };
     assert_eq!(ended, [expected]);
+}
+
+/// A download is not counted against `network.max_body_size` (ADR 0067, SC-05):
+/// under a 10-byte cap, navigating to the Proving ground's `downloads/1`
+/// (~25-byte CSV served with `Content-Disposition: attachment`) turns into a
+/// download (`response: null` and a `page.download` event) instead of failing
+/// with `response_limit_exceeded`, while `page.request` to the exact same URL
+/// on the same Run is refused with `response_limit_exceeded` naming
+/// `network.max_body_size`.
+///
+/// Covers: story:4-107, row:SC-05, setting:network.max_body_size, error:response_limit_exceeded, event:page.download, operation:page.goto, operation:page.request
+#[test]
+fn a_download_is_not_counted_against_network_max_body_size() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let url = proving_ground.start_url("downloads/1").unwrap();
+    let mut run_settings = settings(&proving_ground, &json!({}));
+    run_settings["network"]["max_body_size"] = json!(10);
+    let mut none = |_: &Value| None;
+    let started = engine.call(
+        "start",
+        "run.start",
+        &json!({ "run_id": "download-uncapped", "settings": run_settings }),
+        &mut none,
+    );
+    assert!(started.get("result").is_some(), "{started}");
+    let opened = engine.call(
+        "page",
+        "run.new_page",
+        &json!({ "run_id": "download-uncapped" }),
+        &mut none,
+    );
+    let page_id = opened["result"]["page_id"].clone();
+
+    let downloaded = engine.call(
+        "goto",
+        "page.goto",
+        &json!({ "page_id": page_id, "url": url }),
+        &mut none,
+    );
+    let fetched = engine.call(
+        "request",
+        "page.request",
+        &json!({ "page_id": page_id, "url": url }),
+        &mut none,
+    );
+    let finished = engine.call(
+        "finish",
+        "run.finish",
+        &json!({ "run_id": "download-uncapped" }),
+        &mut none,
+    );
+    engine.subscribe_from_start("sub");
+    engine.send(&json!({
+        "jsonrpc": "2.0",
+        "method": "$/credit",
+        "params": { "id": "sub", "credits": 64 },
+    }));
+    let batch = engine.next().expect("the engine replays its events");
+    let (_, exited) = engine.finish();
+    assert!(exited);
+
+    let downloads: Vec<Value> = batch["params"]["events"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|event| event["event"] == "page.download")
+        .map(|event| event["data"].clone())
+        .collect();
+
+    assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
+    assert_eq!(
+        downloaded["result"],
+        json!({ "response": null }),
+        "{downloaded}"
+    );
+    assert_eq!(
+        downloads,
+        [json!({
+            "page_id": page_id,
+            "url": url,
+            "suggested_filename": "export.csv",
+        })]
+    );
+    assert_eq!(
+        (
+            &fetched["error"]["data"]["code"],
+            &fetched["error"]["data"]["setting"],
+            &fetched["error"]["data"]["limit"],
+        ),
+        (
+            &json!("response_limit_exceeded"),
+            &json!("network.max_body_size"),
+            &json!(10),
+        ),
+        "{fetched}"
+    );
 }

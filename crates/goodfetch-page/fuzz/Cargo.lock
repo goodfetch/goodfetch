@@ -1768,6 +1768,7 @@ name = "goodfetch-saved-file"
 version = "0.0.0"
 dependencies = [
  "goodfetch-workspace-hack",
+ "icu_normalizer",
  "windows-sys 0.61.2",
 ]
 

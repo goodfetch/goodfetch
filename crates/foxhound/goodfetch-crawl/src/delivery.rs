@@ -116,7 +116,6 @@ use goodfetch_protocol::foxhound::settings::{
     DATASET_RECORDS, FETCH_BLOCK_CLASSIFICATION, PROVENANCE_LOG,
 };
 use goodfetch_protocol::governor::WorkKind;
-use goodfetch_protocol::page::proxy::{PROXY_PROVIDER, PROXY_SERVER};
 use goodfetch_protocol::page::{SITE_PREFERENCES_REFUSED, SessionId};
 use goodfetch_protocol::run::{
     EndingError, NothingDone, RUN_STATE_UNAVAILABLE, RunDetails, RunWarning, StopReason,
@@ -415,8 +414,6 @@ struct Read {
     policy: CrawlPolicy,
     /// The bounds its Session pool draws and scores under.
     pool: PoolSettings,
-    /// Whether its requests go through a proxy.
-    proxied: bool,
     /// The longest wait a response may ask of its domain.
     longest_wait: Option<Duration>,
 }
@@ -427,7 +424,6 @@ impl Read {
         Self {
             policy: CrawlPolicy::of(resolved),
             pool: PoolSettings::of(resolved),
-            proxied: proxied(resolved),
             longest_wait: goodfetch_frontier::longest_wait(resolved),
         }
     }
@@ -1586,7 +1582,6 @@ fn scored(
             domain_ending(
                 &attempt.answer,
                 attempt.document.as_ref(),
-                read.proxied,
                 run.identity.clock().now(),
                 run.identity.clock().wall(),
             )
@@ -1804,14 +1799,6 @@ fn run_source(
         .session(&System, 0)
         .map_err(|unavailable| goodfetch_engine::CallError::from(unavailable).to_string())?;
     Ok(Some(LocalSource::new(addresses, interface.cloned())))
-}
-
-/// Whether the Run sets a proxy, which forwards an `http:` URL itself on
-/// the routes that take it (ADR 0053).
-fn proxied(resolved: &Resolved) -> bool {
-    [&PROXY_SERVER, &PROXY_PROVIDER]
-        .into_iter()
-        .any(|setting| !resolved.value(setting).is_null())
 }
 
 /// Hands the Run's report the warning that `rotated` took an address within

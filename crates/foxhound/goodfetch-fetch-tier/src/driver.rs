@@ -122,6 +122,10 @@ pub trait Body: Send {
 }
 
 /// A hop's answer, its head read and its body still arriving.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is an independent hop fact reported by the transport to the driver"
+)]
 pub struct Sent {
     /// Its status.
     pub status: u16,
@@ -148,6 +152,10 @@ pub struct Sent {
     /// The Response recording or Response cache that answered in place of
     /// the network (ADRs 0046 and 0105, issue 802).
     pub origin: Option<goodfetch_protocol::foxhound::provenance::ResponseOrigin>,
+    /// Whether an HTTP or HTTPS forward proxy forwarded this hop itself
+    /// (an `http:` URL not bypassed by `proxy.bypass`, not over SOCKS, and
+    /// not answered from a cache, recording or route; ADR 0053).
+    pub forwarded: bool,
 }
 
 impl std::fmt::Debug for Sent {
@@ -160,6 +168,7 @@ impl std::fmt::Debug for Sent {
             .field("decoded", &self.decoded)
             .field("certificate_exception", &self.certificate_exception)
             .field("custom_tls", &self.custom_tls)
+            .field("forwarded", &self.forwarded)
             .finish_non_exhaustive()
     }
 }
@@ -520,6 +529,9 @@ pub struct Fetched {
     /// the network, which the Provenance of its Records marks (ADRs 0046 and
     /// 0105, issue 802).
     pub origin: Option<goodfetch_protocol::foxhound::provenance::ResponseOrigin>,
+    /// Whether an HTTP or HTTPS forward proxy forwarded this response itself
+    /// (ADR 0053).
+    pub forwarded: bool,
     /// What was read of the text of a crawl request's own document, which
     /// its `Content-Type` typed as one, as its bytes arrived (issue 2187):
     /// none for any other body, or when its encoding was still to find.
@@ -717,6 +729,22 @@ fn asked(transport: &dyn Transport, hop: &Hop) -> Hop {
     }
 }
 
+/// A response whose type the request's Label refused, its body dropped.
+fn unaccepted_fetched(url: Url, sent: Sent, refused: String) -> Fetched {
+    Fetched {
+        url,
+        status: sent.status,
+        headers: sent.headers,
+        body: Bytes::new(),
+        unaccepted: Some(refused),
+        certificate_exception: sent.certificate_exception,
+        origin: sent.origin,
+        forwarded: sent.forwarded,
+        text: None,
+        pass: None,
+    }
+}
+
 /// [`fetch`] whose first send goes on a connection `reuse` allows, of an
 /// `own` document as [`fetch_accepting`] says, keeping what `keep` says
 /// as [`fetch_start`] does.
@@ -752,17 +780,7 @@ async fn fetch_on(
         if let (Some(accepts), Some(declared)) = (accepts, &declared)
             && let Some(refused) = accepts.refused(sent.status, &typed(Some(declared), &[], "").0)
         {
-            return Ok(Fetched {
-                url: hop.url.clone(),
-                status: sent.status,
-                headers: sent.headers,
-                body: Bytes::new(),
-                unaccepted: Some(refused),
-                certificate_exception: sent.certificate_exception,
-                origin: sent.origin,
-                text: None,
-                pass: None,
-            });
+            return Ok(unaccepted_fetched(hop.url.clone(), sent, refused));
         }
         let codings: Vec<&str> = sent
             .headers
@@ -787,17 +805,7 @@ async fn fetch_on(
         let body = match read {
             Read::Whole(body) => body,
             Read::Refused(refused) => {
-                return Ok(Fetched {
-                    url: hop.url.clone(),
-                    status: sent.status,
-                    headers: sent.headers,
-                    body: Bytes::new(),
-                    unaccepted: Some(refused),
-                    certificate_exception: sent.certificate_exception,
-                    origin: sent.origin,
-                    text: None,
-                    pass: None,
-                });
+                return Ok(unaccepted_fetched(hop.url.clone(), sent, refused));
             }
         };
         if decoding::still_compressed(declared.as_deref(), &body) {
@@ -823,6 +831,7 @@ async fn fetch_on(
             unaccepted,
             certificate_exception: sent.certificate_exception,
             origin: sent.origin,
+            forwarded: sent.forwarded,
             text,
             pass,
         })

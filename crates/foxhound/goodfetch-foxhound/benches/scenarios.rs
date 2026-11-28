@@ -261,6 +261,7 @@ fn plain(status: u16, headers: Vec<(String, String)>, body: String) -> Sent {
         certificate_exception: None,
         custom_tls: false,
         origin: None,
+        forwarded: false,
     }
 }
 
@@ -303,6 +304,7 @@ fn sent_page(page: Option<Page>, sent: Arc<AtomicU64>) -> Sent {
             certificate_exception: None,
             custom_tls: false,
             origin: None,
+            forwarded: false,
         },
         // robots.txt and anything else: no such page.
         None => Sent {
@@ -319,6 +321,7 @@ fn sent_page(page: Option<Page>, sent: Arc<AtomicU64>) -> Sent {
             certificate_exception: None,
             custom_tls: false,
             origin: None,
+            forwarded: false,
         },
     }
 }

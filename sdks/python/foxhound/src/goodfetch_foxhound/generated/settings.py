@@ -480,6 +480,15 @@ class ConnectionDatasetSettings(TypedDict):
     search: NotRequired[ConnectionDatasetSearchSettings]
 
 
+class DatasetsEntry(TypedDict):
+    """Per-Dataset settings, as `datasets.<name>.*` (ADR 0016)."""
+
+    retention: NotRequired[int | None]
+    """How long, in milliseconds, the engine keeps committed Records of this
+    Dataset before deleting them; none by default (nothing is deleted).
+    """
+
+
 class ConnectionEffectOutputSettings(TypedDict):
     """The `effect.output` settings of `FoxhoundSettings`."""
 
@@ -1004,19 +1013,19 @@ class ConnectionPolitenessBackoffSettings(TypedDict):
     """The `politeness.backoff` settings of `FoxhoundSettings`."""
 
     enabled: NotRequired[bool]
-    """Whether a domain that answers 429, 502, 503 or 504, or does not answer in time, is backed off, and its `Retry-After` waited out, for every run of the user that shares Politeness. Off, the run ignores both, and it is listed in the run's result.
+    """Whether a domain that answers 429, 502, 503 or 504, or does not answer in time, is backed off, and its `Retry-After` waited out, for every run of the user that shares Politeness. Off, the run ignores both, and it is listed in the run's result; a Client acting for a model never switches it off unless the layers below already do.
 
     `politeness.backoff.enabled`.
     """
 
     initial: NotRequired[timedelta]
-    """The shortest wait of a domain's backoff: each wait is drawn at random between it and three times the previous wait (the first between it and three times it), never above `politeness.backoff.max`: 2 s. A shorter value is listed in the run's result.
+    """The shortest wait of a domain's backoff: each wait is drawn at random between it and three times the previous wait (the first between it and three times it), never above `politeness.backoff.max`: 2 s. A shorter value is listed in the run's result; a Client acting for a model never sets a value shorter than 2 s and shorter than the layers below.
 
     `politeness.backoff.initial`.
     """
 
     max: NotRequired[timedelta]
-    """The longest wait of a domain's backoff: 60 s. A `Retry-After` may hold the domain longer, up to `politeness.retry_after.max`. A shorter value is listed in the run's result.
+    """The longest wait of a domain's backoff: 60 s. A `Retry-After` may hold the domain longer, up to `politeness.retry_after.max`. A shorter value is listed in the run's result; a Client acting for a model never sets a value shorter than 60 s and shorter than the layers below.
 
     `politeness.backoff.max`.
     """
@@ -1038,13 +1047,13 @@ class ConnectionPolitenessDomainSettings(TypedDict):
     """
 
     concurrency: NotRequired[int | None]
-    """How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder.
+    """How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder; a Client acting for a model never sets a value harder than 1 and the layers below.
 
     `politeness.domain.concurrency`.
     """
 
     delay: NotRequired[timedelta | None]
-    """How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder.
+    """How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder; a Client acting for a model never sets a value shorter than 1 s (or `null`) and shorter than the layers below.
 
     `politeness.domain.delay`.
     """
@@ -1836,7 +1845,7 @@ class ConnectionSitePreferencesSettings(TypedDict):
     """
 
     respect_robots_txt: NotRequired[bool]
-    """Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder.
+    """Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder; a Client acting for a model never switches it off unless the layers below already do.
 
     `site_preferences.respect_robots_txt`.
     """
@@ -1848,7 +1857,7 @@ class ConnectionSitePreferencesSettings(TypedDict):
     """
 
     robots_txt_user_agent: NotRequired[str | None]
-    """The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder.
+    """The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder; a Client acting for a model never sets it.
 
     `site_preferences.robots_txt_user_agent`.
     """
@@ -2088,6 +2097,12 @@ class FoxhoundSettings(TypedDict):
     crawl: NotRequired[ConnectionCrawlSettings]
 
     dataset: NotRequired[ConnectionDatasetSettings]
+
+    datasets: NotRequired[Mapping[str, DatasetsEntry]]
+    """Per-Dataset settings, each by its Dataset's name, as `datasets.<name>.*`: `retention`, how long in milliseconds the engine keeps committed Records of that Dataset before deleting them (none by default: nothing is deleted). Applied when the Run starts and then on a timer task of the Run's tasks, never on a Record's commit or an attempt (ADRs 0016 and 0140). Empty by default. Set on a connection or a crawl's Run; a Label refuses it with `setting_not_applicable`.
+
+    `datasets`.
+    """
 
     effect: NotRequired[ConnectionEffectSettings]
 
@@ -3058,19 +3073,19 @@ class RunPolitenessBackoffSettings(TypedDict):
     """The `politeness.backoff` settings of `CrawlSettings`."""
 
     enabled: NotRequired[bool]
-    """Whether a domain that answers 429, 502, 503 or 504, or does not answer in time, is backed off, and its `Retry-After` waited out, for every run of the user that shares Politeness. Off, the run ignores both, and it is listed in the run's result.
+    """Whether a domain that answers 429, 502, 503 or 504, or does not answer in time, is backed off, and its `Retry-After` waited out, for every run of the user that shares Politeness. Off, the run ignores both, and it is listed in the run's result; a Client acting for a model never switches it off unless the layers below already do.
 
     `politeness.backoff.enabled`.
     """
 
     initial: NotRequired[timedelta]
-    """The shortest wait of a domain's backoff: each wait is drawn at random between it and three times the previous wait (the first between it and three times it), never above `politeness.backoff.max`: 2 s. A shorter value is listed in the run's result.
+    """The shortest wait of a domain's backoff: each wait is drawn at random between it and three times the previous wait (the first between it and three times it), never above `politeness.backoff.max`: 2 s. A shorter value is listed in the run's result; a Client acting for a model never sets a value shorter than 2 s and shorter than the layers below.
 
     `politeness.backoff.initial`.
     """
 
     max: NotRequired[timedelta]
-    """The longest wait of a domain's backoff: 60 s. A `Retry-After` may hold the domain longer, up to `politeness.retry_after.max`. A shorter value is listed in the run's result.
+    """The longest wait of a domain's backoff: 60 s. A `Retry-After` may hold the domain longer, up to `politeness.retry_after.max`. A shorter value is listed in the run's result; a Client acting for a model never sets a value shorter than 60 s and shorter than the layers below.
 
     `politeness.backoff.max`.
     """
@@ -3092,13 +3107,13 @@ class RunPolitenessDomainSettings(TypedDict):
     """
 
     concurrency: NotRequired[int | None]
-    """How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder.
+    """How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder; a Client acting for a model never sets a value harder than 1 and the layers below.
 
     `politeness.domain.concurrency`.
     """
 
     delay: NotRequired[timedelta | None]
-    """How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder.
+    """How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder; a Client acting for a model never sets a value shorter than 1 s (or `null`) and shorter than the layers below.
 
     `politeness.domain.delay`.
     """
@@ -3550,7 +3565,7 @@ class RunSitePreferencesSettings(TypedDict):
     """
 
     respect_robots_txt: NotRequired[bool]
-    """Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder.
+    """Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder; a Client acting for a model never switches it off unless the layers below already do.
 
     `site_preferences.respect_robots_txt`.
     """
@@ -3562,7 +3577,7 @@ class RunSitePreferencesSettings(TypedDict):
     """
 
     robots_txt_user_agent: NotRequired[str | None]
-    """The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder.
+    """The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder; a Client acting for a model never sets it.
 
     `site_preferences.robots_txt_user_agent`.
     """
@@ -3784,6 +3799,12 @@ class CrawlSettings(TypedDict):
     crawl: NotRequired[RunCrawlSettings]
 
     dataset: NotRequired[RunDatasetSettings]
+
+    datasets: NotRequired[Mapping[str, DatasetsEntry]]
+    """Per-Dataset settings, each by its Dataset's name, as `datasets.<name>.*`: `retention`, how long in milliseconds the engine keeps committed Records of that Dataset before deleting them (none by default: nothing is deleted). Applied when the Run starts and then on a timer task of the Run's tasks, never on a Record's commit or an attempt (ADRs 0016 and 0140). Empty by default. Set on a connection or a crawl's Run; a Label refuses it with `setting_not_applicable`.
+
+    `datasets`.
+    """
 
     effect: NotRequired[RunEffectSettings]
 

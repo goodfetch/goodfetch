@@ -827,6 +827,16 @@
       ]
     },
     {
+      "id": "command:run.erase",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:run.export",
       "kind": "command",
       "area": 11,
@@ -5063,6 +5073,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:run.erase",
+      "kind": "operation",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },
@@ -10200,6 +10220,16 @@
       "id": "setting:dataset.search.index",
       "kind": "setting",
       "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:datasets",
+      "kind": "setting",
+      "area": 4,
       "milestone": null,
       "status": "active",
       "products": [

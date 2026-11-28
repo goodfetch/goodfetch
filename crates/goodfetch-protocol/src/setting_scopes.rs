@@ -141,7 +141,8 @@ fn set_by_code(authority: Authority) -> bool {
         | Authority::NotByModel
         | Authority::NotByModelRecipeAllowedBy(_)
         | Authority::HostsNarrowedByRecipeOrModel(_)
-        | Authority::NotWeakenedByRecipeOrModel => true,
+        | Authority::NotWeakenedByRecipeOrModel
+        | Authority::NotWeakenedByModel(_) => true,
     }
 }
 

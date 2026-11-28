@@ -30,16 +30,16 @@ use std::time::Duration;
 use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
 use goodfetch_engine::egress::Policy;
 use goodfetch_fetch_tier::{
-    Hop, HttpProfile, LocalSource, Reqwest, Reuse, Transport, TransportConfig, TransportFailure,
-    Wreq,
+    AddressCheck, CapturedCall, Hop, HttpProfile, LocalSource, Reqwest, Reuse, Transport,
+    TransportConfig, TransportFailure, Wreq, infer_plan,
 };
 use goodfetch_protocol::egress::EgressRule;
 use goodfetch_test_support::{
-    CaseDomains, CaseLookup, Family, Outcome, ProvingGround, Refusal, SsrfCase, SsrfTable, TestEnv,
-    run_cases,
+    CaseDomains, CaseLookup, Family, Outcome, ProvingGround, Refusal, Runner, SsrfCase, SsrfTable,
+    TestEnv,
 };
 use rstest::rstest;
-use serde_json::Value;
+use serde_json::{Value, json};
 use url::Url;
 
 use crate::{Stack, running_clock_runtime};
@@ -87,18 +87,18 @@ fn policy(domains: &CaseDomains, ranges: &[String]) -> Policy {
 
 /// `stack`'s transport resolving through the Proving ground's DNS fixture,
 /// through `proxy` when given, under the domain policy `domains` and the
-/// private `ranges`. Its Session holds a loopback address of each family:
-/// one takes the engine's own resolver on every OS (ADR 0044), and both
-/// keep every answer's family for the policy to judge.
-fn transport(
+/// private `ranges`, with its [`AddressCheck`]. Its Session holds a loopback
+/// address of each family: one takes the engine's own resolver on every OS
+/// (ADR 0044), and both keep every answer's family for the policy to judge.
+fn transport_with_check(
     stack: Stack,
     proving_ground: &ProvingGround,
     proxy: Option<Url>,
     domains: &CaseDomains,
     ranges: &[String],
-) -> Box<dyn Transport> {
+) -> (Box<dyn Transport>, AddressCheck) {
     let fixture: SocketAddr = proving_ground.description().fixtures.dns.parse().unwrap();
-    built(
+    built_with_check(
         stack,
         TransportConfig {
             egress: policy(domains, ranges),
@@ -114,12 +114,36 @@ fn transport(
     )
 }
 
+/// [`transport_with_check`], transport only.
+fn transport(
+    stack: Stack,
+    proving_ground: &ProvingGround,
+    proxy: Option<Url>,
+    domains: &CaseDomains,
+    ranges: &[String],
+) -> Box<dyn Transport> {
+    transport_with_check(stack, proving_ground, proxy, domains, ranges).0
+}
+
+/// `stack`'s transport under `config`, with its [`AddressCheck`].
+fn built_with_check(stack: Stack, config: TransportConfig) -> (Box<dyn Transport>, AddressCheck) {
+    match stack {
+        Stack::Reqwest => {
+            let transport = Reqwest::new(config).unwrap();
+            let check = transport.address_check();
+            (Box::new(transport), check)
+        }
+        Stack::Wreq => {
+            let transport = Wreq::new(config, HttpProfile::default()).unwrap();
+            let check = transport.address_check();
+            (Box::new(transport), check)
+        }
+    }
+}
+
 /// `stack`'s transport under `config`.
 fn built(stack: Stack, config: TransportConfig) -> Box<dyn Transport> {
-    match stack {
-        Stack::Reqwest => Box::new(Reqwest::new(config).unwrap()),
-        Stack::Wreq => Box::new(Wreq::new(config, HttpProfile::default()).unwrap()),
-    }
+    built_with_check(stack, config).0
 }
 
 /// Every host allowed.
@@ -245,6 +269,12 @@ fn run_case(
 ) -> Outcome {
     let target = target(proving_ground);
     let public = target.ip();
+    let Some(url) = case_url(case, public, target.port()) else {
+        return Outcome {
+            refusal: None,
+            connections: Vec::new(),
+        };
+    };
     let ranges = if public_listed {
         vec![public.to_string()]
     } else {
@@ -261,11 +291,85 @@ fn run_case(
         &case.domains.clone().unwrap_or_else(every_host),
         &ranges,
     );
-    let url = case_url(case, public, target.port()).unwrap();
     let before = connections(&proving_ground.observations().unwrap(), "target");
     let mut refusal = None;
     for _ in 0..case.fetches {
         if let Err(TransportFailure::Egress(refused)) = send(transport.as_ref(), &url) {
+            refusal = Some(Refusal::EgressRefused {
+                rule: table_rule(refused.rule),
+            });
+            break;
+        }
+    }
+    let after = connections(&proving_ground.observations().unwrap(), "target");
+    Outcome {
+        refusal,
+        connections: vec![public; after - before],
+    }
+}
+
+/// The SSRF table's thin runner on the discovered-API tier (`ReplayPlan` ->
+/// `AddressCheck` -> `Transport` with no redirects, matching
+/// `replayed::replay` -> `calls::sent`): each of the case's fetches builds a
+/// replay plan for the call URL, runs the tier's address check before
+/// sending, and sends through `stack`'s transport, recording connections to
+/// the watched target.
+fn run_discovered_api_case(
+    stack: Stack,
+    proving_ground: &ProvingGround,
+    case: &SsrfCase,
+    public_listed: bool,
+) -> Outcome {
+    let target = target(proving_ground);
+    let public = target.ip();
+    let Some(url) = case_url(case, public, target.port()) else {
+        return Outcome {
+            refusal: None,
+            connections: Vec::new(),
+        };
+    };
+    let document = Url::parse(&format!(
+        "http://document.ssrf.test:{}/list/1",
+        target.port()
+    ))
+    .unwrap();
+    let plan = infer_plan(
+        &document,
+        &[CapturedCall {
+            url,
+            json: json!({ "items": ["item"] }),
+        }],
+    )
+    .expect("single-call plan infers as Once");
+    let ranges = if public_listed {
+        vec![public.to_string()]
+    } else {
+        Vec::new()
+    };
+    let through = match case.route {
+        goodfetch_test_support::Route::UpstreamProxy => Some(proxy(proving_ground, "open")),
+        _ => None,
+    };
+    let (transport, address_check) = transport_with_check(
+        stack,
+        proving_ground,
+        through,
+        &case.domains.clone().unwrap_or_else(every_host),
+        &ranges,
+    );
+    let before = connections(&proving_ground.observations().unwrap(), "target");
+    let mut refusal = None;
+    for _ in 0..case.fetches {
+        let mut replay = plan.replay(&document);
+        let call = replay.next_call().expect("plan yields its call");
+        let checked = running_clock_runtime().block_on(address_check.check(&call));
+        if let Err(refused) = checked {
+            refusal = Some(Refusal::EgressRefused {
+                rule: table_rule(refused.rule),
+            });
+            break;
+        }
+        if let Err(TransportFailure::Egress(refused)) = send(transport.as_ref(), &call) {
             refusal = Some(Refusal::EgressRefused {
                 rule: table_rule(refused.rule),
             });
@@ -300,6 +404,28 @@ target = "public"
 refusal = { code = "egress_refused", rule = "private_address" }
 "#;
 
+/// Asserts that a `Runner::run` result passed every control and every
+/// parseable case, leaving only the two WHATWG-unparsable cases (`zone_id`
+/// and `url_that_does_not_parse`) unsent with zero connections.
+fn assert_only_unparsable_unsent(result: Result<(), goodfetch_test_support::RunFailed>) {
+    let unsent = |case: &str| (case.to_owned(), None, false);
+    assert_eq!(
+        result.map_err(|failed| {
+            let let_through: Vec<_> = failed
+                .let_through
+                .iter()
+                .map(|miss| (miss.case.clone(), miss.refusal.clone(), miss.reached_target))
+                .collect();
+            (failed.no_control, failed.held, let_through)
+        }),
+        Err((
+            false,
+            Vec::new(),
+            vec![unsent("zone_id"), unsent("url_that_does_not_parse")]
+        ))
+    );
+}
+
 /// Every case of the SSRF table a request of the HTTP tier meets, directly
 /// or through the Session's upstream proxy, is refused before any
 /// connection reaches its target: encodings, IPv6 forms, every non-global
@@ -307,7 +433,7 @@ refusal = { code = "egress_refused", rule = "private_address" }
 /// rebinding, the domain policy, and the upstream proxy's cases, the proxy
 /// itself seeing none of them.
 ///
-/// Covers: story:4-102, error:egress_refused
+/// Covers: story:4-102, story:4-121, error:egress_refused
 #[rstest]
 #[case::reqwest(Stack::Reqwest)]
 #[case::wreq(Stack::Wreq)]
@@ -317,67 +443,81 @@ fn every_case_of_the_ssrf_table_the_http_tier_meets_is_refused_before_any_connec
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let public = target(&proving_ground).ip();
-    let table = SsrfTable::committed().unwrap();
-    let families = [
-        Family::Encoding,
-        Family::Ipv6Form,
-        Family::SpecialPurposeBlock,
-        Family::MixedAnswers,
-        Family::Rebinding,
-        Family::DomainPolicy,
-        Family::UpstreamProxy,
-    ];
-    let cases: Vec<&SsrfCase> = families
-        .iter()
-        .flat_map(|family| table.cases_of(*family))
-        .collect();
-    let (cases, unparsed): (Vec<&SsrfCase>, Vec<&SsrfCase>) = cases
-        .into_iter()
-        .partition(|case| case_url(case, public, 1).is_some());
+    let runner = Runner::committed_foxhound(
+        "http_tier",
+        file!(),
+        "every_case_of_the_ssrf_table_the_http_tier_meets_is_refused_before_any_connection",
+    )
+    .unwrap();
     let controls = SsrfTable::parse(CONTROLS).unwrap();
 
-    let controlled = run_cases(&controls.cases, public, |case| {
-        run_case(stack, &proving_ground, case, true)
-    });
-    let proxied_before = connections(&proving_ground.observations().unwrap(), "open");
-    let result = run_cases(cases.iter().copied(), public, |case| {
+    let mut proxied = 0usize;
+    let result = runner.run(&controls.cases, public, |case| {
+        let is_control = controls
+            .cases
+            .iter()
+            .any(|control| control.name == case.name);
         let aims_at_public = case
             .target_address(public)
             .is_some_and(|aimed| aimed.to_canonical() == public.to_canonical());
-        run_case(stack, &proving_ground, case, !aims_at_public)
+        let public_listed = is_control || !aims_at_public;
+        let proxied_before = connections(&proving_ground.observations().unwrap(), "open");
+        let outcome = run_case(stack, &proving_ground, case, public_listed);
+        if !is_control {
+            proxied +=
+                connections(&proving_ground.observations().unwrap(), "open") - proxied_before;
+        }
+        outcome
     });
-    let proxied = connections(&proving_ground.observations().unwrap(), "open") - proxied_before;
 
-    assert_eq!(
-        controlled.map_err(|let_through| {
-            let_through
-                .misses
-                .iter()
-                .map(|miss| (miss.case.clone(), miss.refusal.clone(), miss.reached_target))
-                .collect::<Vec<_>>()
-        }),
-        Err(vec![
-            ("public_only".to_owned(), None, true),
-            ("public_name_through_the_proxy".to_owned(), None, true),
-        ])
-    );
-    for family in families {
-        assert!(
-            cases.iter().any(|case| case.family == family),
-            "the table has no {family:?} case the HTTP tier sends"
-        );
-    }
-    // Only a zone ID's URL and the case named for it are URLs the WHATWG
-    // parser refuses.
-    assert_eq!(
-        unparsed
+    assert_only_unparsable_unsent(result);
+    assert_eq!(proxied, 0, "the proxy saw a request of a refused case");
+}
+
+/// Every case of the SSRF table a replayed call of the discovered-API tier
+/// meets, directly or through the Session's upstream proxy, is refused
+/// before any connection reaches its target: encodings, IPv6 forms, every
+/// non-global IANA block, mixed answers, rebinding, the domain policy, and
+/// the upstream proxy's cases, each refusal paired with positive controls.
+///
+/// Covers: story:4-98, story:4-102, story:4-103, story:4-121, error:egress_refused
+#[rstest]
+#[case::reqwest(Stack::Reqwest)]
+#[case::wreq(Stack::Wreq)]
+fn every_case_of_the_ssrf_table_the_discovered_api_tier_meets_is_refused_before_any_connection(
+    #[case] stack: Stack,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let public = target(&proving_ground).ip();
+    let runner = Runner::committed_foxhound(
+        "discovered_api",
+        file!(),
+        "every_case_of_the_ssrf_table_the_discovered_api_tier_meets_is_refused_before_any_connection",
+    )
+    .unwrap();
+    let controls = SsrfTable::parse(CONTROLS).unwrap();
+
+    let mut proxied = 0usize;
+    let result = runner.run(&controls.cases, public, |case| {
+        let is_control = controls
+            .cases
             .iter()
-            .filter(|case| !case.url.contains("%25"))
-            .map(|case| case.name.as_str())
-            .collect::<Vec<_>>(),
-        ["url_that_does_not_parse"]
-    );
-    assert_eq!(result, Ok(()), "{}", result.clone().unwrap_err());
+            .any(|control| control.name == case.name);
+        let aims_at_public = case
+            .target_address(public)
+            .is_some_and(|aimed| aimed.to_canonical() == public.to_canonical());
+        let public_listed = is_control || !aims_at_public;
+        let proxied_before = connections(&proving_ground.observations().unwrap(), "open");
+        let outcome = run_discovered_api_case(stack, &proving_ground, case, public_listed);
+        if !is_control {
+            proxied +=
+                connections(&proving_ground.observations().unwrap(), "open") - proxied_before;
+        }
+        outcome
+    });
+
+    assert_only_unparsable_unsent(result);
     assert_eq!(proxied, 0, "the proxy saw a request of a refused case");
 }
 

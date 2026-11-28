@@ -157,6 +157,14 @@ impl TransportProxy {
         self.proxy.bypasses(url)
     }
 
+    /// Whether a hop to `url` is forwarded directly by an HTTP or HTTPS
+    /// proxy (an `http:` URL not sent around it by `proxy.bypass` and not
+    /// sent through a SOCKS proxy).
+    #[must_use]
+    pub fn forwarded(&self, url: &str) -> bool {
+        self.proxy.forwarded(url)
+    }
+
     /// A Permit for one hop through the proxy, once its limits admit it
     /// (ADRs 0053 and 0088); none when the proxy has no limits.
     ///

@@ -1950,3 +1950,151 @@ fn a_crawl_whose_redirect_count_the_browser_cannot_keep_is_refused(#[case] max: 
         "{refused}"
     );
 }
+
+/// `datasets.<name>.retention` configured on a crawl Run is parsed through the
+/// settings resolver and wired through `CrawlRun::started` so expired Records
+/// of that Dataset are pruned on the paused clock while other Datasets stay;
+/// setting `datasets` on a Label is refused with `setting_not_applicable`
+/// naming `datasets` (ADR 0016; ticket 694).
+///
+async fn dataset_record_count(client: &mut Client, run_id: &str, dataset: &str) -> usize {
+    let page = client
+        .call(
+            "dataset.page",
+            json!({ "run_id": run_id, "dataset": dataset }),
+            &mut |_| Reply::Silent,
+        )
+        .await;
+    page["result"]["records"]
+        .as_array()
+        .map_or(usize::MAX, Vec::len)
+}
+
+fn retention_seed_reply(params: &Value, second_url: &str) -> Reply {
+    let req_id = params["crawl_request"]["id"].clone();
+    let lease = params["lease_epoch"].clone();
+    if params["crawl_request"]["url"] == json!(second_url) {
+        return Reply::After(
+            Duration::from_secs(16),
+            Box::new(Reply::Records(Vec::new())),
+        );
+    }
+    Reply::Calls(
+        vec![
+            (
+                "crawl_request.push",
+                json!({
+                    "run_id": "retention-wired",
+                    "crawl_request_id": req_id,
+                    "lease_epoch": lease,
+                    "dataset": "contacts",
+                    "records": [{ "email": "old@example.test" }],
+                }),
+            ),
+            (
+                "crawl_request.push",
+                json!({
+                    "run_id": "retention-wired",
+                    "crawl_request_id": req_id,
+                    "lease_epoch": lease,
+                    "dataset": "archive",
+                    "records": [{ "email": "keep@example.test" }],
+                }),
+            ),
+            (
+                "crawl_request.enqueue",
+                json!({
+                    "run_id": "retention-wired",
+                    "crawl_request_id": req_id,
+                    "lease_epoch": lease,
+                    "url": second_url,
+                    "label": "page",
+                }),
+            ),
+        ],
+        Box::new(Reply::Records(Vec::new())),
+    )
+}
+
+/// Covers: story:4-120, setting:datasets, error:setting_not_applicable
+#[test]
+fn dataset_retention_wired_through_crawl_run_started_prunes_expired_records_and_refuses_label_scope()
+ {
+    let env = TestEnv::new();
+
+    let (label_refusal, remaining_contacts, remaining_archive) = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let label_refusal = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "labels": {
+                            "page": {
+                                "settings": {
+                                    "datasets": { "contacts": { "retention": 10_000 } },
+                                }
+                            }
+                        },
+                        "run_id": "retention-on-label",
+                        "seeds": seeds(1),
+                        "datasets": [{ "name": "contacts" }],
+                    }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+
+            let started = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "labels": { "page": {} },
+                        "run_id": "retention-wired",
+                        "seeds": seeds(1),
+                        "datasets": [{ "name": "contacts" }, { "name": "archive" }],
+                        "settings": {
+                            "crawl": { "keep_alive": true },
+                            "timeout": { "handler": 30_000 },
+                            "datasets": { "contacts": { "retention": 10_000 } },
+                        },
+                    }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            assert_eq!(
+                started["result"]["run_id"],
+                json!("retention-wired"),
+                "{started}"
+            );
+
+            let second_url = seeds(2)[1]["url"].as_str().unwrap().to_owned();
+            let handled = client
+                .call(
+                    "run.finish",
+                    json!({ "run_id": "retention-wired" }),
+                    &mut |params| retention_seed_reply(params, &second_url),
+                )
+                .await;
+            assert_eq!(
+                handled["result"]["lifecycle"],
+                json!("finished"),
+                "{handled}"
+            );
+
+            let contacts = dataset_record_count(client, "retention-wired", "contacts").await;
+            let archive = dataset_record_count(client, "retention-wired", "archive").await;
+            (label_refusal, contacts, archive)
+        },
+    );
+
+    let refusal = &label_refusal["error"]["data"];
+    assert_eq!(
+        (&refusal["code"], &refusal["key"]),
+        (
+            &json!("setting_not_applicable"),
+            &json!("datasets.contacts.retention")
+        ),
+        "{label_refusal}"
+    );
+    assert_eq!((remaining_contacts, remaining_archive), (0, 1));
+}

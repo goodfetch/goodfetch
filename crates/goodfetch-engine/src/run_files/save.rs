@@ -16,7 +16,9 @@ use std::fs::File;
 use std::io::{self, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 
-use goodfetch_saved_file::{blames_path, create_hidden, os_code, reason_of, unhide, unix_code};
+use goodfetch_saved_file::{
+    PathShape, blames_path, check_path, create_hidden, os_code, reason_of, unhide, unix_code,
+};
 
 use crate::durable::sync_folder;
 
@@ -128,6 +130,20 @@ pub struct Saving {
 }
 
 impl Saving {
+    /// Checks that `path` is safe to write across OSes before resolving it.
+    ///
+    /// # Errors
+    ///
+    /// [`SaveError::Path`] with `reason: "invalid_filename"` when `path`
+    /// contains a traversal, reserved name or other unsafe segment.
+    pub fn check_path(path: &Path) -> Result<(), SaveError> {
+        check_path(path, PathShape::SavePath).map_err(|issue| SaveError::Path {
+            reason: "invalid_filename",
+            os_code: None,
+            message: format!("`{}` cannot be written: {issue}", path.display()),
+        })
+    }
+
     /// Starts the file for `path`: its missing folders made, then its
     /// hidden temporary file created beside it.
     ///
@@ -137,6 +153,7 @@ impl Saving {
     /// folder or a path through a file, and [`SaveError::Storage`] when its
     /// storage fails.
     pub fn create(path: &Path) -> Result<Self, SaveError> {
+        Self::check_path(path)?;
         let Some(name) = path.file_name() else {
             return Err(SaveError::Path {
                 reason: "invalid_filename",

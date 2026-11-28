@@ -1342,9 +1342,13 @@ fn authority(
         Authority::NotWeakenedByRecipeOrModel if recipe_or_model => {
             not_weakened(key, value, current, refused)
         }
+        Authority::NotWeakenedByModel(direction) if for_model => {
+            not_weakened_by_model(key, direction, value, current, refused)
+        }
         Authority::Every
         | Authority::HostsNarrowedByRecipeOrModel(_)
         | Authority::NotWeakenedByRecipeOrModel
+        | Authority::NotWeakenedByModel(_)
         | Authority::OperatorPolicy
         | Authority::Configuration
         | Authority::ConfigurationExcept(_)
@@ -1412,6 +1416,60 @@ fn not_weakened(
             "a Recipe or a Client acting for a model never sets `{name}` to {value}, which weakens the run, unless the layers below already give it: set it in the program's own code, in configuration or in an Operator policy"
         ),
     ))
+}
+
+/// [`Authority::NotWeakenedByModel`] over a Client acting for a model's
+/// `value`: never a weakening value that presses harder in `direction` than
+/// `current`, the value the layers below give (#2446).
+fn not_weakened_by_model(
+    key: Key,
+    direction: goodfetch_protocol::catalog::WeakeningDirection,
+    value: &Value,
+    current: &SettingLimit,
+    refused: &dyn Fn(SettingLimit, String) -> SettingsError,
+) -> Result<(), SettingsError> {
+    let weakens = key.setting.weakens.is_some_and(|weakens| weakens(value));
+    if !weakens || !presses_harder_than(direction, key.setting.clearable, value, &current.value) {
+        return Ok(());
+    }
+    let name = key.setting.name;
+    Err(refused(
+        current.clone(),
+        format!(
+            "a Client acting for a model never sets `{name}` to {value}, which presses a site harder than the built-in default and the layers below: set it in the program's own code, in configuration, in a Recipe or in an Operator policy"
+        ),
+    ))
+}
+
+/// Whether `candidate` presses harder than `below` in `direction`; `null` on
+/// a `clearable` key removes the cap or delay and presses harder than any
+/// finite value, while nothing presses harder than `null`.
+fn presses_harder_than(
+    direction: goodfetch_protocol::catalog::WeakeningDirection,
+    clearable: bool,
+    candidate: &Value,
+    below: &Value,
+) -> bool {
+    use goodfetch_protocol::catalog::WeakeningDirection;
+    match direction {
+        WeakeningDirection::Higher => match (candidate.is_null(), below.is_null()) {
+            (true, false) if clearable => true,
+            (_, true) if clearable => false,
+            _ => match (candidate.as_u64(), below.as_u64()) {
+                (Some(candidate), Some(below)) => candidate > below,
+                _ => candidate != below,
+            },
+        },
+        WeakeningDirection::Lower => match (candidate.is_null(), below.is_null()) {
+            (true, false) if clearable => true,
+            (_, true) if clearable => false,
+            _ => match (candidate.as_u64(), below.as_u64()) {
+                (Some(candidate), Some(below)) => candidate < below,
+                _ => candidate != below,
+            },
+        },
+        WeakeningDirection::Equal => candidate != below,
+    }
 }
 
 /// Whether `higher` allows no more than `lower`; `null`, where a key can be

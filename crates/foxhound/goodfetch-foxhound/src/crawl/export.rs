@@ -81,6 +81,12 @@ impl Export {
         self.descriptor.run_epoch
     }
 
+    /// The Dataset's fields marked with `"x-goodfetch-personal": true` in its
+    /// JSON Schema, sorted (ADR 0016); empty when none are marked.
+    pub fn personal_columns(&self) -> &[String] {
+        &self.descriptor.personal_columns
+    }
+
     /// Saves an Export's file, which the engine keeps in its Run's folder,
     /// whole or not at all. An Attached engine given the program's path
     /// writes it through a hidden temporary file beside it, synced and

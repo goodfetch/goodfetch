@@ -63,6 +63,7 @@ impl Transport for Endless {
                 certificate_exception: None,
                 custom_tls: false,
                 origin: None,
+                forwarded: false,
             })
         })
     }

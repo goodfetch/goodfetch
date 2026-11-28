@@ -432,3 +432,22 @@ fn a_run_lists_every_case_its_layer_let_through() {
     );
     assert_eq!(let_through[0].expected, PRIVATE_ADDRESS);
 }
+
+#[test]
+fn outside_product_accounts_for_another_products_families() {
+    let layers = layers(
+        r#"
+        [outside_product]
+        domain_policy = "Checked in the other Product's layer list."
+
+        [layers.client]
+        summary = "The engine's client."
+        runners = [
+            { test = "tests/client.rs::every_case", families = ["encoding"] },
+            { test = "tests/client.rs::redirects", families = ["redirect"] },
+        ]
+        "#,
+    );
+
+    assert_eq!(layers.check(&table(), sources), Ok(()));
+}

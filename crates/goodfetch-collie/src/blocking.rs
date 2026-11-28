@@ -9,8 +9,9 @@ use goodfetch_protocol::run::{CatalogTarget, RunId};
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 
 pub use goodfetch_collie_client::blocking::{
-    Call, Connection, CreatedSchedule, EventIter, Exchange, HandlerlessStart, KeyValueStore,
-    Locator, Page, Query, RawCall, Response, Run, Schedule, Schedules, Session, Start,
+    Call, Connection, CreatedSchedule, EventIter, Exchange, HandlerlessStart, Identities,
+    KeyValueStore, Locator, Page, Query, RawCall, Response, Run, Schedule, Schedules, Session,
+    Start,
 };
 
 use crate::linked::{Composed, ConnectOptions, ProductConnection};
@@ -145,6 +146,13 @@ impl Collie {
         self.connection.schedules()
     }
 
+    /// The connection's Saved identities, as [`crate::Collie::identities`]'s,
+    /// reached without I/O.
+    #[must_use]
+    pub fn identities(&self) -> Identities {
+        self.connection.identities()
+    }
+
     /// Shows each setting's effective value, the layer that set it and the
     /// layer that locked it, from the built-in defaults, the Operator
     /// policy, user configuration, the project configuration given and the
@@ -191,6 +199,10 @@ impl blocking::Connection for Collie {
 
     fn schedules(&self) -> Schedules {
         Collie::schedules(self)
+    }
+
+    fn identities(&self) -> Identities {
+        Collie::identities(self)
     }
 
     fn call(&self, operation: &str) -> RawCall {

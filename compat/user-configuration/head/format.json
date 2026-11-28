@@ -2990,6 +2990,25 @@
             },
             "type": "object"
           },
+          "saved_identity": {
+            "additionalProperties": false,
+            "properties": {
+              "max_unused_age": {
+                "anyOf": [
+                  {
+                    "description": "A duration in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How long an unused Saved identity stays in the install's store before it expires and is deleted, in milliseconds: 30 days (2592000000 ms) by default; `null` disables expiry. Each expiry deletion is recorded in the Audit log. Set in user configuration or an Operator policy only."
+              }
+            },
+            "type": "object"
+          },
           "schedule": {
             "additionalProperties": false,
             "properties": {

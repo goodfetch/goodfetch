@@ -35,6 +35,7 @@ mod proxy_challenge;
 mod robots_txt;
 mod root_events_lost;
 mod run_only_imports;
+mod saved_identities;
 mod secrets_and_auth;
 mod served_calls;
 mod session_counts;

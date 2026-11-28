@@ -31,7 +31,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::connection::{ProductVersion, VersionLine};
-use goodfetch_protocol::home::{DaemonFile, RESPONSE_CACHE};
+use goodfetch_protocol::home::{DaemonFile, RESPONSE_CACHE, SAVED_IDENTITIES_LOCK};
 use toml_edit::DocumentMut;
 
 use crate::home::Home;
@@ -294,7 +294,9 @@ fn files_of(folder: &Path) -> Result<Vec<PathBuf>, UpgradeError> {
                     folders.push(entry.path());
                 }
             } else if kind.is_file()
-                && !(current == folder && name.to_str().and_then(DaemonFile::named).is_some())
+                && !(current == folder
+                    && (name.to_str().and_then(DaemonFile::named).is_some()
+                        || name == SAVED_IDENTITIES_LOCK))
             {
                 files.push(entry.path());
             }

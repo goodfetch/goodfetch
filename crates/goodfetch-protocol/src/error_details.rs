@@ -189,6 +189,8 @@ details! {
     crate::page::events::BodyUnavailableDetails => ErrorCode::BODY_UNAVAILABLE,
     crate::page::functions::PageFunctionFailedDetails => ErrorCode::PAGE_FUNCTION_FAILED,
     crate::page::functions::PageValueInvalidDetails => ErrorCode::PAGE_VALUE_INVALID,
+    crate::page::identity::SavedIdentityMismatchDetails => ErrorCode::SAVED_IDENTITY_MISMATCH,
+    crate::page::identity::SavedIdentityNotFoundDetails => ErrorCode::SAVED_IDENTITY_NOT_FOUND,
     crate::page::proxy::ProxyAuthFailedDetails => ErrorCode::PROXY_AUTH_FAILED,
     crate::page::proxy::ProxyProviderUnavailableDetails => ErrorCode::PROXY_PROVIDER_UNAVAILABLE,
     crate::page::proxy::ProxyRelayUnavailableDetails => ErrorCode::PROXY_RELAY_UNAVAILABLE,

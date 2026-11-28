@@ -52,6 +52,14 @@ pub const SCHEDULE_STORE: &str = "schedule-store.sqlite";
 /// policy (ADR 0149).
 pub const ACCOUNTS_STORE: &str = "accounts-store.sqlite";
 
+/// The Saved identity store's file in the per-major folder, shared by both
+/// Products (ADRs 0035 and 0098).
+pub const SAVED_IDENTITIES: &str = "saved-identities.sqlite";
+
+/// The install-wide writer lock file beside the Saved identity store in the
+/// per-major folder (ADR 0035).
+pub const SAVED_IDENTITIES_LOCK: &str = "saved-identities.lock";
+
 /// The Operator policy's file in the per-major folder, which both
 /// Products read (ADRs 0028 and 0098).
 pub const OPERATOR_POLICY_FILE: &str = "operator-policy.toml";

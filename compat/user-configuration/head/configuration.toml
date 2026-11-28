@@ -206,6 +206,9 @@ brand = ["example"]
 signing_key = "env:EXAMPLE"
 signature_agent = "https://bot.example"
 
+[settings.saved_identity]
+max_unused_age = 30000
+
 [settings.run_state]
 location = "example"
 durability = "full"

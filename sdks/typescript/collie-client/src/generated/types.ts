@@ -1174,6 +1174,132 @@ export type PauseOrigin =
  */
 export type PauseResolvedBy = "condition" | "person";
 /**
+ * A proxy kind, the pool a Session's proxy is drawn from (ADR 0021), in
+ * the order of the proxy tiers, cheapest first.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ProxyKind".
+ */
+export type ProxyKind = "datacenter" | "isp" | "residential" | "mobile";
+/**
+ * Where a Session's login comes from (ADR 0056): exactly one kind.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SessionSource".
+ */
+export type SessionSource =
+  | {
+      kind: "saved_identity";
+      /**
+       * Its name.
+       */
+      name: string;
+    }
+  | {
+      /**
+       * The registrable domains its navigation is bound to.
+       */
+      domains?: string[] | null;
+      /**
+       * Its format, detected when left out.
+       */
+      format?: StateFileFormat | null;
+      /**
+       * The Secret reference that opens a session export bundle: its
+       * age identity or its passphrase, never the value itself.
+       */
+      key?: string | null;
+      kind: "state_file";
+      /**
+       * The file.
+       */
+      path: string;
+    }
+  | {
+      /**
+       * Its domain.
+       */
+      domain: string;
+      /**
+       * The header's value.
+       */
+      header: string;
+      kind: "cookie_header";
+    }
+  | {
+      /**
+       * Its browser family.
+       */
+      browser: BrowserName;
+      /**
+       * A Chromium-family profile within it.
+       */
+      chromiumProfile?: string | null;
+      /**
+       * The registrable domains its navigation is bound to.
+       */
+      domains: string[];
+      kind: "profile_directory";
+      /**
+       * The directory.
+       */
+      path: string;
+    }
+  | {
+      /**
+       * Its browser family.
+       */
+      browser: BrowserName;
+      /**
+       * A Chromium-family profile of it.
+       */
+      chromiumProfile?: string | null;
+      /**
+       * The registrable domains its data is read for.
+       */
+      domains: string[];
+      kind: "installed_browser";
+    }
+  | {
+      /**
+       * Its browser family.
+       */
+      browser: BrowserName;
+      /**
+       * The registrable domains its navigation is bound to.
+       */
+      domains: string[];
+      kind: "running_browser";
+    }
+  | {
+      /**
+       * The registrable domains its navigation is bound to.
+       */
+      domains?: string[] | null;
+      /**
+       * Whether nothing else drives the browser (ADR 0114).
+       */
+      exclusive?: boolean | null;
+      /**
+       * Headers its connection sends, each value a Secret reference.
+       */
+      headers?: {
+        [k: string]: string;
+      } | null;
+      kind: "cdp_url";
+      /**
+       * The address.
+       */
+      url: string;
+    };
+/**
+ * The format of a `state_file`, detected when left out.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "StateFileFormat".
+ */
+export type StateFileFormat = "storage_state" | "cookies_txt" | "cdp_cookies" | "session_export";
+/**
  * What judged a page: the Session's own Page check, or the built-in
  * detector of a Session that declares none (ADR 0006).
  *
@@ -1335,124 +1461,6 @@ export type NeedsYouRemoval = "resolved" | "dismissed";
  * via the `definition` "SessionId".
  */
 export type SessionId = string;
-/**
- * Where a Session's login comes from (ADR 0056): exactly one kind.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "SessionSource".
- */
-export type SessionSource =
-  | {
-      kind: "saved_identity";
-      /**
-       * Its name.
-       */
-      name: string;
-    }
-  | {
-      /**
-       * The registrable domains its navigation is bound to.
-       */
-      domains?: string[] | null;
-      /**
-       * Its format, detected when left out.
-       */
-      format?: StateFileFormat | null;
-      /**
-       * The Secret reference that opens a session export bundle: its
-       * age identity or its passphrase, never the value itself.
-       */
-      key?: string | null;
-      kind: "state_file";
-      /**
-       * The file.
-       */
-      path: string;
-    }
-  | {
-      /**
-       * Its domain.
-       */
-      domain: string;
-      /**
-       * The header's value.
-       */
-      header: string;
-      kind: "cookie_header";
-    }
-  | {
-      /**
-       * Its browser family.
-       */
-      browser: BrowserName;
-      /**
-       * A Chromium-family profile within it.
-       */
-      chromiumProfile?: string | null;
-      /**
-       * The registrable domains its navigation is bound to.
-       */
-      domains: string[];
-      kind: "profile_directory";
-      /**
-       * The directory.
-       */
-      path: string;
-    }
-  | {
-      /**
-       * Its browser family.
-       */
-      browser: BrowserName;
-      /**
-       * A Chromium-family profile of it.
-       */
-      chromiumProfile?: string | null;
-      /**
-       * The registrable domains its data is read for.
-       */
-      domains: string[];
-      kind: "installed_browser";
-    }
-  | {
-      /**
-       * Its browser family.
-       */
-      browser: BrowserName;
-      /**
-       * The registrable domains its navigation is bound to.
-       */
-      domains: string[];
-      kind: "running_browser";
-    }
-  | {
-      /**
-       * The registrable domains its navigation is bound to.
-       */
-      domains?: string[] | null;
-      /**
-       * Whether nothing else drives the browser (ADR 0114).
-       */
-      exclusive?: boolean | null;
-      /**
-       * Headers its connection sends, each value a Secret reference.
-       */
-      headers?: {
-        [k: string]: string;
-      } | null;
-      kind: "cdp_url";
-      /**
-       * The address.
-       */
-      url: string;
-    };
-/**
- * The format of a `state_file`, detected when left out.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "StateFileFormat".
- */
-export type StateFileFormat = "storage_state" | "cookies_txt" | "cdp_cookies" | "session_export";
 /**
  * Whether a Run's own checks prove what it committed (ADR 0029).
  *
@@ -5557,6 +5565,236 @@ export interface HumanPauseResult {
   waited: number;
 }
 /**
+ * What `identity.delete` takes: the Saved identity's name.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "IdentityDeleteParams".
+ */
+export interface IdentityDeleteParams {
+  /**
+   * The Saved identity's name to remove from the store.
+   */
+  name: string;
+}
+/**
+ * What `identity.delete` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "IdentityDeleted".
+ */
+export interface IdentityDeleted {
+  /**
+   * Whether a Saved identity of that name existed and was deleted.
+   */
+  deleted: boolean;
+  /**
+   * The Saved identity's name.
+   */
+  name: string;
+}
+/**
+ * What `identity.export` takes: the Saved identity's name and exactly one
+ * `age` recipient (`public_key` or `passphrase`, a Secret reference, ADR 0015).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "IdentityExportParams".
+ */
+export interface IdentityExportParams {
+  /**
+   * The Saved identity's name to export.
+   */
+  name: string;
+  /**
+   * A Secret reference whose value is the passphrase to encrypt the session
+   * export bundle with.
+   */
+  passphrase?: string | null;
+  /**
+   * An `age` public key (`age1…`) to encrypt the session export bundle to.
+   */
+  publicKey?: string | null;
+}
+/**
+ * What `identity.export_storage_state` takes (person-only, ADR 0056).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "IdentityExportStorageStateParams".
+ */
+export interface IdentityExportStorageStateParams {
+  /**
+   * The Saved identity's name to export as clear-text Playwright `storageState`.
+   */
+  name: string;
+}
+/**
+ * What `identity.export` answers: the ASCII-armored `age`-encrypted
+ * `session-export` bundle and its SHA-256 digest (ADR 0015).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "IdentityExported".
+ */
+export interface IdentityExported {
+  /**
+   * The ASCII-armored `age`-encrypted `session-export` bundle.
+   */
+  bundle: string;
+  /**
+   * Number of cookies carried in the bundle.
+   */
+  cookieCount: number;
+  /**
+   * Lowercase hex SHA-256 digest of `bundle`, matching the Audit log entry.
+   */
+  digest: string;
+  /**
+   * The Saved identity's name.
+   */
+  name: string;
+  /**
+   * Number of origins carried in the bundle.
+   */
+  originCount: number;
+}
+/**
+ * What `identity.import` takes: the Saved identity's name, its Session source,
+ * and optional identity/proxy overrides allowed at import time (ADR 0056).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "IdentityImportParams".
+ */
+export interface IdentityImportParams {
+  /**
+   * Optional Access mode at import (`standard` by default, or `stealth`;
+   * `identified` is refused per ADR 0056). Ignored for a `session_export`
+   * bundle, which keeps its saved Access mode.
+   */
+  accessMode?: string | null;
+  /**
+   * Optional BCP 47 locale (language) of the source browser; inferred from
+   * the host when omitted.
+   */
+  locale?: string | null;
+  /**
+   * The name under which to store the imported Saved identity.
+   */
+  name: string;
+  /**
+   * Optional ISO 3166-1 alpha-2 country code of the proxy binding.
+   */
+  proxyCountry?: string | null;
+  /**
+   * Optional proxy kind of the proxy binding.
+   */
+  proxyKind?: ProxyKind | null;
+  /**
+   * Optional proxy server (`scheme://host:port`, without credentials) bound
+   * to this imported identity (ADR 0056).
+   */
+  proxyServer?: string | null;
+  /**
+   * The Session source to import (`state_file`, `cookie_header`, etc.).
+   */
+  source: SessionSource;
+  /**
+   * Optional IANA time zone ID of the source browser; inferred from the
+   * host when omitted.
+   */
+  timezoneId?: string | null;
+}
+/**
+ * What `identity.list` answers: every non-expired Saved identity in this
+ * Product major's store, ordered by name.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "IdentityList".
+ */
+export interface IdentityList {
+  /**
+   * Every non-expired Saved identity, metadata only.
+   */
+  identities: SavedIdentityInfo[];
+}
+/**
+ * Non-secret metadata about one Saved identity in the per-major store.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SavedIdentityInfo".
+ */
+export interface SavedIdentityInfo {
+  /**
+   * The Access mode it was saved under (`standard`, `stealth`, or `identified`).
+   */
+  accessMode: string;
+  /**
+   * The browser family (`chromium`, `firefox`, or `webkit`).
+   */
+  browserFamily: string;
+  /**
+   * Number of stored cookies.
+   */
+  cookieCount: number;
+  /**
+   * When the Saved identity was first created.
+   */
+  createdAt: PointInTime;
+  /**
+   * The distinct cookie and storage domains held (never secret values).
+   */
+  domains: string[];
+  /**
+   * When the Saved identity will expire if unused; `null` when expiry is disabled.
+   */
+  expiresAt?: Date | null;
+  /**
+   * When the Saved identity was last saved or reused.
+   */
+  lastUsedAt: PointInTime;
+  /**
+   * Its BCP 47 locale (language), when recorded.
+   */
+  locale?: string | null;
+  /**
+   * Whether the Saved identity is bound to this machine's identity (ADR 0056).
+   */
+  machineBound: boolean;
+  /**
+   * The Saved identity's unique name within this Product major's store.
+   */
+  name: string;
+  /**
+   * Number of stored origins.
+   */
+  originCount: number;
+  /**
+   * Whether the Saved identity is bound to a proxy (ADR 0035).
+   */
+  proxyBound: boolean;
+  /**
+   * The Session source kind it was imported from, when created by import.
+   */
+  sourceKind?: string | null;
+  /**
+   * Its IANA time zone ID, when recorded.
+   */
+  timezoneId?: string | null;
+  /**
+   * When the Saved identity was last written or replaced.
+   */
+  updatedAt: PointInTime;
+  /**
+   * Whether the Saved identity was saved from a Session that was lent via
+   * `page.lend()` (ADR 0089).
+   */
+  wasLent: boolean;
+}
+/**
+ * What `identity.list` takes: nothing.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "IdentityListParams".
+ */
+export interface IdentityListParams {}
+/**
  * What `session.save_identity` answers once the Saved identity is written.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -5567,6 +5805,30 @@ export interface IdentitySaved {
    * The Saved identity's name.
    */
   name: string;
+}
+/**
+ * What `identity.export_storage_state` answers (person-only, ADR 0056).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "IdentityStorageStateExported".
+ */
+export interface IdentityStorageStateExported {
+  /**
+   * Number of cookies carried in the document.
+   */
+  cookieCount: number;
+  /**
+   * The Saved identity's name.
+   */
+  name: string;
+  /**
+   * Number of origins carried in the document.
+   */
+  originCount: number;
+  /**
+   * Clear-text Playwright 1.64 `storageState` JSON document.
+   */
+  storageState: string;
 }
 /**
  * An image of the page: an `<img src>`, in document order.
@@ -10264,6 +10526,42 @@ export interface SaveIdentityParams {
    * The Session whose login is saved.
    */
   sessionId: SessionId;
+}
+/**
+ * What `saved_identity_mismatch` details (ADR 0035).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SavedIdentityMismatchDetails".
+ */
+export interface SavedIdentityMismatchDetails {
+  /**
+   * What the opening Session asked for.
+   */
+  actual: string;
+  /**
+   * What the Saved identity was saved with.
+   */
+  expected: string;
+  /**
+   * Which binding mismatched (`access_mode` or `proxy`).
+   */
+  field: string;
+  /**
+   * The Saved identity's name.
+   */
+  name: string;
+}
+/**
+ * What `saved_identity_not_found` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SavedIdentityNotFoundDetails".
+ */
+export interface SavedIdentityNotFoundDetails {
+  /**
+   * The Saved identity name that was not found or had expired.
+   */
+  name: string;
 }
 /**
  * What `schedule_cap_exceeded` details: which Operator policy cap was

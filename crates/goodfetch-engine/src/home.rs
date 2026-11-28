@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::home::{
     ACCOUNTS_STORE, AUDIT_LOG, AUDIT_LOG_HEAD, ENGINE_KEY_LOCK, KNOWN_CERTIFICATES, LOGS,
-    PLUGIN_INSTANCES, PLUGINS, POLITENESS_FILE, RESPONSE_CACHE, RUN_INDEX, RUNS, SECRET_FILES,
-    USAGE_LEDGER, per_major,
+    PLUGIN_INSTANCES, PLUGINS, POLITENESS_FILE, RESPONSE_CACHE, RUN_INDEX, RUNS, SAVED_IDENTITIES,
+    SAVED_IDENTITIES_LOCK, SECRET_FILES, USAGE_LEDGER, per_major,
 };
 
 /// One user's Goodfetch data folder, and the copy of the Browser cache
@@ -80,6 +80,18 @@ impl Home {
     /// which only the Daemon of its major opens (ADR 0149).
     pub fn accounts_store(&self, version: &ProductVersion) -> PathBuf {
         self.per_major(version).join(ACCOUNTS_STORE)
+    }
+
+    /// The per-major Saved identity store's file, shared by both Products
+    /// (ADRs 0035 and 0098).
+    pub fn saved_identities(&self, version: &ProductVersion) -> PathBuf {
+        self.per_major(version).join(SAVED_IDENTITIES)
+    }
+
+    /// The install-wide writer lock file beside the per-major Saved identity
+    /// store (ADR 0035).
+    pub fn saved_identities_lock(&self, version: &ProductVersion) -> PathBuf {
+        self.per_major(version).join(SAVED_IDENTITIES_LOCK)
     }
 
     /// The per-user Usage ledger's file, outside the per-major folders, which

@@ -8545,6 +8545,246 @@
       ],
       "type": "object"
     },
+    "IdentityDeleteParams": {
+      "additionalProperties": false,
+      "description": "What `identity.delete` takes: the Saved identity's name.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Saved identity's name to remove from the store.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "IdentityDeleted": {
+      "description": "What `identity.delete` answers.",
+      "properties": {
+        "deleted": {
+          "arrived_in": "0.1",
+          "description": "Whether a Saved identity of that name existed and was deleted.",
+          "type": "boolean"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Saved identity's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "deleted"
+      ],
+      "type": "object"
+    },
+    "IdentityExportParams": {
+      "additionalProperties": false,
+      "description": "What `identity.export` takes: the Saved identity's name and exactly one\n`age` recipient (`public_key` or `passphrase`, a Secret reference, ADR 0015).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Saved identity's name to export.",
+          "type": "string"
+        },
+        "passphrase": {
+          "arrived_in": "0.1",
+          "description": "A Secret reference whose value is the passphrase to encrypt the session\nexport bundle with.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "public_key": {
+          "arrived_in": "0.1",
+          "description": "An `age` public key (`age1…`) to encrypt the session export bundle to.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "IdentityExportStorageStateParams": {
+      "additionalProperties": false,
+      "description": "What `identity.export_storage_state` takes (person-only, ADR 0056).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Saved identity's name to export as clear-text Playwright `storageState`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "IdentityExported": {
+      "description": "What `identity.export` answers: the ASCII-armored `age`-encrypted\n`session-export` bundle and its SHA-256 digest (ADR 0015).",
+      "properties": {
+        "bundle": {
+          "arrived_in": "0.1",
+          "description": "The ASCII-armored `age`-encrypted `session-export` bundle.",
+          "type": "string"
+        },
+        "cookie_count": {
+          "arrived_in": "0.1",
+          "description": "Number of cookies carried in the bundle.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "Lowercase hex SHA-256 digest of `bundle`, matching the Audit log entry.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Saved identity's name.",
+          "type": "string"
+        },
+        "origin_count": {
+          "arrived_in": "0.1",
+          "description": "Number of origins carried in the bundle.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "bundle",
+        "digest",
+        "cookie_count",
+        "origin_count"
+      ],
+      "type": "object"
+    },
+    "IdentityImportParams": {
+      "additionalProperties": false,
+      "description": "What `identity.import` takes: the Saved identity's name, its Session source,\nand optional identity/proxy overrides allowed at import time (ADR 0056).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "access_mode": {
+          "arrived_in": "0.1",
+          "description": "Optional Access mode at import (`standard` by default, or `stealth`;\n`identified` is refused per ADR 0056). Ignored for a `session_export`\nbundle, which keeps its saved Access mode.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "locale": {
+          "arrived_in": "0.1",
+          "description": "Optional BCP 47 locale (language) of the source browser; inferred from\nthe host when omitted.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The name under which to store the imported Saved identity.",
+          "type": "string"
+        },
+        "proxy_country": {
+          "arrived_in": "0.1",
+          "description": "Optional ISO 3166-1 alpha-2 country code of the proxy binding.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proxy_kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProxyKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Optional proxy kind of the proxy binding."
+        },
+        "proxy_server": {
+          "arrived_in": "0.1",
+          "description": "Optional proxy server (`scheme://host:port`, without credentials) bound\nto this imported identity (ADR 0056).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/SessionSource",
+          "arrived_in": "0.1",
+          "description": "The Session source to import (`state_file`, `cookie_header`, etc.)."
+        },
+        "timezone_id": {
+          "arrived_in": "0.1",
+          "description": "Optional IANA time zone ID of the source browser; inferred from the\nhost when omitted.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "source"
+      ],
+      "type": "object"
+    },
+    "IdentityList": {
+      "description": "What `identity.list` answers: every non-expired Saved identity in this\nProduct major's store, ordered by name.",
+      "properties": {
+        "identities": {
+          "arrived_in": "0.1",
+          "description": "Every non-expired Saved identity, metadata only.",
+          "items": {
+            "$ref": "#/$defs/SavedIdentityInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "identities"
+      ],
+      "type": "object"
+    },
+    "IdentityListParams": {
+      "additionalProperties": false,
+      "description": "What `identity.list` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        }
+      },
+      "type": "object"
+    },
     "IdentitySaved": {
       "description": "What `session.save_identity` answers once the Saved identity is written.",
       "properties": {
@@ -8556,6 +8796,42 @@
       },
       "required": [
         "name"
+      ],
+      "type": "object"
+    },
+    "IdentityStorageStateExported": {
+      "description": "What `identity.export_storage_state` answers (person-only, ADR 0056).",
+      "properties": {
+        "cookie_count": {
+          "arrived_in": "0.1",
+          "description": "Number of cookies carried in the document.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Saved identity's name.",
+          "type": "string"
+        },
+        "origin_count": {
+          "arrived_in": "0.1",
+          "description": "Number of origins carried in the document.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "storage_state": {
+          "arrived_in": "0.1",
+          "description": "Clear-text Playwright 1.64 `storageState` JSON document.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "storage_state",
+        "cookie_count",
+        "origin_count"
       ],
       "type": "object"
     },
@@ -14558,6 +14834,31 @@
       ],
       "type": "object"
     },
+    "ProxyKind": {
+      "description": "A proxy kind, the pool a Session's proxy is drawn from (ADR 0021), in\nthe order of the proxy tiers, cheapest first.",
+      "oneOf": [
+        {
+          "const": "datacenter",
+          "description": "A data centre's addresses.",
+          "type": "string"
+        },
+        {
+          "const": "isp",
+          "description": "Addresses an ISP assigns, hosted in a data centre.",
+          "type": "string"
+        },
+        {
+          "const": "residential",
+          "description": "Home connections' addresses.",
+          "type": "string"
+        },
+        {
+          "const": "mobile",
+          "description": "Mobile networks' addresses.",
+          "type": "string"
+        }
+      ]
+    },
     "ProxyKindBytes": {
       "description": "The bytes a Run sent and received through proxies of one proxy kind.",
       "properties": {
@@ -19252,6 +19553,178 @@
       },
       "required": [
         "session_id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "SavedIdentityInfo": {
+      "description": "Non-secret metadata about one Saved identity in the per-major store.",
+      "properties": {
+        "access_mode": {
+          "arrived_in": "0.1",
+          "description": "The Access mode it was saved under (`standard`, `stealth`, or `identified`).",
+          "type": "string"
+        },
+        "browser_family": {
+          "arrived_in": "0.1",
+          "description": "The browser family (`chromium`, `firefox`, or `webkit`).",
+          "type": "string"
+        },
+        "cookie_count": {
+          "arrived_in": "0.1",
+          "description": "Number of stored cookies.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "created_at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When the Saved identity was first created."
+        },
+        "domains": {
+          "arrived_in": "0.1",
+          "description": "The distinct cookie and storage domains held (never secret values).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "expires_at": {
+          "arrived_in": "0.1",
+          "description": "When the Saved identity will expire if unused; `null` when expiry is disabled.",
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_used_at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When the Saved identity was last saved or reused."
+        },
+        "locale": {
+          "arrived_in": "0.1",
+          "description": "Its BCP 47 locale (language), when recorded.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "machine_bound": {
+          "arrived_in": "0.1",
+          "description": "Whether the Saved identity is bound to this machine's identity (ADR 0056).",
+          "type": "boolean"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Saved identity's unique name within this Product major's store.",
+          "type": "string"
+        },
+        "origin_count": {
+          "arrived_in": "0.1",
+          "description": "Number of stored origins.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "proxy_bound": {
+          "arrived_in": "0.1",
+          "description": "Whether the Saved identity is bound to a proxy (ADR 0035).",
+          "type": "boolean"
+        },
+        "source_kind": {
+          "arrived_in": "0.1",
+          "description": "The Session source kind it was imported from, when created by import.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timezone_id": {
+          "arrived_in": "0.1",
+          "description": "Its IANA time zone ID, when recorded.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "updated_at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When the Saved identity was last written or replaced."
+        },
+        "was_lent": {
+          "arrived_in": "0.1",
+          "description": "Whether the Saved identity was saved from a Session that was lent via\n`page.lend()` (ADR 0089).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "access_mode",
+        "browser_family",
+        "domains",
+        "cookie_count",
+        "origin_count",
+        "was_lent",
+        "machine_bound",
+        "proxy_bound",
+        "created_at",
+        "updated_at",
+        "last_used_at"
+      ],
+      "type": "object"
+    },
+    "SavedIdentityMismatchDetails": {
+      "description": "What `saved_identity_mismatch` details (ADR 0035).",
+      "properties": {
+        "actual": {
+          "arrived_in": "0.1",
+          "description": "What the opening Session asked for.",
+          "type": "string"
+        },
+        "expected": {
+          "arrived_in": "0.1",
+          "description": "What the Saved identity was saved with.",
+          "type": "string"
+        },
+        "field": {
+          "arrived_in": "0.1",
+          "description": "Which binding mismatched (`access_mode` or `proxy`).",
+          "type": "string"
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What fixes the call.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Saved identity's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "field",
+        "expected",
+        "actual",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "SavedIdentityNotFoundDetails": {
+      "description": "What `saved_identity_not_found` details.",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Saved identity name that was not found or had expired.",
+          "type": "string"
+        }
+      },
+      "required": [
         "name"
       ],
       "type": "object"
@@ -25727,6 +26200,32 @@
       },
       {
         "arrived_in": "0.1",
+        "description": "The Saved identity cannot be reused under a different Access mode or an inconsistent proxy binding (ADR 0035); details name what it was saved with.",
+        "details": {
+          "$ref": "#/$defs/SavedIdentityMismatchDetails"
+        },
+        "exit_code": null,
+        "group": "refused",
+        "json_rpc_class": -32002,
+        "name": "saved_identity_mismatch",
+        "product": "collie",
+        "retryable": false
+      },
+      {
+        "arrived_in": "0.1",
+        "description": "No Saved identity of that name exists in this Product major's store, or it expired after going unused past `saved_identity.max_unused_age` (ADR 0035).",
+        "details": {
+          "$ref": "#/$defs/SavedIdentityNotFoundDetails"
+        },
+        "exit_code": null,
+        "group": "program",
+        "json_rpc_class": -32001,
+        "name": "saved_identity_not_found",
+        "product": "collie",
+        "retryable": false
+      },
+      {
+        "arrived_in": "0.1",
         "description": "A Schedule creation or edit exceeds an Operator policy cap (`schedule.max_count`, `schedule.min_interval` or `schedule.limits_max`). The details name the `cap` and its `policy`.",
         "details": {
           "$ref": "#/$defs/ScheduleCapExceededDetails"
@@ -28010,6 +28509,101 @@
         "reach": "sdk_only",
         "result": {
           "$ref": "#/$defs/ExportStreamed"
+        },
+        "stability": "experimental"
+      },
+      {
+        "arrived_in": "0.1",
+        "cancellable": false,
+        "class": "effect",
+        "deprecated": null,
+        "description": "Deletes the named Saved identity from this Product major's encrypted store, wiping its secret fields and recording the deletion in the Audit log (ADR 0035).",
+        "events": [],
+        "kind": "round_trip",
+        "name": "identity.delete",
+        "params": {
+          "$ref": "#/$defs/IdentityDeleteParams"
+        },
+        "product": "collie",
+        "reach": "all_surfaces",
+        "result": {
+          "$ref": "#/$defs/IdentityDeleted"
+        },
+        "stability": "experimental"
+      },
+      {
+        "arrived_in": "0.1",
+        "cancellable": false,
+        "class": "effect",
+        "deprecated": null,
+        "description": "Exports the named Saved identity as an `age`-encrypted `session-export` bundle to an `age` public key or a passphrase Secret reference, preserving its Access mode, Identity profile seed, proxy binding and machine binding, and recording the export in the Audit log (ADRs 0015, 0035 and 0056).",
+        "events": [],
+        "kind": "round_trip",
+        "name": "identity.export",
+        "params": {
+          "$ref": "#/$defs/IdentityExportParams"
+        },
+        "product": "collie",
+        "reach": "all_surfaces",
+        "result": {
+          "$ref": "#/$defs/IdentityExported"
+        },
+        "stability": "experimental"
+      },
+      {
+        "arrived_in": "0.1",
+        "cancellable": false,
+        "class": "effect",
+        "deprecated": null,
+        "description": "Exports the named Saved identity as clear-text Playwright 1.64 `storageState` JSON; person-only at an interactive terminal, never offered on SDK or agent surfaces, and recorded in the Audit log (ADR 0056).",
+        "events": [],
+        "kind": "round_trip",
+        "name": "identity.export_storage_state",
+        "params": {
+          "$ref": "#/$defs/IdentityExportStorageStateParams"
+        },
+        "product": "collie",
+        "reach": "person_only",
+        "result": {
+          "$ref": "#/$defs/IdentityStorageStateExported"
+        },
+        "stability": "experimental"
+      },
+      {
+        "arrived_in": "0.1",
+        "cancellable": false,
+        "class": "effect",
+        "deprecated": null,
+        "description": "Imports cookies and storage from a Session source (`state_file`, `cookie_header`, etc.) into the encrypted per-major Saved identity store under `name`, replacing any existing identity of that name under the install-wide lock and recording the import in the Audit log (ADRs 0035 and 0056).",
+        "events": [],
+        "kind": "round_trip",
+        "name": "identity.import",
+        "params": {
+          "$ref": "#/$defs/IdentityImportParams"
+        },
+        "product": "collie",
+        "reach": "all_surfaces",
+        "result": {
+          "$ref": "#/$defs/SavedIdentityInfo"
+        },
+        "stability": "experimental"
+      },
+      {
+        "arrived_in": "0.1",
+        "cancellable": true,
+        "class": "read",
+        "deprecated": null,
+        "description": "Lists every non-expired Saved identity in this Product major's store, with its metadata and domains, never secret values (ADR 0035).",
+        "events": [],
+        "kind": "query",
+        "name": "identity.list",
+        "params": {
+          "$ref": "#/$defs/IdentityListParams"
+        },
+        "product": "collie",
+        "reach": "all_surfaces",
+        "result": {
+          "$ref": "#/$defs/IdentityList"
         },
         "stability": "experimental"
       },
@@ -36589,6 +37183,29 @@
       },
       {
         "arrived_in": "0.1",
+        "authority": "machine",
+        "clearable": true,
+        "default": 2592000000,
+        "deprecated": null,
+        "description": "How long an unused Saved identity stays in the install's store before it expires and is deleted, in milliseconds: 30 days (2592000000 ms) by default; `null` disables expiry. Each expiry deletion is recorded in the Audit log. Set in user configuration or an Operator policy only.",
+        "fixed_for_run": false,
+        "name": "saved_identity.max_unused_age",
+        "product": "collie",
+        "products": [
+          "collie",
+          "foxhound"
+        ],
+        "scopes": [],
+        "value": {
+          "description": "A duration in milliseconds.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "weakening": null,
+        "weakens": false
+      },
+      {
+        "arrived_in": "0.1",
         "authority": "every",
         "clearable": false,
         "default": 3,
@@ -41297,6 +41914,34 @@
         "name": "sample_echoes",
         "product": "collie",
         "type": "usage_kind"
+      },
+      {
+        "arrived_in": "0.1",
+        "description": "A Saved identity was deleted from the store, either explicitly or on expiry after going unused (ADR 0035).",
+        "name": "saved_identity_deleted",
+        "product": "collie",
+        "type": "audit_kind"
+      },
+      {
+        "arrived_in": "0.1",
+        "description": "A Saved identity was exported as an encrypted session bundle or, by a person at a terminal, as clear-text `storageState` (ADRs 0015 and 0056).",
+        "name": "saved_identity_exported",
+        "product": "collie",
+        "type": "audit_kind"
+      },
+      {
+        "arrived_in": "0.1",
+        "description": "A Saved identity was opened and reused by a Session (ADR 0035).",
+        "name": "saved_identity_reused",
+        "product": "collie",
+        "type": "audit_kind"
+      },
+      {
+        "arrived_in": "0.1",
+        "description": "A Session's login or imported state was encrypted and stored as a named Saved identity (ADR 0035).",
+        "name": "saved_identity_saved",
+        "product": "collie",
+        "type": "audit_kind"
       },
       {
         "arrived_in": "0.1",

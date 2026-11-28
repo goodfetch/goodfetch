@@ -130,6 +130,7 @@ mod request_kinds;
 mod request_secrets;
 mod run;
 mod rust_client;
+mod saved_identities;
 mod schedules;
 mod sdk;
 mod secrets;

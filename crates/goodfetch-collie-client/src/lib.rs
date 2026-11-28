@@ -38,6 +38,7 @@ mod generated;
 mod handler;
 mod handlerless;
 mod host;
+mod identities;
 mod key_value_store;
 mod limits;
 mod line;
@@ -76,6 +77,7 @@ pub use generated::handles::{Locator, Page, Run, Schedule, Session, WebSocket, W
 pub use goodfetch_protocol::error_code::{ErrorCode, ErrorDetails};
 pub use handler::{HandlerCall, HandlerRequests};
 pub use handlerless::HandlerlessStart;
+pub use identities::Identities;
 pub use key_value_store::{KeyValueStore, StoredBytes};
 pub use limits::{Limits, Money, MoneyError, UsageKind};
 pub use listener_queue::ListenerQueue;

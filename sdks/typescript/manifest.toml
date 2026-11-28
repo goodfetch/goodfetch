@@ -3375,6 +3375,113 @@ only = "Python and Rust take `timeout` as a keyword argument and through `Call`,
 words = ["schedule", "write", "options"]
 form = "type"
 
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Connection"
+member = "identities"
+entry = "none"
+reason = "The Saved identities of the engine's major, whose methods serve the `identity` operations on the store, reached without a round trip (ADRs 0035 and 0056)."
+words = ["identities"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie"
+receiver = "Collie"
+member = "identities"
+entry = "none"
+reason = "The Saved identities of the engine's major, reached without a round trip (ADRs 0035 and 0056); `Connection.identities`'s member under the same name."
+words = ["identities"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Foxhound"
+member = "identities"
+entry = "none"
+reason = "The Saved identities of the engine's major, reached without a round trip (ADRs 0035 and 0056); `Connection.identities`'s member under the same name."
+words = ["identities"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
+member = "identities"
+entry = "none"
+reason = "What a Product's Connection hands its program as `identities` (ADRs 0035 and 0056)."
+words = ["identities"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Identities"
+entry = "none"
+reason = "A Connection's Saved identities: `connection.identities`, whose methods serve the `identity` operations on this Product major's encrypted store (ADRs 0035 and 0056)."
+words = ["identities"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Identities"
+member = "constructor"
+entry = "none"
+reason = "A Connection opens its Identities; a program never constructs one."
+only = "Python's and Rust's `Identities` have no constructor a program calls."
+words = ["identities"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Identities"
+member = "list"
+entry = "identity.list"
+words = ["list"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Identities"
+member = "import"
+entry = "identity.import"
+words = ["import"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Identities"
+member = "delete"
+entry = "identity.delete"
+words = ["delete"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Identities"
+member = "export"
+entry = "identity.export"
+words = ["export"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "IdentityCallOptions"
+entry = "none"
+reason = "The options of an `Identities` read: its own `timeout` and the `signal` that cancels it (ADR 0080)."
+only = "Python and Rust take `timeout` as a keyword argument and through `Call`, with no options type."
+words = ["identity", "call", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "IdentityWriteOptions"
+entry = "none"
+reason = "The options of an `Identities` write: its own `timeout`, and no `signal` (ADRs 0038 and 0080)."
+only = "Python and Rust take `timeout` as a keyword argument and through `Call`, with no options type."
+words = ["identity", "write", "options"]
+form = "type"
+
 [[unreached]]
 entries = [
   "audit.export",

@@ -60,6 +60,27 @@
         "commands": [
           {
             "commands": [],
+            "name": "list"
+          },
+          {
+            "commands": [],
+            "name": "import"
+          },
+          {
+            "commands": [],
+            "name": "delete"
+          },
+          {
+            "commands": [],
+            "name": "export"
+          }
+        ],
+        "name": "identity"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
             "name": "explain"
           }
         ],
@@ -571,6 +592,27 @@
           }
         ],
         "name": "certs"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "list"
+          },
+          {
+            "commands": [],
+            "name": "import"
+          },
+          {
+            "commands": [],
+            "name": "delete"
+          },
+          {
+            "commands": [],
+            "name": "export"
+          }
+        ],
+        "name": "identity"
       },
       {
         "commands": [

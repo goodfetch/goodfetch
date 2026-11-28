@@ -263,6 +263,16 @@ count = 1
 how = "masked: the Run trace's one writer: the request log's lines and the Provenance log's pass through the Run's `Mask`, `Scope::KeptOutput`; the CDP command log's hold each command's method alone"
 
 [[writer]]
+path = "crates/goodfetch-engine/src/saved_identities.rs"
+count = 2
+how = "holds no value: every secret field (cookies and storage) is sealed with XChaCha20-Poly1305 under a wrapped per-identity data key before reaching SQLite, and the lock file is empty"
+
+[[writer]]
+path = "crates/goodfetch-collie/src/executable/saved_identities.rs"
+count = 1
+how = "holds no value: writes the user's requested `--out` file (mode 0600) for an explicit `identity export` bundle or person-confirmed clear-text storageState"
+
+[[writer]]
 path = "crates/goodfetch-engine/src/rpc/connection.rs"
 count = 1
 how = "masked: every line a Connection sends is masked as `Scope::Returned`"

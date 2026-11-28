@@ -3,6 +3,7 @@
 // for it accepts either.
 import type { EngineInfo, HandlerlessStartOptions, StartOptions } from "./client-connection.ts";
 import type { CatalogTarget, SettingsExplanation } from "./generated/index.ts";
+import type { Identities } from "./identities.ts";
 import type { JSONValue } from "./json.ts";
 import type { RawCallOptions, RawParams } from "./raw-call.ts";
 import type { Run } from "./run.ts";
@@ -95,6 +96,12 @@ export interface Connection extends AsyncDisposable {
    * (spec 589). Reached without a round trip.
    */
   readonly schedules: Schedules;
+  /**
+   * The Saved identities of the engine's major: list, import, delete and
+   * export as an encrypted bundle (ADRs 0035 and 0056). Reached without a
+   * round trip.
+   */
+  readonly identities: Identities;
   /**
    * Closes the Connection; idempotent. Closes every Run it opened first,
    * stopping one still running, cancels the calls in flight, and stops an

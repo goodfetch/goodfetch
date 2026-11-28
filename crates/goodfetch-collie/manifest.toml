@@ -104,6 +104,15 @@ form = "read"
 [[member]]
 crate = "goodfetch-collie"
 receiver = "Collie"
+member = "identities"
+entry = "none"
+reason = "The Saved identities of the engine's major, reached without a round trip (ADRs 0035 and 0056); `Connection::identities`'s member under the same name."
+words = ["identities"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "Collie"
 member = "explain_settings"
 entry = "config.explain"
 words = ["explain", "settings"]
@@ -353,6 +362,15 @@ member = "schedules"
 entry = "none"
 reason = "The Schedules of the engine's major, reached without a round trip (spec 589); `blocking::Connection::schedules`'s member under the same name."
 words = ["schedules"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "blocking::Collie"
+member = "identities"
+entry = "none"
+reason = "The Saved identities of the engine's major, reached without a round trip (ADRs 0035 and 0056); `blocking::Connection::identities`'s member under the same name."
+words = ["identities"]
 form = "read"
 
 [[member]]

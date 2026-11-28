@@ -112,6 +112,7 @@ fn session(cookie: &str) -> SessionExport {
             }],
             session_storage: vec![],
         }],
+        identity: None,
     }
 }
 

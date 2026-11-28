@@ -169,6 +169,8 @@ from goodfetch_collie_client.generated.errors import (
     RunStateUnavailableError,
     RunTargetUnbuiltError,
     SampleRefusedError,
+    SavedIdentityMismatchError,
+    SavedIdentityNotFoundError,
     ScheduleCapExceededError,
     ScheduleExistsError,
     ScheduleNotFoundError,
@@ -198,6 +200,10 @@ from goodfetch_collie_client.generated.errors import (
 )
 from goodfetch_collie_client.generated.models import (
     ExplainedSetting,
+    IdentityDeleted,
+    IdentityExported,
+    IdentityExportParams,
+    IdentityImportParams,
     NotificationPayload,
     Product,
     Recording,
@@ -206,6 +212,7 @@ from goodfetch_collie_client.generated.models import (
     RunProgress,
     RunReport,
     RunStarted,
+    SavedIdentityInfo,
     ScheduleDefinition,
     ScheduleInfo,
     SchedulePreview,
@@ -229,6 +236,7 @@ from goodfetch_collie_client.handlerless import (
     ExtractTarget,
     PlanReplayTarget,
 )
+from goodfetch_collie_client.identities import AsyncIdentities, Identities
 from goodfetch_collie_client.json_values import JSONObject, JSONValue
 from goodfetch_collie_client.key_value_store import (
     AsyncKeyValueStore,
@@ -261,6 +269,7 @@ __all__ = [
     "ArtifactUnavailableOfflineError",
     "AsyncCollie",
     "AsyncConnection",
+    "AsyncIdentities",
     "AsyncKeyValueStore",
     "AsyncResponse",
     "AsyncRun",
@@ -333,6 +342,11 @@ __all__ = [
     "HeaderValueInvalidError",
     "HookFailedError",
     "HumanPauseDeclinedError",
+    "Identities",
+    "IdentityDeleted",
+    "IdentityExportParams",
+    "IdentityExported",
+    "IdentityImportParams",
     "InternalError",
     "JSONObject",
     "JSONSchema",
@@ -425,6 +439,9 @@ __all__ = [
     "RunTargetUnbuiltError",
     "RunView",
     "SampleRefusedError",
+    "SavedIdentityInfo",
+    "SavedIdentityMismatchError",
+    "SavedIdentityNotFoundError",
     "Schedule",
     "ScheduleCapExceededError",
     "ScheduleDefinition",

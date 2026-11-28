@@ -298,6 +298,19 @@ struct Session {
     is_borrowed: bool,
     /// The browser family this Session runs on (Chromium, Firefox, WebKit).
     browser_family: BrowserFamily,
+    /// The Access mode this Session opened under (ADR 0035).
+    access_mode: crate::access_mode::AccessMode,
+    /// The Identity profile seed this Session uses (ADR 0035).
+    identity_seed: IdentitySeed,
+    /// Effective BCP 47 locale for this Session (recorded on `save_identity`).
+    effective_locale: Option<String>,
+    /// Effective IANA timezone ID for this Session (recorded on `save_identity`).
+    effective_timezone: Option<String>,
+    /// Machine binding inherited from a machine-bound import or Saved identity
+    /// (ADR 0056).
+    machine_binding: Option<String>,
+    /// Whether this Session was ever lent via `page.lend()` (ADR 0089).
+    was_lent: std::sync::OnceLock<()>,
     /// The cookies and `localStorage` last persisted to `page_sessions.state`,
     /// serialized per Session so concurrent navigations cannot overwrite newer
     /// state with older state.
@@ -661,11 +674,23 @@ impl Sessions {
         }
         let settings = extractor_installed(settings, &run, context).await?;
         let browser_family = BrowserFamily::of(named.as_ref().map(|n| &n.source));
-        let (identity, emulation) =
+        let (identity, mut emulation) =
             session_plans(&settings, &run.identity, named.as_ref(), context)?;
-        let seed = IdentitySeed(run.entropy.fork().await.next_u64());
-        let fingerprint = fingerprint_of(&run, &settings, &identity, seed, context).await?;
         let (opened, gpc) = opening_source_and_gpc(&settings, &run, named, context).await?;
+        if let Some(saved) = opened.saved_identity() {
+            crate::saved_identity::check_access_mode(saved, identity.mode)?;
+            if emulation.locale.is_none() {
+                emulation.locale = saved.locale.clone();
+            }
+            if emulation.timezone_id.is_none() {
+                emulation.timezone_id = saved.timezone_id.clone();
+            }
+        }
+        let seed = match opened.saved_identity() {
+            Some(saved) => saved.identity_seed,
+            None => IdentitySeed(run.entropy.fork().await.next_u64()),
+        };
+        let fingerprint = fingerprint_of(&run, &settings, &identity, seed, context).await?;
         let borrowed = opened.borrowed();
         let carried = opened.carried();
         no_local_address_on(&run, source_of(borrowed))?;
@@ -676,6 +701,18 @@ impl Sessions {
         let owner = run.identity.owner().child();
         let proxy = open_proxy((&run, &owner), &settings, context, position).await?;
         no_proxy_under(borrowed, proxy.as_deref())?;
+        if let Some(saved) = opened.saved_identity() {
+            let actual_proxy = proxy.as_deref().map(SessionProxy::binding);
+            crate::saved_identity::check_proxy_binding(saved, actual_proxy.as_ref())?;
+            crate::saved_identity::check_machine_binding(
+                saved.machine_binding.as_deref(),
+                proxy.is_some(),
+                run.identity.id(),
+                context,
+            )
+            .await?;
+            crate::saved_identity::audit_reused(saved, run.identity.id(), context).await?;
+        }
         let relay = open_relay(
             (&run, &owner),
             proxy.as_ref(),
@@ -687,6 +724,14 @@ impl Sessions {
         .await?;
         let http_credentials = http_credentials_of(&run, &settings);
         let attributes = if borrowed.is_some() { BORROWED } else { FRESH };
+        let effective_locale = emulation.locale.clone();
+        let effective_timezone = emulation
+            .timezone_id
+            .clone()
+            .or_else(|| Some(context.engine().host_zone().to_owned()));
+        let machine_binding = opened
+            .saved_identity()
+            .and_then(|saved| saved.machine_binding.clone());
         // It goes into the table under the lock, while its Run is there:
         // once the Run stops, its clean-up has taken the Run out, and a
         // Session put in after it would hold the Run forever (#1763).
@@ -743,6 +788,12 @@ impl Sessions {
                 is_profile_directory: opened.profile().is_some(),
                 is_borrowed: borrowed.is_some(),
                 browser_family,
+                access_mode: identity.mode,
+                identity_seed: seed,
+                effective_locale,
+                effective_timezone,
+                machine_binding,
+                was_lent: std::sync::OnceLock::new(),
                 saved_state,
             });
             self.index.opened(&session, Arc::clone(&open));
@@ -853,9 +904,22 @@ impl Sessions {
     ) -> Result<u32, CallError> {
         let borrowed = source.borrowed();
         let carried = source.carried();
+        let mut emulation = emulation.clone();
+        if let Some(saved) = source.saved_identity() {
+            crate::saved_identity::check_access_mode(saved, identity.mode)?;
+            if emulation.locale.is_none() {
+                emulation.locale = saved.locale.clone();
+            }
+            if emulation.timezone_id.is_none() {
+                emulation.timezone_id = saved.timezone_id.clone();
+            }
+        }
         no_local_address_on(run, source_of(borrowed))?;
         let signing = open_signing(run, identity.signing.as_ref(), context).await?;
-        let seed = IdentitySeed(run.entropy.fork().await.next_u64());
+        let seed = match source.saved_identity() {
+            Some(saved) => saved.identity_seed,
+            None => IdentitySeed(run.entropy.fork().await.next_u64()),
+        };
         let fingerprint = fingerprint_of(run, &Values::default(), identity, seed, context).await?;
         let gpc = GpcPlan::of(
             &Values::default(),
@@ -868,6 +932,18 @@ impl Sessions {
         let owner = run.identity.owner().child();
         let proxy = open_proxy((run, &owner), &Values::default(), context, position).await?;
         no_proxy_under(borrowed, proxy.as_deref())?;
+        if let Some(saved) = source.saved_identity() {
+            let actual_proxy = proxy.as_deref().map(SessionProxy::binding);
+            crate::saved_identity::check_proxy_binding(saved, actual_proxy.as_ref())?;
+            crate::saved_identity::check_machine_binding(
+                saved.machine_binding.as_deref(),
+                proxy.is_some(),
+                run.identity.id(),
+                context,
+            )
+            .await?;
+            crate::saved_identity::audit_reused(saved, run.identity.id(), context).await?;
+        }
         // A pool Session's relay binds the position its pool gave it, which
         // its HTTP requests leave from too (ADR 0044's #682 note).
         let address_ordinal = match opener {
@@ -886,13 +962,21 @@ impl Sessions {
         )
         .await?;
         let http_credentials = http_credentials_of(run, &Values::default());
+        let effective_locale = emulation.locale.clone();
+        let effective_timezone = emulation
+            .timezone_id
+            .clone()
+            .or_else(|| Some(context.engine().host_zone().to_owned()));
+        let machine_binding = source
+            .saved_identity()
+            .and_then(|saved| saved.machine_binding.clone());
         let seat = open_seat(
             &pool,
             borrowed,
             carried,
             placement(run, fingerprint.as_ref(), gpc, source.profile()),
             egress(proxy.as_ref(), relay.as_ref(), http_credentials.as_ref()),
-            emulation.clone(),
+            emulation,
             TaskStarter::clone(&owner),
         );
         if let Opener::Default = opener {
@@ -924,6 +1008,12 @@ impl Sessions {
             identity.mode == crate::access_mode::AccessMode::Identified,
             Values::default(),
         );
+        let saved_state = carried.map_or_else(Arc::default, |carried| {
+            Arc::new(Mutex::new(SavedState {
+                storage: carried.storage_map(),
+                last: carried.clone(),
+            }))
+        });
         let held = Arc::new(Session {
             owner,
             pages: HeldPages::default(),
@@ -948,7 +1038,13 @@ impl Sessions {
             is_profile_directory: source.profile().is_some(),
             is_borrowed: borrowed.is_some(),
             browser_family: BrowserFamily::Chromium,
-            saved_state: Arc::default(),
+            access_mode: identity.mode,
+            identity_seed: seed,
+            effective_locale,
+            effective_timezone,
+            machine_binding,
+            was_lent: std::sync::OnceLock::new(),
+            saved_state,
         });
         {
             let mut state = self.state.lock().await;
@@ -1122,6 +1218,12 @@ impl Sessions {
                 is_profile_directory: false,
                 is_borrowed: true,
                 browser_family: BrowserFamily::Chromium,
+                access_mode: crate::access_mode::AccessMode::Standard,
+                identity_seed: IdentitySeed(0),
+                effective_locale: None,
+                effective_timezone: None,
+                machine_binding: None,
+                was_lent: std::sync::OnceLock::new(),
                 saved_state: Arc::default(),
             });
             runs.borrowed_contexts.insert(browser_context_id, position);
@@ -1181,14 +1283,18 @@ impl Sessions {
     }
 
     /// Saves a Session's login as a named Saved identity (`session.save_identity`,
-    /// ADR 0092): refuses a Profile directory used in place with
-    /// `session_not_savable` naming `state_file` (ticket #737).
-    pub(crate) fn save_identity(
+    /// ADRs 0035, 0089, 0092; tickets #736 and #737): refuses a Profile directory
+    /// used in place or a Borrowed browser with `session_not_savable`, otherwise
+    /// captures cookies and `localStorage`, encrypts them into the per-major
+    /// Saved identity store under the install-wide lock, and records the save in
+    /// the Audit log.
+    pub(crate) async fn save_identity(
         &self,
         session_id: &SessionId,
-        _name: &str,
-        _context: &CallContext,
+        name: &str,
+        context: &CallContext,
     ) -> Result<goodfetch_protocol::page::session::IdentitySaved, CallError> {
+        let name = crate::saved_identity::validate_name(name)?;
         let open = self
             .index
             .session(session_id)
@@ -1213,18 +1319,98 @@ impl Sessions {
                 },
             ));
         }
-        Err(CallError::new(
-            &CAPABILITY_UNAVAILABLE,
-            "Saved identities are not built yet; use `state_file` for a run-only import.",
-            &CapabilityUnavailableDetails {
-                key: "session.save_identity".to_owned(),
-                layer: SettingsLayer::Run,
-                kind: "saved_identity".to_owned(),
-                fix: "`state_file`".to_owned(),
-            },
-        ))
-    }
+        let carried = capture_session_carried(&open).await;
+        let (cookie_count, origin_count) = carried.counts();
+        let domains = carried.domains();
+        let payload_bytes = carried.to_bytes().map_err(|error| {
+            CallError::protocol(
+                ProtocolFailure::InternalError,
+                format!("could not encode Session state for Saved identity: {error}"),
+            )
+        })?;
+        let (key_ref, kek) = context
+            .runs()
+            .saved_identity_save_kek(Some(open.run.identity.id()))
+            .await
+            .map_err(|error| secret_error(&error))?;
+        let now = std::time::SystemTime::from(context.engine().clock().timestamp());
+        let max_unused_age = context.runs().saved_identity_max_unused_age().await;
+        let was_lent = open.was_lent.get().is_some();
+        let proxy_binding = open.proxy.as_deref().map(SessionProxy::binding);
+        let info = context
+            .engine()
+            .saved_identities()
+            .save(
+                goodfetch_engine::saved_identities::NewSavedIdentity {
+                    name: name.clone(),
+                    access_mode: open.access_mode.as_str().to_owned(),
+                    identity_seed: open.identity_seed.0,
+                    browser_family: crate::saved_identity::browser_family_str(open.browser_family)
+                        .to_owned(),
+                    user_agent: None,
+                    locale: open.effective_locale.clone(),
+                    timezone_id: open.effective_timezone.clone(),
+                    proxy_binding,
+                    machine_binding: open.machine_binding.clone(),
+                    preserve_existing_machine_binding: true,
+                    was_lent,
+                    source_kind: None,
+                    domains,
+                    cookie_count,
+                    origin_count,
+                    payload_plaintext: secrecy::zeroize::Zeroizing::new(payload_bytes),
+                },
+                key_ref.to_string(),
+                kek,
+                now,
+                max_unused_age,
+            )
+            .await
+            .map_err(|error| crate::saved_identity::store_error(&error))?;
 
+        crate::saved_identity::audit(
+            context,
+            Some(open.run.identity.id().clone()),
+            &goodfetch_protocol::page::identity::SAVED_IDENTITY_SAVED,
+            json!({
+                "name": name,
+                "access_mode": info.access_mode,
+                "cookie_count": info.cookie_count,
+                "origin_count": info.origin_count,
+                "was_lent": info.was_lent,
+                "machine_bound": info.machine_bound,
+                "proxy_bound": info.proxy_bound,
+            }),
+        )
+        .await?;
+
+        Ok(goodfetch_protocol::page::session::IdentitySaved { name })
+    }
+}
+
+async fn capture_session_carried(open: &Session) -> Carried {
+    let mut saved = open.saved_state.lock().await;
+    let pages = open.pages.all();
+    let mut captured = if pages.is_empty() {
+        match open.seat.capture_carried().await {
+            Ok(live) if !live.is_empty() => live,
+            _ => saved.last.clone(),
+        }
+    } else {
+        let mut latest = saved.last.clone();
+        for (_, page) in &pages {
+            if let Ok(state) = page.driver.capture_page_state(&mut saved.storage).await {
+                latest = state;
+            }
+        }
+        latest
+    };
+    captured.inherit_extra_storage_from(&saved.last);
+    saved.last = captured.clone();
+    captured
+}
+
+impl Sessions {
     pub(crate) async fn close(
         &self,
         session: &SessionId,
@@ -1644,7 +1830,9 @@ impl Sessions {
         {
             return Err(refusal);
         }
-        open.life.apply(SessionEvent::Lend, None).map(drop)
+        open.life.apply(SessionEvent::Lend, None).map(drop)?;
+        let _ = open.was_lent.set(());
+        Ok(())
     }
 
     /// Re-applies `session`'s state to `page` and transitions `session` back
@@ -2383,6 +2571,18 @@ async fn reopened_session(
         last: carried.clone(),
     }));
     let http_credentials = http_credentials_of(run, &settings);
+    let effective_locale = emulation.locale.clone();
+    let effective_timezone = emulation
+        .timezone_id
+        .clone()
+        .or_else(|| Some(context.engine().host_zone().to_owned()));
+    let access_mode = if identified {
+        crate::access_mode::AccessMode::Identified
+    } else if fingerprint.is_some() {
+        crate::access_mode::AccessMode::Stealth
+    } else {
+        crate::access_mode::AccessMode::Standard
+    };
     let (seat, attributes) = match &borrowed {
         Some(cdp_url) => (
             pool.borrowed_seat(
@@ -2439,6 +2639,12 @@ async fn reopened_session(
         is_profile_directory: false,
         is_borrowed: borrowed.is_some(),
         browser_family: BrowserFamily::Chromium,
+        access_mode,
+        identity_seed: seed,
+        effective_locale,
+        effective_timezone,
+        machine_binding: None,
+        was_lent: std::sync::OnceLock::new(),
         saved_state,
     })
 }
@@ -2638,19 +2844,23 @@ enum OpenedSource {
     Borrowed(CdpUrl),
     Carried(Carried),
     ProfileDirectory(crate::profile_directory::ProfileDirectory),
+    SavedIdentity(Box<crate::saved_identity::LoadedForSession>),
 }
 
 impl OpenedSource {
     fn borrowed(&self) -> Option<&CdpUrl> {
         match self {
             Self::Borrowed(cdp_url) => Some(cdp_url),
-            Self::Fresh | Self::Carried(_) | Self::ProfileDirectory(_) => None,
+            Self::Fresh | Self::Carried(_) | Self::ProfileDirectory(_) | Self::SavedIdentity(_) => {
+                None
+            }
         }
     }
 
     fn carried(&self) -> Option<&Carried> {
         match self {
             Self::Carried(carried) => Some(carried),
+            Self::SavedIdentity(saved) => Some(&saved.carried),
             Self::Fresh | Self::Borrowed(_) | Self::ProfileDirectory(_) => None,
         }
     }
@@ -2658,7 +2868,14 @@ impl OpenedSource {
     fn profile(&self) -> Option<&crate::profile_directory::ProfileDirectory> {
         match self {
             Self::ProfileDirectory(profile) => Some(profile),
-            Self::Fresh | Self::Borrowed(_) | Self::Carried(_) => None,
+            Self::Fresh | Self::Borrowed(_) | Self::Carried(_) | Self::SavedIdentity(_) => None,
+        }
+    }
+
+    fn saved_identity(&self) -> Option<&crate::saved_identity::LoadedForSession> {
+        match self {
+            Self::SavedIdentity(saved) => Some(saved),
+            Self::Fresh | Self::Borrowed(_) | Self::Carried(_) | Self::ProfileDirectory(_) => None,
         }
     }
 }
@@ -2677,6 +2894,11 @@ async fn opening_source(
         return Ok(OpenedSource::Fresh);
     };
     match source {
+        SessionSource::SavedIdentity { name } => {
+            let loaded =
+                crate::saved_identity::load_for_session(&name, run.identity.id(), context).await?;
+            Ok(OpenedSource::SavedIdentity(Box::new(loaded)))
+        }
         SessionSource::CdpUrl {
             url, headers: None, ..
         } => Ok(OpenedSource::Borrowed(CdpUrl {
@@ -2844,6 +3066,25 @@ async fn import_state_file(
                     format!("could not record session_imported in the Audit log: {source}"),
                 ),
             })?;
+            if let Some(identity) = &export.identity
+                && let Some(bound) = identity.machine_binding.as_deref()
+            {
+                let has_proxy = run.identity.settings().is_some_and(|s| {
+                    s.resolved()
+                        .get::<Option<&str>>(&goodfetch_protocol::page::proxy::PROXY_SERVER)
+                        .is_some()
+                        || s.resolved()
+                            .get::<Option<&str>>(&goodfetch_protocol::page::proxy::PROXY_PROVIDER)
+                            .is_some()
+                });
+                crate::saved_identity::check_machine_binding(
+                    Some(bound),
+                    has_proxy,
+                    run.identity.id(),
+                    context,
+                )
+                .await?;
+            }
             crate::state_import::from_session_export(export)
         }
     };

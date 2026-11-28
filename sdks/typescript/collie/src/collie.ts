@@ -9,6 +9,7 @@ import type {
   Connection,
   EngineInfo,
   HandlerlessStartOptions,
+  Identities,
   JSONValue,
   RawCallOptions,
   RawParams,
@@ -48,9 +49,17 @@ export class Collie implements Connection {
    */
   readonly schedules: Schedules;
 
+  /**
+   * The Saved identities of the engine's major: list, import, delete and
+   * export as an encrypted bundle (ADRs 0035 and 0056). Reached without a
+   * round trip.
+   */
+  readonly identities: Identities;
+
   private constructor(connection: ClientConnection) {
     this.#connection = connection;
     this.schedules = connection.schedules;
+    this.identities = connection.identities;
     holdInRealm(this);
   }
 

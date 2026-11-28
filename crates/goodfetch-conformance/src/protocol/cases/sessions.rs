@@ -245,7 +245,8 @@ fn closed(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Resu
 /// and the call's own `source: null` opens a fresh Session.
 fn source(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
     let run_id = "conformance-sessions-source";
-    let saved = json!({ "kind": "saved_identity", "name": "portal" });
+    let saved =
+        json!({ "kind": "running_browser", "browser": "chrome", "domains": ["example.com"] });
     start_run(
         connection,
         site,
@@ -274,7 +275,7 @@ fn source(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Resu
         ),
         [&inherited, &default].iter().all(|answer| {
             code_of(answer) == &json!(CAPABILITY_UNAVAILABLE.name)
-                && answer["error"]["data"]["kind"] == json!("saved_identity")
+                && answer["error"]["data"]["kind"] == json!("running_browser")
                 && answer["error"]["data"]["layer"] == json!("run")
         }),
     );

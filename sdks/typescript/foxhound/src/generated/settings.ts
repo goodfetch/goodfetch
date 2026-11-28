@@ -3383,6 +3383,9 @@ const SPELLING: Spelling = {
   sample: ["sample", {
     echoRepeats: "echo_repeats",
   }],
+  savedIdentity: ["saved_identity", {
+    maxUnusedAge: "max_unused_age",
+  }],
   schedule: ["schedule", {
     autoPause: ["auto_pause", {
       failures: "failures",

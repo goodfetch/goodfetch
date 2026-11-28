@@ -12,6 +12,7 @@ Commands:
   browser-host     Runs a Browser host beside its browser to serve a Session for an engine
   audit            Exports and verifies the user's Audit log
   certs            Lists, accepts and forgets the certificate pins of the user's known-certificates store
+  identity         Lists, imports, deletes and exports Saved identities in this Product major's encrypted store
   config           Shows the settings and where each value comes from
   doctor           Checks the installation: Goodfetch home, the installed executables, the Daemon, the version it runs and the browser build a Run launches, with a fix for each finding not in order, and writes a bug-report file to attach to an issue, which it sends nowhere. Exits 0 whatever it finds
   init             Writes a starter project this executable carries, which runs and tests itself, in TypeScript, Python or Rust, never replacing a file already there
@@ -203,6 +204,121 @@ Options:
       --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
+
+$ goodfetch-foxhound identity --help
+Lists, imports, deletes and exports Saved identities in this Product major's encrypted store
+
+Usage: goodfetch-foxhound identity [OPTIONS] <COMMAND>
+
+Commands:
+  list    Lists every non-expired Saved identity in this Product major's store, with its metadata and domains (never secret values)
+  import  Imports cookies and storage from a file, Cookie header, or JSON source into this Product major's encrypted Saved identity store
+  delete  Deletes the named Saved identity from this Product major's store, wiping its encrypted secret fields and recording the deletion in the Audit log
+  export  Exports the named Saved identity as an `age`-encrypted `session-export` bundle (default), or as clear-text Playwright `storageState` when `--format storage-state` is confirmed by a person at a terminal
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound identity list --help
+Lists every non-expired Saved identity in this Product major's store, with its metadata and domains (never secret values)
+
+Usage: goodfetch-foxhound identity list [OPTIONS]
+
+Options:
+      --json          Prints the list as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound identity import --help
+Imports cookies and storage from a file, Cookie header, or JSON source into this Product major's encrypted Saved identity store
+
+Usage: goodfetch-foxhound identity import [OPTIONS] <NAME>
+
+Arguments:
+  <NAME>  The name under which to keep the Saved identity
+
+Options:
+      --file <PATH>                    Path to a Playwright `storageState`, Netscape `cookies.txt`, CDP cookie JSON array, or `age`-encrypted `session-export` bundle
+      --format <FORMAT>                Overrides automatic format detection for `--file` [possible values: storage_state, cookies_txt, cdp_cookies, session_export]
+      --key <KEY>                      Secret reference of the `age` identity or passphrase opening a `session_export` bundle
+      --cookie-header <COOKIE_HEADER>  Raw `Cookie:` header value to import for `--domain`
+      --domain <DOMAINS>               Domain filter (or target domain for `--cookie-header`). Repeat to include several domains
+      --source <SOURCE>                Raw `session.source` JSON object, in place of `--file` / `--cookie-header`
+      --access-mode <ACCESS_MODE>      Access mode to bind (`standard` by default, or `stealth`) [possible values: standard, stealth]
+      --color <WHEN>                   When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --locale <LOCALE>                BCP 47 locale (language) of the imported identity
+      --timezone-id <TIMEZONE_ID>      IANA time zone ID of the imported identity
+      --proxy-server <PROXY_SERVER>    Proxy server (`scheme://host:port`, without credentials) to bind
+      --proxy-country <PROXY_COUNTRY>  ISO 3166-1 alpha-2 country code of the proxy binding
+      --proxy-kind <PROXY_KIND>        Proxy kind of the proxy binding (`datacenter`, `isp`, `residential`, `mobile`) [possible values: datacenter, isp, residential, mobile]
+      --json                           Prints the saved metadata as JSON
+      --attached                       Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                         Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help                           Print help
+
+$ goodfetch-foxhound identity delete --help
+Deletes the named Saved identity from this Product major's store, wiping its encrypted secret fields and recording the deletion in the Audit log
+
+Usage: goodfetch-foxhound identity delete [OPTIONS] <NAME>
+
+Arguments:
+  <NAME>  The Saved identity's name to delete
+
+Options:
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound identity export --help
+Exports the named Saved identity as an `age`-encrypted `session-export` bundle (default), or as clear-text Playwright `storageState` when `--format storage-state` is confirmed by a person at a terminal
+
+Usage: goodfetch-foxhound identity export [OPTIONS] <NAME>
+
+Arguments:
+  <NAME>
+          The Saved identity's name to export
+
+Options:
+      --format <FORMAT>
+          Export format: `bundle` (`age`-encrypted, default) or `storage-state` (clear text, person-only at a terminal)
+
+          Possible values:
+          - bundle:        Encrypted `age` `session-export` bundle (default, safe for scripts and CI)
+          - storage-state: Clear-text Playwright 1.64 `storageState` JSON (person-only at a terminal)
+          
+          [default: bundle]
+
+      --to-public-key <AGE_PUBLIC_KEY>
+          `age` public key (`age1…`) to encrypt a `bundle` export to
+
+      --passphrase <SECRET_REF>
+          Secret reference whose value is the passphrase for a `bundle` export
+
+      --out <PATH>
+          Destination file path (mode `0600` on Unix); prints to stdout when omitted
+
+      --json
+          Prints the result as JSON (refused for `--format storage-state`)
+
+      --attached
+          Runs the call on an Attached engine in this process, even when a Daemon runs
+
+      --color <WHEN>
+          When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty
+          
+          [default: auto]
+          [possible values: auto, always, never]
+
+      --daemon
+          Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+
+  -h, --help
+          Print help (see a summary with '-h')
 
 $ goodfetch-foxhound config --help
 Shows the settings and where each value comes from

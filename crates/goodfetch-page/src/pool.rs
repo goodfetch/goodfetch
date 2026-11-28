@@ -1352,6 +1352,13 @@ impl Seat {
         page.reapply_after_attach(&self.shared.emulation).await
     }
 
+    /// Captures the Session's current cookies and `localStorage` from its
+    /// browser context (ADR 0035; ticket #736).
+    pub(crate) async fn capture_carried(&self) -> Result<Carried, CallError> {
+        let (_number, driver, _opening) = self.shared.seated(None).await?;
+        driver.capture(&self.shared.origins).await
+    }
+
     /// Closes the Session's browser contexts, and with them every page in
     /// them; its browsers stay, for the Run's other Sessions.
     pub(crate) async fn close(&self) {

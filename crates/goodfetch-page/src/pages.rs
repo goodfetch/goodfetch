@@ -139,6 +139,7 @@ mod blocking_off;
 mod borrow;
 mod cdp_session;
 mod clean_up;
+mod identity;
 mod input;
 mod lend;
 mod pause;
@@ -252,6 +253,7 @@ pub fn contribution_with(
     );
     let contribution = with_page_read_handlers(contribution, &pages);
     let contribution = with_session_handlers(contribution, &pages.sessions, &remote);
+    let contribution = with_save_identity_handler(contribution, &pages.sessions);
     let contribution = with_locator_handlers(contribution, &pages);
     let contribution = input::with_input_handlers(contribution, &pages);
     let contribution = with_event_handlers(contribution, &pages);
@@ -264,6 +266,7 @@ pub fn contribution_with(
     let contribution = cdp_session::with_cdp_session_handlers(contribution, &pages);
     let contribution = lend::with_lend_handlers(contribution, &pages);
     let contribution = borrow::with_borrow_handlers(contribution, &pages);
+    let contribution = identity::with_identity_handlers(contribution);
     let contribution = scroll_collect::with_scroll_collect_handler(contribution, &pages);
     let contribution = with_request_handler(contribution, &pages);
     pages.product.opened(Arc::new(Opener {
@@ -578,12 +581,7 @@ fn with_session_handlers(
 ) -> Contribution {
     let (opening, paging, closing) = (sessions.clone(), sessions.clone(), sessions.clone());
     let opening_remote = Arc::clone(remote);
-    let (listing, listening, closing_page, saving) = (
-        sessions.clone(),
-        sessions.clone(),
-        sessions.clone(),
-        sessions.clone(),
-    );
+    let (listing, listening, closing_page) = (sessions.clone(), sessions.clone(), sessions.clone());
     contribution
         .with_handler(Handler::new(
             &SESSION_PAGES,
@@ -668,14 +666,22 @@ fn with_session_handlers(
                 }
             },
         ))
-        .with_handler(Handler::new(
-            &goodfetch_protocol::page::session::SESSION_SAVE_IDENTITY,
-            move |params: goodfetch_protocol::page::session::SaveIdentityParams,
-                  context: CallContext| {
-                let sessions = saving.clone();
-                async move { sessions.save_identity(&params.session_id, &params.name, &context) }
-            },
-        ))
+}
+
+fn with_save_identity_handler(contribution: Contribution, sessions: &Sessions) -> Contribution {
+    let saving = sessions.clone();
+    contribution.with_handler(Handler::new(
+        &goodfetch_protocol::page::session::SESSION_SAVE_IDENTITY,
+        move |params: goodfetch_protocol::page::session::SaveIdentityParams,
+              context: CallContext| {
+            let sessions = saving.clone();
+            async move {
+                sessions
+                    .save_identity(&params.session_id, &params.name, &context)
+                    .await
+            }
+        },
+    ))
 }
 
 /// Adds the handlers of `page.route` and `session.route`, each arming its

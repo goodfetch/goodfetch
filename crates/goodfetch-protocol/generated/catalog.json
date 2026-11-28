@@ -1786,6 +1786,32 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Saved identity cannot be reused under a different Access mode or an inconsistent proxy binding (ADR 0035); details name what it was saved with.",
+      "details": {
+        "$ref": "#/$defs/SavedIdentityMismatchDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "saved_identity_mismatch",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "No Saved identity of that name exists in this Product major's store, or it expired after going unused past `saved_identity.max_unused_age` (ADR 0035).",
+      "details": {
+        "$ref": "#/$defs/SavedIdentityNotFoundDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "saved_identity_not_found",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A Schedule creation or edit exceeds an Operator policy cap (`schedule.max_count`, `schedule.min_interval` or `schedule.limits_max`). The details name the `cap` and its `policy`.",
       "details": {
         "$ref": "#/$defs/ScheduleCapExceededDetails"
@@ -4069,6 +4095,101 @@
       "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/ExportStreamed"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Deletes the named Saved identity from this Product major's encrypted store, wiping its secret fields and recording the deletion in the Audit log (ADR 0035).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "identity.delete",
+      "params": {
+        "$ref": "#/$defs/IdentityDeleteParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/IdentityDeleted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Exports the named Saved identity as an `age`-encrypted `session-export` bundle to an `age` public key or a passphrase Secret reference, preserving its Access mode, Identity profile seed, proxy binding and machine binding, and recording the export in the Audit log (ADRs 0015, 0035 and 0056).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "identity.export",
+      "params": {
+        "$ref": "#/$defs/IdentityExportParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/IdentityExported"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Exports the named Saved identity as clear-text Playwright 1.64 `storageState` JSON; person-only at an interactive terminal, never offered on SDK or agent surfaces, and recorded in the Audit log (ADR 0056).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "identity.export_storage_state",
+      "params": {
+        "$ref": "#/$defs/IdentityExportStorageStateParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/IdentityStorageStateExported"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Imports cookies and storage from a Session source (`state_file`, `cookie_header`, etc.) into the encrypted per-major Saved identity store under `name`, replacing any existing identity of that name under the install-wide lock and recording the import in the Audit log (ADRs 0035 and 0056).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "identity.import",
+      "params": {
+        "$ref": "#/$defs/IdentityImportParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SavedIdentityInfo"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists every non-expired Saved identity in this Product major's store, with its metadata and domains, never secret values (ADR 0035).",
+      "events": [],
+      "kind": "query",
+      "name": "identity.list",
+      "params": {
+        "$ref": "#/$defs/IdentityListParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/IdentityList"
       },
       "stability": "experimental"
     },
@@ -12648,6 +12769,29 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": 2592000000,
+      "deprecated": null,
+      "description": "How long an unused Saved identity stays in the install's store before it expires and is deleted, in milliseconds: 30 days (2592000000 ms) by default; `null` disables expiry. Each expiry deletion is recorded in the Audit log. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "saved_identity.max_unused_age",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
       "default": 3,
@@ -17356,6 +17500,34 @@
       "name": "sample_echoes",
       "product": "collie",
       "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Saved identity was deleted from the store, either explicitly or on expiry after going unused (ADR 0035).",
+      "name": "saved_identity_deleted",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Saved identity was exported as an encrypted session bundle or, by a person at a terminal, as clear-text `storageState` (ADRs 0015 and 0056).",
+      "name": "saved_identity_exported",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Saved identity was opened and reused by a Session (ADR 0035).",
+      "name": "saved_identity_reused",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session's login or imported state was encrypted and stored as a named Saved identity (ADR 0035).",
+      "name": "saved_identity_saved",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

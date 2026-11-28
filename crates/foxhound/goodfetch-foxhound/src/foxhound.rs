@@ -14,8 +14,8 @@ use std::time::Duration;
 use goodfetch_collie::EngineInfo;
 use goodfetch_collie::linked::{Composed, ProductConnection};
 use goodfetch_collie_client::{
-    ClientConnection, Connection, Error, HandlerlessStart, Query, RawCall, RunView, Schedules,
-    Start, UsageKind,
+    ClientConnection, Connection, Error, HandlerlessStart, Identities, Query, RawCall, RunView,
+    Schedules, Start, UsageKind,
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::run::{CatalogTarget, RunId};
@@ -410,6 +410,13 @@ impl Foxhound {
         self.linked.connection().schedules()
     }
 
+    /// The connection's Saved identities, reached without I/O (ADRs 0035, 0099):
+    /// each call acts on this Product major's encrypted Saved identity store.
+    #[must_use]
+    pub fn identities(&self) -> Identities {
+        self.linked.connection().identities()
+    }
+
     /// Shows each setting's effective value, the layer that set it and the
     /// layer that locked it, from the built-in defaults, the Operator
     /// policy, user configuration, the project configuration given and the
@@ -472,6 +479,10 @@ impl Connection for Foxhound {
 
     fn schedules(&self) -> Schedules {
         Foxhound::schedules(self)
+    }
+
+    fn identities(&self) -> Identities {
+        Foxhound::identities(self)
     }
 
     fn call(&self, operation: &str) -> RawCall {

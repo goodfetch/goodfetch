@@ -68,6 +68,12 @@
         product: Product::Collie,
     },
     Namespace {
+        name: "identity",
+        spelled: "identity",
+        about: "Calls the catalog's `identity` operations",
+        product: Product::Collie,
+    },
+    Namespace {
         name: "signing_key",
         spelled: "signing-key",
         about: "Calls the catalog's `signing_key` operations",

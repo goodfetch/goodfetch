@@ -14,6 +14,78 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::ProtocolVersion;
+use crate::page::proxy::ProxyKind;
+
+/// The proxy binding a Saved identity or session export bundle carries
+/// (ADR 0035): the proxy server (scheme, host, port — never credentials),
+/// provider, country, kind, and sticky session name when bound through a
+/// proxy.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SavedProxyBinding {
+    /// The proxy server URL without credentials (`scheme://host:port`), when
+    /// configured via `proxy.server`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub server: Option<String>,
+    /// The Proxy provider name (`proxy.provider`), when provided by a provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub provider: Option<String>,
+    /// The ISO 3166-1 alpha-2 country code (`proxy.country`), when bound.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub country: Option<String>,
+    /// The proxy kind (`proxy.kind`), when bound.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub kind: Option<ProxyKind>,
+    /// The sticky session identifier, when the provider supports sticky exits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub sticky_session: Option<String>,
+}
+
+/// The identity metadata a session export bundle carries beside its cookies
+/// and storage so an import keeps its Access mode, Identity profile seed,
+/// proxy binding, and machine binding unchanged (ADRs 0035 and 0056).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ExportedIdentity {
+    /// The Access mode the Session ran under (`standard`, `stealth`, or `identified`).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub access_mode: String,
+    /// The Identity profile seed that regenerates the Session's Identity profile.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub identity_seed: u64,
+    /// The browser family (`chromium`, `firefox`, or `webkit`).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub browser_family: String,
+    /// The Session's effective user agent when saved, if recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub user_agent: Option<String>,
+    /// The Session's BCP 47 locale (language), if set or inferred.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub locale: Option<String>,
+    /// The Session's IANA time zone ID, if set or inferred.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub timezone_id: Option<String>,
+    /// The Session's proxy binding; none for direct egress.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub proxy_binding: Option<SavedProxyBinding>,
+    /// The importing machine's identity when bound to its machine (ADR 0056).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub machine_binding: Option<String>,
+    /// Whether the Session was lent to external code via `page.lend()` (ADR 0089).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub was_lent: bool,
+}
 
 /// The document a session export bundle encrypts.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -28,6 +100,11 @@ pub struct SessionExport {
     /// The storage of each origin the Session kept any in.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub origins: Vec<ExportedOrigin>,
+    /// The Saved identity metadata carried by the bundle, when exported from
+    /// a Saved identity or carrying identity bindings (ADRs 0035 and 0056).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub identity: Option<ExportedIdentity>,
 }
 
 /// One cookie of the Session, with the attributes a browser sets it by.

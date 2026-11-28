@@ -36,6 +36,7 @@ use crate::needs_you::NeedsYou;
 use crate::response_cache::{Bounds, ResponseCache, ResponseSource};
 use crate::run_index::RunIndex;
 use crate::sandbox_probe::SandboxProbe;
+use crate::saved_identities::SavedIdentityStore;
 use crate::settings::{Resolved, Settings};
 use crate::sync::Mutex;
 use crate::tasks::TaskOwner;
@@ -163,6 +164,7 @@ pub(crate) struct Stores {
     known_certificates: KnownCertificates,
     ledger: Ledger,
     run_index: RunIndex,
+    saved_identities: SavedIdentityStore,
     response_cache: ResponseCache,
     /// The contributions' own stores.
     contributed: Vec<UserStore>,
@@ -205,7 +207,19 @@ impl Stores {
                 work,
             )
             .watching(governor.sample(cache_folder), governor.storage()),
-            run_index: RunIndex::of(home.run_index(version), version, vfs.clone(), connections),
+            run_index: RunIndex::of(
+                home.run_index(version),
+                version,
+                vfs.clone(),
+                Arc::clone(&connections),
+            ),
+            saved_identities: SavedIdentityStore::of(
+                home.saved_identities(version),
+                home.saved_identities_lock(version),
+                version,
+                vfs.clone(),
+                connections,
+            ),
             ledger: Ledger::at(home.usage_ledger(), vfs),
             owner,
             contributed,
@@ -352,6 +366,12 @@ impl EngineContext {
     /// Run's consent walls and refetch stops are recorded for "Needs you".
     pub fn run_index(&self) -> &RunIndex {
         &self.stores.run_index
+    }
+
+    /// The encrypted per-major Saved identity store shared by both Products
+    /// (ADRs 0035 and 0098).
+    pub fn saved_identities(&self) -> &SavedIdentityStore {
+        &self.stores.saved_identities
     }
 
     /// The user's Response cache of the engine's major (ADR 0046), under

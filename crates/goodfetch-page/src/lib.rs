@@ -61,6 +61,7 @@ mod proxy_provider;
 mod proxy_status;
 mod recovery;
 pub mod robots_txt;
+mod saved_identity;
 mod sessions;
 mod state_import;
 mod trace;

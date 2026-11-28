@@ -61,6 +61,7 @@ fn session(cookie: &str) -> SessionExport {
                 value: SessionValue::new("payment"),
             }],
         }],
+        identity: None,
     }
 }
 

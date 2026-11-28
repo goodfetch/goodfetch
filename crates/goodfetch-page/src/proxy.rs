@@ -603,6 +603,32 @@ impl SessionProxy {
         })
     }
 
+    /// Returns the non-secret proxy binding metadata carried by a Saved
+    /// identity (ADR 0035): server URL without credentials, plus provider,
+    /// country and kind when chosen through a Proxy provider.
+    pub(crate) fn binding(&self) -> goodfetch_protocol::session_export::SavedProxyBinding {
+        match &self.provided {
+            Some(provided) => goodfetch_protocol::session_export::SavedProxyBinding {
+                server: Some(self.server.to_string()),
+                provider: Some(provided.provider.clone()),
+                country: provided
+                    .chosen
+                    .country
+                    .as_ref()
+                    .map(|code| code.as_str().to_owned()),
+                kind: Some(provided.chosen.kind),
+                sticky_session: None,
+            },
+            None => goodfetch_protocol::session_export::SavedProxyBinding {
+                server: Some(self.server.to_string()),
+                provider: None,
+                country: None,
+                kind: None,
+                sticky_session: None,
+            },
+        }
+    }
+
     /// Hands its Run's report, through `warnings`, a warning, once, when the
     /// Session `session` outlived its provider's sticky lifetime, so its
     /// exit may have changed (`proxy_exit_may_change`).
@@ -947,8 +973,6 @@ where
     Ok(addresses)
 }
 
-/// `proxy_relay_unavailable` for the relay to `server`, which could not
-/// open for `error`: the engine's own failure, never the proxy's.
 fn relay_unavailable(server: &ProxyServer, error: &std::io::Error) -> CallError {
     CallError::new(
         &PROXY_RELAY_UNAVAILABLE,
@@ -960,8 +984,6 @@ fn relay_unavailable(server: &ProxyServer, error: &std::io::Error) -> CallError 
     )
 }
 
-/// `proxy_unavailable` for `server`, met by a request to `url`, or by the
-/// Session's open when none.
 fn unavailable(server: &ProxyServer, url: Option<&str>, error: &str) -> CallError {
     CallError::new(
         &PROXY_UNAVAILABLE,

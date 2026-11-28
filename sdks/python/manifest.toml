@@ -725,6 +725,144 @@ form = "type"
 
 [[member]]
 package = "goodfetch_collie"
+receiver = "AsyncConnection"
+member = "identities"
+entry = "none"
+reason = "The Saved identities of the engine's major, whose methods serve the `identity` operations on the store, reached without a round trip (ADRs 0035 and 0056)."
+words = ["identities"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Connection"
+member = "identities"
+entry = "none"
+reason = "The Saved identities of the engine's major, reached without a round trip (ADRs 0035 and 0056); `AsyncConnection.identities`'s member under the same name."
+words = ["identities"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncCollie"
+member = "identities"
+entry = "none"
+reason = "The Saved identities of the engine's major, reached without a round trip (ADRs 0035 and 0056); `AsyncConnection.identities`'s member under the same name."
+words = ["identities"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Collie"
+member = "identities"
+entry = "none"
+reason = "The Saved identities of the engine's major, reached without a round trip (ADRs 0035 and 0056); `Connection.identities`'s member under the same name."
+words = ["identities"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncFoxhound"
+member = "identities"
+entry = "none"
+reason = "The Saved identities of the engine's major, reached without a round trip (ADRs 0035 and 0056); `AsyncConnection.identities`'s member under the same name."
+words = ["identities"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Foxhound"
+member = "identities"
+entry = "none"
+reason = "The Saved identities of the engine's major, reached without a round trip (ADRs 0035 and 0056); `Connection.identities`'s member under the same name."
+words = ["identities"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "AsyncIdentities"
+entry = "none"
+reason = "A Connection's Saved identities in the async API: `connection.identities`, whose methods serve the `identity` operations on this Product major's encrypted store (ADRs 0035 and 0056)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["async", "identities"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.identities"
+receiver = "AsyncIdentities"
+member = "list"
+entry = "identity.list"
+words = ["list"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.identities"
+receiver = "AsyncIdentities"
+member = "import_"
+entry = "identity.import"
+words = ["import"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.identities"
+receiver = "AsyncIdentities"
+member = "delete"
+entry = "identity.delete"
+words = ["delete"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.identities"
+receiver = "AsyncIdentities"
+member = "export"
+entry = "identity.export"
+words = ["export"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Identities"
+entry = "none"
+reason = "A Connection's Saved identities in the sync API, as `AsyncIdentities` are (ADRs 0035 and 0056)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["identities"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.identities"
+receiver = "Identities"
+member = "list"
+entry = "identity.list"
+words = ["list"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.identities"
+receiver = "Identities"
+member = "import_"
+entry = "identity.import"
+words = ["import"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.identities"
+receiver = "Identities"
+member = "delete"
+entry = "identity.delete"
+words = ["delete"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.identities"
+receiver = "Identities"
+member = "export"
+entry = "identity.export"
+words = ["export"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
 receiver = "AsyncRun"
 member = "id"
 entry = "none"

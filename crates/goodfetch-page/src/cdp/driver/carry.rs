@@ -230,6 +230,175 @@ impl Carried {
     pub(crate) fn storage_map(&self) -> BTreeMap<String, Vec<(String, String)>> {
         self.storage.iter().cloned().collect()
     }
+
+    /// Preserves any `indexedDB` or `opfs` entries from `prior` when saving a
+    /// Session that was seeded from an import carrying them.
+    pub(crate) fn inherit_extra_storage_from(&mut self, prior: &Self) {
+        if self.indexed_db.is_empty() && !prior.indexed_db.is_empty() {
+            self.indexed_db.clone_from(&prior.indexed_db);
+        }
+        if self.opfs.is_empty() && !prior.opfs.is_empty() {
+            self.opfs.clone_from(&prior.opfs);
+        }
+    }
+
+    /// Number of stored cookies and origins.
+    pub(crate) fn counts(&self) -> (u64, u64) {
+        let mut origins: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+        for (origin, _) in &self.storage {
+            origins.insert(origin.as_str());
+        }
+        for (origin, _) in &self.indexed_db {
+            origins.insert(origin.as_str());
+        }
+        for (origin, _) in &self.opfs {
+            origins.insert(origin.as_str());
+        }
+        (self.cookies.len() as u64, origins.len() as u64)
+    }
+
+    /// Distinct non-secret domains held by cookies and storage origins.
+    pub(crate) fn domains(&self) -> std::collections::BTreeSet<String> {
+        let mut domains = std::collections::BTreeSet::new();
+        for cookie in &self.cookies {
+            if let Some(domain) = &cookie.domain {
+                let normalized = domain.trim_start_matches('.').to_ascii_lowercase();
+                if !normalized.is_empty() {
+                    domains.insert(normalized);
+                }
+            }
+        }
+        for origin in self.origins() {
+            if let Ok(parsed) = url::Url::parse(&origin)
+                && let Some(host) = parsed.host_str()
+            {
+                domains.insert(host.to_ascii_lowercase());
+            }
+        }
+        domains
+    }
+
+    /// Converts this carried state into a `session-export` document (ADR 0015)
+    /// carrying optional Saved identity metadata.
+    pub(crate) fn to_session_export(
+        &self,
+        identity: Option<goodfetch_protocol::session_export::ExportedIdentity>,
+    ) -> goodfetch_protocol::session_export::SessionExport {
+        use goodfetch_protocol::formats::SESSION_EXPORT;
+        use goodfetch_protocol::session_export::{
+            ExportedCookie, ExportedOrigin, SameSite, SessionExport, SessionValue, StorageItem,
+        };
+        let cookies = self
+            .cookies
+            .iter()
+            .map(|cookie| ExportedCookie {
+                name: cookie.name.clone(),
+                value: SessionValue::new(cookie.value.clone()),
+                domain: cookie.domain.clone().unwrap_or_default(),
+                path: cookie.path.clone().unwrap_or_else(|| "/".to_owned()),
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "Unix epoch seconds fit comfortably in i64"
+                )]
+                expires: cookie.expires.map(|value| value as i64),
+                http_only: cookie.http_only.unwrap_or(false),
+                secure: cookie.secure.unwrap_or(false),
+                same_site: cookie.same_site.and_then(|same_site| match same_site {
+                    network::CookieSameSite::Strict => Some(SameSite::Strict),
+                    network::CookieSameSite::Lax => Some(SameSite::Lax),
+                    network::CookieSameSite::None => Some(SameSite::None),
+                    network::CookieSameSite::Unlisted => None,
+                }),
+            })
+            .collect();
+        let origins = self
+            .storage
+            .iter()
+            .map(|(origin, items)| ExportedOrigin {
+                origin: origin.clone(),
+                local_storage: items
+                    .iter()
+                    .map(|(name, value)| StorageItem {
+                        name: name.clone(),
+                        value: SessionValue::new(value.clone()),
+                    })
+                    .collect(),
+                session_storage: Vec::new(),
+            })
+            .collect();
+        SessionExport {
+            format_version: SESSION_EXPORT.version,
+            cookies,
+            origins,
+            identity,
+        }
+    }
+
+    /// Serializes this carried state as clear-text Playwright 1.64 `storageState`
+    /// JSON (cookies, `localStorage`, `indexedDB`, `opfs`, ADR 0056).
+    pub(crate) fn to_storage_state_json(&self) -> Result<String, serde_json::Error> {
+        let cookies: Vec<Value> = self
+            .cookies
+            .iter()
+            .map(|cookie| {
+                let same_site = match cookie.same_site {
+                    Some(network::CookieSameSite::Strict) => "Strict",
+                    Some(network::CookieSameSite::None) => "None",
+                    Some(network::CookieSameSite::Lax | network::CookieSameSite::Unlisted)
+                    | None => "Lax",
+                };
+                json!({
+                    "name": cookie.name,
+                    "value": cookie.value,
+                    "domain": cookie.domain.as_deref().unwrap_or(""),
+                    "path": cookie.path.as_deref().unwrap_or("/"),
+                    "expires": cookie.expires.unwrap_or(-1.0),
+                    "httpOnly": cookie.http_only.unwrap_or(false),
+                    "secure": cookie.secure.unwrap_or(false),
+                    "sameSite": same_site,
+                })
+            })
+            .collect();
+        let mut by_origin: BTreeMap<String, serde_json::Map<String, Value>> = BTreeMap::new();
+        for (origin, items) in &self.storage {
+            let entry = by_origin.entry(origin.clone()).or_default();
+            entry.insert("origin".to_owned(), json!(origin));
+            entry.insert(
+                "localStorage".to_owned(),
+                Value::Array(
+                    items
+                        .iter()
+                        .map(|(name, value)| json!({ "name": name, "value": value }))
+                        .collect(),
+                ),
+            );
+        }
+        for (origin, idb) in &self.indexed_db {
+            let entry = by_origin.entry(origin.clone()).or_default();
+            entry
+                .entry("origin".to_owned())
+                .or_insert_with(|| json!(origin));
+            entry
+                .entry("localStorage".to_owned())
+                .or_insert_with(|| Value::Array(Vec::new()));
+            entry.insert("indexedDB".to_owned(), idb.clone());
+        }
+        for (origin, opfs) in &self.opfs {
+            let entry = by_origin.entry(origin.clone()).or_default();
+            entry
+                .entry("origin".to_owned())
+                .or_insert_with(|| json!(origin));
+            entry
+                .entry("localStorage".to_owned())
+                .or_insert_with(|| Value::Array(Vec::new()));
+            entry.insert("opfs".to_owned(), opfs.clone());
+        }
+        let origins: Vec<Value> = by_origin.into_values().map(Value::Object).collect();
+        serde_json::to_string_pretty(&json!({
+            "cookies": cookies,
+            "origins": origins,
+        }))
+    }
 }
 
 /// The function that answers an origin's `localStorage` as its entries.

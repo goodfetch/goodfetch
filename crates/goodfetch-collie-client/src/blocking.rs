@@ -23,11 +23,13 @@ use crate::answer::Answer;
 use crate::error::Error;
 use crate::field_values::FieldValues;
 use crate::run_view::RunView;
+pub use identities::Identities;
 pub use key_value_store::KeyValueStore;
 pub use schedules::{CreatedSchedule, Schedules};
 pub use start::{HandlerlessStart, Start};
 pub use twins::{Locator, Page, Run, Schedule, Session, WebSocket};
 
+mod identities;
 mod key_value_store;
 mod schedules;
 mod start;
@@ -308,6 +310,10 @@ pub trait Connection {
     /// The Connection's Schedules, as [`crate::Connection::schedules`]'s,
     /// reached without I/O.
     fn schedules(&self) -> Schedules;
+
+    /// The Connection's Saved identities, as
+    /// [`crate::Connection::identities`]'s, reached without I/O.
+    fn identities(&self) -> Identities;
 
     /// The raw call of `operation`, as [`crate::Connection::call`]'s,
     /// which `send()` sends.

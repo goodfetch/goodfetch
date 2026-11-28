@@ -349,6 +349,15 @@ form = "read"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "ClientConnection"
+member = "identities"
+entry = "none"
+reason = "The Saved identities of the engine's major, whose methods serve the `identity` operations on the store, reached without a round trip (ADRs 0035 and 0056)."
+words = ["identities"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
 member = "explain_settings"
 entry = "config.explain"
 words = ["explain", "settings"]
@@ -458,6 +467,15 @@ member = "schedules"
 entry = "none"
 reason = "The Schedules of the engine's major, reached without a round trip (spec 589); `ClientConnection::schedules`'s member under the same name."
 words = ["schedules"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Connection"
+member = "identities"
+entry = "none"
+reason = "The Saved identities of the engine's major, reached without a round trip (ADRs 0035 and 0056); `ClientConnection::identities`'s member under the same name."
+words = ["identities"]
 form = "read"
 
 [[member]]
@@ -1649,6 +1667,47 @@ form = "round_trip"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "(crate)"
+member = "Identities"
+entry = "none"
+reason = "A Connection's Saved identities: `connection.identities()`, whose methods serve the `identity` operations on this Product major's encrypted store (ADRs 0035 and 0056)."
+words = ["identities"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Identities"
+member = "list"
+entry = "identity.list"
+words = ["list"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Identities"
+member = "import"
+entry = "identity.import"
+words = ["import"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Identities"
+member = "delete"
+entry = "identity.delete"
+words = ["delete"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Identities"
+member = "export"
+entry = "identity.export"
+words = ["export"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
 member = "CreatedSchedule"
 entry = "none"
 reason = "What `schedules.create` answers: the `Schedule` and its warnings, `schedule.create`'s result with the handle in place of the ID."
@@ -1919,6 +1978,15 @@ form = "read"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "blocking::ClientConnection"
+member = "identities"
+entry = "none"
+reason = "The Saved identities of the engine's major, reached without a round trip (ADRs 0035 and 0056)."
+words = ["identities"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::ClientConnection"
 member = "explain_settings"
 entry = "config.explain"
 words = ["explain", "settings"]
@@ -2001,6 +2069,15 @@ member = "schedules"
 entry = "none"
 reason = "The Schedules of the engine's major, reached without a round trip (spec 589)."
 words = ["schedules"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Connection"
+member = "identities"
+entry = "none"
+reason = "The Saved identities of the engine's major, reached without a round trip (ADRs 0035 and 0056)."
+words = ["identities"]
 form = "read"
 
 [[member]]
@@ -2619,6 +2696,47 @@ receiver = "blocking::Schedules"
 member = "preview"
 entry = "schedule.preview"
 words = ["preview"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking"
+member = "Identities"
+entry = "none"
+reason = "A Connection's Saved identities, whose calls block, as `crate::Identities` are (ADRs 0035 and 0056)."
+words = ["identities"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Identities"
+member = "list"
+entry = "identity.list"
+words = ["list"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Identities"
+member = "import"
+entry = "identity.import"
+words = ["import"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Identities"
+member = "delete"
+entry = "identity.delete"
+words = ["delete"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Identities"
+member = "export"
+entry = "identity.export"
+words = ["export"]
 form = "round_trip"
 
 [[member]]

@@ -688,3 +688,124 @@ fn an_attempt_aborted_while_its_races_browser_fetch_page_is_handled_leaves_no_pa
         (json!("http"), &json!("stopped"), true)
     );
 }
+
+/// Carry-over from #2418 onto real headless Chrome + Proving ground once
+/// Saved identities (#736) exist: a crawl Label whose pool opens from a Saved
+/// identity sends its HTTP from the browser under `fetch.http_from: learned`
+/// (never from a Session's own transport, carrying the login cookie and the
+/// browser's TLS fingerprint), and an explicit `fetch.http_from: transport`
+/// on that pool is refused with `setting_locked`.
+///
+/// Covers: story:5-63, setting:fetch.http_from, setting:session.source, error:setting_locked
+#[test]
+fn a_saved_identity_pool_sends_from_the_browser_on_proving_ground_and_refuses_transport() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    env.user_configuration(&format!(
+        "tls.trusted_cas.\"{HOST}\" = ['{}']\n",
+        proving_ground.description().ca.display()
+    ));
+    let mut engine = engine(&env);
+
+    // Import a Saved identity carrying a login cookie for `tiers.test`.
+    let imported = engine.call(
+        "import",
+        "identity.import",
+        &json!({
+            "name": "shop-login",
+            "source": {
+                "kind": "cookie_header",
+                "header": "shop_sid=saved_login_cookie_2418",
+                "domain": HOST,
+            }
+        }),
+        &mut |_| None,
+    );
+    assert_eq!(imported["result"]["name"], "shop-login", "{imported}");
+
+    let origin = format!("https://{HOST}:{}", proving_ground.address().port());
+    let first = format!("{origin}{LEARN}");
+    let second = format!("{origin}/products/1");
+    let source = json!({ "kind": "saved_identity", "name": "shop-login" });
+
+    // Explicit `fetch.http_from: transport` on a Saved-identity pool is refused with `setting_locked`.
+    let mut transport_settings = racing(&proving_ground);
+    transport_settings["fetch"]["http_from"] = json!("learned");
+    transport_settings["fetch"]["tier_race"] = json!(false);
+    let refused = engine.call(
+        "refused-transport",
+        "crawl.start",
+        &json!({
+            "run_id": "saved-identity-refuses-transport",
+            "seeds": [{ "url": first, "label": "account" }],
+            "labels": {
+                "account": {
+                    "settings": {
+                        "session": { "source": source },
+                        "fetch": { "http_from": "transport" },
+                    }
+                }
+            },
+            "settings": transport_settings,
+        }),
+        &mut |_| None,
+    );
+    assert_eq!(
+        refused["error"]["data"]["code"], "setting_locked",
+        "expected setting_locked for fetch.http_from: transport on Saved identity pool: {refused}"
+    );
+    assert_eq!(
+        refused["error"]["data"]["key"], "fetch.http_from",
+        "{refused}"
+    );
+
+    // Under `fetch.http_from: learned`, the Saved-identity pool learns browser_fetch
+    // and every request reaches Proving ground from the browser carrying the cookie.
+    let mut learned_settings = racing(&proving_ground);
+    learned_settings["fetch"]["http_from"] = json!("learned");
+    learned_settings["fetch"]["tier_race"] = json!(false);
+    let mut seen = Vec::new();
+    let report = crawl_declaring(
+        &mut engine,
+        "saved-identity-learned-browser",
+        &[
+            json!({ "url": first, "label": "account" }),
+            json!({ "url": second, "label": "account" }),
+        ],
+        &json!({
+            "account": {
+                "settings": { "session": { "source": source } }
+            }
+        }),
+        &learned_settings,
+        &mut |_: &mut Inside<'_>, handle: &Value| {
+            seen.push((
+                handle["crawl_request"]["url"].as_str().unwrap().to_owned(),
+                handle["tier"].clone(),
+            ));
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finished());
+    assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
+    assert!(
+        seen.iter().any(|(url, _)| url == &second),
+        "expected second URL handled: {seen:?}"
+    );
+
+    let recorded = proving_ground.received_requests().unwrap();
+    let requests: Vec<_> = recorded
+        .of_the_case()
+        .filter(|r| r.host.split(':').next() == Some(HOST) && r.target == "/products/1")
+        .collect();
+    assert!(
+        !requests.is_empty(),
+        "expected /products/1 to hit Proving ground"
+    );
+    assert!(
+        requests.iter().all(|r| r.headers.iter().any(
+            |(k, v)| k.eq_ignore_ascii_case("cookie") && v.contains("saved_login_cookie_2418")
+        )),
+        "every /products/1 request from a Saved-identity pool must carry its browser cookie: {requests:?}"
+    );
+}

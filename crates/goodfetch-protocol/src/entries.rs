@@ -16,7 +16,7 @@ use crate::{
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 72] = [
+pub const MODULES: [&Entries; 73] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &daemon::ENTRIES,
@@ -40,6 +40,7 @@ pub const MODULES: [&Entries; 72] = [
     &page::proxy::ENTRIES,
     &page::access_mode::ENTRIES,
     &page::emulation::ENTRIES,
+    &page::identity::ENTRIES,
     &page::signing_key::ENTRIES,
     &page::cdp_url::ENTRIES,
     &live_view::ENTRIES,
@@ -382,7 +383,7 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 126] = [
+    const COLLIE: [&str; 131] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -465,6 +466,11 @@ mod tests {
         "page.lend",
         "cdp_endpoint.close",
         "run.borrow",
+        "identity.list",
+        "identity.import",
+        "identity.delete",
+        "identity.export",
+        "identity.export_storage_state",
         "signing_key.create",
         "signing_key.directory",
         "run.start",

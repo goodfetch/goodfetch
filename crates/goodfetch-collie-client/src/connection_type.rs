@@ -14,6 +14,7 @@ use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 use crate::call::Query;
 use crate::error::Error;
 use crate::handlerless::HandlerlessStart;
+use crate::identities::Identities;
 use crate::raw_call::RawCall;
 use crate::run::Start;
 use crate::run_view::RunView;
@@ -94,6 +95,10 @@ pub trait Connection {
     /// The Connection's Schedules, reached without I/O (spec 589): each
     /// call acts on the Schedule store of the engine's major.
     fn schedules(&self) -> Schedules;
+
+    /// The Connection's Saved identities, reached without I/O (ADRs 0035, 0099):
+    /// each call acts on this Product major's encrypted Saved identity store.
+    fn identities(&self) -> Identities;
 
     /// The raw call of `operation` (ADR 0099, G8), the way down to an
     /// operation the SDK does not generate: its params and its result are

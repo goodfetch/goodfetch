@@ -31,6 +31,7 @@ from goodfetch_collie_client.generated.operations import (
 )
 from goodfetch_collie_client.generated.settings import DEPRECATED_SETTINGS
 from goodfetch_collie_client.handle import NotGiven, not_given
+from goodfetch_collie_client.identities import AsyncIdentities, Identities
 from goodfetch_collie_client.listeners import MAX_LISTENER_QUEUE
 from goodfetch_collie_client.markers import warn_deprecated_settings, warn_entry
 from goodfetch_collie_client.portal import LoopStopped, PrivateLoop
@@ -92,6 +93,7 @@ class AsyncCollie(AsyncConnection):
         """Wraps an open Connection."""
         self._connection = connection
         self._schedules = AsyncSchedules(connection)
+        self._identities = AsyncIdentities(connection)
 
     @property
     def schedules(self) -> AsyncSchedules:
@@ -100,6 +102,14 @@ class AsyncCollie(AsyncConnection):
         Spec 589. Reached without a round trip.
         """
         return self._schedules
+
+    @property
+    def identities(self) -> AsyncIdentities:
+        """The Saved identities of the engine's major: list, import, delete and export.
+
+        ADRs 0035 and 0056. Reached without a round trip.
+        """
+        return self._identities
 
     @staticmethod
     def connect(
@@ -476,6 +486,7 @@ class Collie(Connection):
         self._loop = loop
         self._connection = connection
         self._schedules = Schedules(loop, connection)
+        self._identities = Identities(loop, connection)
         self._close_lock = threading.Lock()
         self._closed = False
         self._close_failure: Exception | None = None
@@ -487,6 +498,14 @@ class Collie(Connection):
         Reached without a round trip.
         """
         return self._schedules
+
+    @property
+    def identities(self) -> Identities:
+        """The Saved identities of the engine's major, as `AsyncCollie.identities` are.
+
+        Reached without a round trip.
+        """
+        return self._identities
 
     @staticmethod
     def connect(

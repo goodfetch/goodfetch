@@ -1798,6 +1798,148 @@ impl Runs {
         (&self.secrets, run_secrets(&self.secrets, None))
     }
 
+    /// What a call outside any Run (such as `identity.import` or
+    /// `identity.export`) resolves Secret references through.
+    pub fn outside_a_run_secrets(&self) -> RunSecrets {
+        run_secrets(&self.secrets, None)
+    }
+
+    /// Configured `saved_identity.max_unused_age` duration from the machine's
+    /// resolved settings (default 30 days; `None` when cleared to `null`).
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub async fn saved_identity_max_unused_age(&self) -> Option<Duration> {
+        use goodfetch_protocol::page::identity::{
+            DEFAULT_MAX_UNUSED_AGE_MS, SAVED_IDENTITY_MAX_UNUSED_AGE,
+        };
+        let snapshot = self.engine.settings().snapshot().await;
+        match snapshot.resolved() {
+            Ok(resolved) => resolved.get::<Option<Duration>>(&SAVED_IDENTITY_MAX_UNUSED_AGE),
+            Err(_) => Some(Duration::from_millis(DEFAULT_MAX_UNUSED_AGE_MS)),
+        }
+    }
+
+    /// Resolves the key-encryption key for writing to the Saved identity store
+    /// (ADR 0035): reads `run_state.key_reference` from the machine's settings
+    /// (falling back to the host default `keychain:` or `secretfile:`) and
+    /// creates the engine's own default item if missing.
+    ///
+    /// # Errors
+    ///
+    /// [`SecretError`] when the Secret provider cannot supply or create the key.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave the engine's default key item created.
+    pub async fn saved_identity_save_kek(
+        &self,
+        run_id: Option<&RunId>,
+    ) -> Result<
+        (
+            goodfetch_protocol::secret_reference::SecretReference,
+            secrecy::SecretString,
+        ),
+        crate::secrets::SecretError,
+    > {
+        use crate::secrets::{Purpose, is_engine_key};
+        use goodfetch_protocol::secrets::{RUN_STATE_KEY_REFERENCE, SecretFailure};
+
+        let (reference, layer) = self.saved_identity_key_reference().await;
+        let resolving = self.outside_a_run_secrets();
+        let purpose = Purpose {
+            placeholder: RUN_STATE_KEY_REFERENCE.name,
+            domain: None,
+            domains: &[],
+            layer: Some(layer),
+            run_id,
+        };
+        let kek = match resolving.resolve(&reference, &purpose).await {
+            Err(crate::secrets::SecretError::Unavailable {
+                failure: SecretFailure::Missing | SecretFailure::NotConfigured,
+                ..
+            }) if is_engine_key(&reference) => {
+                self.secrets.make_key(&reference).await?;
+                resolving.resolve(&reference, &purpose).await?
+            }
+            other => other?,
+        };
+        Ok((reference, kek))
+    }
+
+    /// Resolves the key-encryption key for decrypting a Saved identity that
+    /// was wrapped under `wrapped_by` (never creates a new key).
+    ///
+    /// # Errors
+    ///
+    /// [`SecretError`] when the Secret provider cannot supply the key.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub async fn saved_identity_open_kek(
+        &self,
+        wrapped_by: &str,
+        run_id: Option<&RunId>,
+    ) -> Result<secrecy::SecretString, crate::secrets::SecretError> {
+        use crate::secrets::Purpose;
+        use goodfetch_protocol::secret_reference::SecretReference;
+        use goodfetch_protocol::secrets::RUN_STATE_KEY_REFERENCE;
+
+        let (reference, layer) = match SecretReference::parse(wrapped_by) {
+            Ok(reference) => (
+                reference,
+                goodfetch_protocol::settings::SettingsLayer::Default,
+            ),
+            Err(_) => self.saved_identity_key_reference().await,
+        };
+        let resolving = self.outside_a_run_secrets();
+        let purpose = Purpose {
+            placeholder: RUN_STATE_KEY_REFERENCE.name,
+            domain: None,
+            domains: &[],
+            layer: Some(layer),
+            run_id,
+        };
+        resolving.resolve(&reference, &purpose).await
+    }
+
+    async fn saved_identity_key_reference(
+        &self,
+    ) -> (
+        goodfetch_protocol::secret_reference::SecretReference,
+        goodfetch_protocol::settings::SettingsLayer,
+    ) {
+        use goodfetch_protocol::secret_reference::SecretReference;
+        use goodfetch_protocol::secrets::{KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE};
+        use goodfetch_protocol::settings::SettingsLayer;
+
+        let snapshot = self.engine.settings().snapshot().await;
+        if let Ok(resolved) = snapshot.resolved()
+            && let Some(effective) = resolved.effective(&RUN_STATE_KEY_REFERENCE)
+            && effective.layer != SettingsLayer::Default
+            && let Some(reference) =
+                resolved.get::<Option<SecretReference>>(&RUN_STATE_KEY_REFERENCE)
+        {
+            return (reference, effective.layer);
+        }
+        let default = self
+            .engine
+            .settings()
+            .host_defaults()
+            .await
+            .of(&RUN_STATE_KEY_REFERENCE);
+        let reference = default
+            .as_str()
+            .and_then(|text| SecretReference::parse(text).ok())
+            .unwrap_or_else(|| {
+                SecretReference::parse(KEY_REFERENCE_IN_KEYCHAIN)
+                    .expect("invariant: the keychain's default is a Secret reference")
+            });
+        (reference, SettingsLayer::Default)
+    }
+
     /// How the gate in admission of a Run with the settings `settings`
     /// keys a request's URL, before the Run exists: a start keys the work
     /// items it adds as its gate will. `None` when the composition passes

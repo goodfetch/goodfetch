@@ -2,7 +2,7 @@
 
 import type { CallOptions, Caller } from "../caller.ts";
 import { type EntryMarkers, warnDeprecated, warnExperimental } from "../markers.ts";
-import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, BorrowEnded, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CdpEndpointCloseParams, CdpEndpointClosed, CdpEndpointOpened, CdpSessionAnswer, CdpSessionCloseParams, CdpSessionClosed, CdpSessionOnEnded, CdpSessionOnParams, CdpSessionOpened, CdpSessionSendParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, HumanPauseResult, IdentitySaved, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, KeyboardInsertTextParams, KeyboardKeyParams, KeyboardPressParams, KeyboardTypeParams, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, MouseButtonParams, MouseClickParams, MouseDblclickParams, MouseMoveParams, MouseWheelParams, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageLendParams, PageNewCdpSessionParams, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PagePauseParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunBorrowParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SaveIdentityParams, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScrollCollected, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TouchscreenTapParams, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
+import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, BorrowEnded, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CdpEndpointCloseParams, CdpEndpointClosed, CdpEndpointOpened, CdpSessionAnswer, CdpSessionCloseParams, CdpSessionClosed, CdpSessionOnEnded, CdpSessionOnParams, CdpSessionOpened, CdpSessionSendParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, HumanPauseResult, IdentityDeleteParams, IdentityDeleted, IdentityExportParams, IdentityExported, IdentityImportParams, IdentityList, IdentityListParams, IdentitySaved, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, KeyboardInsertTextParams, KeyboardKeyParams, KeyboardPressParams, KeyboardTypeParams, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, MouseButtonParams, MouseClickParams, MouseDblclickParams, MouseMoveParams, MouseWheelParams, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageLendParams, PageNewCdpSessionParams, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PagePauseParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunBorrowParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SaveIdentityParams, SavedIdentityInfo, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScrollCollected, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TouchscreenTapParams, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
 import { warnDeprecatedSettings } from "./settings.ts";
 
 export type { CallOptions, Caller, OperationTypes } from "../caller.ts";
@@ -32,6 +32,10 @@ export interface CollieOperationTypes {
   "effect.open": { params: EffectOpenParams; result: EffectOpened };
   "engine.info": { params: EngineInfoParams; result: EngineInfo };
   "events.subscribe": { params: EventsSubscribeParams; result: SubscriptionEnded };
+  "identity.delete": { params: IdentityDeleteParams; result: IdentityDeleted };
+  "identity.export": { params: IdentityExportParams; result: IdentityExported };
+  "identity.import": { params: IdentityImportParams; result: SavedIdentityInfo };
+  "identity.list": { params: IdentityListParams; result: IdentityList };
   "key_value_store.delete": { params: KeyValueStoreKeyParams; result: KeyValueStoreDeleted };
   "key_value_store.get": { params: KeyValueStoreKeyParams; result: KeyValueStoreValue };
   "key_value_store.get_bytes": { params: KeyValueStoreKeyParams; result: KeyValueStoreBytesValue };
@@ -152,6 +156,10 @@ export const collieOperations: Readonly<Record<keyof CollieOperationTypes, Entry
   "effect.open": { experimental: true, deprecated: undefined },
   "engine.info": { experimental: false, deprecated: undefined },
   "events.subscribe": { experimental: true, deprecated: undefined },
+  "identity.delete": { experimental: true, deprecated: undefined },
+  "identity.export": { experimental: true, deprecated: undefined },
+  "identity.import": { experimental: true, deprecated: undefined },
+  "identity.list": { experimental: true, deprecated: undefined },
   "key_value_store.delete": { experimental: true, deprecated: undefined },
   "key_value_store.get": { experimental: true, deprecated: undefined },
   "key_value_store.get_bytes": { experimental: true, deprecated: undefined },
@@ -272,6 +280,10 @@ export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, s
   "effect.open": "effect.open",
   "engine.info": "engine.info",
   "events.subscribe": "events.subscribe",
+  "identity.delete": "identity.delete",
+  "identity.export": "identity.export",
+  "identity.import": "identity.import",
+  "identity.list": "identity.list",
   "key_value_store.delete": "keyValueStore.delete",
   "key_value_store.get": "keyValueStore.get",
   "key_value_store.get_bytes": "keyValueStore.getBytes",
@@ -392,6 +404,10 @@ export const collieOperationClasses: Readonly<Record<keyof CollieOperationTypes,
   "effect.open": "idempotent_write",
   "engine.info": "read",
   "events.subscribe": "read",
+  "identity.delete": "effect",
+  "identity.export": "effect",
+  "identity.import": "effect",
+  "identity.list": "read",
   "key_value_store.delete": "idempotent_write",
   "key_value_store.get": "read",
   "key_value_store.get_bytes": "read",
@@ -710,6 +726,46 @@ export class CollieOperations {
   eventsSubscribe(params: EventsSubscribeParams, options: CallOptions = {}): Promise<SubscriptionEnded> {
     warnExperimental("events.subscribe");
     return this.#caller.call("events.subscribe", params, options);
+  }
+
+  /**
+   * Deletes the named Saved identity from this Product major's encrypted store, wiping its secret fields and recording the deletion in the Audit log (ADR 0035).
+   *
+   * @experimental
+   */
+  identityDelete(params: IdentityDeleteParams): Promise<IdentityDeleted> {
+    warnExperimental("identity.delete");
+    return this.#caller.call("identity.delete", params, {});
+  }
+
+  /**
+   * Exports the named Saved identity as an `age`-encrypted `session-export` bundle to an `age` public key or a passphrase Secret reference, preserving its Access mode, Identity profile seed, proxy binding and machine binding, and recording the export in the Audit log (ADRs 0015, 0035 and 0056).
+   *
+   * @experimental
+   */
+  identityExport(params: IdentityExportParams): Promise<IdentityExported> {
+    warnExperimental("identity.export");
+    return this.#caller.call("identity.export", params, {});
+  }
+
+  /**
+   * Imports cookies and storage from a Session source (`state_file`, `cookie_header`, etc.) into the encrypted per-major Saved identity store under `name`, replacing any existing identity of that name under the install-wide lock and recording the import in the Audit log (ADRs 0035 and 0056).
+   *
+   * @experimental
+   */
+  identityImport(params: IdentityImportParams): Promise<SavedIdentityInfo> {
+    warnExperimental("identity.import");
+    return this.#caller.call("identity.import", params, {});
+  }
+
+  /**
+   * Lists every non-expired Saved identity in this Product major's store, with its metadata and domains, never secret values (ADR 0035).
+   *
+   * @experimental
+   */
+  identityList(params: IdentityListParams, options: CallOptions = {}): Promise<IdentityList> {
+    warnExperimental("identity.list");
+    return this.#caller.call("identity.list", params, options);
   }
 
   /**

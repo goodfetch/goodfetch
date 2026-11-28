@@ -13,7 +13,7 @@ from typing_extensions import deprecated
 from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 from goodfetch_collie_client.markers import warn_deprecated, warn_deprecated_settings, warn_experimental
 
-from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, BorrowEnded, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CdpEndpointCloseParams, CdpEndpointClosed, CdpEndpointOpened, CdpSessionAnswer, CdpSessionCloseParams, CdpSessionClosed, CdpSessionOnEnded, CdpSessionOnParams, CdpSessionOpened, CdpSessionSendParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, HumanPauseResult, IdentitySaved, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, KeyboardInsertTextParams, KeyboardKeyParams, KeyboardPressParams, KeyboardTypeParams, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, MouseButtonParams, MouseClickParams, MouseDblclickParams, MouseMoveParams, MouseWheelParams, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageLendParams, PageNewCdpSessionParams, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PagePauseParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunBorrowParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SaveIdentityParams, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScrollCollected, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TouchscreenTapParams, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
+from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, BorrowEnded, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CdpEndpointCloseParams, CdpEndpointClosed, CdpEndpointOpened, CdpSessionAnswer, CdpSessionCloseParams, CdpSessionClosed, CdpSessionOnEnded, CdpSessionOnParams, CdpSessionOpened, CdpSessionSendParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, HumanPauseResult, IdentityDeleteParams, IdentityDeleted, IdentityExportParams, IdentityExported, IdentityImportParams, IdentityList, IdentityListParams, IdentitySaved, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, KeyboardInsertTextParams, KeyboardKeyParams, KeyboardPressParams, KeyboardTypeParams, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, MouseButtonParams, MouseClickParams, MouseDblclickParams, MouseMoveParams, MouseWheelParams, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageLendParams, PageNewCdpSessionParams, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PagePauseParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunBorrowParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SaveIdentityParams, SavedIdentityInfo, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScrollCollected, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TouchscreenTapParams, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
 from .settings import DEPRECATED_SETTINGS
 
 
@@ -189,6 +189,38 @@ class AsyncCollieOperations:
         """
         warn_experimental("events.subscribe")
         return result_of(SubscriptionEnded, await self._caller.call("events.subscribe", params))
+
+    async def identity_delete(self, params: IdentityDeleteParams) -> IdentityDeleted:
+        """Deletes the named Saved identity from this Product major's encrypted store, wiping its secret fields and recording the deletion in the Audit log (ADR 0035).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("identity.delete")
+        return result_of(IdentityDeleted, await self._caller.call("identity.delete", params))
+
+    async def identity_export(self, params: IdentityExportParams) -> IdentityExported:
+        """Exports the named Saved identity as an `age`-encrypted `session-export` bundle to an `age` public key or a passphrase Secret reference, preserving its Access mode, Identity profile seed, proxy binding and machine binding, and recording the export in the Audit log (ADRs 0015, 0035 and 0056).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("identity.export")
+        return result_of(IdentityExported, await self._caller.call("identity.export", params))
+
+    async def identity_import(self, params: IdentityImportParams) -> SavedIdentityInfo:
+        """Imports cookies and storage from a Session source (`state_file`, `cookie_header`, etc.) into the encrypted per-major Saved identity store under `name`, replacing any existing identity of that name under the install-wide lock and recording the import in the Audit log (ADRs 0035 and 0056).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("identity.import")
+        return result_of(SavedIdentityInfo, await self._caller.call("identity.import", params))
+
+    async def identity_list(self, params: IdentityListParams) -> IdentityList:
+        """Lists every non-expired Saved identity in this Product major's store, with its metadata and domains, never secret values (ADR 0035).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("identity.list")
+        return result_of(IdentityList, await self._caller.call("identity.list", params))
 
     async def key_value_store_delete(self, params: KeyValueStoreKeyParams) -> KeyValueStoreDeleted:
         """Removes a key from a live Run's Key-value store and answers whether it existed. Through a crawl attempt (`attempt`), the removal is staged with the attempt, and whether the key existed counts what the attempt staged.
@@ -1110,6 +1142,38 @@ class CollieOperations:
         warn_experimental("events.subscribe")
         return result_of(SubscriptionEnded, self._caller.call("events.subscribe", params))
 
+    def identity_delete(self, params: IdentityDeleteParams) -> IdentityDeleted:
+        """Deletes the named Saved identity from this Product major's encrypted store, wiping its secret fields and recording the deletion in the Audit log (ADR 0035).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("identity.delete")
+        return result_of(IdentityDeleted, self._caller.call("identity.delete", params))
+
+    def identity_export(self, params: IdentityExportParams) -> IdentityExported:
+        """Exports the named Saved identity as an `age`-encrypted `session-export` bundle to an `age` public key or a passphrase Secret reference, preserving its Access mode, Identity profile seed, proxy binding and machine binding, and recording the export in the Audit log (ADRs 0015, 0035 and 0056).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("identity.export")
+        return result_of(IdentityExported, self._caller.call("identity.export", params))
+
+    def identity_import(self, params: IdentityImportParams) -> SavedIdentityInfo:
+        """Imports cookies and storage from a Session source (`state_file`, `cookie_header`, etc.) into the encrypted per-major Saved identity store under `name`, replacing any existing identity of that name under the install-wide lock and recording the import in the Audit log (ADRs 0035 and 0056).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("identity.import")
+        return result_of(SavedIdentityInfo, self._caller.call("identity.import", params))
+
+    def identity_list(self, params: IdentityListParams) -> IdentityList:
+        """Lists every non-expired Saved identity in this Product major's store, with its metadata and domains, never secret values (ADR 0035).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("identity.list")
+        return result_of(IdentityList, self._caller.call("identity.list", params))
+
     def key_value_store_delete(self, params: KeyValueStoreKeyParams) -> KeyValueStoreDeleted:
         """Removes a key from a live Run's Key-value store and answers whether it existed. Through a crawl attempt (`attempt`), the removal is staged with the attempt, and whether the key existed counts what the attempt staged.
 
@@ -1875,6 +1939,10 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "effect.close",
     "effect.open",
     "events.subscribe",
+    "identity.delete",
+    "identity.export",
+    "identity.import",
+    "identity.list",
     "key_value_store.delete",
     "key_value_store.get",
     "key_value_store.get_bytes",
@@ -2000,6 +2068,10 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "effect.open": "idempotent_write",
     "engine.info": "read",
     "events.subscribe": "read",
+    "identity.delete": "effect",
+    "identity.export": "effect",
+    "identity.import": "effect",
+    "identity.list": "read",
     "key_value_store.delete": "idempotent_write",
     "key_value_store.get": "read",
     "key_value_store.get_bytes": "read",

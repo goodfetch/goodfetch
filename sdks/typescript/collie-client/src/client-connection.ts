@@ -52,6 +52,7 @@ import { holdInRealm } from "./realm.ts";
 import { timeoutOf } from "./handle.ts";
 import { Run, type RunHost } from "./run.ts";
 import { RunView } from "./run-view.ts";
+import { Identities } from "./identities.ts";
 import { Schedules } from "./schedules.ts";
 import { settingsOnWire, warnDeprecatedSettings, type RunSettings } from "./generated/settings.ts";
 import { MAX_LISTENER_QUEUE } from "./listeners.ts";
@@ -313,6 +314,8 @@ export class ClientConnection implements AsyncDisposable {
   #traceContext: TraceContextSource = () => undefined;
   /** The Schedules of the engine's major (spec 589), reached without a round trip. */
   readonly schedules: Schedules;
+  /** The Saved identities of the engine's major (ADRs 0035 and 0056), reached without a round trip. */
+  readonly identities: Identities;
 
   private constructor(options: ClientConnectionOptions) {
     this.#engine = options.engine;
@@ -356,6 +359,12 @@ export class ClientConnection implements AsyncDisposable {
     this.schedules = new Schedules({
       calls,
       raw: (operation, params, callOptions) => this.#raw(operation, params, callOptions),
+      ensureOpen: (operation) => {
+        this.#openOrThrow(operation);
+      },
+    });
+    this.identities = new Identities({
+      calls,
       ensureOpen: (operation) => {
         this.#openOrThrow(operation);
       },

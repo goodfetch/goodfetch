@@ -1751,6 +1751,87 @@ class HttpMethod(RootModel[str]):
     """The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused."""
 
 
+class IdentityDeleteParams(BaseModel):
+    """What `identity.delete` takes: the Saved identity's name."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    """The Saved identity's name to remove from the store."""
+
+
+class IdentityDeleted(BaseModel):
+    """What `identity.delete` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    deleted: bool
+    """Whether a Saved identity of that name existed and was deleted."""
+    name: str
+    """The Saved identity's name."""
+
+
+class IdentityExportParams(BaseModel):
+    """
+    What `identity.export` takes: the Saved identity's name and exactly one
+    `age` recipient (`public_key` or `passphrase`, a Secret reference, ADR 0015).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    """The Saved identity's name to export."""
+    passphrase: str | None = None
+    """
+    A Secret reference whose value is the passphrase to encrypt the session
+    export bundle with.
+    """
+    public_key: str | None = None
+    """An `age` public key (`age1…`) to encrypt the session export bundle to."""
+
+
+class IdentityExportStorageStateParams(BaseModel):
+    """What `identity.export_storage_state` takes (person-only, ADR 0056)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    """The Saved identity's name to export as clear-text Playwright `storageState`."""
+
+
+class IdentityExported(BaseModel):
+    """
+    What `identity.export` answers: the ASCII-armored `age`-encrypted
+    `session-export` bundle and its SHA-256 digest (ADR 0015).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    bundle: str
+    """The ASCII-armored `age`-encrypted `session-export` bundle."""
+    cookie_count: Annotated[int, Field(ge=0)]
+    """Number of cookies carried in the bundle."""
+    digest: str
+    """Lowercase hex SHA-256 digest of `bundle`, matching the Audit log entry."""
+    name: str
+    """The Saved identity's name."""
+    origin_count: Annotated[int, Field(ge=0)]
+    """Number of origins carried in the bundle."""
+
+
+class IdentityListParams(BaseModel):
+    """What `identity.list` takes: nothing."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
 class IdentitySaved(BaseModel):
     """What `session.save_identity` answers once the Saved identity is written."""
 
@@ -1759,6 +1840,22 @@ class IdentitySaved(BaseModel):
     )
     name: str
     """The Saved identity's name."""
+
+
+class IdentityStorageStateExported(BaseModel):
+    """What `identity.export_storage_state` answers (person-only, ADR 0056)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    cookie_count: Annotated[int, Field(ge=0)]
+    """Number of cookies carried in the document."""
+    name: str
+    """The Saved identity's name."""
+    origin_count: Annotated[int, Field(ge=0)]
+    """Number of origins carried in the document."""
+    storage_state: str
+    """Clear-text Playwright 1.64 `storageState` JSON document."""
 
 
 class Image(BaseModel):
@@ -3369,6 +3466,22 @@ class ProxyAuthFailedDetails(BaseModel):
     """The username the Session gave, if it gave one."""
 
 
+class ProxyKind(StrEnum):
+    """
+    A proxy kind, the pool a Session's proxy is drawn from (ADR 0021), in
+    the order of the proxy tiers, cheapest first.
+    """
+
+    datacenter = "datacenter"
+    """A data centre's addresses."""
+    isp = "isp"
+    """Addresses an ISP assigns, hosted in a data centre."""
+    residential = "residential"
+    """Home connections' addresses."""
+    mobile = "mobile"
+    """Mobile networks' addresses."""
+
+
 class ProxyKindBytes(BaseModel):
     """The bytes a Run sent and received through proxies of one proxy kind."""
 
@@ -4430,6 +4543,76 @@ class SandboxEnvironment(StrEnum):
     A refusal the probe does not recognise, such as
     `user.max_user_namespaces` at 0; the message names what it met.
     """
+
+
+class SavedIdentityInfo(BaseModel):
+    """Non-secret metadata about one Saved identity in the per-major store."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    access_mode: str
+    """The Access mode it was saved under (`standard`, `stealth`, or `identified`)."""
+    browser_family: str
+    """The browser family (`chromium`, `firefox`, or `webkit`)."""
+    cookie_count: Annotated[int, Field(ge=0)]
+    """Number of stored cookies."""
+    created_at: PointInTime
+    """When the Saved identity was first created."""
+    domains: list[str]
+    """The distinct cookie and storage domains held (never secret values)."""
+    expires_at: PointInTime | None = None
+    """When the Saved identity will expire if unused; `null` when expiry is disabled."""
+    last_used_at: PointInTime
+    """When the Saved identity was last saved or reused."""
+    locale: str | None = None
+    """Its BCP 47 locale (language), when recorded."""
+    machine_bound: bool
+    """Whether the Saved identity is bound to this machine's identity (ADR 0056)."""
+    name: str
+    """The Saved identity's unique name within this Product major's store."""
+    origin_count: Annotated[int, Field(ge=0)]
+    """Number of stored origins."""
+    proxy_bound: bool
+    """Whether the Saved identity is bound to a proxy (ADR 0035)."""
+    source_kind: str | None = None
+    """The Session source kind it was imported from, when created by import."""
+    timezone_id: str | None = None
+    """Its IANA time zone ID, when recorded."""
+    updated_at: PointInTime
+    """When the Saved identity was last written or replaced."""
+    was_lent: bool
+    """
+    Whether the Saved identity was saved from a Session that was lent via
+    `page.lend()` (ADR 0089).
+    """
+
+
+class SavedIdentityMismatchDetails(BaseModel):
+    """What `saved_identity_mismatch` details (ADR 0035)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    actual: str
+    """What the opening Session asked for."""
+    expected: str
+    """What the Saved identity was saved with."""
+    field: str
+    """Which binding mismatched (`access_mode` or `proxy`)."""
+    name: str
+    """The Saved identity's name."""
+
+
+class SavedIdentityNotFoundDetails(BaseModel):
+    """What `saved_identity_not_found` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    name: str
+    """The Saved identity name that was not found or had expired."""
 
 
 class ScheduleCapExceededDetails(BaseModel):
@@ -7453,6 +7636,19 @@ class HumanPauseResult(BaseModel):
     """How long the pause waited, in milliseconds."""
 
 
+class IdentityList(BaseModel):
+    """
+    What `identity.list` answers: every non-expired Saved identity in this
+    Product major's store, ordered by name.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    identities: list[SavedIdentityInfo]
+    """Every non-expired Saved identity, metadata only."""
+
+
 class KeyValueStoreBytes(BaseModel):
     """Bytes the store holds for a key, with their content type."""
 
@@ -10224,6 +10420,46 @@ class HelloResult(BaseModel):
     `calls_in_flight` (ADR 0038's note of 2026-11-21; issue 3193). A
     setting that resolves no timeout is left out; empty from an engine
     that resolves none, such as the Scripted engine.
+    """
+
+
+class IdentityImportParams(BaseModel):
+    """
+    What `identity.import` takes: the Saved identity's name, its Session source,
+    and optional identity/proxy overrides allowed at import time (ADR 0056).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    access_mode: str | None = None
+    """
+    Optional Access mode at import (`standard` by default, or `stealth`;
+    `identified` is refused per ADR 0056). Ignored for a `session_export`
+    bundle, which keeps its saved Access mode.
+    """
+    locale: str | None = None
+    """
+    Optional BCP 47 locale (language) of the source browser; inferred from
+    the host when omitted.
+    """
+    name: str
+    """The name under which to store the imported Saved identity."""
+    proxy_country: str | None = None
+    """Optional ISO 3166-1 alpha-2 country code of the proxy binding."""
+    proxy_kind: ProxyKind | None = None
+    """Optional proxy kind of the proxy binding."""
+    proxy_server: str | None = None
+    """
+    Optional proxy server (`scheme://host:port`, without credentials) bound
+    to this imported identity (ADR 0056).
+    """
+    source: SessionSource
+    """The Session source to import (`state_file`, `cookie_header`, etc.)."""
+    timezone_id: str | None = None
+    """
+    Optional IANA time zone ID of the source browser; inferred from the
+    host when omitted.
     """
 
 

@@ -293,7 +293,7 @@ fn session_source_is_refused_in_a_sessions_own_settings_and_the_runs_is_the_defa
     let mut settings = serde_json::Map::new();
     settings.insert(
         "session".to_owned(),
-        json!({ "source": { "kind": "saved_identity", "name": "portal" } }),
+        json!({ "source": { "kind": "running_browser", "browser": "chrome", "domains": ["scope.test"] } }),
     );
     let mut engine =
         crate::page::started_with(&env, &cache, &proving_ground, "sourced", &settings, |_| {});
@@ -318,7 +318,7 @@ fn session_source_is_refused_in_a_sessions_own_settings_and_the_runs_is_the_defa
         "run.new_session",
         &json!({
             "run_id": "sourced",
-            "source": { "kind": "cookie_header", "header": "mark=own", "domain": "scope.test" },
+            "source": { "kind": "installed_browser", "browser": "chrome", "domains": ["scope.test"] },
         }),
     );
     let fresh = session_of(&engine.ask(
@@ -348,17 +348,17 @@ fn session_source_is_refused_in_a_sessions_own_settings_and_the_runs_is_the_defa
             refused(
                 "capability_unavailable",
                 "session.source",
-                json!("saved_identity")
+                json!("running_browser")
             ),
             refused(
                 "capability_unavailable",
                 "session.source",
-                json!("saved_identity")
+                json!("running_browser")
             ),
             refused(
                 "capability_unavailable",
                 "session.source",
-                json!("cookie_header")
+                json!("installed_browser")
             ),
             json!(200),
         )

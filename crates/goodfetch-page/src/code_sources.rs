@@ -6,7 +6,7 @@
 //! `Reach::OneTimeCode`.
 //!
 //! Size: one concern — resolving a single `code_source`-bound placeholder
-//! through its six built-in transports (IMAP4rev1, Gmail, Microsoft Graph,
+//! through its six built-in transports (`IMAP4rev1`, Gmail, Microsoft Graph,
 //! local webhook receiver, generic HTTP endpoint and Twilio) sharing one
 //! HTTP/1.1 client, timestamp parser, sender/pattern matcher and one-time-use
 //! table.

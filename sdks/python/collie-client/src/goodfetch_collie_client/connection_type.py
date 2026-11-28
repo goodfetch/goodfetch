@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     )
     from goodfetch_collie_client.generated.settings import RunSettings
     from goodfetch_collie_client.handlerless import CatalogTarget
+    from goodfetch_collie_client.identities import AsyncIdentities, Identities
     from goodfetch_collie_client.limits import Limits
     from goodfetch_collie_client.run import AsyncRun, Run
     from goodfetch_collie_client.run_view import AsyncRunView, RunView
@@ -203,6 +204,14 @@ class AsyncConnection(ABC):
         Spec 589. Reached without a round trip.
         """
 
+    @property
+    @abstractmethod
+    def identities(self) -> AsyncIdentities:
+        """The Saved identities of the engine's major: list, import, delete and export.
+
+        ADRs 0035 and 0056. Reached without a round trip.
+        """
+
     @abstractmethod
     async def close(self) -> None:
         """Closes the Connection; idempotent.
@@ -361,6 +370,14 @@ class Connection(ABC):
         """The Schedules of the engine's major, as `AsyncConnection.schedules` are.
 
         Reached without a round trip.
+        """
+
+    @property
+    @abstractmethod
+    def identities(self) -> Identities:
+        """The Saved identities of the engine's major.
+
+        As `AsyncConnection.identities` are. Reached without a round trip.
         """
 
     @abstractmethod

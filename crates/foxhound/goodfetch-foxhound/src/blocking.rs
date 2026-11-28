@@ -20,8 +20,9 @@ pub use crawl::{
     ReadRejectedRecords, StartCrawl,
 };
 pub use goodfetch_collie_client::blocking::{
-    Call, Connection, CreatedSchedule, EventIter, Exchange, HandlerlessStart, KeyValueStore,
-    Locator, Page, Query, RawCall, Response, Run, Schedule, Schedules, Session, Start,
+    Call, Connection, CreatedSchedule, EventIter, Exchange, HandlerlessStart, Identities,
+    KeyValueStore, Locator, Page, Query, RawCall, Response, Run, Schedule, Schedules, Session,
+    Start,
 };
 
 use crate::crawl_requests::CrawlRequests;
@@ -162,6 +163,13 @@ impl Foxhound {
         self.connection.schedules()
     }
 
+    /// The connection's Saved identities, as [`crate::Foxhound::identities`]'s,
+    /// reached without I/O.
+    #[must_use]
+    pub fn identities(&self) -> Identities {
+        self.connection.identities()
+    }
+
     /// Shows each setting's effective value, the layer that set it and the
     /// layer that locked it, from the built-in defaults, the Operator
     /// policy, user configuration, the project configuration given and the
@@ -209,6 +217,10 @@ impl Connection for Foxhound {
 
     fn schedules(&self) -> Schedules {
         Foxhound::schedules(self)
+    }
+
+    fn identities(&self) -> Identities {
+        Foxhound::identities(self)
     }
 
     fn call(&self, operation: &str) -> RawCall {

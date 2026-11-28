@@ -206,6 +206,9 @@ brand = ["example"]
 signing_key = "env:EXAMPLE"
 signature_agent = "https://bot.example"
 
+[settings.saved_identity]
+max_unused_age = 30000
+
 [settings.run_state]
 location = "example"
 durability = "full"
@@ -695,6 +698,9 @@ brand = ["example"]
 signing_key = "env:EXAMPLE"
 signature_agent = "https://bot.example"
 
+[lock.saved_identity]
+max_unused_age = 30000
+
 [lock.run_state]
 location = "example"
 durability = "full"
@@ -1061,6 +1067,9 @@ max_age_ceiling = 30000
 
 [cap.proxy]
 sticky_lifetime = 30000
+
+[cap.saved_identity]
+max_unused_age = 30000
 
 [cap.run_state]
 commit_interval = 30000

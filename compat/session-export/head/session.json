@@ -36,5 +36,22 @@
         }
       ]
     }
-  ]
+  ],
+  "identity": {
+    "access_mode": "standard",
+    "identity_seed": 42,
+    "browser_family": "chromium",
+    "user_agent": "Mozilla/5.0",
+    "locale": "fr-FR",
+    "timezone_id": "Europe/Paris",
+    "proxy_binding": {
+      "server": "http://proxy.example:3128",
+      "provider": "example",
+      "country": "FR",
+      "kind": "residential",
+      "sticky_session": "sticky-1"
+    },
+    "machine_binding": "machine-example",
+    "was_lent": true
+  }
 }

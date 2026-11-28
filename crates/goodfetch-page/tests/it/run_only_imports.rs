@@ -306,6 +306,7 @@ fn state_file_imports_all_four_formats_and_seals_in_run_state() {
             }],
             session_storage: Vec::new(),
         }],
+        identity: None,
     };
     let sealed = session_bundle::seal(
         &export,

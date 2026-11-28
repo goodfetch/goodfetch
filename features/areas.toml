@@ -1214,6 +1214,27 @@ number = 5
 kind = "operation"
 prefix = "session.save_identity"
 
+# Saved identities: encrypted install store and identity.* operations (#736, ADRs 0015, 0035, 0056, 0098).
+[[area]]
+number = 5
+kind = "operation"
+prefix = "identity."
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "saved_identity_"
+
+[[area]]
+number = 5
+kind = "setting"
+prefix = "saved_identity."
+
+[[area]]
+number = 5
+kind = "command"
+prefix = "identity."
+
 [[area]]
 number = 5
 kind = "error"

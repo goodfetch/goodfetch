@@ -80,6 +80,11 @@ export type CollieWireType =
   | "HookFailedDetails"
   | "HumanPause"
   | "HumanPauseResult"
+  | "IdentityExportParams"
+  | "IdentityExported"
+  | "IdentityImportParams"
+  | "IdentityList"
+  | "IdentityStorageStateExported"
   | "KeyValueStoreAttempt"
   | "KeyValueStoreBytes"
   | "KeyValueStoreBytesValue"
@@ -215,6 +220,7 @@ export type CollieWireType =
   | "RunStorage"
   | "RunUsage"
   | "SaveIdentityParams"
+  | "SavedIdentityInfo"
   | "ScheduleCapExceededDetails"
   | "ScheduleCreateParams"
   | "ScheduleCreated"
@@ -343,6 +349,11 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "HookFailedDetails": { fields: { "exception_message": "exceptionMessage", "exception_stack": "exceptionStack", "exception_type": "exceptionType", "wrapped_code": "wrappedCode" } },
     "HumanPause": { fields: { "deadline": ["deadline", "time"], "raised_by": "raisedBy", "since": ["since", "time"] } },
     "HumanPauseResult": { fields: { "resolved_by": "resolvedBy" } },
+    "IdentityExportParams": { fields: { "public_key": "publicKey" } },
+    "IdentityExported": { fields: { "cookie_count": "cookieCount", "origin_count": "originCount" } },
+    "IdentityImportParams": { fields: { "access_mode": "accessMode", "proxy_country": "proxyCountry", "proxy_kind": "proxyKind", "proxy_server": "proxyServer", "source": ["source", { type: "SessionSource" }], "timezone_id": "timezoneId" } },
+    "IdentityList": { fields: { "identities": ["identities", { items: { type: "SavedIdentityInfo" } }] } },
+    "IdentityStorageStateExported": { fields: { "cookie_count": "cookieCount", "origin_count": "originCount", "storage_state": "storageState" } },
     "KeyValueStoreAttempt": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch" } },
     "KeyValueStoreBytes": { fields: { "content_type": "contentType" } },
     "KeyValueStoreBytesValue": { fields: { "bytes": ["bytes", { type: "KeyValueStoreBytes" }] } },
@@ -478,6 +489,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "RunStorage": { fields: { "free_bytes": "freeBytes" } },
     "RunUsage": { fields: { "browser_time": "browserTime", "limits": ["limits", { items: { type: "AppliedLimit" } }], "model": ["model", { type: "ModelUsage" }], "model_allowance": ["modelAllowance", { items: { type: "ModelAllowance" } }], "other": ["other", { items: { type: "KindUsage" } }], "paid_fetches": "paidFetches", "paid_solves": "paidSolves", "proxy_bytes": "proxyBytes", "proxy_bytes_by_kind": "proxyBytesByKind", "proxy_price": "proxyPrice" } },
     "SaveIdentityParams": { fields: { "session_id": "sessionId" } },
+    "SavedIdentityInfo": { fields: { "access_mode": "accessMode", "browser_family": "browserFamily", "cookie_count": "cookieCount", "created_at": ["createdAt", "time"], "expires_at": ["expiresAt", "time"], "last_used_at": ["lastUsedAt", "time"], "machine_bound": "machineBound", "origin_count": "originCount", "proxy_bound": "proxyBound", "source_kind": "sourceKind", "timezone_id": "timezoneId", "updated_at": ["updatedAt", "time"], "was_lent": "wasLent" } },
     "ScheduleCapExceededDetails": { fields: { "policy_version": "policyVersion" } },
     "ScheduleCreateParams": { fields: { "definition": ["definition", { type: "ScheduleDefinition" }] } },
     "ScheduleCreated": { fields: { "schedule_id": "scheduleId" } },
@@ -544,6 +556,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "effect.close": { type: "EffectCloseParams" },
     "effect.open": { type: "EffectOpenParams" },
     "events.subscribe": { type: "EventsSubscribeParams" },
+    "identity.export": { type: "IdentityExportParams" },
+    "identity.import": { type: "IdentityImportParams" },
     "key_value_store.delete": { type: "KeyValueStoreKeyParams" },
     "key_value_store.get": { type: "KeyValueStoreKeyParams" },
     "key_value_store.get_bytes": { type: "KeyValueStoreKeyParams" },
@@ -645,6 +659,9 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "effect.close": { type: "EffectClosed" },
     "effect.open": { type: "EffectOpened" },
     "engine.info": { type: "EngineInfo" },
+    "identity.export": { type: "IdentityExported" },
+    "identity.import": { type: "SavedIdentityInfo" },
+    "identity.list": { type: "IdentityList" },
     "key_value_store.get_bytes": { type: "KeyValueStoreBytesValue" },
     "needs_you.list": { type: "NeedsYouList" },
     "page.formats": { type: "PageFormats" },

@@ -126,6 +126,7 @@ pub mod output;
 pub mod prompts;
 mod recipe;
 mod runs;
+mod saved_identities;
 mod service;
 mod settings_flags;
 mod skills;
@@ -196,6 +197,14 @@ enum Command {
     Certs {
         #[command(subcommand)]
         command: certs::CertsCommand,
+        #[command(flatten)]
+        _colour: ColourFlag,
+    },
+    /// Lists, imports, deletes and exports Saved identities in this Product
+    /// major's encrypted store.
+    Identity {
+        #[command(subcommand)]
+        command: saved_identities::IdentityCommand,
         #[command(flatten)]
         _colour: ColourFlag,
     },
@@ -888,33 +897,28 @@ fn run(
         Command::BrowserHost(arguments) => {
             browser_host::run(&arguments, engine, dependencies, &machine)
         }
-        Command::Config {
-            command:
-                ConfigCommand::Explain {
-                    keys,
-                    settings,
-                    project,
-                    json,
-                    daemon,
-                    attached: _,
-                },
-            ..
-        } => config::explain(
-            (engine, dependencies),
-            &machine,
-            if daemon {
+        Command::Config { command, .. } => {
+            let ConfigCommand::Explain {
+                keys,
+                settings,
+                project,
+                json,
+                daemon,
+                attached: _,
+            } = command;
+            let choice = if daemon {
                 Choice::Daemon
             } else {
                 Choice::Attached
-            },
-            &config::Explain {
+            };
+            let explain = config::Explain {
                 keys,
                 settings: settings.run_layer(),
                 project,
                 json,
-            },
-            human,
-        ),
+            };
+            config::explain((engine, dependencies), &machine, choice, &explain, human)
+        }
         Command::Doctor {
             json, include_urls, ..
         } => doctor::doctor(&machine, json, include_urls),
@@ -941,6 +945,9 @@ fn run(
         }
         Command::Certs { command, .. } => {
             certs::run(command, engine, dependencies, &machine, human)
+        }
+        Command::Identity { command, .. } => {
+            saved_identities::run(command, engine, dependencies, &machine, human)
         }
         Command::NeedsYou { command, .. } => needs_you::run(
             command,

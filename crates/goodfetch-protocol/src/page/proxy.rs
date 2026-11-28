@@ -369,7 +369,10 @@ pub struct ProxyProviderUnavailableDetails {
 
 /// A proxy kind, the pool a Session's proxy is drawn from (ADR 0021), in
 /// the order of the proxy tiers, cheapest first.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
 pub enum ProxyKind {
     /// A data centre's addresses.
     Datacenter,

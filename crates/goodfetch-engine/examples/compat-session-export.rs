@@ -12,8 +12,10 @@ use std::path::PathBuf;
 
 use goodfetch_engine::session_bundle::document;
 use goodfetch_protocol::formats::SESSION_EXPORT;
+use goodfetch_protocol::page::proxy::ProxyKind;
 use goodfetch_protocol::session_export::{
-    ExportedCookie, ExportedOrigin, SameSite, SessionExport, SessionValue, StorageItem,
+    ExportedCookie, ExportedIdentity, ExportedOrigin, SameSite, SavedProxyBinding, SessionExport,
+    SessionValue, StorageItem,
 };
 
 fn main() {
@@ -57,6 +59,23 @@ fn main() {
                 value: SessionValue::new("payment"),
             }],
         }],
+        identity: Some(ExportedIdentity {
+            access_mode: "standard".to_owned(),
+            browser_family: "chromium".to_owned(),
+            identity_seed: 42,
+            user_agent: Some("Mozilla/5.0".to_owned()),
+            locale: Some("fr-FR".to_owned()),
+            timezone_id: Some("Europe/Paris".to_owned()),
+            proxy_binding: Some(SavedProxyBinding {
+                provider: Some("example".to_owned()),
+                kind: Some(ProxyKind::Residential),
+                country: Some("FR".to_owned()),
+                server: Some("http://proxy.example:3128".to_owned()),
+                sticky_session: Some("sticky-1".to_owned()),
+            }),
+            machine_binding: Some("machine-example".to_owned()),
+            was_lent: true,
+        }),
     };
     std::fs::write(output.join("session.json"), document(&export))
         .expect("invariant: the output folder is writable");

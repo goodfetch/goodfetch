@@ -14,6 +14,7 @@ import type {
   Connection,
   EngineInfo,
   HandlerlessStartOptions,
+  Identities,
   JSONValue,
   Limits,
   Money,
@@ -166,10 +167,17 @@ export class Foxhound implements Connection {
    * (spec 589). Reached without a round trip.
    */
   readonly schedules: Schedules;
+  /**
+   * The Saved identities of the engine's major: list, import, delete and
+   * export as an encrypted bundle (ADRs 0035 and 0056). Reached without a
+   * round trip.
+   */
+  readonly identities: Identities;
 
   private constructor(connection: ClientConnection) {
     this.#connection = connection;
     this.schedules = connection.schedules;
+    this.identities = connection.identities;
     const calls = connection.caller<FoxhoundOperationTypes>(foxhoundWire);
     this.#operations = new FoxhoundOperations(calls);
     this.#crawlHost = {

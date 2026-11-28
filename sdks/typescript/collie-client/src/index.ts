@@ -31,6 +31,7 @@ export type { Listener, Subscription } from "./handle.ts";
 export type { Handle, RawCallOptions, RawParams } from "./raw-call.ts";
 export type { Sequence } from "./sequence.ts";
 export { KeyValueStore, type StoredBytes, type StoredValue } from "./key-value-store.ts";
+export { Identities, type IdentityCallOptions, type IdentityWriteOptions } from "./identities.ts";
 export {
   Schedule,
   Schedules,
@@ -70,6 +71,10 @@ export type {
   ExplainedSetting,
   FormatsRequest,
   FullNotification,
+  IdentityDeleted,
+  IdentityExportParams,
+  IdentityExported,
+  IdentityImportParams,
   Lifecycle,
   Navigated,
   NotificationData,
@@ -92,6 +97,7 @@ export type {
   RunOrigin,
   RunProgress,
   RunReport,
+  SavedIdentityInfo,
   SessionClosed,
   SettingsExplanation,
   SettingsFile,

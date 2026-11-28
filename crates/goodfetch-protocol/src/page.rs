@@ -62,6 +62,7 @@ pub mod dialog;
 pub mod emulation;
 pub mod events;
 pub mod functions;
+pub mod identity;
 pub mod input;
 pub mod lend;
 pub mod pause;

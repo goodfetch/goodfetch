@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Literal, TypeAlias
 
-AuditKind: TypeAlias = Literal["audit_log_anchor", "audit_log_pruned", "cdp_session_attached", "certificate_any_used", "certificate_change_accepted", "certificate_exceptions_used", "certificate_pin_forgotten", "certificate_pinned", "consent_domain_allowed", "effect_reconciled", "endpoint_authentication_failed", "endpoint_refusals_folded", "exposed_daemon_set_up", "fingerprint_method_chosen", "human_pause_ended", "lent_page_attached", "operator_policy_written", "pressing_harder_value_set", "private_addresses_allowed", "raw_cdp_attached", "refetch_domain_removed", "run_rolled_back", "secret_reference_used", "security_switch_turned_off", "session_exported", "session_imported", "tls_terminated_upstream", "user_configuration_written", "wall_allowance_used", "wall_domain_denied"] | str
+AuditKind: TypeAlias = Literal["audit_log_anchor", "audit_log_pruned", "cdp_session_attached", "certificate_any_used", "certificate_change_accepted", "certificate_exceptions_used", "certificate_pin_forgotten", "certificate_pinned", "consent_domain_allowed", "effect_reconciled", "endpoint_authentication_failed", "endpoint_refusals_folded", "exposed_daemon_set_up", "fingerprint_method_chosen", "human_pause_ended", "lent_page_attached", "operator_policy_written", "pressing_harder_value_set", "private_addresses_allowed", "raw_cdp_attached", "refetch_domain_removed", "run_rolled_back", "saved_identity_deleted", "saved_identity_exported", "saved_identity_reused", "saved_identity_saved", "secret_reference_used", "security_switch_turned_off", "session_exported", "session_imported", "tls_terminated_upstream", "user_configuration_written", "wall_allowance_used", "wall_domain_denied"] | str
 """A `audit_kind`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
@@ -35,6 +35,10 @@ received (ADR 0079).
 - `raw_cdp_attached`: A raw CDP client attached to a Session's browser.
 - `refetch_domain_removed`: A person removed a domain on which a Run's refetch stopped from the layer of `wall.refetch_domains` that listed it, or replaced `*` there with a list (ADR 0052); `details` give the `domain` and the layer's `domains` after.
 - `run_rolled_back`: A resume asked to roll back the Run's run file on this machine to a Checkpoint behind it, or one this engine could not read, losing the work done since that Checkpoint: the positions of both, the run file's null when unread. It is written before the run file is replaced, and a replacement that then fails leaves that file as it was (ADR 0002).
+- `saved_identity_deleted`: A Saved identity was deleted from the store, either explicitly or on expiry after going unused (ADR 0035).
+- `saved_identity_exported`: A Saved identity was exported as an encrypted session bundle or, by a person at a terminal, as clear-text `storageState` (ADRs 0015 and 0056).
+- `saved_identity_reused`: A Saved identity was opened and reused by a Session (ADR 0035).
+- `saved_identity_saved`: A Session's login or imported state was encrypted and stored as a named Saved identity (ADR 0035).
 - `secret_reference_used`: A Secret reference was resolved and used: its placeholder, its reference and the domain that received it, never its value.
 - `security_switch_turned_off`: A security control was switched off for a run, once per run, with its setting and the layer that set it (ADR 0016).
 - `session_exported`: A Session was exported to an encrypted bundle.

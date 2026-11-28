@@ -230,6 +230,17 @@ class DaemonHello:
     """What fails the opening when the Daemon closes before it answers."""
 
 
+@dataclass(frozen=True)
+class WorkerTarget:
+    """How an extra worker process reaches this Connection's engine (ADR 0024)."""
+
+    kind: Literal["private", "daemon", "remote"]
+    transport: Literal["unix", "tcp", "ws"]
+    address: str
+    token_file: str | None = None
+    token: str | None = field(default=None, repr=False)
+
+
 class ClientConnection:
     """The common Connection under each Product's Connection type."""
 
@@ -245,6 +256,7 @@ class ClientConnection:
         project: ProjectFile | None = None,
         *,
         needs: Product,
+        worker_target: WorkerTarget | None = None,
     ) -> None:
         """Takes the transport, its engine when one started, and the code classes.
 
@@ -258,6 +270,7 @@ class ClientConnection:
         """
         self._engine = engine
         self._reached = reached
+        self._worker_target: WorkerTarget | None = worker_target
         self._project: ProjectSettings | None = (
             None if project is None else project.carried
         )
@@ -308,6 +321,7 @@ class ClientConnection:
         bounds: ChannelBounds | None = None,
         reconnect: Reconnect | None = None,
         project: ProjectFile | None = None,
+        worker_target: WorkerTarget | None = None,
     ) -> ClientConnection:
         """Opens a Connection over `transport`, finishing `hello` before it returns.
 
@@ -348,6 +362,7 @@ class ClientConnection:
             bounds,
             project,
             needs=needs,
+            worker_target=worker_target,
         )
         try:
             # The Connection's own, for every caller: no Trace context (ADR 0132).
@@ -810,6 +825,11 @@ class ClientConnection:
         """Whether the Connection can still reach the engine."""
         return not self._ended
 
+    @property
+    def worker_target(self) -> WorkerTarget | None:
+        """How an extra worker process reaches this Connection's engine (ADR 0024)."""
+        return self._worker_target
+
     def forget(self, run: AsyncRun) -> None:
         """Forgets a closed Run."""
         self._runs.pop(run, None)
@@ -952,6 +972,27 @@ class ClientConnection:
         # The Scripted engine names no cap: then calls are never queued.
         if isinstance(cap, int) and not isinstance(cap, bool) and cap >= 1:
             self._channel.cap_calls_in_flight(cap)
+        private = object_members(fields.get("private_endpoint"))
+        if private is not None:
+            address = object_members(private.get("address"))
+            token_file = private.get("token_file")
+            if address is not None and isinstance(token_file, str):
+                unix = address.get("unix")
+                tcp = address.get("tcp")
+                if isinstance(unix, str):
+                    self._worker_target = WorkerTarget(
+                        kind="private",
+                        transport="unix",
+                        address=unix,
+                        token_file=token_file,
+                    )
+                elif isinstance(tcp, str):
+                    self._worker_target = WorkerTarget(
+                        kind="private",
+                        transport="tcp",
+                        address=tcp,
+                        token_file=token_file,
+                    )
 
     async def _hello_answer(
         self,

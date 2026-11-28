@@ -135,6 +135,8 @@ class DaemonReach:
         DaemonUnreachableError: No WebSocket of the Client's subprotocol
             opened.
     """
+    endpoint: tuple[Literal["unix", "tcp"], str] | None = None
+    """The local Daemon's `(kind, address)` endpoint; `None` for a remote Daemon."""
 
     @property
     def kind(self) -> Literal["daemon", "remote"]:
@@ -565,6 +567,7 @@ async def _running_daemon(
         closed_at_hello=lambda: _unreachable(_closed_at_hello(address), fix),
         runtime_file=RuntimeFile(home, text),
         reopen=None,
+        endpoint=(kind, address),
     )
 
 
@@ -654,6 +657,41 @@ def _unopened() -> DaemonUnreachableError:
         "Check that the Daemon's socket is yours and reachable, or connect with "
         "engine attached.",
     )
+
+
+async def open_endpoint(kind: Literal["unix", "tcp"], address: str) -> ByteStream:
+    """Opens a stream to an Attached engine's private endpoint or local Daemon."""
+    if kind == "unix":
+        stream = await _open_unix(address)
+    else:
+        host, _, port = address.rpartition(":")
+        stream = (
+            await _open_tcp(host.removeprefix("[").removesuffix("]"), int(port))
+            if port.isdigit()
+            else None
+        )
+    if stream is None:
+        raise _unreachable(
+            f"Nothing listens at the engine endpoint {address}",
+            "Check that the engine or Daemon that started the crawl is still running.",
+        )
+    return stream
+
+
+async def open_remote_transport(url: str) -> ByteStream:
+    """Opens a WebSocket stream to a remote Daemon for a worker process."""
+    host, port, origin = _remote_address(url, "engine")
+    socket = await _open_tcp(host, port)
+    stream = (
+        None if socket is None else await open_websocket(socket, url, origin=origin)
+    )
+    if stream is None:
+        raise _unreachable(
+            f"No Daemon at {url} opened a WebSocket of subprotocol "
+            f"{WEBSOCKET_SUBPROTOCOL}",
+            "Check that the remote Daemon is still running and reachable.",
+        )
+    return stream
 
 
 def home_of(env: Mapping[str, str]) -> str | None:

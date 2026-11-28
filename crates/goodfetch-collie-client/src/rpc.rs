@@ -301,6 +301,15 @@ impl Sender {
         self.hand(Command::Notify(credited(id, credits)));
     }
 
+    /// Sends a JSON-RPC notification of `method` with `params`.
+    pub(crate) fn notify(&self, method: &str, params: Value) {
+        self.hand(Command::Notify(Notification {
+            jsonrpc: Version,
+            method: method.to_owned(),
+            params: Some(params),
+        }));
+    }
+
     /// Cancels the streaming call `id` with `$/cancel`.
     pub(crate) fn cancel(&self, id: i64) {
         self.hand(Command::Notify(cancelled(id)));

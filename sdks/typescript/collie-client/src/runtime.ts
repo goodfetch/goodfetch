@@ -12,7 +12,7 @@
 // program's handlers. It is for the Product packages, never for programs,
 // which hold their Product's Connection type. Its generated members of a
 // deprecated or Experimental entry warn through `markers`' functions.
-export type { ClientConnection, Served, Stream } from "./client-connection.ts";
+export type { ClientConnection, Served, Stream, WorkerTarget } from "./client-connection.ts";
 export type { ErrorClasses } from "./errors.ts";
 export { refuseHandlersOnEdge } from "./edge-runtime.ts";
 export { limitList } from "./limits.ts";
@@ -47,6 +47,7 @@ export { collieOperationClasses, collieOperationNames } from "./generated/operat
 export { collieWire, type CollieWireType } from "./generated/wire.ts";
 export {
   fromWire,
+  toWire,
   type Wire,
   type WireField,
   type WirePath,
@@ -57,6 +58,7 @@ export {
   locateEngine,
   openEngine,
   openOver,
+  openWorkerConnection,
   type EngineLocation,
   type ProductPackage,
 } from "./product-connection.ts";

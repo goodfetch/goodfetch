@@ -409,6 +409,14 @@ entry = "typescript @goodfetch/foxhound/generated AuditKind"
 reason = "`politeness_weakened` joined Collie's `AuditKind` so Collie records a weakened `politeness.sharing` (ADR 0086, issue 643): Foxhound's `AuditKind` inherits it through `CollieAuditKind` instead of repeating the literal, keeping the same values."
 
 [[announced]]
+entry = "foxhound settings politeness.domain.concurrency"
+reason = "Foxhound's per-domain concurrency defaults to 1 (ADR 0086, issue 1499), replacing the temporary `null` placeholder; values above 1 or `null` press harder and are reported in `weakened`."
+
+[[announced]]
+entry = "foxhound settings politeness.domain.delay"
+reason = "Foxhound's per-domain delay defaults to 1000 ms (ADR 0086, issue 1499), replacing the temporary `null` placeholder; values under 1000 ms or `null` press harder and are reported in `weakened`."
+
+[[announced]]
 entry = "typescript @goodfetch/collie-client/generated Surface"
 reason = "The Daemon's HTTP JSON-RPC listener joins the `Surface` union as `http_listener` (ADR 0027, issue 1400): a switch over every surface gains that member."
 

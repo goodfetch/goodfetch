@@ -338,6 +338,19 @@ impl TestEnv {
         .unwrap_or_else(|error| panic!("the test's user configuration cannot be written: {error}"));
     }
 
+    /// Merges `settings`, lines of TOML under `[settings]`, into the home's
+    /// existing user configuration, replacing any key `settings` names and
+    /// keeping every other line as it was.
+    ///
+    /// # Panics
+    ///
+    /// If the file cannot be read or written.
+    pub fn append_user_configuration(&self, settings: &str) {
+        merge_user_configuration(&self.home, settings).unwrap_or_else(|error| {
+            panic!("the test's user configuration cannot be written: {error}")
+        });
+    }
+
     /// Sets the `log.level` of every engine the test starts from now on,
     /// a `tracing` filter directive, such as `trace` for a test whose
     /// stdout must hold no log line at any level, or `info` for a
@@ -726,6 +739,39 @@ fn set_log_level(home: &Path, filter: &str) -> io::Result<()> {
             lines.insert(after, level);
         }
         None => lines.extend(["[settings]".to_owned(), level]),
+    }
+    replace(&file, &(lines.join("\n") + "\n"))
+}
+
+/// Merges `settings` (`key = value` lines) into `[settings]` of `home`'s user
+/// configuration, replacing matching keys and preserving all other lines.
+fn merge_user_configuration(home: &Path, settings: &str) -> io::Result<()> {
+    let file = home
+        .join(major_folder(env!("CARGO_PKG_VERSION")))
+        .join(USER_CONFIGURATION);
+    let additions: Vec<&str> = settings
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .collect();
+    let new_keys: Vec<&str> = additions.iter().map(|line| key_of(line)).collect();
+    let mut lines: Vec<String> = std::fs::read_to_string(&file)?
+        .lines()
+        .filter(|line| !new_keys.contains(&key_of(line)))
+        .map(str::to_owned)
+        .collect();
+    if let Some(table) = lines.iter().position(|line| line.trim() == "[settings]") {
+        let section_len = lines[table + 1..]
+            .iter()
+            .take_while(|line| !line.trim_start().starts_with('['))
+            .count();
+        let insert_at = table + 1 + section_len;
+        for (offset, line) in additions.into_iter().enumerate() {
+            lines.insert(insert_at + offset, line.to_owned());
+        }
+    } else {
+        lines.push("[settings]".to_owned());
+        lines.extend(additions.into_iter().map(str::to_owned));
     }
     replace(&file, &(lines.join("\n") + "\n"))
 }

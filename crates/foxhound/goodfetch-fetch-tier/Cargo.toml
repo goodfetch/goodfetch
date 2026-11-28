@@ -71,6 +71,7 @@ rstest.workspace = true
 toml.workspace = true
 zstd.workspace = true
 tokio = { workspace = true, features = ["rt", "macros", "time", "net"] }
+goodfetch-dev-workspace-hack.workspace = true
 
 # ADR 0071: instruction counts under Callgrind, heap metrics under DHAT.
 [[bench]]

@@ -1,0 +1,12 @@
+# Managed Operator policy for {{product_name}} {{product_version}} (ADR 0049, ADR 0083).
+# Mounted read-only into the container by compose.yaml.
+version = "0.1"
+
+[settings.daemon]
+address = "0.0.0.0:{{daemon_port}}"
+
+[settings.daemon.tls]
+upstream = true
+
+[settings.ops]
+address = "127.0.0.1:{{ops_port}}"

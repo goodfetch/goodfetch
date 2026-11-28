@@ -174,6 +174,7 @@ impl Seed {
                     priority: 0,
                     forefront: false,
                     method: HttpMethod::default(),
+                    headers: std::collections::BTreeMap::new(),
                     body: None,
                     key: None,
                 },
@@ -197,6 +198,7 @@ impl Seed {
                 priority: 0,
                 forefront: false,
                 method: HttpMethod::default(),
+                headers: std::collections::BTreeMap::new(),
                 body: None,
                 key: None,
             }),
@@ -267,6 +269,18 @@ impl Seed {
     #[must_use]
     pub fn method(self, method: HttpMethod) -> Self {
         self.with_request("method", |request| request.method = method)
+    }
+
+    /// The seed, sent with the extra request header `name: value` (ADR 0093).
+    /// Forbidden headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`,
+    /// method overrides; ADR 0033) fail with `header_forbidden`.
+    #[must_use]
+    pub fn header(self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        let name = name.into();
+        let value = value.into();
+        self.with_request("headers", |request| {
+            request.headers.insert(name, value);
+        })
     }
 
     /// The seed, sent with `body`.

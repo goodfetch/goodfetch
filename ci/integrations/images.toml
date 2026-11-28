@@ -1,0 +1,18 @@
+# Pinned container images for the n8n and Activepieces Integration harnesses
+# (ADR 0070; issue 426). Each `digest` is the multi-platform index of
+# `repository:tag`, so Linux x64 and arm64 each run their own architecture's
+# image and neither image can move.
+#
+# Read by `ci/integrations/fetch.sh` (`just fetch`), which pulls both before
+# ADR 0043's outbound-traffic deny, by `xtask image-pins` (ADR 0067), and by
+# `@goodfetch/test-support`'s Integration harness.
+
+[n8n]
+repository = "docker.io/n8nio/n8n"
+tag = "2.50.3"
+digest = "sha256:6dc48a8dbdfe070b3babacd128995635e61cd19da9172b9aa0d5546792bd4a23"
+
+[activepieces]
+repository = "docker.io/activepieces/activepieces"
+tag = "0.94.0"
+digest = "sha256:be0ff0426f5fa81e4c60d2ee8cef17bed2d5d053726b001949b4e5cd02c96f45"

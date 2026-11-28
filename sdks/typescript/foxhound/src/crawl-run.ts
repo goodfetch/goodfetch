@@ -43,8 +43,10 @@ import {
   type WirePath,
 } from "@goodfetch/collie-client/runtime";
 import {
+  checkCrawlStartable,
   checkPayload,
   checkRecords,
+  checkSeedPayloads,
   declaredLabel,
   enqueueLinksOptions,
   handlerOf,
@@ -58,7 +60,12 @@ import {
   type CrawlContext,
   type Dataset,
   type DatasetRecord,
+  type Label,
+  type PayloadThen,
+  type RequestOptions,
 } from "./crawl.ts";
+import { makeExport, type Export, type ExportOptions } from "./export.ts";
+import { openSeedStream } from "./seed-stream.ts";
 import {
   HandlerFailedError,
   RecordInvalidError,
@@ -69,13 +76,26 @@ import {
   type CrawlRequestEnqueueLinksParams,
   type CrawlRequestHandleParams,
   type CrawlRequestHandled,
+  type CrawlRequestOutcome,
+  type CrawlRequestOutcomes,
   type CrawlRunProgress,
   type CrawlRunReport,
+  type CrawlSettings,
+  type CrawlStarted,
   type DatasetRecord as WireDatasetRecord,
+  type Enqueued,
   type FoxhoundOperationTypes,
+  type OutcomeKind,
+  type OutcomesAfter,
   type RejectedRecord,
   type RejectedRecords,
+  type RunExportParams,
+  type RunOutcomesParams,
+  type RunRetryFailedParams,
+  type Seed,
+  type SeedAttempt,
 } from "./generated/index.ts";
+import { settingsOnWire } from "./generated/settings.ts";
 import { foxhoundWire, type FoxhoundWireType } from "./generated/wire.ts";
 
 /** How many Records `records()` lets the engine send before the program has read any. */
@@ -118,23 +138,64 @@ export interface RejectedRecordsOptions {
   readonly signal?: AbortSignal | undefined;
 }
 
+/** What `outcomes()` takes. */
+export interface OutcomesOptions {
+  /** Only outcomes of these kinds; absent, every kind. */
+  readonly kinds?: readonly OutcomeKind[] | undefined;
+  /** Only outcomes of requests of these Labels (names or Label handles); absent, every Label. */
+  readonly labels?: readonly (string | Label<object | undefined>)[] | undefined;
+  /** Only outcomes of requests one of whose failed attempts failed with one of these Error codes. */
+  readonly codes?: readonly string[] | undefined;
+  /** Where to start: after this commit position, or `"now"` for the next commit on; absent, from the first. */
+  readonly after?: OutcomesAfter | undefined;
+  /** Stops reading: the reads are cancelled and the iteration fails with the signal's reason. */
+  readonly signal?: AbortSignal | undefined;
+}
+
+/** What `failedRequests()` takes. */
+export interface FailedRequestsOptions {
+  /** Also lists requests whose latest outcome is `blocked`; `false` by default. */
+  readonly blocked?: boolean | undefined;
+  /** Cancels the call with the signal's reason. */
+  readonly signal?: AbortSignal | undefined;
+}
+
+/** What `retryFailed()` takes. */
+export interface RetryFailedOptions {
+  /** Also re-admits requests whose latest outcome is `blocked`; `false` by default. */
+  readonly blocked?: boolean | undefined;
+  /** Settings from the retry on, read when the retry returns an ended Run to `running`. */
+  readonly settings?: CrawlSettings | undefined;
+  /** Cancels the call with the signal's reason. */
+  readonly signal?: AbortSignal | undefined;
+}
+
 let handleIn: (
   run: CrawlRun,
   request: CrawlRequestHandleParams,
   signal: AbortSignal,
 ) => Promise<CrawlRequestHandled>;
 
+let attachWorkersIn: (run: CrawlRun, stop: () => Promise<void>) => void;
+
 /** A crawl's Run, opened by `Foxhound.startCrawl` (ADR 0102). */
 export class CrawlRun extends Run {
   static {
     handleIn = (run, request, signal) => run.#handle(request, signal);
+    attachWorkersIn = (run, stop) => {
+      run.#stopWorkers = stop;
+    };
   }
 
   /** Its crawl, whose handlers its attempts run; none for a code-free crawl. */
   readonly #crawl: Crawl | undefined;
   readonly #crawlHost: CrawlHost;
+  /** Each seed's original answer from `crawl.start`, read with no round trip. */
+  readonly #seeds: readonly Enqueued[];
   /** The attempts running, each stopped when the Run is closed. */
   readonly #attempts = new Set<AbortController>();
+  /** Stops extra worker processes when the Run ends or closes; none for single-process crawls. */
+  #stopWorkers: (() => Promise<void>) | undefined;
   /** Whether `close()` was called: it stops the attempts and forgets the Run once. */
   #closed = false;
 
@@ -144,7 +205,7 @@ export class CrawlRun extends Run {
    */
   constructor(
     host: RunHost,
-    started: RunStarted,
+    started: CrawlStarted | RunStarted,
     crawl: Crawl | undefined,
     crawlHost: CrawlHost,
     detached = false,
@@ -155,6 +216,147 @@ export class CrawlRun extends Run {
     alsoInNamespace(this, "crawl");
     this.#crawl = crawl;
     this.#crawlHost = crawlHost;
+    this.#seeds = "seeds" in started && started.seeds !== undefined ? [...started.seeds] : [];
+  }
+
+  /**
+   * Lists each seed's answer, in the order the crawl's start gave them, as the
+   * Frontier answered it when the Run began: added, with its crawl request's ID
+   * and its URL as parsed, or not added, with its reason (`duplicate`,
+   * `domain_policy`, `unsupported_scheme`, `invalid_url` or a cap's name). A
+   * relative seed is `invalid_url`, since nothing gives it a base. So a crawl
+   * that does nothing says why. Read from the Run's committed state, so it
+   * works on a Run no program holds.
+   *
+   * Answered from `crawl.start`'s reply with no round trip, including after a
+   * resume (ADR 0102).
+   *
+   * @experimental
+   */
+  seeds(): readonly Enqueued[] {
+    return [...this.#seeds];
+  }
+
+  /**
+   * Adds one seed to a running crawl, `run.addSeed`, admitted and answered as
+   * soon as the Run state accepts it (written with the next Run-state batch at
+   * the default durability, or committed before answering at `full`), and
+   * answers as an enqueue does: added, with its crawl request's ID and its URL
+   * as parsed, or not added, with its reason (`duplicate`,
+   * `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is
+   * `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on.
+   * Through a handler's context, naming its `attempt`, it is staged with that
+   * attempt: once the attempt ended it fails with `attempt_ended`. A Run this
+   * engine does not run as a live crawl, or a crawl already ending its Run,
+   * fails with `run_not_found`.
+   *
+   * @experimental
+   */
+  addSeed(seed: Seed, options?: CallOptions): Promise<Enqueued>;
+  addSeed<P extends object | undefined>(
+    url: string,
+    label: Label<P>,
+    ...rest: PayloadThen<NoInfer<P>, RequestOptions & CallOptions>
+  ): Promise<Enqueued>;
+  async addSeed(
+    seedOrUrl: Seed | string,
+    labelOrOptions?: Label<object | undefined> | CallOptions,
+    ...rest: unknown[]
+  ): Promise<Enqueued> {
+    return this.#addSeed(seedOrUrl, labelOrOptions, rest, undefined);
+  }
+
+  /**
+   * Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers
+   * each as `run.add_seed` does, in order, so a million seeds never sit in
+   * memory. The engine grants the call 256 credits with `$/credit`, one seed
+   * each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never
+   * more than its credits, and the engine admits each batch (staged with
+   * `attempt` when named, or written with the next Run-state batch at default
+   * durability), sends its answers in one `$/enqueued {id, answers}` and
+   * grants as many credits again. Once it answered the batch marked `end`, the
+   * call answers how many seeds were added and how many were not. Cancelling
+   * it keeps the seeds already answered. A batch beyond the credits granted,
+   * or a seed that is no seed, fails the call with `invalid_params`; a Run
+   * this engine does not run as a live crawl, or a crawl already ending its
+   * Run, fails with `run_not_found`.
+   *
+   * @experimental
+   */
+  addSeeds(
+    source: Iterable<Seed> | AsyncIterable<Seed>,
+    options: CallOptions = {},
+  ): Sequence<Enqueued> {
+    return this.#addSeeds(source, options, undefined);
+  }
+
+  async #addSeed(
+    seedOrUrl: Seed | string,
+    labelOrOptions: Label<object | undefined> | CallOptions | undefined,
+    rest: readonly unknown[],
+    attempt: SeedAttempt | undefined,
+    attemptSignal?: AbortSignal,
+  ): Promise<Enqueued> {
+    warnEntry(foxhoundOperations, "run.add_seed");
+    attemptSignal?.throwIfAborted();
+    ensureRunOpen(this, "run.add_seed");
+    let wireSeed: Seed;
+    let callOptions: CallOptions | undefined;
+    if (typeof seedOrUrl === "string") {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- overload `(url, label, ...rest)` binds the second argument to a `Label`.
+      const label = labelOrOptions as Label<object | undefined>;
+      const name = this.#crawl === undefined ? label.name : declaredLabel(this.#crawl, label);
+      const given = payloadAndOptions<object | undefined, RequestOptions & CallOptions>(
+        label,
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `PayloadThen` types what follows `label` as its Payload and options.
+        rest as PayloadThen<object | undefined, RequestOptions & CallOptions>,
+      );
+      const payload = payloadOf(label, given.payload);
+      await checkPayload(label, payload.payload);
+      wireSeed = {
+        url: seedOrUrl,
+        label: name,
+        ...payload,
+        ...requestOptions(given.options ?? {}),
+      };
+      callOptions = given.options;
+    } else {
+      wireSeed = seedOrUrl;
+      if (this.#crawl !== undefined) {
+        checkCrawlStartable(this.#crawl, [wireSeed]);
+        await checkSeedPayloads(this.#crawl, [wireSeed]);
+      }
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- overload `(seed, options?)` binds the second argument to `CallOptions`.
+      callOptions = labelOrOptions as CallOptions | undefined;
+    }
+    const signal = mergeSignals(attemptSignal, callOptions?.signal);
+    const mergedOptions: CallOptions = signal === undefined ? {} : { signal };
+    return this.#crawlHost.calls.call(
+      "run.add_seed",
+      {
+        runId: this.id(),
+        seed: wireSeed,
+        ...(attempt === undefined ? {} : { attempt }),
+      },
+      mergedOptions,
+    );
+  }
+
+  #addSeeds(
+    source: Iterable<Seed> | AsyncIterable<Seed>,
+    options: CallOptions,
+    attempt: SeedAttempt | undefined,
+  ): Sequence<Enqueued> {
+    warnEntry(foxhoundOperations, "run.add_seeds");
+    ensureRunOpen(this, "run.add_seeds");
+    return openSeedStream({
+      connection: this.#crawlHost.connection,
+      runId: this.id(),
+      crawl: this.#crawl,
+      attempt,
+      source,
+      signal: options.signal,
+    });
   }
 
   /**
@@ -278,6 +480,183 @@ export class CrawlRun extends Run {
     return this.#rejectedRecords(dataset, options, "follows");
   }
 
+  /**
+   * Writes an Export of one Dataset of a crawl's Run: the Records it committed
+   * when the call is made, in number order, in the format named, as its
+   * `format` value says: a table (`csv`, `xlsx`, `html_table`, `markdown`, and
+   * typed, `parquet`, `avro` and `arrow_ipc`) has one column per field seen in
+   * any of its Records, in first-seen order, and one row per Record. Every
+   * text Export is UTF-8 with no BOM unless `export.csv.bom` puts one on CSV,
+   * characters written as themselves (a character XML 1.0 cannot hold as
+   * U+FFFD in XML and feeds) and each value as it was committed: a table cell
+   * holds a string as its text, a number, `true` or `false` as JSON writes it,
+   * nothing for `null` or a field its Record lacks, and an object or array as
+   * its JSON text, or, in CSV under `export.csv.nested: flatten`, an object's
+   * fields in dotted columns. A Record whose page was read past a Wall carries
+   * its Wall marker, `{kind, vendor?}` as its Provenance holds it, as a
+   * `#wall` field in every format but the feeds, where it is a category of the
+   * scheme `urn:goodfetch:wall` naming its kind; `wall` set to `true` writes
+   * only those Records, `false` only the others. `compression` `gzip` or
+   * `zstd` compresses the whole file. Its `settings` and `project` are the run
+   * layer and the project configuration its `export.*` settings resolve under;
+   * a value the format cannot take fails with `setting_invalid`. Answers the
+   * Export, with its Record count, its last Record's number, its size, its
+   * SHA-256 and the run epoch of the Run's state it was written from, only
+   * once its file is whole in the Run's folder, where `export.save_as` and
+   * `export.stream` read it. Records committed after the call starts are not
+   * in it. A write the engine's storage refuses fails with
+   * `file_write_failed`, side `engine`, leaving no unfinished file, as does a
+   * call while that storage is at the `critical` level, before any byte is
+   * written. A Dataset the crawl does not declare fails with
+   * `dataset_unknown`; an `xlsx` sheet past Excel's limits, with
+   * `sheet_capacity_exceeded`.
+   *
+   * @experimental
+   */
+  async export<I extends object, O>(
+    dataset: Dataset<I, O>,
+    options: ExportOptions,
+  ): Promise<Export> {
+    warnEntry(foxhoundOperations, "run.export");
+    ensureRunOpen(this, "run.export");
+    const settings = settingsOnWire(options.settings);
+    const project = this.#crawlHost.connection.project();
+    const params: RunExportParams = {
+      runId: this.id(),
+      dataset: dataset.name,
+      format: options.format,
+      ...(options.compression === undefined ? {} : { compression: options.compression }),
+      ...(options.wall === undefined ? {} : { wall: options.wall }),
+      ...(settings === undefined ? {} : { settings }),
+      ...(project === undefined ? {} : { project }),
+    };
+    const descriptor = await this.#crawlHost.calls.call("run.export", params, {
+      signal: options.signal,
+    });
+    return makeExport(this.#crawlHost.connection, descriptor);
+  }
+
+  /**
+   * A log of endings, not current state: a re-admitted request's new outcome
+   * supersedes the old by `request.id` (ADRs 0102, 0117).
+   *
+   * Reads a crawl's outcomes from its committed state, in commit order: from
+   * the first, after a position, or with `after: "now"` from the next commit.
+   * Its filters, `kinds`, `labels` and `codes` (an Error code any of the
+   * request's failed attempts failed with), run in the engine. While the Run
+   * is live and nothing new matches, it waits for the next commit; a page says
+   * `ended` once the Run has ended, or has no live writer, and nothing more
+   * matches. A reader never slows the Run. A request `run.retry_failed`
+   * re-admits ends again, and its later outcome supersedes the earlier one by
+   * `request.id`.
+   *
+   * @experimental
+   */
+  outcomes(options: OutcomesOptions = {}): Sequence<CrawlRequestOutcome> {
+    warnEntry(foxhoundOperations, "run.outcomes");
+    ensureRunOpen(this, "run.outcomes");
+    const calls = this.#crawlHost.calls;
+    const runId = this.id();
+    const kinds = options.kinds === undefined ? undefined : [...options.kinds];
+    const labels =
+      options.labels === undefined
+        ? undefined
+        : options.labels.map((label) => (typeof label === "string" ? label : label.name));
+    const codes = options.codes === undefined ? undefined : [...options.codes];
+    let take: (() => CrawlRequestOutcome | undefined) | undefined;
+    return new Sequence({
+      open: (opened) => {
+        const reading = paged<CrawlRequestOutcomes, CrawlRequestOutcome>(
+          {
+            read: async (read, signal) => {
+              ensureRunOpen(this, "run.outcomes");
+              const after: OutcomesAfter | undefined = read ?? options.after;
+              const params: RunOutcomesParams = {
+                runId,
+                ...(kinds === undefined ? {} : { kinds }),
+                ...(labels === undefined ? {} : { labels }),
+                ...(codes === undefined ? {} : { codes }),
+                ...(after === undefined ? {} : { after }),
+              };
+              return calls.call("run.outcomes", params, { signal });
+            },
+            position: (page) => page.next,
+            last: (page) => page.ended,
+            items: (page) => page.outcomes,
+          },
+          opened,
+        );
+        take = reading.take;
+        return reading.stream;
+      },
+      itemOf: (method) => (method === FOLLOWED_VALUE ? take?.() : undefined),
+      credits: REJECTED_CREDITS,
+      regrant: REJECTED_REGRANT,
+      signal: options.signal,
+    });
+  }
+
+  /**
+   * Reads from a crawl's committed state the requests whose latest outcome is
+   * `failed`, and with `blocked` also `blocked`, each with that outcome:
+   * exactly those `run.retry_failed` re-admits with the same option. A skip is
+   * a decision and is never listed.
+   *
+   * @experimental
+   */
+  async failedRequests(
+    options: FailedRequestsOptions = {},
+  ): Promise<readonly CrawlRequestOutcome[]> {
+    warnEntry(foxhoundOperations, "run.failed_requests");
+    ensureRunOpen(this, "run.failed_requests");
+    const result = await this.#crawlHost.calls.call(
+      "run.failed_requests",
+      { runId: this.id(), blocked: options.blocked === true },
+      { signal: options.signal },
+    );
+    return result.requests;
+  }
+
+  /**
+   * Re-admits, in the same Run and its Datasets, every request of a crawl
+   * whose latest outcome is `failed`, and with `blocked` also `blocked`:
+   * exactly those `run.failed_requests` lists with the same option. Each keeps
+   * its ID, Label, Payload and depth; its attempts count on, with a fresh
+   * `crawl.retry.max`. A skip is a decision and is never re-admitted. It
+   * answers how many it re-admitted, 0 when there was nothing to retry. On a
+   * crawl this engine runs, the requests join its work at once, unless the
+   * crawl is already ending its Run: the call then waits for that end and
+   * re-admits them as on an ended Run. On an ended Run with requests to retry,
+   * the Run returns to `running` under `settings`, as a resume does, its
+   * Verdict and Completeness given anew when it ends, and the calling
+   * Connection serves its handlers. A Run with no writer that has not ended
+   * fails with `run_interrupted`: resume it first. A request to retry whose
+   * Label the crawl no longer declares, which a resume may drop, fails the
+   * call with `label_unknown`, naming that Label and those declared, and
+   * nothing is re-admitted: on an ended Run, against the Labels its latest
+   * start declared, before the Run returns to `running`. It is not sent again
+   * after a lost Connection, which fails it with `connection_lost`:
+   * `run.failed_requests` then lists the requests still to retry.
+   *
+   * @experimental
+   */
+  async retryFailed(options: RetryFailedOptions = {}): Promise<number> {
+    warnEntry(foxhoundOperations, "run.retry_failed");
+    ensureRunOpen(this, "run.retry_failed");
+    const settings = settingsOnWire(options.settings);
+    const project = this.#crawlHost.connection.project();
+    const params: RunRetryFailedParams = {
+      runId: this.id(),
+      blocked: options.blocked === true,
+      ...(settings === undefined ? {} : { settings }),
+      ...(project === undefined ? {} : { project }),
+    };
+    const result = await this.#crawlHost.calls.call("run.retry_failed", params, {
+      signal: options.signal,
+    });
+    return result.readmitted;
+  }
+
   #rejectedRecords<I extends object, O>(
     dataset: Dataset<I, O>,
     options: RejectedRecordsOptions,
@@ -352,14 +731,16 @@ export class CrawlRun extends Run {
    *
    * @experimental
    */
-  override finish(
+  override async finish(
     options: {
       readonly timeout?: RunFinishParams["timeout"] | undefined;
       readonly signal?: AbortSignal | undefined;
     } = {},
   ): Promise<CrawlRunReport> {
     // A crawl's Run reads `run.finish`'s answer as a crawl's report (`crawlRunHost`).
-    return super.finish(options);
+    const report = await super.finish(options);
+    await this.#stopWorkers?.();
+    return report;
   }
 
   /**
@@ -375,14 +756,16 @@ export class CrawlRun extends Run {
    *
    * @experimental
    */
-  override stop(
+  override async stop(
     options: {
       readonly timeout?: RunStopParams["timeout"] | undefined;
       readonly signal?: AbortSignal | undefined;
     } = {},
   ): Promise<CrawlRunReport> {
     // A crawl's Run reads `run.stop`'s answer as a crawl's report (`crawlRunHost`).
-    return super.stop(options);
+    const report = await super.stop(options);
+    await this.#stopWorkers?.();
+    return report;
   }
 
   /**
@@ -447,9 +830,13 @@ export class CrawlRun extends Run {
    *
    * @experimental
    */
-  override close(): Promise<void> {
+  override async close(): Promise<void> {
     warnEntry(collieOperations, "run.abort");
-    if (this.#closed) return super.close();
+    if (this.#closed) {
+      await super.close();
+      await this.#stopWorkers?.();
+      return;
+    }
     this.#closed = true;
     for (const attempt of this.#attempts) {
       attempt.abort(
@@ -460,7 +847,11 @@ export class CrawlRun extends Run {
     }
     this.#attempts.clear();
     this.#crawlHost.forget(this);
-    return super.close();
+    try {
+      await super.close();
+    } finally {
+      await this.#stopWorkers?.();
+    }
   }
 
   async #handle(
@@ -498,12 +889,30 @@ export class CrawlRun extends Run {
     const page =
       pageId === undefined ? undefined : pageOf(this, pageId, request.session.id, signal);
     return {
+      request: request.crawlRequest,
       run: {
         id: () => attempt.runId,
         keyValueStore: attemptStoreOf(this, lease, signal),
         records: (dataset, reading = {}) => this.#records(dataset, reading, "committed"),
         rejectedRecords: (dataset, reading = {}) =>
           this.#rejectedRecords(dataset, reading, "committed"),
+        addSeed: (
+          seedOrUrl: Seed | string,
+          labelOrOptions?: Label<object | undefined> | CallOptions,
+          ...rest: unknown[]
+        ) => this.#addSeed(seedOrUrl, labelOrOptions, rest, lease, signal),
+        addSeeds: (source, seedOptions = {}) =>
+          this.#addSeeds(
+            source,
+            {
+              ...seedOptions,
+              signal:
+                seedOptions.signal === undefined
+                  ? signal
+                  : AbortSignal.any([signal, seedOptions.signal]),
+            },
+            lease,
+          ),
       },
       get page(): Page {
         if (page === undefined) {
@@ -613,6 +1022,16 @@ export class CrawlRun extends Run {
   }
 }
 
+/** Combines two optional abort signals without allocating when at most one is set. */
+function mergeSignals(
+  first: AbortSignal | undefined,
+  second: AbortSignal | undefined,
+): AbortSignal | undefined {
+  if (first === undefined) return second;
+  if (second === undefined) return first;
+  return AbortSignal.any([first, second]);
+}
+
 /** Answers the engine's `crawl_request.handle` request for `run`. */
 export function handleRequest(
   run: CrawlRun,
@@ -620,6 +1039,11 @@ export function handleRequest(
   signal: AbortSignal,
 ): Promise<CrawlRequestHandled> {
   return handleIn(run, request, signal);
+}
+
+/** Attaches worker-process shutdown to `run` when `workers > 1` (ADR 0024). */
+export function attachWorkers(run: CrawlRun, stop: () => Promise<void>): void {
+  attachWorkersIn(run, stop);
 }
 
 /**

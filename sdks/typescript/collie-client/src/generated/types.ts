@@ -5028,6 +5028,18 @@ export interface GotoParams {
   waitUntil?: WaitUntil | null;
 }
 /**
+ * What `header_forbidden` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "HeaderForbiddenDetails".
+ */
+export interface HeaderForbiddenDetails {
+  /**
+   * The forbidden header name, as given.
+   */
+  name: string;
+}
+/**
  * What `header_value_invalid` details.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -8200,6 +8212,14 @@ export interface RequestSeed {
    * such requests, the later goes first; `false` by default.
    */
   forefront?: boolean;
+  /**
+   * Extra request headers sent with the request (ADR 0093). Forbidden
+   * headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method
+   * overrides; ADR 0033) are refused with `header_forbidden`.
+   */
+  headers?: {
+    [k: string]: string;
+  };
   /**
    * Its identity in the Frontier, declared by the program in place of
    * its method, its URL's key and its body's hash: a canonicalization

@@ -32,6 +32,8 @@ mod protocol;
 mod regenerate;
 mod surfaces;
 
+pub(crate) use gate::is_test_input;
+
 /// The largest part a kept file is cut into: a file over 2 GiB is split.
 const PART_SIZE: u64 = 2 << 30;
 

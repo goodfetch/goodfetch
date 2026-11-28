@@ -955,6 +955,7 @@ fn add_seeds_streams_the_seeds_within_the_calls_credits_and_reports_its_counts()
             priority: 0,
             forefront: false,
             method: HttpMethod::default(),
+            headers: std::collections::BTreeMap::new(),
             body: None,
             key: None,
         })

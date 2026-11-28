@@ -67,16 +67,16 @@ fn max_shortened(value: &Value) -> bool {
     shorter_than(value, 60_000)
 }
 
-/// More than one request in flight on a domain key, ADR 0086's built-in
-/// limit.
+/// More than one request in flight on a domain key (or `null` for unlimited),
+/// ADR 0086's built-in limit.
 fn more_than_one(value: &Value) -> bool {
-    value.as_u64().is_some_and(|concurrency| concurrency > 1)
+    value.is_null() || value.as_u64().is_some_and(|concurrency| concurrency > 1)
 }
 
-/// Less than a second between two starts on a domain key, ADR 0086's
-/// built-in delay.
+/// Less than a second between two starts on a domain key (or `null` for none),
+/// ADR 0086's built-in delay.
 fn under_a_second(value: &Value) -> bool {
-    shorter_than(value, 1_000)
+    value.is_null() || shorter_than(value, 1_000)
 }
 
 /// A Politeness or Site-preferences key whose pressing-harder values
@@ -223,9 +223,9 @@ pub const DELIVERY_REPORT_GUARANTEE_CLASS: Setting = Setting {
 /// `politeness.domain.concurrency` (ADRs 0053 and 0086).
 pub const POLITENESS_DOMAIN_CONCURRENCY: Setting = Setting {
     name: "politeness.domain.concurrency",
-    description: "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1. A value above 1 is listed in the run's result as one that presses a site harder.",
+    description: "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder.",
     kind: ValueKind::Count,
-    default: null,
+    default: one,
     clearable: true,
     authority: Authority::Every,
     weakens: Some(more_than_one),
@@ -238,14 +238,29 @@ pub const POLITENESS_DOMAIN_CONCURRENCY: Setting = Setting {
 /// `politeness.domain.delay` (ADRs 0053 and 0086).
 pub const POLITENESS_DOMAIN_DELAY: Setting = Setting {
     name: "politeness.domain.delay",
-    description: "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s. A value below 1 s is listed in the run's result as one that presses a site harder.",
+    description: "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder.",
     kind: ValueKind::Duration,
-    default: null,
+    default: one_second,
     clearable: true,
     authority: Authority::Every,
     weakens: Some(under_a_second),
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `politeness.ip.concurrency` (ADRs 0053 and 0086).
+pub const POLITENESS_IP_CONCURRENCY: Setting = Setting {
+    name: "politeness.ip.concurrency",
+    description: "How many crawl requests may be in flight at once to one resolved IP address, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. At least 1; none by default, for no per-IP cap.",
+    kind: ValueKind::Count,
+    default: null,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("politeness_ip_concurrency"),
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };
@@ -511,6 +526,7 @@ pub const ENTRIES: Entries = Entries {
         DELIVERY_REPORT_GUARANTEE_CLASS,
         POLITENESS_DOMAIN_CONCURRENCY,
         POLITENESS_DOMAIN_DELAY,
+        POLITENESS_IP_CONCURRENCY,
         POLITENESS_DOMAIN_ADAPTIVE_DELAY,
         POLITENESS_DOMAIN_RATE,
         POLITENESS_DOMAIN_BURST,

@@ -186,7 +186,7 @@ threads-required = "num-test-threads"
 slow-timeout = { period = "60s", terminate-after = 60 }
 
 [[profile.default.overrides]]
-filter = "binary_id(xtask::it) & (test(/^codegen::/) | test(/^compat::/) | test(/^feature_generators::/) | test(/^perf_build::/) | test(/^stress::/) | test(/^test_tools::/))"
+filter = "binary_id(xtask::it) & (test(/^chromium_launch_args::/) | test(/^codegen::/) | test(/^compat::/) | test(/^feature_generators::/) | test(/^perf_build::/) | test(/^stress::/) | test(/^test_tools::/))"
 test-group = "fixture-builds"
 
 [[profile.default.overrides]]
@@ -207,7 +207,7 @@ filter = """
 | (binary_id(goodfetch-conformance::it) & test(/^protocol::/))
 | (binary_id(goodfetch-engine) & test(/^(endpoint::tests|engine::tests::(events|governor|settings_edits|usage)|politeness::tests)::/))
 | (binary_id(goodfetch-engine::it) & test(/^downloads::/))
-| (binary_id(goodfetch-foxhound::it) & test(/^(fetch_tiers|limits|navigation_gate|pacing|robots_txt|sitemap|staging|tier_race)::/))
+| (binary_id(goodfetch-foxhound::it) & test(/^(fetch_tiers|limits|navigation_gate|pacing|robots_txt|sdk::politeness|sdk::progress|sitemap|staging|tier_race)::/))
 | (binary_id(goodfetch-page::it) & test(/^(listener_arming|navigation_gate)::/))
 | (binary_id(goodfetch-test-client) & test(/^attached::tests::/))
 | (binary_id(goodfetch-test-support::it) & test(/^seeded_kill::/))

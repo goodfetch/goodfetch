@@ -13,7 +13,7 @@ readme = "README.md"
 # The executable's own dependencies (ADR 0094): `cargo install
 # goodfetch-collie --locked --features executable` builds Collie's
 # executable; a program embedding the crate never compiles them.
-executable = ["dep:clap", "dep:jiff", "dep:mimalloc", "dep:regex", "dep:schemars", "dep:secrecy", "dep:serde", "dep:tempfile", "dep:thiserror", "dep:url", "dep:libc", "dep:windows-sys", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:opentelemetry-prometheus", "dep:prometheus", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "tokio/io-util", "tokio/macros", "tokio/rt-multi-thread", "tokio/signal"]
+executable = ["dep:clap", "dep:jiff", "dep:mimalloc", "dep:regex", "dep:schemars", "dep:secrecy", "dep:serde", "dep:tempfile", "dep:thiserror", "dep:url", "dep:zstd", "dep:libc", "dep:windows-sys", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:opentelemetry-prometheus", "dep:prometheus", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "tokio/io-util", "tokio/macros", "tokio/rt-multi-thread", "tokio/signal"]
 # The program's OpenTelemetry context, read from its current `tracing` span
 # through `tracing-opentelemetry`, in each request it sends (ADR 0132);
 # without it, a request carries none. The engine, which the SDK links,
@@ -64,6 +64,8 @@ thiserror = { workspace = true, optional = true }
 # `doctor`'s bug-report file reduces each URL in it to its scheme and host
 # (spec #564).
 url = { workspace = true, optional = true }
+# Decompresses zstd-embedded deployment templates for `init --deploy` (ADR 0057).
+zstd = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt", "time"] }
 # A linked engine's task, and the foreground Daemon's drain (ADR 0049).
 tokio-util = { workspace = true, features = ["rt"] }
@@ -146,6 +148,7 @@ serde.workspace = true
 # The corpus writers' dumps of run state and the Run index (examples/compat-run-index.rs), and a
 # test report part's signature (src/linked/tests.rs).
 rusqlite.workspace = true
+serde-saphyr.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 # `block_detection`'s check of its rules' sources against its `third-party.toml`.
@@ -169,6 +172,7 @@ zip = { workspace = true, features = ["deflate-flate2"] }
 # engine's own keychain, whose values are `SecretString`s.
 age = { workspace = true, features = ["armor"] }
 secrecy.workspace = true
+goodfetch-dev-workspace-hack.workspace = true
 
 # Its own executable, for the integration tests and the startup benchmarks
 # (CARGO_BIN_EXE_goodfetch-collie, ADRs 0059 and 0062), and the Trace

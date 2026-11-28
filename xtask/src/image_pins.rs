@@ -7,8 +7,8 @@
 //!   `uses: docker://…`, and each literal image a `run:` script names;
 //! - each composite or Docker action under `.github/actions/`;
 //! - each `FROM` of a Containerfile or Dockerfile, which the jobs build;
-//! - each `image.toml` under `ci/`, the pin files scripts read their images
-//!   from (`repository`, `tag`, `digest`);
+//! - each `image.toml` or `images.toml` under `ci/`, the pin files scripts
+//!   read their images from (`repository`, `tag`, `digest`);
 //! - each literal image a script under `ci/` names.
 //!
 //! In scripts, an image is recognised by its registry host, or as the image
@@ -82,6 +82,8 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
             from_images(&read(root, &file)?)
         } else if file.starts_with("ci/") && name == "image.toml" {
             pin_file(&read(root, &file)?, &file)?
+        } else if file.starts_with("ci/") && name == "images.toml" {
+            multi_pin_file(&read(root, &file)?, &file)?
         } else if file.starts_with("ci/")
             && Path::new(name)
                 .extension()
@@ -205,18 +207,43 @@ fn from_images(text: &str) -> Vec<String> {
 /// A pin file's image when its `digest` is missing or not a SHA-256 digest.
 fn pin_file(text: &str, file: &str) -> Result<Vec<String>> {
     let table: toml::Table = toml::from_str(text).with_context(|| format!("parsing {file}"))?;
-    let digest = table.get("digest").and_then(|digest| digest.as_str());
+    Ok(unpinned_table(&table, "its image").into_iter().collect())
+}
+
+/// Every `[<name>]` table in an `images.toml` pin file whose `digest` is
+/// missing or not a SHA-256 digest.
+fn multi_pin_file(text: &str, file: &str) -> Result<Vec<String>> {
+    let root: toml::Table = toml::from_str(text).with_context(|| format!("parsing {file}"))?;
+    let mut unpinned = Vec::new();
+    let mut tables = 0usize;
+    for (name, value) in &root {
+        let Some(table) = value.as_table() else {
+            continue;
+        };
+        tables += 1;
+        if let Some(image) = unpinned_table(table, name) {
+            unpinned.push(image);
+        }
+    }
+    if tables == 0 {
+        unpinned.push("its images".to_owned());
+    }
+    Ok(unpinned)
+}
+
+fn unpinned_table(table: &toml::Table, fallback: &str) -> Option<String> {
+    let digest = table.get("digest").and_then(toml::Value::as_str);
     if digest
         .and_then(|digest| digest.strip_prefix("sha256:"))
         .is_some_and(is_sha256)
     {
-        return Ok(Vec::new());
+        return None;
     }
     let repository = table
         .get("repository")
-        .and_then(|repository| repository.as_str())
-        .unwrap_or("its image");
-    Ok(vec![repository.to_owned()])
+        .and_then(toml::Value::as_str)
+        .unwrap_or(fallback);
+    Some(repository.to_owned())
 }
 
 /// The container engines whose image argument a script's command names.

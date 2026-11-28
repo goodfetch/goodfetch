@@ -6,6 +6,7 @@
 // Label, which reads its page and enqueues requests and pushes Records
 // through its `CrawlContext`.
 import type {
+  CallOptions,
   JSONObject,
   JSONSchema,
   KeyValueStore,
@@ -19,6 +20,7 @@ import type {
 import { nonJSON, parse, wireSchema, type SchemaIssue } from "@goodfetch/collie-client/runtime";
 import type { RecordsOptions, RejectedRecordsOptions } from "./crawl-run.ts";
 import type {
+  CrawlRequest,
   CrawlRequestEnqueueLinksParams,
   CrawlStartParams,
   DatasetDeclaration,
@@ -339,6 +341,8 @@ function recordUnreadable(
 export interface RequestOptions {
   /** Its HTTP method; `GET` when left out. */
   readonly method?: string | undefined;
+  /** Extra request headers sent with the request (ADR 0093); forbidden headers fail with `header_forbidden` (ADR 0033). */
+  readonly headers?: Readonly<Record<string, string>> | undefined;
   /** Its body, sent with its method. */
   readonly body?: HttpBody | null | undefined;
   /** Its place in the Frontier: a higher priority is fetched first. */
@@ -430,6 +434,45 @@ export interface AttemptRun {
     dataset: Dataset<I, O>,
     options?: RejectedRecordsOptions,
   ): Sequence<RejectedRecord>;
+  /**
+   * Adds one seed to a running crawl, `run.addSeed`, admitted and answered as
+   * soon as the Run state accepts it (written with the next Run-state batch at
+   * the default durability, or committed before answering at `full`), and
+   * answers as an enqueue does: added, with its crawl request's ID and its URL
+   * as parsed, or not added, with its reason (`duplicate`,
+   * `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is
+   * `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on.
+   * Through a handler's context, naming its `attempt`, it is staged with that
+   * attempt: once the attempt ended it fails with `attempt_ended`. A Run this
+   * engine does not run as a live crawl, or a crawl already ending its Run,
+   * fails with `run_not_found`.
+   *
+   * @experimental
+   */
+  addSeed(seed: Seed, options?: CallOptions): Promise<Enqueued>;
+  addSeed<P extends object | undefined>(
+    url: string,
+    label: Label<P>,
+    ...rest: PayloadThen<NoInfer<P>, RequestOptions & CallOptions>
+  ): Promise<Enqueued>;
+  /**
+   * Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers
+   * each as `run.add_seed` does, in order, so a million seeds never sit in
+   * memory. The engine grants the call 256 credits with `$/credit`, one seed
+   * each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never
+   * more than its credits, and the engine admits each batch (staged with
+   * `attempt` when named, or written with the next Run-state batch at default
+   * durability), sends its answers in one `$/enqueued {id, answers}` and
+   * grants as many credits again. Once it answered the batch marked `end`, the
+   * call answers how many seeds were added and how many were not. Cancelling
+   * it keeps the seeds already answered. A batch beyond the credits granted,
+   * or a seed that is no seed, fails the call with `invalid_params`; a Run
+   * this engine does not run as a live crawl, or a crawl already ending its
+   * Run, fails with `run_not_found`.
+   *
+   * @experimental
+   */
+  addSeeds(source: Iterable<Seed> | AsyncIterable<Seed>, options?: CallOptions): Sequence<Enqueued>;
 }
 
 /**
@@ -438,6 +481,8 @@ export interface AttemptRun {
  * Once the attempt ends, or its Run is closed, each call fails.
  */
 export interface CrawlContext {
+  /** The crawl request this attempt handles, including its URL, label, method, body and headers. */
+  readonly request: CrawlRequest;
   /**
    * The crawl's Run bound to this attempt (ADR 0093), not the program's own
    * Run value: its Key-value store's writes are staged with the attempt.
@@ -904,13 +949,18 @@ export function enqueueLinksOptions({
 /** The fields of `options` the wire carries, those left out omitted. */
 export function requestOptions({
   method,
+  headers,
   body,
   priority,
   forefront,
   key,
-}: RequestOptions): Pick<RequestSeed, "method" | "body" | "priority" | "forefront" | "key"> {
+}: RequestOptions): Pick<
+  RequestSeed,
+  "method" | "headers" | "body" | "priority" | "forefront" | "key"
+> {
   return {
     ...(method === undefined ? {} : { method }),
+    ...(headers === undefined ? {} : { headers: { ...headers } }),
     ...(body === undefined ? {} : { body }),
     ...(priority === undefined ? {} : { priority }),
     ...(forefront === undefined ? {} : { forefront }),

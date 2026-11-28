@@ -62,7 +62,7 @@ from goodfetch_collie_client.listeners import (
 )
 from goodfetch_collie_client.markers import warn_entry
 from goodfetch_collie_client.portal import LoopStopped
-from goodfetch_collie_client.sequence import AsyncSequence, Reading, Sequence
+from goodfetch_collie_client.sequence import AsyncSequence, Reading, Reads, Sequence
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, Mapping
@@ -319,6 +319,12 @@ def _log_failures(errors: list[ListenerFailedError]) -> None:
         _logger.error("%s", error, exc_info=error)
 
 
+class _RunnableReads(Reads[_Item], Protocol):
+    """A `Reads` whose `run()` coroutine drives its underlying stream."""
+
+    async def run(self) -> None: ...
+
+
 class _AsyncHost(Generic[_Id]):
     """What a handle of ID `id` in a Run reaches the engine through (ADR 0078).
 
@@ -421,6 +427,18 @@ class _AsyncHost(Generic[_Id]):
         self._ensure_callable(operation)
         spawn = spawner()
         reading = Reading(self._connection, operation, params, item_of, self.run.order)
+        spawn(reading.run)
+        return AsyncSequence(reading)
+
+    def open_sequence(
+        self,
+        operation: str,
+        build: Callable[[Streams, Order], _RunnableReads[_Item]],
+    ) -> AsyncSequence[_Item]:
+        """Opens a custom bidirectional sequence (such as `run.add_seeds`)."""
+        self._ensure_callable(operation)
+        spawn = spawner()
+        reading = build(self._connection, self.run.order)
         spawn(reading.run)
         return AsyncSequence(reading)
 
@@ -794,6 +812,14 @@ class AsyncRun(AsyncRunMembers):
             RuntimeError: No asyncio or Trio loop runs on this thread.
         """
         return _held[self][0].read(operation, params, item_of)
+
+    def _open_sequence(
+        self,
+        operation: str,
+        build: Callable[[Streams, Order], _RunnableReads[_Item]],
+    ) -> AsyncSequence[_Item]:
+        """Opens a custom sequence `operation` on the Run (such as `run.add_seeds`)."""
+        return _held[self][0].open_sequence(operation, build)
 
     async def explain_settings(
         self, keys: Iterable[str] | None = None

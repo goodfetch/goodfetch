@@ -70,6 +70,8 @@ export interface LocalDaemonReach extends DaemonOpened {
   readonly kind: "daemon";
   /** The Goodfetch home whose runtime file names it. */
   readonly home: string;
+  /** The Daemon's socket or loopback TCP endpoint. */
+  readonly endpoint: DaemonEndpoint;
   /**
    * The text of the runtime file it was found by, which tells it from the
    * Daemon it hands over to.
@@ -482,6 +484,7 @@ async function runningDaemon(
   return {
     kind: "daemon",
     home,
+    endpoint,
     url,
     transport: transportOf(socket),
     token,
@@ -595,6 +598,42 @@ function transportOf(socket: Socket): Transport {
   // the Connection reports; the socket's own error event carries nothing more.
   socket.on("error", () => {});
   return Duplex.toWeb(socket) as Transport;
+}
+
+/**
+ * Opens a Connection transport to an Attached engine's private endpoint or
+ * this machine's Daemon endpoint (ADR 0024).
+ */
+export async function openEndpoint(
+  endpoint: DaemonEndpoint,
+  signal?: AbortSignal,
+): Promise<Transport> {
+  const target = "unix" in endpoint ? { path: endpoint.unix } : addressOf(endpoint.tcp);
+  const socket = await open(target, signal);
+  if (socket === undefined) {
+    const url = "unix" in endpoint ? endpoint.unix : endpoint.tcp;
+    throw unreachable(
+      `Nothing listens at the engine endpoint ${url}`,
+      "Check that the engine or Daemon that started the crawl is still running.",
+    );
+  }
+  return transportOf(socket);
+}
+
+/**
+ * Opens a WebSocket transport to a remote Daemon for a worker process
+ * (ADR 0024).
+ */
+export async function openRemoteTransport(url: string, signal?: AbortSignal): Promise<Transport> {
+  const { origin } = remoteAddress(url, "engine");
+  const transport = await openWebSocket(url, { origin, signal });
+  if (transport === undefined) {
+    throw unreachable(
+      `No Daemon at ${url} opened a WebSocket of subprotocol ${WEBSOCKET_SUBPROTOCOL}`,
+      "Check that the remote Daemon is still running and reachable.",
+    );
+  }
+  return transport;
 }
 
 /**

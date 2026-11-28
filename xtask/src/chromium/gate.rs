@@ -367,7 +367,7 @@ fn is_output(rel: &str) -> bool {
     rel == MANIFEST || rel == PROTOCOL_OUTPUT || rel.starts_with(HTTP_PROFILES_DIR)
 }
 
-fn is_test_input(rel: &str) -> bool {
+pub(crate) fn is_test_input(rel: &str) -> bool {
     rel == GATE_WORKFLOW
         || rel == "chromium/surfaces.toml"
         || rel.starts_with("chromium/expectations/")

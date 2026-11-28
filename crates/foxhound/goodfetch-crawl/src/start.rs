@@ -35,7 +35,7 @@
 //! detached on a Daemon outlives its Connection.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use goodfetch_dataset::{Began, Datasets};
 use goodfetch_engine::admission::Keys;
@@ -52,9 +52,10 @@ use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_protocol::audit::Actor;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::foxhound::crawl::{
-    CRAWL_SERVE, CRAWL_START, CrawlStartParams, LabelDeclaration, Seed,
+    CRAWL_KEEP_ALIVE, CRAWL_SERVE, CRAWL_START, CrawlStartParams, CrawlStarted, LabelDeclaration,
+    Seed,
 };
-use goodfetch_protocol::foxhound::frontier::PAYLOAD_SCHEMA_CHANGED;
+use goodfetch_protocol::foxhound::frontier::{Enqueued, PAYLOAD_SCHEMA_CHANGED};
 use goodfetch_protocol::foxhound::hook::CrawlHookDeclaration;
 use goodfetch_protocol::foxhound::settings::{
     FEATURE_SWITCHED_OFF, PROVENANCE_LOG, SWITCHED_OFF_FEATURES,
@@ -249,7 +250,7 @@ async fn start(
     tiers: FetchTiers,
     redeclared: Redeclared,
     pages: code_free::Pages,
-) -> Result<RunStarted, CallError> {
+) -> Result<CrawlStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
     client_start(&params.tags, params.detached, in_program(&params), &context)?;
     let given = std::mem::take(&mut params.limits);
@@ -266,7 +267,8 @@ async fn start(
     FetchTiers::check(settings.resolved(), &labels.settings)?;
     let invariants = Invariants::of_settings(settings.resolved(), &params.labels, fragments)?;
     let egress = domain_policy(settings.resolved())?;
-    let found = schema_unchanged(&context, run_id.as_ref(), &invariants, &datasets).await?;
+    let existing_seeds =
+        schema_unchanged(&context, run_id.as_ref(), &invariants, &datasets).await?;
     let seeding = egress.clone();
     // Each seed is keyed in the write that adds it, as its gate will key
     // it, so the crawl opens with no work item to key (#2168).
@@ -274,7 +276,7 @@ async fn start(
     let seeds: Vec<Seed> = params.seeds.iter().cloned().collect();
     let inputs = seed_inputs(&seeds);
     // A Run that exists goes on with its seeds admitted once (ADR 0102).
-    let checked = if found {
+    let checked = if existing_seeds.is_some() {
         Vec::new()
     } else {
         work_items::check_seeds(&invariants, seeds, &work)?
@@ -284,6 +286,7 @@ async fn start(
     let crawl = CodeFreeCrawl::of(params.extraction, params.declaration);
     let recording = crawl.clone();
     let hooks = params.hooks;
+    let new_answers: Arc<OnceLock<Vec<Enqueued>>> = Arc::default();
     let started = context
         .runs()
         .start(Start {
@@ -299,6 +302,7 @@ async fn start(
                 keys,
                 seeding,
                 admitted,
+                Arc::clone(&new_answers),
             )),
             policy_version: settings.resolved().policy_version().map(str::to_owned),
             weakened: settings.resolved().weakened(),
@@ -313,43 +317,35 @@ async fn start(
         .map_err(start_error)?;
     match started {
         Started::New(run) => {
-            let run = CrawlRun::of(&run, &context);
-            notify_personal_data(&run, &opening, settings.resolved(), &context).await;
-            let started = new_foxhound_run(run.identity.id().clone());
-            // Its Limits hold it before its driver sends a request; a
-            // crawl they cannot hold ends `failed` rather than run unheld.
-            if let Err(error) = limits.give(&started, &context).await {
-                run.end.end(delivery::failed(&run.identity, &error)).await;
-                return Err(error);
-            }
-            let code_free = CodeFree::of(crawl, &crawls, &tiers, &run.identity);
-            run.identity.spawn(delivery::drive(
-                Arc::clone(&run),
-                context.clone(),
-                crawls.open(&run, egress, serving, opening).await,
-                crawls,
-                settings,
-                (tiers, labels, TierChoices::default(), (code_free, hooks)),
-            ));
-            Ok(started)
+            start_new(
+                (run, &context),
+                (limits, settings, new_answers),
+                (crawls, egress, serving, opening),
+                (tiers, labels, crawl, hooks),
+            )
+            .await
         }
         // An interrupted Run resumes under the declarations this start
         // checked (ADR 0102), its driver recording them.
         Started::Interrupted(run_id) => {
-            let kept = (opening, declared, serving.payloads().clone(), crawl);
-            // A crawl still ending the Run keeps nothing: the reopen is then
-            // checked as no start's (ADR 0104's note of #2912).
-            let kept = redeclared.keep(&run_id, kept, hooks, &crawls).await;
-            let timeout = settings.resolved().get(&TIMEOUT_RUN);
-            let resumed = resume_run(&context, run_id, None, settings, timeout, kept).await?;
-            limits.give(&resumed, &context).await?;
-            Ok(resumed)
+            resume_started(
+                (&context, run_id),
+                (settings, limits),
+                (redeclared, &crawls),
+                (opening, declared, serving.payloads().clone(), crawl),
+                hooks,
+                existing_seeds.unwrap_or_default(),
+            )
+            .await
         }
         Started::Ended(ended) => {
             let kept = (opening, declared, serving.payloads().clone(), crawl);
             redeclared.keep(&ended.run_id, kept, hooks, &crawls).await;
             limits.give(&ended, &context).await?;
-            Ok(ended)
+            Ok(CrawlStarted {
+                started: ended,
+                seeds: existing_seeds.unwrap_or_default(),
+            })
         }
     }
 }
@@ -431,14 +427,83 @@ async fn notify_personal_data(
     }
 }
 
-/// The `RunStarted` answer for a newly started Foxhound crawl Run.
-fn new_foxhound_run(run_id: RunId) -> RunStarted {
-    RunStarted {
-        run_id,
+/// Starts delivery for a newly created crawl Run after applying its Limits.
+async fn start_new(
+    (run, context): (goodfetch_engine::runs::RunParts, &CallContext),
+    (limits, settings, new_answers): (StartLimits, RunSettings, Arc<OnceLock<Vec<Enqueued>>>),
+    (crawls, egress, serving, opening): (Crawls, Policy, Invariants, Datasets),
+    (tiers, labels, crawl, hooks): (
+        FetchTiers,
+        labels::Declared,
+        Option<CodeFreeCrawl>,
+        Vec<CrawlHookDeclaration>,
+    ),
+) -> Result<CrawlStarted, CallError> {
+    let run = CrawlRun::of(&run, context);
+    notify_personal_data(&run, &opening, settings.resolved(), context).await;
+    let started = RunStarted {
+        run_id: run.identity.id().clone(),
         started_as: StartedAs::New,
         lifecycle: Lifecycle::Running,
         needs: Product::Foxhound,
+    };
+    // Its Limits hold it before its driver sends a request; a
+    // crawl they cannot hold ends `failed` rather than run unheld.
+    if let Err(error) = limits.give(&started, context).await {
+        run.end.end(delivery::failed(&run.identity, &error)).await;
+        return Err(error);
     }
+    let seeds = new_answers.get().cloned().unwrap_or_default();
+    mark_initial_idle(&run, &settings, &seeds);
+    let code_free = CodeFree::of(crawl, &crawls, &tiers, &run.identity);
+    run.identity.spawn(delivery::drive(
+        Arc::clone(&run),
+        context.clone(),
+        crawls.open(&run, egress, serving, opening).await,
+        crawls,
+        settings,
+        (tiers, labels, TierChoices::default(), (code_free, hooks)),
+    ));
+    Ok(CrawlStarted { started, seeds })
+}
+
+/// Marks a newly started keep-alive crawl `idle: true` before its delivery task
+/// runs when every initial seed was refused, so an immediate `run.progress()`
+/// read sees `idle: true`.
+fn mark_initial_idle(run: &CrawlRun, settings: &RunSettings, seeds: &[Enqueued]) {
+    if settings.resolved().get::<bool>(&CRAWL_KEEP_ALIVE)
+        && seeds
+            .iter()
+            .all(|answer| !matches!(answer, Enqueued::Added { .. }))
+    {
+        crate::progress::show_idle(run, true);
+    }
+}
+
+/// Resumes an interrupted crawl under the declarations checked by `crawl.start`.
+async fn resume_started(
+    (context, run_id): (&CallContext, RunId),
+    (settings, limits): (RunSettings, StartLimits),
+    (redeclared, crawls): (Redeclared, &Crawls),
+    kept: (
+        Datasets,
+        BTreeMap<String, LabelDeclaration>,
+        goodfetch_frontier::payload::PayloadRules,
+        Option<CodeFreeCrawl>,
+    ),
+    hooks: Vec<CrawlHookDeclaration>,
+    seeds: Vec<Enqueued>,
+) -> Result<CrawlStarted, CallError> {
+    // A crawl still ending the Run keeps nothing: the reopen is then
+    // checked as no start's (ADR 0104's note of #2912).
+    let kept = redeclared.keep(&run_id, kept, hooks, crawls).await;
+    let timeout = settings.resolved().get(&TIMEOUT_RUN);
+    let resumed = resume_run(context, run_id, None, settings, timeout, kept).await?;
+    limits.give(&resumed, context).await?;
+    Ok(CrawlStarted {
+        started: resumed,
+        seeds,
+    })
 }
 
 /// The crawl's settings, opened as a Foxhound Run's from the start's
@@ -480,6 +545,7 @@ fn initialize(
     keys: Option<Keys>,
     seeding: Policy,
     admitted: Vec<CheckedSeed>,
+    kept_answers: Arc<OnceLock<Vec<Enqueued>>>,
 ) -> Initialize {
     Box::new(move |connection| {
         invariants.record(connection)?;
@@ -497,13 +563,15 @@ fn initialize(
             (&seeding, &invariants),
             &admitted,
         )?;
-        goodfetch_frontier::seeds::answered(connection, &answers)
+        goodfetch_frontier::seeds::answered(connection, &answers)?;
+        let _ = kept_answers.set(answers);
+        Ok(())
     })
 }
 
-/// Whether a Run `run_id` exists (never when the start names none), which
-/// a start under its ID goes on with (ADR 0102), its seeds not admitted
-/// again, once it may go on under the
+/// Whether a Run `run_id` exists (never when the start names none), returning
+/// its original seed answers when it does, which a start under its ID goes on
+/// with (ADR 0102), its seeds not admitted again, once it may go on under the
 /// crawl's `invariants`: refused with `label_unknown` before any work when
 /// a pending request names a Label the crawl no longer declares (ADR
 /// 0102), with `payload_schema_changed` when a declared Label's Payload
@@ -518,39 +586,40 @@ async fn schema_unchanged(
     run_id: Option<&RunId>,
     invariants: &Invariants,
     datasets: &Datasets,
-) -> Result<bool, CallError> {
+) -> Result<Option<Vec<Enqueued>>, CallError> {
     let Some(run_id) = run_id else {
-        return Ok(false);
+        return Ok(None);
     };
     let declared = invariants.payloads().clone();
     let failed = |error: RunError| run_error(error, context);
     let mut reader = match context.runs().reader(run_id.clone()).await {
         Ok(reader) => reader,
-        Err(RunError::NotFound(_)) => return Ok(false),
+        Err(RunError::NotFound(_)) => return Ok(None),
         Err(error) => return Err(failed(error)),
     };
-    let changed = match reader
+    let (changed, seeds) = match reader
         .read(move |connection| {
             let began = labels::Fragments::read(connection)?;
             let pending = work_items::pending_labels(connection)?;
             let changed = declared.schema_changed(connection, |label| {
                 work_items::pending_of(connection, label)
             })?;
-            Ok((began, Began::read(connection)?, pending, changed))
+            let seeds = goodfetch_frontier::seeds::read(connection)?;
+            Ok((began, Began::read(connection)?, pending, changed, seeds))
         })
         .await
     {
-        Ok((began, began_with, pending, changed)) => {
+        Ok((began, began_with, pending, changed, seeds)) => {
             invariants.payloads().resumes(&pending, run_id.as_str())?;
             invariants.fragments().unchanged(&began, run_id)?;
             datasets.resumes(&began_with, run_id.as_str())?;
-            changed
+            (changed, seeds)
         }
-        Err(RunError::NotFound(_)) => return Ok(false),
+        Err(RunError::NotFound(_)) => return Ok(None),
         Err(error) => return Err(failed(error)),
     };
     match changed {
-        None => Ok(true),
+        None => Ok(Some(seeds)),
         Some(changed) => Err(CallError::new(
             &PAYLOAD_SCHEMA_CHANGED,
             format!(

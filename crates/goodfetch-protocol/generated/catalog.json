@@ -365,6 +365,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A crawl started with `workers > 1` cannot be imported by an extra worker process: it was defined inside a function rather than at module level, no module was named, or the named module or export does not yield a `Crawl`. Nothing was started. Define the `Crawl` at module level or name `module`.",
+      "details": {
+        "$ref": "#/$defs/CrawlNotImportableDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "crawl_not_importable",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The foreground Daemon is draining on `SIGTERM`: it takes no run and checkpoints every live run as resumable, then exits. Start or resume the run on the Daemon that replaces it.",
       "details": {
         "$ref": "#/$defs/DaemonDrainingDetails"
@@ -686,6 +699,19 @@
       "name": "handler_lost",
       "product": "foxhound",
       "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A seed, enqueue or Hook tried to set a header the engine owns (`Host`, `Cookie`, `Authorization`, `Proxy-*`, or a method-override header), so nothing was added or changed. The details name the forbidden header. Remove the header, or use the engine's own session, proxy or method APIs instead.",
+      "details": {
+        "$ref": "#/$defs/HeaderForbiddenDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "header_forbidden",
+      "product": "collie",
+      "retryable": false
     },
     {
       "arrived_in": "0.1",
@@ -3499,7 +3525,7 @@
       "product": "foxhound",
       "reach": "all_surfaces",
       "result": {
-        "$ref": "#/$defs/RunStarted"
+        "$ref": "#/$defs/CrawlStarted"
       },
       "stability": "experimental"
     },
@@ -4851,7 +4877,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.",
+      "description": "Adds one seed to a running crawl, `run.addSeed`, admitted and answered as soon as the Run state accepts it (written with the next Run-state batch at the default durability, or committed before answering at `full`), and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is staged with that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.",
       "events": [],
       "kind": "round_trip",
       "name": "run.add_seed",
@@ -4870,7 +4896,7 @@
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine commits each batch, sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.",
+      "description": "Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine admits each batch (staged with `attempt` when named, or written with the next Run-state batch at default durability), sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.",
       "events": [],
       "kind": "sequence",
       "name": "run.add_seeds",
@@ -10641,6 +10667,29 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 600000,
+      "deprecated": null,
+      "description": "The longest an engine cut off from its Politeness store stays in degraded mode, admitting one request at a time per domain, before it stops admitting new requests until the store answers again: 10 minutes. Set in user configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.",
+      "fixed_for_run": false,
+      "name": "politeness.degraded_max",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
       "default": true,
@@ -10714,9 +10763,9 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": true,
-      "default": null,
+      "default": 1,
       "deprecated": null,
-      "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1. A value above 1 is listed in the run's result as one that presses a site harder.",
+      "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder.",
       "fixed_for_run": false,
       "name": "politeness.domain.concurrency",
       "product": "foxhound",
@@ -10740,9 +10789,9 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": true,
-      "default": null,
+      "default": 1000,
       "deprecated": null,
-      "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s. A value below 1 s is listed in the run's result as one that presses a site harder.",
+      "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder.",
       "fixed_for_run": false,
       "name": "politeness.domain.delay",
       "product": "foxhound",
@@ -10772,6 +10821,30 @@
       "description": "How many crawl requests a minute may start on one domain key, counted across every run of the user that shares Politeness, as a token bucket of `politeness.domain.burst` tokens refilled at this rate: 30 holds a site to 30 requests a minute. Each run is held to its own value; the delay between starts still applies. None by default.",
       "fixed_for_run": false,
       "name": "politeness.domain.rate",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "How many crawl requests may be in flight at once to one resolved IP address, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. At least 1; none by default, for no per-IP cap.",
+      "fixed_for_run": false,
+      "name": "politeness.ip.concurrency",
       "product": "foxhound",
       "products": [
         "foxhound"

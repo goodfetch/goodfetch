@@ -54,6 +54,20 @@ export {
 export { protocolCounts, type ProtocolCounts } from "./protocol-counts.ts";
 export { daemonOf, type DaemonDescription } from "./daemon.ts";
 export {
+  readIntegrationImages,
+  runN8nWorkflow,
+  startActivepieces,
+  type ActivepiecesCodeStep,
+  type ActivepiecesStartOptions,
+  type ActivepiecesStepResult,
+  type ContainerEngine,
+  type IntegrationImages,
+  type N8nWorkflowOptions,
+  type N8nWorkflowResult,
+  type PinnedImage,
+  type StartedActivepieces,
+} from "./integrations.ts";
+export {
   productEnv,
   projectScript,
   scriptedEngineClientMethods,

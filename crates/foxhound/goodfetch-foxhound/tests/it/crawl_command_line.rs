@@ -112,6 +112,130 @@ fn crawl_start_crawls_the_catalog_from_its_flags_and_prints_the_run_id() {
     );
 }
 
+/// `crawl start --declaration <file|->` crawls the catalog family from a
+/// reviewed `CrawlDeclaration` read from a file or standard input, prints the
+/// Run ID and exits `0` under `--follow --json`, and fills its declared
+/// `products` Dataset with every product the oracle verifies.
+///
+/// Covers: story:11-1069, command:crawl.start, command:run.records
+#[rstest]
+#[case::from_file(false)]
+#[case::from_stdin(true)]
+fn crawl_start_declaration_crawls_the_catalog_from_a_file_or_stdin(#[case] from_stdin: bool) {
+    let env = TestEnv::new();
+    short_idle(&env);
+    let _daemon = start_home_daemon(&env);
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let settings = settings_file(&env, &proving_ground);
+    let css = |selector: &str| json!({ "kind": "css", "selector": selector });
+    let declaration = json!({
+        "seeds": [{ "url": proving_ground.start_url(CATALOG).unwrap(), "label": "listing" }],
+        "labels": [
+            {
+                "name": "listing",
+                "follow": [
+                    { "links": "a[rel=next]", "label": "listing" },
+                    { "links": "li.product a", "label": "product" },
+                ],
+            },
+            {
+                "name": "product",
+                "extract": [{
+                    "dataset": "products",
+                    "fields": {
+                        "id": { "locator": css(".id") },
+                        "name": { "locator": css("h1.name") },
+                        "price": { "locator": css(".price"), "attribute": "data-price" },
+                    },
+                }],
+            },
+        ],
+        "datasets": [{ "name": "products", "key": ["id"] }],
+        "settings": { "politeness": { "domain": { "delay": 0 } } },
+    })
+    .to_string();
+    let path = env.folder().join("catalog.json");
+    if !from_stdin {
+        std::fs::write(&path, &declaration).unwrap();
+    }
+    let source = if from_stdin {
+        "-"
+    } else {
+        path.to_str().unwrap()
+    };
+
+    let mut command = cli(&env, FOXHOUND)
+        .args(["crawl", "start", "--run-id", "decl"])
+        .args(["--declaration", source])
+        .args(["--settings", settings.to_str().unwrap()])
+        .args(["--follow", "--json"]);
+    if from_stdin {
+        command = command.stdin(declaration);
+    }
+    let started = command.json("RunId").unwrap();
+    let records = cli(&env, FOXHOUND)
+        .args(["run", "records", "decl", "--dataset", "products", "--json"])
+        .json_array("RecordRead")
+        .unwrap();
+
+    let products: Vec<Value> = records.documents[0]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|read| read["record"]["value"].clone())
+        .collect();
+    let judged = proving_ground
+        .judge_records(CATALOG, ToolStatus::Success, &products)
+        .unwrap();
+    assert_eq!(
+        (
+            started.documents.clone(),
+            started.output.exit,
+            judged["outcome"].clone()
+        ),
+        (vec![json!("decl")], Some(0), json!("verified")),
+        "{}\n{judged}",
+        started.output
+    );
+}
+
+/// `crawl start --declaration` combined with `--format` or `--field` is
+/// refused by the engine with `setting_invalid` (exit `3`).
+///
+/// Covers: story:11-1069, command:crawl.start, error:setting_invalid
+#[rstest]
+#[case::with_format(&["--format", "markdown"])]
+#[case::with_field(&["--field", "title=h1"])]
+fn crawl_start_refuses_declaration_with_extraction_flags(#[case] extra: &[&str]) {
+    let env = TestEnv::new();
+    short_idle(&env);
+    let _daemon = start_home_daemon(&env);
+    let path = env.folder().join("declaration.json");
+    std::fs::write(
+        &path,
+        json!({
+            "seeds": [{ "url": "https://example.test/", "label": "listing" }],
+            "labels": [{ "name": "listing" }],
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let output = cli(&env, FOXHOUND)
+        .args(["crawl", "start", "--declaration", path.to_str().unwrap()])
+        .args(extra)
+        .args(["--json"])
+        .run()
+        .unwrap();
+    let failed: Value = serde_json::from_str(&output.stdout).unwrap();
+
+    assert_eq!(
+        (output.exit, failed["error"]["code"].clone()),
+        (Some(3), json!("setting_invalid")),
+        "{output}"
+    );
+}
+
 /// A keep-alive crawl, which waits for new work until `run.finish` lets
 /// it end, started with `--follow` in the background.
 fn followed_keep_alive_crawl(

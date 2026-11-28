@@ -4576,6 +4576,20 @@
         }
       ]
     },
+    "HeaderForbiddenDetails": {
+      "description": "What `header_forbidden` details.",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The forbidden header name, as given.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
     "HeaderValueInvalidDetails": {
       "description": "What `header_value_invalid` details.",
       "properties": {
@@ -17317,6 +17331,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A seed, enqueue or Hook tried to set a header the engine owns (`Host`, `Cookie`, `Authorization`, `Proxy-*`, or a method-override header), so nothing was added or changed. The details name the forbidden header. Remove the header, or use the engine's own session, proxy or method APIs instead.",
+      "details": {
+        "$ref": "#/$defs/HeaderForbiddenDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "header_forbidden",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A header value the engine would send holds a CR, an LF or a NUL, which could end the header and start another, so it is refused before it reaches the wire or the browser. The details name the header and the character, never the value. Remove the character from the value.",
       "details": {
         "$ref": "#/$defs/HeaderValueInvalidDetails"
@@ -24847,6 +24874,29 @@
       "scopes": [],
       "value": {
         "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 600000,
+      "deprecated": null,
+      "description": "The longest an engine cut off from its Politeness store stays in degraded mode, admitting one request at a time per domain, before it stops admitting new requests until the store answers again: 10 minutes. Set in user configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.",
+      "fixed_for_run": false,
+      "name": "politeness.degraded_max",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
       },
       "weakening": null,
       "weakens": false

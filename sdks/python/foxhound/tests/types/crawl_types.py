@@ -335,3 +335,34 @@ def types_each_point_in_time_as_a_datetime(
     assert_type(progress.at, datetime)
     assert_type(progress.checkpoint_at, "datetime | None")
     assert_type(unavailable.retry_after, "datetime | None")
+
+
+async def adds_seeds_with_payload_of_its_labels_type(
+    run: AsyncCrawlRun,
+    sync_run: CrawlRun,
+    ctx: AsyncCrawlContext[None],
+    sync_ctx: CrawlContext[None],
+    listing: Label[None],
+    shelf: Label[Shelf],
+    book: Label[JSONObject],
+) -> None:
+    """`add_seed` types its Payload by its Label on async/sync Runs and attempts."""
+    await run.add_seed("https://shop.test/", listing)
+    await run.add_seed("https://shop.test/shelf/1", shelf, Shelf(number=1))
+    await run.add_seed("https://shop.test/book/1", book, {"isbn": "1"})
+    await run.add_seed(seed("https://shop.test/shelf/2", shelf, Shelf(number=2)))
+    await ctx.run.add_seed("https://shop.test/shelf/3", shelf, Shelf(number=3))
+    await ctx.run.add_seed("https://shop.test/", listing)
+    sync_run.add_seed("https://shop.test/", listing)
+    sync_run.add_seed("https://shop.test/shelf/1", shelf, Shelf(number=1))
+    sync_ctx.run.add_seed("https://shop.test/shelf/2", shelf, Shelf(number=2))
+
+    await run.add_seed("https://shop.test/shelf/1", shelf, {"number": 1})  # type: ignore[arg-type]
+    await run.add_seed("https://shop.test/shelf/1", shelf)  # type: ignore[arg-type]
+    await run.add_seed("https://shop.test/", listing, Shelf(number=1))  # type: ignore[misc]
+    await ctx.run.add_seed("https://shop.test/shelf/1", shelf, {"number": 1})  # type: ignore[arg-type]
+    await ctx.run.add_seed("https://shop.test/shelf/1", shelf)  # type: ignore[arg-type]
+    await ctx.run.add_seed("https://shop.test/", listing, Shelf(number=1))  # type: ignore[misc]
+    sync_run.add_seed("https://shop.test/shelf/1", shelf, {"number": 1})  # type: ignore[arg-type]
+    sync_run.add_seed("https://shop.test/shelf/1", shelf)  # type: ignore[arg-type]
+    sync_ctx.run.add_seed("https://shop.test/", listing, Shelf(number=1))  # type: ignore[misc]

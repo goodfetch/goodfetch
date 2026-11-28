@@ -156,6 +156,13 @@ pub(crate) enum Ask {
         seeds: Vec<Seed>,
         answer: Written<Option<Result<Vec<Enqueued>, CallError>>>,
     },
+    /// A batch of seeds a handler's attempt adds, staged with it. `None`
+    /// once the crawl closed its intake.
+    StagedSeeds {
+        seeds: Vec<Seed>,
+        attempt: SeedAttempt,
+        answer: Answering<Option<Staged<Vec<Enqueued>>>>,
+    },
     /// A handler's enqueue, staged with its attempt.
     Enqueue {
         enqueue: Enqueue,
@@ -272,8 +279,8 @@ impl Asking {
         }
     }
 
-    /// Adds `seeds` to the running crawl in one job; `None` once the crawl
-    /// closed its intake.
+    /// Adds `seeds` to the running crawl in one job (staged with `attempt`
+    /// when named); `None` once the crawl closed its intake.
     ///
     /// # Errors
     ///
@@ -281,8 +288,22 @@ impl Asking {
     pub(crate) async fn seeds(
         &self,
         seeds: Vec<Seed>,
-    ) -> Result<Option<Result<Vec<Enqueued>, CallError>>, StateError> {
-        self.written(|answer| Ask::Seeds { seeds, answer }).await
+        attempt: Option<SeedAttempt>,
+    ) -> Result<Option<Staged<Vec<Enqueued>>>, StateError> {
+        match attempt {
+            Some(attempt) => {
+                self.staged(|answer| Ask::StagedSeeds {
+                    seeds,
+                    attempt,
+                    answer,
+                })
+                .await
+            }
+            None => Ok(self
+                .written(|answer| Ask::Seeds { seeds, answer })
+                .await?
+                .map(Some)),
+        }
     }
 
     /// Stages `enqueue` with its attempt.

@@ -1,0 +1,8 @@
+# Pinned moby version of Docker's default seccomp profile (ADR 0049;
+# issue 1260). Bump `version` and run `scripts/seccomp-profile.sh`
+# (or `scripts/seccomp-profile.sh --version <tag>`) to regenerate
+# `packaging/oci/moby-default-seccomp.json` and `packaging/oci/seccomp-profile.json`
+# in one change.
+version = "v27.5.1"
+url = "https://raw.githubusercontent.com/moby/moby/v27.5.1/profiles/seccomp/default.json"
+sha256 = "9c1025c88ccaa517b648da571961838744ea2137f176bfe6a48b21294cae9c76"

@@ -5,6 +5,7 @@
 // check of the engine's answers is the protocol version's (STYLE.md). A
 // Product's package reaches its own operations, streams and Run type
 // through it, and serves the engine's requests to its program's handlers.
+import { readFile } from "node:fs/promises";
 import { AttachedEngine, type EngineExit } from "./attached-engine.ts";
 import type { CallOptions, Caller, OperationTypes } from "./caller.ts";
 import { errorOfReply, type ErrorClasses } from "./errors.ts";
@@ -25,6 +26,7 @@ import {
   PRODUCT_VERSION,
   PROTOCOL_VERSION,
   ProtocolVersionUnsupportedError,
+  RecordingInvalidError,
   type CollieOperationTypes,
   type DaemonEndpoint,
   type GoodfetchError,
@@ -55,6 +57,7 @@ import { timeoutOf } from "./handle.ts";
 import { Run, type RunHost } from "./run.ts";
 import { RunView } from "./run-view.ts";
 import { Schedules } from "./schedules.ts";
+import { SECRETS_RESOLVE, serveSecretResolver, type SecretResolver } from "./secrets.ts";
 import { settingsOnWire, warnDeprecatedSettings, type RunSettings } from "./generated/settings.ts";
 import { MAX_LISTENER_QUEUE } from "./listeners.ts";
 import type { SettingsOnWire } from "./settings.ts";
@@ -285,6 +288,8 @@ export interface ClientConnectionOptions {
    * starts.
    */
   readonly logger?: Logger | undefined;
+  /** Answers `caller:<name>` Secret references at the moment of use (ADR 0092). */
+  readonly resolveSecret?: SecretResolver | undefined;
 }
 
 /** What serves one kind of the engine's requests: it answers the result, or throws the error to answer. */
@@ -327,6 +332,8 @@ export class ClientConnection implements AsyncDisposable {
   #closing: Promise<void> | undefined;
   /** Reads the Trace context each call the program makes carries (ADR 0132), set before `hello`. */
   #traceContext: TraceContextSource = () => undefined;
+  /** Whether Runs started without `recording` replay an empty recording (ADR 0105 `TestEngine`). */
+  #defaultEmptyReplay = false;
   /** The Schedules of the engine's major (spec 589), reached without a round trip. */
   readonly schedules: Schedules;
 
@@ -357,6 +364,7 @@ export class ClientConnection implements AsyncDisposable {
     const calls = this.caller<CollieOperationTypes>(collieWire);
     this.#operations = new CollieOperations(calls);
     this.#runHost = {
+      connection: this,
       calls,
       raw: (operation, params, callOptions) => this.#raw(operation, params, callOptions),
       reachable: () => !this.#ended,
@@ -377,6 +385,9 @@ export class ClientConnection implements AsyncDisposable {
         this.#openOrThrow(operation);
       },
     });
+    if (options.resolveSecret !== undefined) {
+      this.#served.set(SECRETS_RESOLVE, serveSecretResolver(options.resolveSecret));
+    }
     holdInRealm(this);
   }
 
@@ -492,6 +503,14 @@ export class ClientConnection implements AsyncDisposable {
   }
 
   /**
+   * Marks this Connection as belonging to a `TestEngine` (ADR 0105): every Run
+   * started without `recording` replays an empty recording so no site is reached.
+   */
+  enableEmptyReplayByDefault(): void {
+    this.#defaultEmptyReplay = true;
+  }
+
+  /**
    * Leaving the scope or `close()` stops the Run with a Checkpoint.
    * `finish()` ends it.
    *
@@ -515,7 +534,9 @@ export class ClientConnection implements AsyncDisposable {
    */
   async start(options: StartOptions = {}): Promise<Run> {
     warnEntry(collieOperations, "run.start");
-    const params = startParams(options, this.project());
+    const prepared = await prepareRecording(options.recording, this.#defaultEmptyReplay);
+    const params = startParams(options, this.project(), prepared);
+    const recordPath = prepared.recording?.mode === "record" ? prepared.recording.path : undefined;
     const { signal } = options;
     return this.startRun(
       "run.start",
@@ -530,7 +551,7 @@ export class ClientConnection implements AsyncDisposable {
           signal === undefined ? {} : { signal },
         );
       },
-      (host, started) => new Run(host, started),
+      (host, started) => new Run(host, started, false, recordPath),
     );
   }
 
@@ -544,14 +565,16 @@ export class ClientConnection implements AsyncDisposable {
    */
   async startRecipe(recipe: string, options: HandlerlessStartOptions = {}): Promise<Run> {
     warnEntry(collieOperations, "recipe.start");
+    const prepared = await prepareRecording(options.recording, this.#defaultEmptyReplay);
+    const recordPath = prepared.recording?.mode === "record" ? prepared.recording.path : undefined;
     const params: RecipeStartParams = {
       recipe,
-      ...handlerlessParams(options, this.project()),
+      ...handlerlessParams(options, this.project(), prepared),
     };
     return this.startRun(
       "recipe.start",
       () => this.#operations.recipeStart(params),
-      (host, started) => new Run(host, started, options.detached === true),
+      (host, started) => new Run(host, started, options.detached === true, recordPath),
     );
   }
 
@@ -571,14 +594,16 @@ export class ClientConnection implements AsyncDisposable {
     options: HandlerlessStartOptions = {},
   ): Promise<Run> {
     warnEntry(collieOperations, "catalog_run.start");
+    const prepared = await prepareRecording(options.recording, this.#defaultEmptyReplay);
+    const recordPath = prepared.recording?.mode === "record" ? prepared.recording.path : undefined;
     const params: CatalogRunStartParams = {
       target,
-      ...handlerlessParams(options, this.project()),
+      ...handlerlessParams(options, this.project(), prepared),
     };
     return this.startRun(
       "catalog_run.start",
       () => this.#operations.catalogRunStart(params),
-      (host, started) => new Run(host, started, options.detached === true),
+      (host, started) => new Run(host, started, options.detached === true, recordPath),
     );
   }
 
@@ -590,7 +615,7 @@ export class ClientConnection implements AsyncDisposable {
    */
   async openRun(runId: string): Promise<RunView> {
     this.#openOrThrow("openRun");
-    return new RunView(runId);
+    return new RunView(this.#runHost, runId);
   }
 
   /**
@@ -1103,6 +1128,45 @@ function cancelledByClose(): CallCancelledError {
   });
 }
 
+interface PreparedRecording {
+  readonly recording?: Recording | undefined;
+  readonly recordingBytes?: string | undefined;
+}
+
+/**
+ * Prepares the Response recording input for a Run's start (ADR 0105):
+ * in `replay` mode reads the WARC file on the program's machine and sends its
+ * Base64 bytes over the connection; on a `TestEngine` with no recording named,
+ * replays an empty recording.
+ */
+async function prepareRecording(
+  recording: Recording | undefined,
+  defaultEmptyReplay: boolean,
+): Promise<PreparedRecording> {
+  if (recording === undefined) {
+    return defaultEmptyReplay
+      ? { recording: { mode: "replay", path: "" }, recordingBytes: "" }
+      : {};
+  }
+  if (recording.mode !== "replay") {
+    return { recording };
+  }
+  try {
+    const bytes = await readFile(recording.path);
+    return { recording, recordingBytes: bytes.toString("base64") };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new RecordingInvalidError(
+      `Could not read the Response recording \`${recording.path}\`: ${reason}`,
+      {
+        details: { recording: recording.path, reason },
+        fix: "Record the file again, or name another.",
+        cause: error,
+      },
+    );
+  }
+}
+
 /**
  * The params every start carries, from `options` and the project file
  * `connect()` read; a `timeout` off its form fails with `setting_invalid`
@@ -1111,6 +1175,7 @@ function cancelledByClose(): CallCancelledError {
 function commonParams(
   options: CommonStartOptions,
   project: ProjectSettings | undefined,
+  prepared: PreparedRecording,
 ): Omit<RecipeStartParams, "recipe" | "detached"> {
   const limits = limitList(options.limits);
   const settings = settingsOnWire(options.settings);
@@ -1121,15 +1186,20 @@ function commonParams(
     ...(limits.length === 0 ? {} : { limits }),
     ...(settings === undefined ? {} : { settings }),
     ...(project === undefined ? {} : { project }),
-    ...(options.recording === undefined ? {} : { recording: options.recording }),
+    ...(prepared.recording === undefined ? {} : { recording: prepared.recording }),
+    ...(prepared.recordingBytes === undefined ? {} : { recordingBytes: prepared.recordingBytes }),
     ...(timeout === undefined ? {} : { timeout }),
   };
 }
 
 /** The params of `run.start`, from `options` and the project file `connect()` read. */
-function startParams(options: StartOptions, project: ProjectSettings | undefined): RunStartParams {
+function startParams(
+  options: StartOptions,
+  project: ProjectSettings | undefined,
+  prepared: PreparedRecording,
+): RunStartParams {
   return {
-    ...commonParams(options, project),
+    ...commonParams(options, project, prepared),
     ...(options.plan === undefined ? {} : { plan: options.plan }),
     ...(options.acceptPluginChange === undefined || options.acceptPluginChange.length === 0
       ? {}
@@ -1141,9 +1211,10 @@ function startParams(options: StartOptions, project: ProjectSettings | undefined
 function handlerlessParams(
   options: HandlerlessStartOptions,
   project: ProjectSettings | undefined,
+  prepared: PreparedRecording,
 ): Omit<RecipeStartParams, "recipe"> {
   return {
-    ...commonParams(options, project),
+    ...commonParams(options, project, prepared),
     ...(options.detached === true ? { detached: true } : {}),
   };
 }

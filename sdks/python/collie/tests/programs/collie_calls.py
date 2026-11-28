@@ -22,7 +22,12 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
     from datetime import timedelta
 
-    from goodfetch_collie import EngineChoice, Limits
+    from goodfetch_collie import (
+        AsyncSecretResolver,
+        EngineChoice,
+        Limits,
+        SecretResolver,
+    )
     from goodfetch_collie_client.generated.handles import AsyncLocator, AsyncPage
     from goodfetch_collie_client.response import AsyncResponse
     from goodfetch_test_support import Way
@@ -40,14 +45,24 @@ async def open_collie(
     limits: Limits | None = None,
     connect_timeout: timedelta | NotGiven | None = not_given,
     engine: EngineChoice = "auto",
+    async_resolve_secret: AsyncSecretResolver | None = None,
+    sync_resolve_secret: SecretResolver | None = None,
 ) -> AsyncCollie:
     """A Connection this way opened on the engine `engine` and `env` name."""
     return await way.open(
         lambda: AsyncCollie.connect(
-            env=env, engine=engine, limits=limits, timeout=connect_timeout
+            env=env,
+            engine=engine,
+            limits=limits,
+            timeout=connect_timeout,
+            resolve_secret=async_resolve_secret,
         ),
         lambda: Collie.connect(
-            env=env, engine=engine, limits=limits, timeout=connect_timeout
+            env=env,
+            engine=engine,
+            limits=limits,
+            timeout=connect_timeout,
+            resolve_secret=sync_resolve_secret,
         ),
     )
 

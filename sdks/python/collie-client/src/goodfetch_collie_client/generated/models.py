@@ -590,6 +590,40 @@ class CertsListParams(BaseModel):
     )
 
 
+class CheckpointSaved(BaseModel):
+    """What `checkpoint.save_as` answers once the file is whole."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    run_epoch: Annotated[int, Field(ge=0)]
+    """The run epoch of the writer that took the Checkpoint (ADR 0003)."""
+    size: Annotated[int, Field(ge=0)]
+    """The file's size in bytes."""
+    written: bool
+    """
+    Whether the engine wrote the program's path itself; when not, the
+    `$/chunk` notifications before this answer carried every byte, and
+    the SDK writes the path.
+    """
+
+
+class CheckpointStreamed(BaseModel):
+    """What `checkpoint.stream` answers once it sent every byte."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    run_epoch: Annotated[int, Field(ge=0)]
+    """The run epoch of the writer that took the Checkpoint (ADR 0003)."""
+    size: Annotated[int, Field(ge=0)]
+    """The file's size in bytes."""
+
+
 class ChromeChannel(StrEnum):
     """
     A channel of Google Chrome (ADR 0024: an installed Chrome can be named by
@@ -3299,6 +3333,24 @@ class RecordingReport(BaseModel):
     """The engine that wrote them."""
 
 
+class RecordingSaved(BaseModel):
+    """What `recording.save_as` answers once the file is whole (ADRs 0105 and 0116)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    size: Annotated[int, Field(ge=0)]
+    """The file's size in bytes."""
+    written: bool
+    """
+    Whether the engine wrote the program's path itself; when not, the
+    `$/chunk` notifications before this answer carried every byte, and
+    the SDK writes the path.
+    """
+
+
 class RedirectLimit1(BaseModel):
     """
     The browser's own count, 20 requests in a navigation's chain, its
@@ -4035,6 +4087,35 @@ class RunTargetUnbuiltDetails(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+
+
+class RunTrace(BaseModel):
+    """A Run's trace copy, kept on the engine's machine (ADRs 0102 and 0116)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    location: str
+    """Where it is: the trace file's path on the engine's machine."""
+    run_id: RunId
+    """The Run's ID."""
+    size: Annotated[int, Field(ge=0)]
+    """Its size in bytes."""
+
+
+class RunTraceResult(BaseModel):
+    """
+    What `run.trace` answers: the Run's trace copy, or none when the Run keeps
+    no trace.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    trace: RunTrace | None = None
+    """The Run's trace copy, or null when the Run keeps no trace."""
 
 
 class RunTrigger(StrEnum):
@@ -5475,6 +5556,66 @@ class TooManyRedirectsDetails(BaseModel):
     """The count it went past, and what set it."""
 
 
+class TraceSaveAsParams(BaseModel):
+    """What `trace.save_as` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    location: str
+    """Where the trace copy is on the engine's machine, as `run.trace` answered."""
+    path: str | None = None
+    """
+    The program's path, absolute, which an Attached engine writes
+    itself; any other engine leaves it to the SDK and sends the file's
+    bytes instead.
+    """
+    run_id: RunId
+    """The Run's ID."""
+
+
+class TraceSaved(BaseModel):
+    """What `trace.save_as` answers once the file is whole."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    size: Annotated[int, Field(ge=0)]
+    """The file's size in bytes."""
+    written: bool
+    """
+    Whether the engine wrote the program's path itself; when not, the
+    `$/chunk` notifications before this answer carried every byte, and
+    the SDK writes the path.
+    """
+
+
+class TraceStreamParams(BaseModel):
+    """What `trace.stream` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    location: str
+    """Where the trace copy is on the engine's machine, as `run.trace` answered."""
+    run_id: RunId
+    """The Run's ID."""
+
+
+class TraceStreamed(BaseModel):
+    """What `trace.stream` answers once it sent every byte."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    size: Annotated[int, Field(ge=0)]
+    """The file's size in bytes."""
+
+
 class TriggerDescription(BaseModel):
     """
     The plain-words description of a trigger (ADR 0073): a structured form
@@ -6358,6 +6499,36 @@ class CheckpointBehindDetails(BaseModel):
     """Where the Checkpoint stands."""
     run_file: RunStatePosition
     """Where the run file on this machine stands, past the Checkpoint."""
+
+
+class CheckpointSaveAsParams(BaseModel):
+    """What `checkpoint.save_as` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    location: str
+    """Where the Checkpoint is on the engine's machine, as `run.checkpoint` answered."""
+    path: str | None = None
+    """
+    The program's path, absolute, which an Attached engine writes
+    itself; any other engine leaves it to the SDK and sends the file's
+    bytes instead.
+    """
+    run_id: RunId
+    """The Run's ID."""
+
+
+class CheckpointStreamParams(BaseModel):
+    """What `checkpoint.stream` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    location: str
+    """Where the Checkpoint is on the engine's machine, as `run.checkpoint` answered."""
+    run_id: RunId
+    """The Run's ID."""
 
 
 class Chunk(BaseModel):
@@ -8181,6 +8352,27 @@ class Recording(BaseModel):
     """
 
 
+class RecordingSaveAsParams(BaseModel):
+    """What `recording.save_as` takes (ADRs 0105 and 0116)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filename: str | None = None
+    """
+    The recording's file name (such as `site.warc.gz`), used for `warcinfo`
+    and `.gz` per-record gzip detection when `path` is absent.
+    """
+    path: str | None = None
+    """
+    The program's path, absolute, which an Attached engine writes
+    itself; any other engine leaves it to the SDK and sends the file's
+    bytes in `$/chunk` notifications instead.
+    """
+    run_id: RunId
+    """The Run's ID."""
+
+
 class RefetchDomainRemoved(BaseModel):
     """What `needs_you.remove_refetch_domain` answers."""
 
@@ -8511,6 +8703,12 @@ class RunStartParams(BaseModel):
     """
     The Response recording the Run replays or records (ADR 0105): an
     input of the Run, as `plan` is.
+    """
+    recording_bytes: str | None = None
+    """
+    The Response recording's bytes in Base64, when the SDK read the file on
+    the program's machine for `mode: "replay"` (ADR 0105); empty string for
+    a test engine's empty replay recording.
     """
     run_id: Annotated[
         str | None, Field(pattern="^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$")
@@ -9395,6 +9593,12 @@ class CatalogRunStartParams(BaseModel):
     """The project configuration the Client found, layer 3 (ADR 0083)."""
     recording: Recording | None = None
     """The Response recording the Run replays or records (ADR 0105)."""
+    recording_bytes: str | None = None
+    """
+    The Response recording's bytes in Base64, when the SDK read the file on
+    the program's machine for `mode: "replay"` (ADR 0105); empty string for
+    a test engine's empty replay recording.
+    """
     run_id: Annotated[
         str | None, Field(pattern="^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$")
     ] = None
@@ -9945,6 +10149,12 @@ class RecipeStartParams(BaseModel):
     """
     recording: Recording | None = None
     """The Response recording the Run replays or records (ADR 0105)."""
+    recording_bytes: str | None = None
+    """
+    The Response recording's bytes in Base64, when the SDK read the file on
+    the program's machine for `mode: "replay"` (ADR 0105); empty string for
+    a test engine's empty replay recording.
+    """
     run_id: Annotated[
         str | None, Field(pattern="^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$")
     ] = None

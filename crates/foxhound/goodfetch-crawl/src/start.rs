@@ -422,10 +422,13 @@ async fn finish_started(
                     .recordings()
                     .attach(run.identity.id().clone(), replayed);
             } else if let Some(path) = record_path {
-                let recorder =
-                    context
-                        .engine()
-                        .new_recorder(path, run.identity.id().clone(), software, true);
+                let recorder = context.engine().new_recorder(
+                    path,
+                    run.identity.id().clone(),
+                    software,
+                    true,
+                    !context.is_daemon(),
+                );
                 recorder.attach_run_state(run.state.clone());
                 context
                     .engine()
@@ -449,9 +452,13 @@ async fn finish_started(
                     .recordings()
                     .attach(run_id.clone(), replayed);
             } else if let Some(path) = record_path {
-                let recorder = context
-                    .engine()
-                    .new_recorder(path, run_id.clone(), software, true);
+                let recorder = context.engine().new_recorder(
+                    path,
+                    run_id.clone(),
+                    software,
+                    true,
+                    !context.is_daemon(),
+                );
                 context
                     .engine()
                     .recordings()

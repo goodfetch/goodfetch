@@ -3,16 +3,40 @@
 // builds. Hand-written, since no catalog entry shapes it; the client
 // package's runtime implements it.
 import type { Caller, OperationTypes } from "./caller.ts";
+import type { MessageId } from "./framing.ts";
 import type { RawHost } from "./raw-call.ts";
 // The errors module itself, not the package index, which re-exports the
 // handles that import this module.
 import { SettingInvalidError } from "./generated/errors.ts";
+
+/** The narrow stream handle `saveFile` and Run copies read from a Connection. */
+export interface HandleStream {
+  readonly id?: MessageId;
+  readonly result: Promise<unknown>;
+  grant(credits: number): void;
+  notify?(method: string, params: unknown): void;
+}
+
+/** The narrow Connection surface Run copies (`Checkpoint`, `RunTrace`) and `saveFile` need. */
+export interface RunCopyConnection {
+  engine(): { readonly kind: string };
+  stream(
+    method: string,
+    params: unknown,
+    options: {
+      readonly signal?: AbortSignal | undefined;
+      readonly notified?: ((method: string, params: unknown) => void) | undefined;
+    },
+  ): HandleStream;
+}
 
 /** What a handle of ID `Id` reaches its engine through. */
 export interface HandleHost<Id, Types extends Record<keyof Types, OperationTypes>>
   extends Caller<Types>, RawHost {
   /** The ID each of the handle's calls carries. */
   readonly id: Id;
+  /** The Connection this handle's calls and Run copies reach the engine through. */
+  readonly connection: RunCopyConnection;
   /** The host of a handle this one opens or builds, whose calls carry `id`. */
   child<ChildId>(id: ChildId): HandleHost<ChildId, Types>;
   /**

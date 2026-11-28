@@ -187,6 +187,21 @@ prefix = "run.list"
 [[area]]
 number = 3
 kind = "operation"
+prefix = "run.trace"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "checkpoint."
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "trace."
+
+[[area]]
+number = 3
+kind = "operation"
 prefix = "crawl.start"
 
 [[area]]
@@ -831,6 +846,11 @@ prefix = "response_not_recorded"
 number = 6
 kind = "error"
 prefix = "recording_invalid"
+
+[[area]]
+number = 6
+kind = "operation"
+prefix = "recording."
 
 [[area]]
 number = 6

@@ -17,6 +17,7 @@ import {
   type WorkerTarget,
 } from "./client-connection.ts";
 import { checkDeploymentVariables } from "./deployment-variables.ts";
+import { refuseHandlersOnEdge } from "./edge-runtime.ts";
 import {
   handedOverTo,
   openEndpoint,
@@ -58,6 +59,7 @@ import {
   type OperationClasses,
   type Transport,
 } from "./rpc.ts";
+import type { SecretResolver } from "./secrets.ts";
 import type { SettingsOnWire } from "./settings.ts";
 
 /**
@@ -108,6 +110,13 @@ export interface ConnectOverOptions<S = Settings> {
    * SDK is silent and the engine sends no log events.
    */
   readonly logger?: Logger | undefined;
+  /**
+   * Answers `caller:<name>` Secret references at the moment of use, for Runs
+   * this Connection opened (ADRs 0092 and 0104). The value goes straight to
+   * the engine; the SDK keeps no copy and logs nothing. Without it, a
+   * `caller:` reference fails with `secret_unavailable` naming this option.
+   */
+  readonly resolveSecret?: SecretResolver | undefined;
 }
 
 /** Options of `connect()`, with `S`, the settings it takes. */
@@ -532,6 +541,7 @@ interface Opening {
   readonly settings: SettingsOnWire | undefined;
   readonly timeout: number | null | undefined;
   readonly logger: Logger | undefined;
+  readonly resolveSecret: SecretResolver | undefined;
   /** The project file `connect()` read, which a Connection over a transport a test holds has none of. */
   readonly project?: ProjectFile | undefined;
 }
@@ -545,7 +555,14 @@ interface Opening {
  * is 0, negative, fractional or not finite.
  */
 function opening<S>(product: ProductPackage<S>, options: ConnectOverOptions<S>): Opening {
-  const { signal, logger } = options;
+  const { signal, logger, resolveSecret } = options;
+  if (resolveSecret !== undefined) {
+    refuseHandlersOnEdge({
+      operation: "hello",
+      names: product.operationNames,
+      handlers: "resolveSecret",
+    });
+  }
   const settings = product.settingsOnWire(options.settings);
   const own = clientBounds(settings);
   return {
@@ -559,6 +576,7 @@ function opening<S>(product: ProductPackage<S>, options: ConnectOverOptions<S>):
     settings,
     timeout: timeoutOf(options.timeout, TIMEOUT_CONNECT),
     logger,
+    resolveSecret,
   };
 }
 

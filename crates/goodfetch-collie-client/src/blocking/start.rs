@@ -8,13 +8,14 @@ use std::time::Duration;
 use goodfetch_protocol::run::{Recording, RunId, Tags};
 
 use super::Run;
+use crate::connection::Core;
 use crate::error::Error;
 
 /// The start of a Run (`run.start`). Nothing is sent until
 /// [`Start::send`].
 #[must_use = "a start is sent only by send()"]
 #[derive(Debug)]
-pub struct Start(pub(super) crate::Start, pub(super) crate::ClientConnection);
+pub struct Start(pub(super) crate::Start, pub(super) Core);
 
 impl Start {
     /// Names the Run for good: a start with an existing Run ID resumes the
@@ -125,10 +126,7 @@ impl Start {
 /// [`HandlerlessStart::send`].
 #[must_use = "a start is sent only by send()"]
 #[derive(Debug)]
-pub struct HandlerlessStart(
-    pub(super) crate::HandlerlessStart,
-    pub(super) crate::ClientConnection,
-);
+pub struct HandlerlessStart(pub(super) crate::HandlerlessStart, pub(super) Core);
 
 impl HandlerlessStart {
     /// Names the Run for good, as [`crate::HandlerlessStart::run_id`] does.

@@ -13,7 +13,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::{Schema, SchemaError};
+use super::{Schema, SchemaError, ValidateError};
 
 #[derive(Debug, PartialEq, JsonSchema, Serialize, Deserialize)]
 struct Book {
@@ -66,6 +66,30 @@ fn a_hand_written_schema_that_is_not_one_is_refused(#[case] document: Value, #[c
             found: found.to_owned()
         }
     );
+}
+
+#[test]
+fn an_invalid_json_schema_is_refused_at_creation_and_valid_schema_caches_validation() {
+    let err = Schema::json(json!({"type": 123})).unwrap_err();
+    assert!(
+        matches!(err, SchemaError::InvalidSchema { .. }),
+        "expected InvalidSchema, got {err:?}"
+    );
+
+    let schema = Schema::json(json!({
+        "type": "object",
+        "properties": { "title": { "type": "string" } },
+        "required": ["title"]
+    }))
+    .unwrap();
+    let cloned = schema.clone();
+
+    assert_eq!(schema.validate(&json!({"title": "Dune"})), Ok(()));
+    assert_eq!(cloned.validate(&json!({"title": "Messiah"})), Ok(()));
+    assert!(matches!(
+        cloned.validate(&json!({"title": 42})),
+        Err(ValidateError::Violation { .. })
+    ));
 }
 
 #[test]

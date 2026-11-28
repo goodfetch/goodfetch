@@ -230,6 +230,15 @@ impl Egress {
             IpFamily::Ipv6 => self.local_ipv6.map(IpAddr::V6),
         }
     }
+
+    async fn attempt(&self, address: SocketAddr) -> io::Result<TcpStream> {
+        attempt(
+            address,
+            self.local_address(family_of(address.ip())),
+            Some(&self.local_device),
+        )
+        .await
+    }
 }
 
 /// How [`connect`] resolves and races.
@@ -284,21 +293,13 @@ pub async fn connect(
         families: egress.families(),
     };
     let dns = &connecting.dns;
-    let device = &egress.local_device;
     let raced = race
         .connect(
             name,
             port,
             dns.addresses(name, IpFamily::Ipv6, route),
             dns.addresses(name, IpFamily::Ipv4, route),
-            |address| async move {
-                attempt(
-                    address,
-                    egress.local_address(family_of(address.ip())),
-                    Some(device),
-                )
-                .await
-            },
+            |address| egress.attempt(address),
         )
         .await;
     match raced {

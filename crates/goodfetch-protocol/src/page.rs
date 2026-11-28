@@ -54,6 +54,7 @@ use crate::settings::SettingLimit;
 
 pub mod access_mode;
 pub mod ai_work;
+pub mod borrow;
 pub mod cdp_session;
 pub mod cdp_url;
 pub mod dialog;
@@ -2048,6 +2049,7 @@ pub const ENTRIES: Entries = Entries {
         cdp_session::CDP_SESSION_ON,
         lend::PAGE_LEND,
         lend::CDP_ENDPOINT_CLOSE,
+        borrow::RUN_BORROW,
     ],
     events: &[
         PAGE_DOWNLOAD,
@@ -2105,6 +2107,7 @@ pub const ENTRIES: Entries = Entries {
         session::SESSION_NOT_SAVABLE,
         cdp_session::CDP_COMMAND_REFUSED,
         lend::SESSION_RESERVED,
+        borrow::BORROW_REQUIRES_CDP,
     ],
     plugin_kinds: &[],
     metrics: &[],

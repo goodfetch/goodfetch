@@ -132,6 +132,7 @@ use crate::url_pattern::UrlPattern;
 mod arrival;
 mod blocked;
 mod blocking_off;
+mod borrow;
 mod cdp_session;
 mod clean_up;
 mod input;
@@ -211,6 +212,7 @@ pub fn contribution_with(
     let contribution = pause::with_pause_handlers(contribution, &pages);
     let contribution = cdp_session::with_cdp_session_handlers(contribution, &pages);
     let contribution = lend::with_lend_handlers(contribution, &pages);
+    let contribution = borrow::with_borrow_handlers(contribution, &pages);
     let contribution = scroll_collect::with_scroll_collect_handler(contribution, &pages);
     let contribution = with_request_handler(contribution, &pages);
     pages.product.opened(Arc::new(Opener {

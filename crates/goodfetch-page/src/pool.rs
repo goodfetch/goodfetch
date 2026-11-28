@@ -606,7 +606,37 @@ impl Pool {
                 egress,
                 SessionEmulation::borrowed(),
             ),
-            Some(browser),
+            Some(BorrowedSeat {
+                browser,
+                context: None,
+            }),
+            Carried::default(),
+            tasks,
+        )
+    }
+
+    /// A seat for a Session on a `run.borrow()` relayed browser in a specific
+    /// browser context (ADRs 0056 and 0089).
+    pub(crate) fn relayed_seat(
+        &self,
+        browser: Arc<BorrowedBrowser>,
+        borrowed_context: Option<(String, bool)>,
+        egress: SessionEgress,
+        tasks: TaskStarter,
+    ) -> Seat {
+        lock(&self.shared.browsers)
+            .borrowed
+            .push(Arc::clone(&browser));
+        self.seat_of(
+            (
+                (BrowserPlacement::Shared, Window::Headless),
+                egress,
+                SessionEmulation::borrowed(),
+            ),
+            Some(BorrowedSeat {
+                browser,
+                context: borrowed_context,
+            }),
             Carried::default(),
             tasks,
         )
@@ -619,7 +649,7 @@ impl Pool {
             SessionEgress,
             SessionEmulation,
         ),
-        borrowed: Option<Arc<BorrowedBrowser>>,
+        borrowed: Option<BorrowedSeat>,
         carried: Carried,
         tasks: TaskStarter,
     ) -> Seat {
@@ -631,6 +661,10 @@ impl Pool {
         let origins = Origins::default();
         origins.seed(carried.origins());
         let (place, commands) = mpsc::channel(PLACE_COMMANDS);
+        let (borrowed_browser, borrowed_context) = match borrowed {
+            Some(BorrowedSeat { browser, context }) => (Some(browser), context),
+            None => (None, None),
+        };
         let shared = Arc::new(SeatShared {
             pool: self.clone(),
             number,
@@ -638,7 +672,8 @@ impl Pool {
             window,
             egress,
             emulation,
-            borrowed,
+            borrowed: borrowed_browser,
+            borrowed_context,
             origins,
             place,
             tasks,
@@ -1099,6 +1134,12 @@ impl Drop for Hold {
     }
 }
 
+/// A Borrowed browser and its optional explicit browser context for a [`Seat`].
+struct BorrowedSeat {
+    browser: Arc<BorrowedBrowser>,
+    context: Option<(String, bool)>,
+}
+
 /// A Session's seat in its Run's browser pool: the browser context it
 /// holds now, in which browser, and what it carries between browsers.
 pub(crate) struct Seat {
@@ -1119,6 +1160,9 @@ struct SeatShared {
     emulation: SessionEmulation,
     /// The Borrowed browser it is seated in for good, outside the pool.
     borrowed: Option<Arc<BorrowedBrowser>>,
+    /// The specific browser context ID when borrowing via `run.borrow()`,
+    /// with whether it is the browser's default context.
+    borrowed_context: Option<(String, bool)>,
     origins: Origins,
     /// The actor that alone holds its [`Place`] (STYLE.md: state with one
     /// owner is an actor): seating it, moving it out of a recycled browser,
@@ -1234,6 +1278,28 @@ impl Seat {
         let in_browser = self.shared.pool.page_opening(number, self.shared.number);
         drop(opening);
         let page = driver.new_page(visibility).await?;
+        self.shared.read(&page);
+        Ok((page, in_browser))
+    }
+
+    /// Whether this Seat's Borrowed browser has already been stopped.
+    pub(crate) fn is_borrowed_stopped(&self) -> bool {
+        self.shared
+            .borrowed
+            .as_ref()
+            .is_some_and(|browser| browser.is_stopped())
+    }
+
+    /// Attaches to an existing page target on a Borrowed browser without
+    /// creating or owning the tab (`run.borrow(page)`).
+    pub(crate) async fn attach_existing_page(
+        &self,
+        target_id: String,
+    ) -> Result<(PageDriver, InBrowser), CallError> {
+        let (number, driver, opening) = self.shared.seated(Some(Opens::ProgramPage)).await?;
+        let in_browser = self.shared.pool.page_opening(number, self.shared.number);
+        drop(opening);
+        let page = driver.attach_existing_page(target_id).await?;
         self.shared.read(&page);
         Ok((page, in_browser))
     }
@@ -1499,11 +1565,20 @@ impl SeatShared {
             return Ok((*number, Arc::clone(driver), self.pool.opening(*number)));
         }
         if let Some(borrowed) = &self.borrowed {
-            let driver = Arc::new(SessionDriver::new(
-                Behind::Borrowed(Arc::clone(borrowed)),
-                SessionEgress::default(),
-                SessionEmulation::borrowed(),
-            ));
+            let driver = match &self.borrowed_context {
+                Some((context_id, is_default)) => Arc::new(SessionDriver::new_in_context(
+                    Behind::Borrowed(Arc::clone(borrowed)),
+                    SessionEgress::default(),
+                    SessionEmulation::borrowed(),
+                    context_id.clone(),
+                    *is_default,
+                )),
+                None => Arc::new(SessionDriver::new(
+                    Behind::Borrowed(Arc::clone(borrowed)),
+                    SessionEgress::default(),
+                    SessionEmulation::borrowed(),
+                )),
+            };
             driver.open().await?;
             place.at = Some((BORROWED, Arc::clone(&driver)));
             self.pool.follow_borrowed(self.number, Arc::clone(borrowed));

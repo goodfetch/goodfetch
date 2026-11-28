@@ -3408,6 +3408,10 @@ reason = "Issue 1304 adds `CDPSession.on` event streaming to the Python SDK."
 entries = ["cdp_endpoint.close"]
 reason = "Area 11 adds the `CdpEndpoint` handle wrapper (`close()`) to the Python SDK (ADR 0089)."
 
+[[unreached]]
+entries = ["run.borrow"]
+reason = "Area 11 adds the `run.borrow()` SDK relay helper to the Python SDK (ADR 0056, ADR 0089)."
+
 [[logger]]
 package = "goodfetch-collie-client"
 name = "goodfetch"

@@ -11,6 +11,7 @@
 //! goes out in (issue 3259), and the tasks a recycled browser leaves
 //! (issue 3264).
 
+mod borrow;
 mod browser_recycle;
 mod cdp_session;
 mod effect_window;

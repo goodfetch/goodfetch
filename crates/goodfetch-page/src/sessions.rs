@@ -227,6 +227,9 @@ struct RunSessions {
     /// The position of each Session a crawl's Session pool opened, by the
     /// pool's own ID for it, set once it opened.
     pooled: BTreeMap<SessionId, Arc<OnceCell<u32>>>,
+    /// The position of each Session opened for a borrowed browser context
+    /// (`run.borrow()`, ADR 0089), keyed by `BrowserContextID`.
+    borrowed_contexts: BTreeMap<String, u32>,
     /// Cursory's human-like input shapes loaded once per Run (ADR 0035, 0140).
     human_input: Arc<OnceCell<human_input::Plan>>,
 }
@@ -289,6 +292,10 @@ struct Session {
     /// (ADR 0056; ticket #737): `session.save_identity` refuses it with
     /// `session_not_savable`.
     is_profile_directory: bool,
+    /// Whether this Session runs on a Borrowed browser (`cdp_url` or
+    /// `run.borrow()`, ADRs 0056, 0089, 0092): `session.save_identity` refuses
+    /// it with `session_not_savable`.
+    is_borrowed: bool,
     /// The browser family this Session runs on (Chromium, Firefox, WebKit).
     browser_family: BrowserFamily,
     /// The cookies and `localStorage` last persisted to `page_sessions.state`,
@@ -734,6 +741,7 @@ impl Sessions {
                 page_listeners: session_pages::PageListeners::default(),
                 run_index: context.engine().run_index().clone(),
                 is_profile_directory: opened.profile().is_some(),
+                is_borrowed: borrowed.is_some(),
                 browser_family,
                 saved_state,
             });
@@ -938,6 +946,7 @@ impl Sessions {
             page_listeners: session_pages::PageListeners::default(),
             run_index: context.engine().run_index().clone(),
             is_profile_directory: source.profile().is_some(),
+            is_borrowed: borrowed.is_some(),
             browser_family: BrowserFamily::Chromium,
             saved_state: Arc::default(),
         });
@@ -1020,6 +1029,157 @@ impl Sessions {
     /// Closes the Session `session`: its pages and its browser context
     /// close, and its pages' admissions go back; a Session closed already,
     /// or ended with its Run, stays as it is (ADR 0078).
+    /// Returns the live [`BrowserRun`] for `run_id`.
+    pub(crate) async fn live_run(
+        &self,
+        run_id: &RunId,
+        context: &CallContext,
+    ) -> Result<Arc<BrowserRun>, CallError> {
+        live(run_id, context).await
+    }
+
+    /// Opens or joins the Session of `run_id` mapped to `browser_context_id`
+    /// on a `run.borrow()` relayed browser (ADRs 0056 and 0089).
+    pub(crate) async fn open_relayed_session(
+        &self,
+        run_id: &RunId,
+        browser: Arc<crate::cdp::driver::BorrowedBrowser>,
+        browser_context_id: String,
+        is_default_context: bool,
+        context: &CallContext,
+    ) -> Result<SessionId, CallError> {
+        let run = live(run_id, context).await?;
+        self.reach(&run, context).await?;
+
+        let existing = {
+            let state = self.state.lock().await;
+            state
+                .runs
+                .get(run.identity.id())
+                .and_then(|runs| runs.borrowed_contexts.get(&browser_context_id).copied())
+                .map(|position| session_id(run.identity.id(), position))
+        };
+        if let Some(session_id) = existing
+            && let Some(open) = self.index.session(&session_id)
+            && !open.seat.is_borrowed_stopped()
+        {
+            return Ok(session_id);
+        }
+
+        let settings = own_settings(&Map::new(), &run, context)?;
+        let owner = run.identity.owner().child();
+        let (position, session, life, open) = {
+            let mut state = self.state.lock().await;
+            let runs = reached(&mut state, &run.identity)?;
+            if let Some(&pos) = runs.borrowed_contexts.get(&browser_context_id) {
+                let id = session_id(run.identity.id(), pos);
+                if let Some(open) = self.index.session(&id)
+                    && !open.seat.is_borrowed_stopped()
+                {
+                    return Ok(id);
+                }
+            }
+            runs.last += 1;
+            let position = runs.last;
+            let session = session_id(run.identity.id(), position);
+            let seat = runs.pool.relayed_seat(
+                browser,
+                Some((browser_context_id.clone(), is_default_context)),
+                SessionEgress::default(),
+                TaskStarter::clone(&owner),
+            );
+            let life = SessionLife::new(session.clone(), BORROWED, SessionState::Opening);
+            let interception = session_interception(
+                (&session, &run),
+                None,
+                (false, false),
+                None,
+                false,
+                false,
+                settings.clone(),
+            );
+            let open = Arc::new(Session {
+                owner,
+                pages: HeldPages::default(),
+                run: Arc::clone(&run),
+                position,
+                seat,
+                settings,
+                life: life.clone(),
+                proxy: None,
+                egress_marked: OnceCell::new(),
+                relay: None,
+                http_credentials: None,
+                reopen_failed: None,
+                held_frames: Some(session_pages::HeldFrames::default()),
+                injections: Injections::default(),
+                fingerprint: None,
+                human_input: None,
+                hiding: Arc::default(),
+                interception,
+                page_listeners: session_pages::PageListeners::default(),
+                run_index: context.engine().run_index().clone(),
+                is_profile_directory: false,
+                is_borrowed: true,
+                browser_family: BrowserFamily::Chromium,
+                saved_state: Arc::default(),
+            });
+            runs.borrowed_contexts.insert(browser_context_id, position);
+            self.index.opened(&session, Arc::clone(&open));
+            self.watch_session(session.clone(), &open);
+            (position, session, life, open)
+        };
+        let _ = position;
+        if let Err(error) = open.seat.open().await {
+            let _ = life.open_failed(error.clone());
+            self.index.ended(&session, &open);
+            open.owner.stop().await;
+            return Err(error);
+        }
+        life.apply(SessionEvent::SourceReady, None)?;
+        mark_egress(&open, &session).await;
+        Ok(session)
+    }
+
+    /// Attaches an existing page target in a borrowed Session (`run.borrow(page)`).
+    pub(crate) async fn attach_relayed_page(
+        &self,
+        session: &SessionId,
+        target_id: String,
+        context: &CallContext,
+    ) -> Result<PageId, CallError> {
+        let open = self.session(session, context).await?;
+        open.life.call().await?;
+        let run = Arc::clone(&open.run);
+        let settings = page_settings(&Map::new(), &run, context)?;
+        let value = self.handler_pages.value(run.identity.id(), session);
+        lease_holds(&value)?;
+        let admission = run.governor.share().admit(WorkKind::BrowserPage).await;
+        let (driver, in_browser) = match open.seat.attach_existing_page(target_id).await {
+            Ok(opened) => opened,
+            Err(error) => return Err(open.life.settled(error).await),
+        };
+        let driver = driver
+            .with_value(value, run.identity.clock())
+            .with_reader(self.handler_pages.reader(run.identity.id(), session));
+        let open_session = Arc::clone(&open);
+        let page = counted_as_opening(
+            run.identity.metrics().counted_work(),
+            self.adopt(session_pages::Adopting {
+                observer: self.handler_pages.observer(run.identity.id(), session),
+                settings,
+                open,
+                driver,
+                in_browser,
+                admission,
+                events: context.events().clone(),
+            }),
+        )
+        .await?;
+        mark_egress(&open_session, session).await;
+        Ok(page)
+    }
+
     /// Saves a Session's login as a named Saved identity (`session.save_identity`,
     /// ADR 0092): refuses a Profile directory used in place with
     /// `session_not_savable` naming `state_file` (ticket #737).
@@ -1039,6 +1199,16 @@ impl Sessions {
                 "A Session opened on a Profile directory in place cannot be saved directly as a Saved identity; export or import via `state_file` instead (ADR 0092).",
                 &goodfetch_protocol::page::session::SessionNotSavableDetails {
                     source: "profile_directory".to_owned(),
+                    alternative: "state_file".to_owned(),
+                },
+            ));
+        }
+        if open.is_borrowed {
+            return Err(CallError::new(
+                &goodfetch_protocol::page::session::SESSION_NOT_SAVABLE,
+                "A Session on a Borrowed browser cannot be saved directly as a Saved identity; export or import via `state_file` instead (ADRs 0056, 0092).",
+                &goodfetch_protocol::page::session::SessionNotSavableDetails {
+                    source: "client_browser".to_owned(),
                     alternative: "state_file".to_owned(),
                 },
             ));
@@ -1546,6 +1716,7 @@ impl Sessions {
             default: Arc::new(OnceCell::new()),
             closed: BTreeSet::new(),
             pooled: BTreeMap::new(),
+            borrowed_contexts: BTreeMap::new(),
             human_input: Arc::new(OnceCell::new()),
         };
         let mut reopened = Vec::new();
@@ -2266,6 +2437,7 @@ async fn reopened_session(
         page_listeners: session_pages::PageListeners::default(),
         run_index: context.engine().run_index().clone(),
         is_profile_directory: false,
+        is_borrowed: borrowed.is_some(),
         browser_family: BrowserFamily::Chromium,
         saved_state,
     })

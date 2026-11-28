@@ -1250,6 +1250,17 @@ number = 5
 kind = "error"
 prefix = "session_reserved"
 
+# Borrowing the program's own browser over the SDK connection (run.borrow(), #744, ADR 0056/0089).
+[[area]]
+number = 5
+kind = "operation"
+prefix = "run.borrow"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "borrow_requires_cdp"
+
 # A Block cause on a Session a program or an Agent opened (#711, ADRs 0088
 # and 0092).
 [[area]]

@@ -90,6 +90,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "`run.borrow()` requires a Chromium-family browser speaking CDP: Playwright's Firefox and WebKit expose no CDP and cannot be borrowed (ADRs 0056 and 0089).",
+      "details": {
+        "$ref": "#/$defs/BorrowRequiresCdpDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "borrow_requires_cdp",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Browser host the engine reached is of a version this engine cannot drive. Upgrade the Browser host, which either Product's executable runs as its `browser-host` command.",
       "exit_code": 12,
       "group": "unavailable",
@@ -5337,6 +5350,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunSeedsAdded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Relays the program's own Chromium-family browser (Playwright or Puppeteer) over the SDK's JSON-RPC connection with no port, under credits (ADRs 0056, 0078 and 0089). Each borrowed browser context maps to one Session of the Run, never closed by Collie; results are unguarded, Secrets raise `secret_input_refused`, `session.save_identity` raises `session_not_savable`, and Playwright's Firefox or WebKit raises `borrow_requires_cdp`. `$/cancel` or retiring the browser ends the borrow.",
+      "events": [],
+      "kind": "sequence",
+      "name": "run.borrow",
+      "params": {
+        "$ref": "#/$defs/RunBorrowParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/BorrowEnded"
       },
       "stability": "experimental"
     },

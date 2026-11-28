@@ -721,12 +721,24 @@ impl Connect for Behind {
     }
 }
 
-/// A Borrowed browser reached through its `cdp_url` (ADRs 0056 and 0115),
-/// connected to on its Session's opening: the engine holds its own
-/// connection, which ends with the Run, and never closes the browser.
+/// Where a [`BorrowedBrowser`]'s CDP connection comes from.
+enum BorrowedSource {
+    /// A `cdp_url` WebSocket address (ADRs 0056 and 0115).
+    CdpUrl(CdpUrl),
+    /// A client-relayed browser over `run.borrow()` (ADRs 0056 and 0089).
+    Relayed {
+        connection: Connection,
+        label: String,
+    },
+}
+
+/// A Borrowed browser reached through its `cdp_url` (ADRs 0056 and 0115) or
+/// relayed through `run.borrow()` (ADRs 0056 and 0089): the engine holds its
+/// own connection, which ends with the Run or borrow, and never closes the
+/// browser.
 pub(crate) struct BorrowedBrowser {
     run: Arc<BrowserRun>,
-    cdp_url: CdpUrl,
+    source: BorrowedSource,
     /// The browser's owner, beside its Run's Sessions (ADR 0146): it holds
     /// the engine's connection, the readers of the browser's own events and
     /// every task started for the browser, so its stop ends them all.
@@ -745,12 +757,73 @@ impl BorrowedBrowser {
         let owner = run.identity.owner().child();
         Self {
             run,
-            cdp_url,
+            source: BorrowedSource::CdpUrl(cdp_url),
             owner,
             state: Arc::default(),
             exit: watch::channel(None).1,
             connected: OnceCell::new(),
         }
+    }
+
+    /// A Borrowed browser backed by a `run.borrow()` relay over the SDK's
+    /// JSON-RPC connection (ADRs 0056 and 0089).
+    pub(crate) fn relayed(
+        run: Arc<BrowserRun>,
+        owner: TaskOwner,
+        connection: Connection,
+        label: String,
+    ) -> Self {
+        Self {
+            run,
+            source: BorrowedSource::Relayed { connection, label },
+            owner,
+            state: Arc::default(),
+            exit: watch::channel(None).1,
+            connected: OnceCell::new(),
+        }
+    }
+
+    /// Resolves the browser context ID for `target_id` (via `Target.getTargetInfo`)
+    /// or the browser's default context (via `Target.getBrowserContexts`),
+    /// returning `(context_id, is_default_context)`.
+    pub(crate) async fn resolve_context(
+        &self,
+        target_id: Option<&str>,
+    ) -> Result<(String, bool), CallError> {
+        let browser = self.connect().await?;
+        let opening = browser.opening();
+        let contexts = browser
+            .send(None, &target::GetBrowserContextsParams {}, &opening)
+            .await?;
+        let default_ctx = contexts.default_browser_context_id.unwrap_or_default();
+        if let Some(target_id) = target_id {
+            let info = browser
+                .send(
+                    None,
+                    &target::GetTargetInfoParams {
+                        target_id: Some(target_id.to_owned()),
+                    },
+                    &opening,
+                )
+                .await?;
+            if let Some(ctx) = info.target_info.browser_context_id
+                && !ctx.is_empty()
+            {
+                let is_default = ctx == default_ctx;
+                return Ok((ctx, is_default));
+            }
+        }
+        if default_ctx.is_empty() {
+            return Err(CallError::new(
+                &goodfetch_protocol::page::BROWSER_LAUNCH_FAILED,
+                "the Borrowed browser names no default browser context",
+                &goodfetch_protocol::page::BrowserLaunchFailedDetails {
+                    executable: browser.executable.clone(),
+                    exit: None,
+                },
+            ));
+        }
+        Ok((default_ctx, true))
     }
 
     /// The starting side of the browser's owner, whose tasks end with it.
@@ -766,6 +839,11 @@ impl BorrowedBrowser {
     /// Dropping the future stops waiting: the connection still ends.
     pub(crate) async fn stop(&self) {
         self.owner.stop().await;
+    }
+
+    /// Whether this Borrowed browser's connection has been stopped.
+    pub(crate) fn is_stopped(&self) -> bool {
+        self.owner.child_token().is_cancelled()
     }
 }
 
@@ -789,8 +867,15 @@ impl Connect for BorrowedBrowser {
         self.connected
             .get_or_try_init(|| async {
                 let tasks = self.run.identity.starting_on(&self.owner);
-                let connection = borrowed::connect((&self.run, &tasks), &self.cdp_url).await?;
-                let address = self.cdp_url.address();
+                let (connection, address) = match &self.source {
+                    BorrowedSource::CdpUrl(cdp_url) => {
+                        let connection = borrowed::connect((&self.run, &tasks), cdp_url).await?;
+                        (connection, cdp_url.address())
+                    }
+                    BorrowedSource::Relayed { connection, label } => {
+                        (connection.clone(), label.clone())
+                    }
+                };
                 let mut browser = Browser {
                     connection,
                     exit: self.exit.clone(),
@@ -1069,6 +1154,10 @@ pub(crate) struct SessionDriver<B> {
     egress: SessionEgress,
     emulation: SessionEmulation,
     context: OnceCell<browser::BrowserContextID>,
+    /// When borrowing a specific non-default browser context (e.g. an incognito
+    /// context in `run.borrow()`), `new_page_in` passes `browser_context_id` so
+    /// new pages open in that context rather than the browser's default context.
+    explicit_non_default_context: bool,
     /// The pages it opened in a Borrowed browser's default context, which
     /// its close closes.
     opened: Mutex<Vec<target::TargetID>>,
@@ -1094,6 +1183,28 @@ impl<B: Connect> SessionDriver<B> {
             egress,
             emulation,
             context: OnceCell::new(),
+            explicit_non_default_context: false,
+            opened: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// The driver of a borrowed Session pinned to a specific browser context
+    /// (`run.borrow()`, ADRs 0056 and 0089).
+    pub(crate) fn new_in_context(
+        browser: B,
+        egress: SessionEgress,
+        emulation: SessionEmulation,
+        context_id: browser::BrowserContextID,
+        is_default_context: bool,
+    ) -> Self {
+        let context = OnceCell::new();
+        let _ = context.set(context_id);
+        Self {
+            browser,
+            egress,
+            emulation,
+            context,
+            explicit_non_default_context: !is_default_context,
             opened: Mutex::new(Vec::new()),
         }
     }
@@ -1267,9 +1378,12 @@ impl<B: Connect> SessionDriver<B> {
                 None,
                 &target::CreateTargetParams {
                     url: "about:blank".to_owned(),
-                    // A Borrowed browser's pages open in its default
-                    // context, which takes no ID.
-                    browser_context_id: (!self.browser.borrowed()).then(|| context.clone()),
+                    // A Borrowed browser's default context takes no ID; an
+                    // explicit non-default borrowed context passes its ID so
+                    // new pages open in that Session's context.
+                    browser_context_id: (!self.browser.borrowed()
+                        || self.explicit_non_default_context)
+                        .then(|| context.clone()),
                     left: None,
                     top: None,
                     // Never pass `width`/`height` here: Chromium refuses them
@@ -1331,6 +1445,35 @@ impl<B: Connect> SessionDriver<B> {
             egress: self.egress.clone(),
             context,
             frame,
+            started: Arc::new(watch::Sender::new(0)),
+            navigating: Arc::new(watch::Sender::new(0)),
+            other_code: Arc::new(watch::Sender::new(0)),
+            spent: Duration::ZERO,
+            value: RequestValue::new(PageValue::empty()),
+            waits: None,
+            reader: None,
+        })
+    }
+
+    /// Attaches to an existing page target in a Borrowed browser without
+    /// creating or owning the tab (`run.borrow(page)`, ADRs 0056 and 0089).
+    /// Closing the Session or Run never closes this target.
+    pub(crate) async fn attach_existing_page(
+        &self,
+        target_id: target::TargetID,
+    ) -> Result<PageDriver, CallError> {
+        let browser = self.browser.connect().await?;
+        let opening = browser.opening();
+        let context = self.context_in(&browser).await?;
+        let session = browser.attach_own(&target_id, &opening).await?;
+        prepare(&browser, &session, &self.emulation).await?;
+        Ok(PageDriver {
+            page_reader: PageReader::new(&browser.connection, &session),
+            browser,
+            session,
+            egress: self.egress.clone(),
+            context,
+            frame: target_id,
             started: Arc::new(watch::Sender::new(0)),
             navigating: Arc::new(watch::Sender::new(0)),
             other_code: Arc::new(watch::Sender::new(0)),

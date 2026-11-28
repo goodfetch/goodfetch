@@ -324,5 +324,91 @@ async fn send_frames<S: Sink<Message> + Unpin>(to_browser: &mut S, framer: &mut 
     }
 }
 
+/// The engine -> client half of a `run.borrow()` CDP relay: reads NUL-delimited
+/// CDP commands emitted by `goodfetch-cdp::Connection` as raw UTF-8 strings
+/// without parsing them into a `Value`.
+pub(crate) struct RelayedOutgoing {
+    from_engine: tokio::io::ReadHalf<DuplexStream>,
+    framer: Framer,
+    buffer: Vec<u8>,
+}
+
+impl RelayedOutgoing {
+    /// Reads the next complete CDP command frame as raw UTF-8 JSON text;
+    /// returns `None` once the engine's connection closes or a frame is
+    /// invalid.
+    pub(crate) async fn next_frame(&mut self) -> Option<String> {
+        loop {
+            match self.framer.next_frame() {
+                Ok(Some(frame)) => return String::from_utf8(frame.to_vec()).ok(),
+                Ok(None) => {}
+                Err(_) => return None,
+            }
+            let read = self.from_engine.read(&mut self.buffer).await.ok()?;
+            if read == 0 {
+                return None;
+            }
+            self.framer.push(&self.buffer[..read]);
+        }
+    }
+}
+
+/// The client -> engine half of a `run.borrow()` CDP relay: writes raw CDP
+/// JSON frames from the client's borrowed browser into `goodfetch-cdp`'s
+/// NUL-delimited pipe without parsing them into a `Value`.
+pub(crate) struct RelayedIncoming {
+    to_engine: tokio::io::WriteHalf<DuplexStream>,
+}
+
+impl RelayedIncoming {
+    /// Writes one raw CDP JSON frame into the engine's `Connection` pipe.
+    pub(crate) async fn write_frame(&mut self, frame: &str) -> std::io::Result<()> {
+        self.to_engine.write_all(frame.as_bytes()).await?;
+        self.to_engine.write_all(&[0]).await?;
+        self.to_engine.flush().await
+    }
+}
+
+/// Creates a `goodfetch-cdp::Connection` backed by an in-process duplex pipe
+/// for a `run.borrow()` relay (ADRs 0056, 0089, 0140): commands cross
+/// `Connection::send_raw` once and each frame crosses as raw UTF-8 text.
+pub(crate) async fn connect_relayed(
+    (run, on): (&BrowserRun, &RunIdentity),
+    label: &str,
+) -> Result<(Connection, RelayedOutgoing, RelayedIncoming), CallError> {
+    let log = super::command_log::command_log(run)
+        .await
+        .map_err(|error| {
+            CallError::new(
+                &BROWSER_LAUNCH_FAILED,
+                format!("the Run trace's CDP log cannot start: {error}"),
+                &BrowserLaunchFailedDetails {
+                    executable: label.to_owned(),
+                    exit: None,
+                },
+            )
+        })?;
+    let (engine, relay_end) = tokio::io::duplex(BUFFER);
+    let (reader, writer) = tokio::io::split(engine);
+    let (connection, driver) = Connection::new(
+        reader,
+        writer,
+        run.identity.metrics().counted_work().clone(),
+        log,
+    );
+    on.spawn(async move {
+        let ended = driver.run().await;
+        tracing::debug!(?ended, "a run.borrow() relayed browser connection ended");
+    });
+    let (from_engine, to_engine) = tokio::io::split(relay_end);
+    let outgoing = RelayedOutgoing {
+        from_engine,
+        framer: Framer::with_limit(MAX_FRAME),
+        buffer: vec![0; 64 * 1024],
+    };
+    let incoming = RelayedIncoming { to_engine };
+    Ok((connection, outgoing, incoming))
+}
+
 #[cfg(test)]
 mod tests;

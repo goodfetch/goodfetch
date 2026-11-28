@@ -679,6 +679,22 @@ impl Sessions {
         Ok(())
     }
 
+    /// Marks a borrowed page closed without sending `Target.closeTarget`,
+    /// after its CDP session detached or its `run.borrow()` relay ended
+    /// (ADRs 0056 and 0089).
+    pub(crate) async fn mark_borrowed_page_closed(&self, page_id: &PageId) {
+        let Ok(page) = self.page(page_id).await else {
+            return;
+        };
+        if let Ok(effect) = page.life.end(&Ending::Closed(ClosedValue::Page)) {
+            if let Ok(destroyed) = page.life.end(&Ending::Destroyed) {
+                self.page_ended(&page.run, &page.life, destroyed).await;
+            } else {
+                self.page_ended(&page.run, &page.life, effect).await;
+            }
+        }
+    }
+
     /// Replaces the request part of the open page `page_id` (ADR 0146's "A
     /// released Page"): the page serves its next request under a Page ID
     /// of its own, which this answers, and under `value`, that request's

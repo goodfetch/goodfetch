@@ -765,6 +765,40 @@
       ],
       "type": "object"
     },
+    "BorrowEnded": {
+      "description": "What `run.borrow` answers once the borrow ends (by `$/cancel`, browser\nretirement, or Run end).",
+      "properties": {
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "Why the borrow ended (`cancelled`, `browser_closed`, `run_ended`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "type": "object"
+    },
+    "BorrowRequiresCdpDetails": {
+      "description": "What `borrow_requires_cdp` details: the non-CDP browser family refused and\nthe suggested fix.",
+      "properties": {
+        "browser": {
+          "arrived_in": "0.1",
+          "description": "The browser family refused (for example `firefox` or `webkit`).",
+          "type": "string"
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What would work instead.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "browser",
+        "fix"
+      ],
+      "type": "object"
+    },
     "BrowserExit": {
       "description": "How a browser process ended (ADR 0113).",
       "properties": {
@@ -11887,6 +11921,49 @@
       ],
       "type": "object"
     },
+    "RunBorrowParams": {
+      "additionalProperties": false,
+      "description": "What `run.borrow` takes: the Run to borrow into, the browser family, and\noptionally a specific page target and browser context ID.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "browser": {
+          "arrived_in": "0.1",
+          "description": "The browser engine kind the client is borrowing (`chromium`, `firefox`,\n`webkit`). Defaults to `chromium`; Firefox and WebKit are refused with\n`borrow_requires_cdp`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "browser_context_id": {
+          "arrived_in": "0.1",
+          "description": "Optional CDP `BrowserContextID` of the borrowed page or context.\nMultiple borrows in the same Run with the same `browser_context_id`\nshare one Session of the Run.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose Session (and optional Page) the borrowed browser serves."
+        },
+        "target_id": {
+          "arrived_in": "0.1",
+          "description": "Optional CDP target ID of an existing page to borrow immediately\n(`run.borrow(page)`). Omitting it borrows the browser/context alone\n(`run.borrow(browser)`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
     "RunCheckpointParams": {
       "additionalProperties": false,
       "description": "What `run.checkpoint` takes.",
@@ -17731,6 +17808,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "`run.borrow()` requires a Chromium-family browser speaking CDP: Playwright's Firefox and WebKit expose no CDP and cannot be borrowed (ADRs 0056 and 0089).",
+      "details": {
+        "$ref": "#/$defs/BorrowRequiresCdpDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "borrow_requires_cdp",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Browser host the engine reached is of a version this engine cannot drive. Upgrade the Browser host, which either Product's executable runs as its `browser-host` command.",
       "exit_code": 12,
       "group": "unavailable",
@@ -22230,6 +22320,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Relays the program's own Chromium-family browser (Playwright or Puppeteer) over the SDK's JSON-RPC connection with no port, under credits (ADRs 0056, 0078 and 0089). Each borrowed browser context maps to one Session of the Run, never closed by Collie; results are unguarded, Secrets raise `secret_input_refused`, `session.save_identity` raises `session_not_savable`, and Playwright's Firefox or WebKit raises `borrow_requires_cdp`. `$/cancel` or retiring the browser ends the borrow.",
+      "events": [],
+      "kind": "sequence",
+      "name": "run.borrow",
+      "params": {
+        "$ref": "#/$defs/RunBorrowParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/BorrowEnded"
       },
       "stability": "experimental"
     },

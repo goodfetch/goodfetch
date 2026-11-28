@@ -187,6 +187,7 @@ export type CollieWireType =
   | "RunAbortParams"
   | "RunAborting"
   | "RunAxes"
+  | "RunBorrowParams"
   | "RunCheckpointParams"
   | "RunCheckpointing"
   | "RunDiscarded"
@@ -449,6 +450,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "RunAbortParams": { fields: { "run_id": "runId" } },
     "RunAborting": { fields: { "run_id": "runId" } },
     "RunAxes": { fields: { "run_id": "runId" } },
+    "RunBorrowParams": { fields: { "browser_context_id": "browserContextId", "run_id": "runId", "target_id": "targetId" } },
     "RunCheckpointParams": { fields: { "run_id": "runId" } },
     "RunCheckpointing": { fields: { "run_epoch": "runEpoch", "run_id": "runId" } },
     "RunDiscarded": { fields: { "run_id": "runId" } },
@@ -599,6 +601,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "route.fetch": { type: "RouteOverridesParams" },
     "route.fulfill": { type: "RouteFulfillParams" },
     "run.abort": { type: "RunAbortParams" },
+    "run.borrow": { type: "RunBorrowParams" },
     "run.checkpoint": { type: "RunCheckpointParams" },
     "run.discard": { type: "RunParams" },
     "run.finish": { type: "RunFinishParams" },

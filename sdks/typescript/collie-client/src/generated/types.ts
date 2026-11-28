@@ -2510,6 +2510,32 @@ export interface BodyUnavailableDetails {
   requestId: string;
 }
 /**
+ * What `run.borrow` answers once the borrow ends (by `$/cancel`, browser
+ * retirement, or Run end).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "BorrowEnded".
+ */
+export interface BorrowEnded {
+  /**
+   * Why the borrow ended (`cancelled`, `browser_closed`, `run_ended`).
+   */
+  reason: string;
+}
+/**
+ * What `borrow_requires_cdp` details: the non-CDP browser family refused and
+ * the suggested fix.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "BorrowRequiresCdpDetails".
+ */
+export interface BorrowRequiresCdpDetails {
+  /**
+   * The browser family refused (for example `firefox` or `webkit`).
+   */
+  browser: string;
+}
+/**
  * How a browser process ended (ADR 0113).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -9208,6 +9234,37 @@ export interface RunAborting {
    * The Run's ID.
    */
   runId: RunId;
+}
+/**
+ * What `run.borrow` takes: the Run to borrow into, the browser family, and
+ * optionally a specific page target and browser context ID.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunBorrowParams".
+ */
+export interface RunBorrowParams {
+  /**
+   * The browser engine kind the client is borrowing (`chromium`, `firefox`,
+   * `webkit`). Defaults to `chromium`; Firefox and WebKit are refused with
+   * `borrow_requires_cdp`.
+   */
+  browser?: string | null;
+  /**
+   * Optional CDP `BrowserContextID` of the borrowed page or context.
+   * Multiple borrows in the same Run with the same `browser_context_id`
+   * share one Session of the Run.
+   */
+  browserContextId?: string | null;
+  /**
+   * The Run whose Session (and optional Page) the borrowed browser serves.
+   */
+  runId: RunId;
+  /**
+   * Optional CDP target ID of an existing page to borrow immediately
+   * (`run.borrow(page)`). Omitting it borrows the browser/context alone
+   * (`run.borrow(browser)`).
+   */
+  targetId?: string | null;
 }
 /**
  * What `run.checkpoint` takes.

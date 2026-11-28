@@ -266,6 +266,32 @@ class BodyUnavailableDetails(BaseModel):
     """The request."""
 
 
+class BorrowEnded(BaseModel):
+    """
+    What `run.borrow` answers once the borrow ends (by `$/cancel`, browser
+    retirement, or Run end).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    reason: str
+    """Why the borrow ended (`cancelled`, `browser_closed`, `run_ended`)."""
+
+
+class BorrowRequiresCdpDetails(BaseModel):
+    """
+    What `borrow_requires_cdp` details: the non-CDP browser family refused and
+    the suggested fix.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    browser: str
+    """The browser family refused (for example `firefox` or `webkit`)."""
+
+
 class BrowserExit(BaseModel):
     """How a browser process ended (ADR 0113)."""
 
@@ -8857,6 +8883,37 @@ class RunAxes(BaseModel):
     """The Run's ID."""
     verdict: Verdict | None = None
     """Whether its own checks prove what it committed, once it ended."""
+
+
+class RunBorrowParams(BaseModel):
+    """
+    What `run.borrow` takes: the Run to borrow into, the browser family, and
+    optionally a specific page target and browser context ID.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    browser: str | None = None
+    """
+    The browser engine kind the client is borrowing (`chromium`, `firefox`,
+    `webkit`). Defaults to `chromium`; Firefox and WebKit are refused with
+    `borrow_requires_cdp`.
+    """
+    browser_context_id: str | None = None
+    """
+    Optional CDP `BrowserContextID` of the borrowed page or context.
+    Multiple borrows in the same Run with the same `browser_context_id`
+    share one Session of the Run.
+    """
+    run_id: RunId
+    """The Run whose Session (and optional Page) the borrowed browser serves."""
+    target_id: str | None = None
+    """
+    Optional CDP target ID of an existing page to borrow immediately
+    (`run.borrow(page)`). Omitting it borrows the browser/context alone
+    (`run.borrow(browser)`).
+    """
 
 
 class RunCheckpointParams(BaseModel):

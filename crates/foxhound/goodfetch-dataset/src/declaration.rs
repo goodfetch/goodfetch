@@ -267,6 +267,21 @@ impl Datasets {
         &self.0.declarations
     }
 
+    /// Each declared Dataset whose JSON Schema marks one or more fields with
+    /// `"x-goodfetch-personal": true` (ADR 0016), in declaration order, paired
+    /// with its sorted personal field paths.
+    pub fn personal_fields(&self) -> Vec<(String, Vec<String>)> {
+        self.0
+            .declarations
+            .iter()
+            .filter_map(|declaration| {
+                let schema = declaration.schema.as_ref()?;
+                let fields = goodfetch_protocol::site_preferences::personal_fields(schema);
+                (!fields.is_empty()).then(|| (declaration.name.clone(), fields))
+            })
+            .collect()
+    }
+
     /// The declarations the run file `connection` holds, each schema's
     /// validator built and its hash as the run file keeps it, as a resuming
     /// crawl takes them; a row that no longer reads is left out, and a

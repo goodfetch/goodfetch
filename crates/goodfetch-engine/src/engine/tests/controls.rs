@@ -24,8 +24,8 @@ use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, Product, Reach, SharedType, SharedTypeValue,
     Stability, schema_of,
 };
-use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{RUN_STATE_DURABILITY, RunId};
+use goodfetch_protocol::settings::CONSENT_HANDLING;
 use goodfetch_test_support::{Canaries, SecretKind, TestEnv};
 use serde_json::{Value, json};
 use tracing_subscriber::layer::SubscriberExt as _;
@@ -489,27 +489,27 @@ const PRESSED_HARDER: SharedTypeValue = SharedTypeValue {
 /// built-in default and the layer that set it, warned of once and listed
 /// in `weakened`, however often the Run starts; its default records
 /// nothing (positive control).
-/// Covers: story:4-117, setting:politeness.sharing
+/// Covers: story:4-117, setting:consent.handling
 #[test]
 fn a_registered_weakening_is_recorded_once_as_its_kind_with_its_default_and_layer() {
     let (pressing, gentle) = (TestEnv::new(), TestEnv::new());
     let registering = || {
-        Contribution::new("test-politeness").with_recorded_weakening(
-            &POLITENESS_SHARING,
+        Contribution::new("test-weakening").with_recorded_weakening(
+            &CONSENT_HANDLING,
             &PRESSED_HARDER,
-            POLITENESS_SHARING.default,
+            CONSENT_HANDLING.default,
         )
     };
 
     let pressed = started_twice(
         &engine_with(Product::Collie, Some(registering())),
         &pressing,
-        &json!({ "politeness": { "sharing": "run" } }),
+        &json!({ "consent": { "handling": "off" } }),
     );
     let gentler = started_twice(
         &engine_with(Product::Collie, Some(registering())),
         &gentle,
-        &json!({ "politeness": { "sharing": "shared" } }),
+        &json!({ "consent": { "handling": "answer" } }),
     );
 
     assert_eq!(
@@ -520,17 +520,17 @@ fn a_registered_weakening_is_recorded_once_as_its_kind_with_its_default_and_laye
         (
             (
                 &json!([{
-                    "key": "politeness.sharing",
-                    "value": "run",
+                    "key": "consent.handling",
+                    "value": "off",
                     "layer": "run",
                     "origin": "settings",
                 }]),
-                vec!["politeness.sharing".to_owned()],
+                vec!["consent.handling".to_owned()],
                 vec![json!([
                     "test_pressed_harder",
                     "switched",
                     "run",
-                    { "setting": "politeness.sharing", "value": "run", "default": "shared" },
+                    { "setting": "consent.handling", "value": "off", "default": "answer" },
                 ])],
             ),
             (&Value::Null, Vec::<String>::new(), Vec::<Value>::new()),

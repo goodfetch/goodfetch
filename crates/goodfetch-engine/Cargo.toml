@@ -71,6 +71,9 @@ memchr.workspace = true
 # The addresses of `egress.local_addresses`' interface at each Session's
 # start, on every OS (ADR 0044).
 netdev.workspace = true
+# Binds a Session's outbound socket to its interface's device
+# (`SO_BINDTODEVICE` on Linux, `IP_BOUND_IF` on macOS and illumos; ADR 0044).
+socket2 = { workspace = true, features = ["all"] }
 # The runtime's metrics, through OpenTelemetry's API: the meter is a value
 # the executable gives the engine, a no-op one otherwise (ADR 0050). The
 # Trace context each request carries, the request spans' parents and links,

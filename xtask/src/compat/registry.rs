@@ -165,7 +165,14 @@ pub(super) fn resolve<'schema>(root: &'schema Value, reference: &str) -> Option<
 }
 
 /// Keywords that annotate a schema without changing what it accepts.
-const ANNOTATIONS: [&str; 5] = ["description", "title", "examples", "$comment", "deprecated"];
+const ANNOTATIONS: [&str; 6] = [
+    "description",
+    "title",
+    "examples",
+    "$comment",
+    "deprecated",
+    "x-goodfetch-personal",
+];
 
 /// Keywords whose value is a schema.
 const SCHEMA_KEYWORDS: [&str; 12] = [
@@ -229,4 +236,33 @@ pub(super) fn without_annotations(schema: &Value) -> Value {
         stripped.insert(keyword.clone(), value);
     }
     Value::Object(stripped)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::without_annotations;
+
+    /// `"x-goodfetch-personal"` is treated as a schema annotation that does
+    /// not alter what a format accepts (ADR 0016, ticket 673).
+    ///
+    /// Covers: story:4-78
+    #[test]
+    fn without_annotations_strips_personal_data_keyword() {
+        let annotated = json!({
+            "type": "object",
+            "properties": {
+                "email": { "type": "string", "x-goodfetch-personal": true }
+            }
+        });
+        let plain = json!({
+            "type": "object",
+            "properties": {
+                "email": { "type": "string" }
+            }
+        });
+
+        assert_eq!(without_annotations(&annotated), plain);
+    }
 }

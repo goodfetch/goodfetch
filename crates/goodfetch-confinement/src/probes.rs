@@ -20,6 +20,78 @@ use crate::deny_list::{Denied, Host, Places};
 use crate::policy::{FILE_RULES, SIGNAL_RULE};
 use crate::seccomp::{Call, Rule, Verdict};
 
+/// The probe table of `goodfetch-sandbox`'s unconditional baseline seccomp
+/// filter on `host`, as committed (ADR 0067, issue 884).
+pub fn committed_sandbox_baseline(host: Host) -> Option<&'static str> {
+    match host {
+        Host::Linux => Some(include_str!("../probes/linux/sandbox_baseline.toml")),
+        _ => None,
+    }
+}
+
+/// Every way `table` fails to probe exactly `rules` (for a seccomp-only
+/// filter such as `goodfetch-sandbox`'s baseline filter, ADR 0067, issue 884).
+pub fn check_calls_only(table: &ProbeTable, rules: &[Rule]) -> Vec<Mismatch> {
+    let mut mismatches = Vec::new();
+    for case in &table.call {
+        check_call_rule(case, rules, false, &mut mismatches);
+    }
+    let probed: BTreeSet<&str> = table.call.iter().map(|case| case.rule.as_str()).collect();
+    for rule in rules {
+        if !probed.contains(rule.name) {
+            mismatches.push(Mismatch::RuleWithoutProbe(rule.name.to_owned()));
+        }
+    }
+    mismatches
+}
+
+/// Checks one `CallCase` against `rules` (and optionally its `pid_namespace`
+/// outcome when checking a full policy table).
+fn check_call_rule(
+    case: &CallCase,
+    rules: &[Rule],
+    check_pid_namespace: bool,
+    mismatches: &mut Vec<Mismatch>,
+) {
+    let Some(rule) = rules.iter().find(|rule| rule.name == case.rule) else {
+        mismatches.push(Mismatch::ProbeWithoutRule(case.rule.clone()));
+        return;
+    };
+    if rule.call != case.call {
+        mismatches.push(Mismatch::OtherCall {
+            rule: case.rule.clone(),
+            call: case.call,
+        });
+    }
+    let expected = match rule.verdict {
+        Verdict::Allow => case.unconfined,
+        Verdict::Refuse => Outcome::Errno(Errno::Eperm),
+        Verdict::NotImplemented => Outcome::Errno(Errno::Enosys),
+    };
+    if expected != case.confined {
+        mismatches.push(Mismatch::WrongOutcome {
+            rule: case.rule.clone(),
+            expected,
+            found: case.confined,
+        });
+    }
+    if check_pid_namespace
+        && let Some(found) = case.pid_namespace
+        && expected != found
+    {
+        mismatches.push(Mismatch::WrongOutcome {
+            rule: case.rule.clone(),
+            expected,
+            found,
+        });
+    }
+    if rule.verdict != Verdict::Allow && case.unconfined == expected {
+        mismatches.push(Mismatch::NoPositiveControl {
+            rule: case.rule.clone(),
+        });
+    }
+}
+
 /// The probe table of `level` on `host`, as committed; none where that
 /// level's rules are not built.
 pub fn committed(host: Host, level: NetworkLevel) -> Option<&'static str> {
@@ -418,29 +490,7 @@ pub fn check(table: &ProbeTable, rules: &[Rule], denied: &[&Denied]) -> Vec<Mism
             }
             continue;
         }
-        let Some(rule) = rules.iter().find(|rule| rule.name == case.rule) else {
-            mismatches.push(Mismatch::ProbeWithoutRule(case.rule.clone()));
-            continue;
-        };
-        if rule.call != case.call {
-            mismatches.push(Mismatch::OtherCall {
-                rule: case.rule.clone(),
-                call: case.call,
-            });
-        }
-        let expected = match rule.verdict {
-            Verdict::Allow => case.unconfined,
-            Verdict::Refuse => Outcome::Errno(Errno::Eperm),
-            Verdict::NotImplemented => Outcome::Errno(Errno::Enosys),
-        };
-        // seccomp's outcome is the same in a PID namespace.
-        mismatches.extend(wrong(expected, case.confined));
-        mismatches.extend(case.pid_namespace.and_then(|found| wrong(expected, found)));
-        if rule.verdict != Verdict::Allow && case.unconfined == expected {
-            mismatches.push(Mismatch::NoPositiveControl {
-                rule: case.rule.clone(),
-            });
-        }
+        check_call_rule(case, rules, true, &mut mismatches);
     }
     for case in &table.path {
         if let Some(entry) = denied.iter().find(|entry| entry.rule == case.rule) {

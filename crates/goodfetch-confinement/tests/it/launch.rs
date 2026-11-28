@@ -83,6 +83,7 @@ impl Plugin {
             probe,
             policy: None,
             mechanism: None,
+            sandbox_baseline: false,
         };
         let launch = Launch {
             policy: self.policy.clone(),
@@ -111,6 +112,7 @@ impl Plugin {
             probe,
             policy: None,
             mechanism: None,
+            sandbox_baseline: false,
         };
         let status = Command::new(PROBE)
             .arg(serde_json::to_string(&request).unwrap())

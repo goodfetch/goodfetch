@@ -135,7 +135,48 @@ fn setup_network(bind_relay: bool) -> Result<Option<(TcpListener, u16)>, Confine
     }
 }
 
-fn drop_capabilities() -> Result<(), ConfineError> {
+/// Probes whether this process can enter a user and network namespace, map
+/// itself, and drop every capability: used by `goodfetch-sandbox --probe-userns`
+/// so the engine's startup probe verifies both the helper binary and its
+/// AppArmor profile without running any user program (ADR 0033, issue 884).
+pub fn probe_user_namespace() -> Result<(), ConfineError> {
+    // SAFETY: neither call reads or writes memory.
+    let (user, group) = unsafe { (libc::getuid(), libc::getgid()) };
+    // SAFETY: `unshare` takes flags only.
+    if unsafe { libc::unshare(libc::CLONE_NEWUSER | libc::CLONE_NEWNET) } == -1 {
+        return Err(unshare_error(io::Error::last_os_error()));
+    }
+    map_self(user, group)?;
+    drop_capabilities()?;
+    Ok(())
+}
+
+/// Drops every capability (effective, permitted, inheritable and ambient) and
+/// sets `PR_SET_NO_NEW_PRIVS` so no subsequent `execve` can regain privileges
+/// (ADR 0033, issue 884).
+pub(super) fn drop_capabilities() -> Result<(), ConfineError> {
+    // Clear ambient capabilities first (best-effort when the kernel supports
+    // ambient capabilities; ignored only on EINVAL).
+    // SAFETY: `prctl` with `PR_CAP_AMBIENT` / `PR_CAP_AMBIENT_CLEAR_ALL` takes
+    // integer arguments only.
+    let ambient = unsafe {
+        libc::prctl(
+            libc::PR_CAP_AMBIENT,
+            libc::PR_CAP_AMBIENT_CLEAR_ALL,
+            0,
+            0,
+            0,
+        )
+    };
+    if ambient == -1 {
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::EINVAL) {
+            return Err(ConfineError::Namespace {
+                call: "prctl(PR_CAP_AMBIENT_CLEAR_ALL)",
+                error,
+            });
+        }
+    }
     let mut header = CapabilityHeader {
         version: CAPABILITY_VERSION_3,
         pid: 0,
@@ -146,6 +187,13 @@ fn drop_capabilities() -> Result<(), ConfineError> {
     if unsafe { libc::syscall(libc::SYS_capset, &raw mut header, sets.as_ptr()) } == -1 {
         return Err(ConfineError::Namespace {
             call: "capset",
+            error: io::Error::last_os_error(),
+        });
+    }
+    // SAFETY: `prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)` takes integer arguments only.
+    if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } == -1 {
+        return Err(ConfineError::Namespace {
+            call: "prctl(PR_SET_NO_NEW_PRIVS)",
             error: io::Error::last_os_error(),
         });
     }

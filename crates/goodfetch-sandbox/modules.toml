@@ -1,0 +1,2 @@
+# Which of goodfetch-sandbox's top-level modules may import which (ADR 0126).
+[modules]

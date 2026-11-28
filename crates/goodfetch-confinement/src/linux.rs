@@ -47,6 +47,7 @@ use serde::{Deserialize, Serialize};
 pub use crate::host::SIGNAL_SCOPE_ABI;
 use crate::policy::Policy;
 use crate::seccomp::{self, Call, Condition, Rule, Verdict};
+pub use namespaces::probe_user_namespace;
 
 /// The newest Landlock ABI whose rights this applier handles: what a newer
 /// kernel adds is left alone until a probe tests it.
@@ -183,6 +184,80 @@ pub(crate) fn confine_self_with_relay(
     };
     // The allows refuse `seccomp` itself, so they go last.
     for program in &programs {
+        seccompiler::apply_filter(program)?;
+    }
+    Ok((mechanism, relay_port))
+}
+
+/// Drops every capability, sets `no_new_privs`, and installs
+/// `goodfetch-sandbox`'s unconditional baseline seccomp filter (no further
+/// namespaces, no netlink) (ADR 0033, issue 884).
+pub fn apply_sandbox_baseline() -> Result<(), ConfineError> {
+    namespaces::drop_capabilities()?;
+    let baseline = baseline_programs(&seccomp::sandbox_baseline_rules())?;
+    for program in &baseline {
+        seccompiler::apply_filter(program)?;
+    }
+    Ok(())
+}
+
+/// Confines the calling process inside `goodfetch-sandbox`: enters namespaces,
+/// drops every capability, sets `no_new_privs`, applies the helper's baseline
+/// seccomp filter (no further namespaces, no netlink), then applies Landlock
+/// and the caller's policy seccomp filter (ADR 0033, issue 884).
+pub(crate) fn confine_for_sandbox(
+    policy: &Policy,
+    kind: MechanismKind,
+    proxy_control_fd: Option<libc::c_int>,
+) -> Result<(Mechanism, Option<u16>), ConfineError> {
+    let rules = seccomp::rules(policy.network_level);
+    if rules.is_empty() {
+        return Err(ConfineError::LevelNotBuilt(policy.network_level));
+    }
+    let baseline = baseline_programs(&seccomp::sandbox_baseline_rules())?;
+    let caller_programs = programs(&rules)?;
+    let isolate_network = policy.network_level == NetworkLevel::ProxyTcp;
+    let bind_relay = isolate_network && proxy_control_fd.is_some();
+    let bound = match kind {
+        MechanismKind::Landlock => {
+            if isolate_network {
+                namespaces::enter_network_only(bind_relay)?
+            } else {
+                None
+            }
+        }
+        MechanismKind::PidNamespace => {
+            if kernel_abi() == 0 {
+                return Err(not_enabled());
+            }
+            namespaces::enter(None, isolate_network, bind_relay)?
+        }
+        MechanismKind::MountNamespace => {
+            namespaces::enter(Some(policy), isolate_network, bind_relay)?
+        }
+    };
+    // Always drop every capability and set `no_new_privs`, even when Landlock
+    // ABI 6 ran without entering a user namespace.
+    namespaces::drop_capabilities()?;
+    for program in &baseline {
+        seccompiler::apply_filter(program)?;
+    }
+    let relay_port = if let (Some(control_fd), Some((listener, port))) = (proxy_control_fd, bound) {
+        relay::spawn_in_netns(control_fd, listener).map_err(|error| ConfineError::Namespace {
+            call: "fork(relay)",
+            error,
+        })?;
+        Some(port)
+    } else {
+        None
+    };
+    let mechanism = match kind {
+        MechanismKind::Landlock => restrict_files(policy, true)?,
+        MechanismKind::PidNamespace => restrict_files(policy, false)?,
+        MechanismKind::MountNamespace => Mechanism::MountNamespace,
+    };
+    // The caller's allows refuse `seccomp` itself, so they go last.
+    for program in &caller_programs {
         seccompiler::apply_filter(program)?;
     }
     Ok((mechanism, relay_port))
@@ -417,6 +492,27 @@ fn abi_number(abi: ABI) -> u8 {
         // ABI 10 and what the crate learns after it.
         _ => 10,
     }
+}
+
+/// Builds denylist BPF filters for `goodfetch-sandbox`'s unconditional
+/// baseline rules (`ENOSYS` for `NotImplemented`, `EPERM` for `Refuse`,
+/// default `Allow`), so the caller's policy allowlist can stack after it.
+fn baseline_programs(rules: &[Rule]) -> Result<Vec<BpfProgram>, ConfineError> {
+    let arch = TargetArch::try_from(std::env::consts::ARCH)?;
+    let eperm = SeccompAction::Errno(libc::EPERM.unsigned_abs());
+    let enosys = SeccompAction::Errno(libc::ENOSYS.unsigned_abs());
+    let filters = [(Verdict::NotImplemented, enosys), (Verdict::Refuse, eperm)];
+    let mut programs = Vec::new();
+    for (verdict, on_match) in filters {
+        let matched = rules.iter().filter(|rule| rule.verdict == verdict);
+        let chains = chains(matched)?;
+        if chains.is_empty() {
+            continue;
+        }
+        let filter = SeccompFilter::new(chains, SeccompAction::Allow, on_match, arch)?;
+        programs.push(BpfProgram::try_from(filter)?);
+    }
+    Ok(programs)
 }
 
 /// The three filters of `rules`, in the order they are installed: the

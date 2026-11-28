@@ -22,12 +22,17 @@ use crate::probes::{Access, Arg, Errno, Outcome};
 use crate::seccomp::Call;
 
 /// The probe to make, confined to `policy` first when there is one, with
-/// `mechanism`, or the kernel's without one.
+/// `mechanism`, or the kernel's without one. When `sandbox_baseline` is true
+/// (with `policy: None`), applies only `goodfetch-sandbox`'s unconditional
+/// capability drop, `no_new_privs`, and baseline seccomp filter before running
+/// the probe.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Request {
     pub probe: Probe,
     pub policy: Option<Policy>,
     pub mechanism: Option<MechanismKind>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sandbox_baseline: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,6 +55,11 @@ pub enum Probe {
     /// an unprivileged process may only where `to` is not past its hard
     /// limit: the oracle for the limits its launcher set.
     Raise { resource: Resource, to: u64 },
+    /// Verify every capability (effective, permitted, inheritable) is zero and
+    /// `PR_GET_NO_NEW_PRIVS` is 1: returns `Outcome::Ok` when dropped and set,
+    /// `Outcome::Exit(1)` when any capability bit remains set, or
+    /// `Outcome::Exit(2)` when `no_new_privs` is not set (issue 884).
+    Capabilities,
 }
 
 /// What a probe reports through its exit status.

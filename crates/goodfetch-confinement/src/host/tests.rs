@@ -98,3 +98,49 @@ fn missing_confinement_names_unprovided_parts_per_network_level(
 ) {
     assert_eq!(facts.missing_confinement(level), expected);
 }
+
+/// On Ubuntu 23.10+ where AppArmor restricts unprivileged user namespaces,
+/// installing `goodfetch-sandbox` (`sandbox_helper = true`) restores full
+/// `proxy_tcp` confinement and selects the helper only for launches that need
+/// a user namespace (ADR 0033, issue 884).
+/// Covers: story:7-23
+#[rstest]
+#[case::apparmor_landlock_6_no_helper_proxy_tcp(
+    HostFacts { apparmor_restricts: true, ..host(UserNamespace::Unmapped(EPERM), 6) },
+    NetworkLevel::ProxyTcp,
+    &["network_namespace", "user_namespace"],
+    false,
+)]
+#[case::apparmor_landlock_6_with_helper_proxy_tcp(
+    HostFacts { apparmor_restricts: true, sandbox_helper: true, ..host(UserNamespace::Unmapped(EPERM), 6) },
+    NetworkLevel::ProxyTcp,
+    &[],
+    true,
+)]
+#[case::apparmor_landlock_6_with_helper_none_uses_landlock_directly(
+    HostFacts { apparmor_restricts: true, sandbox_helper: true, ..host(UserNamespace::Unmapped(EPERM), 6) },
+    NetworkLevel::None,
+    &[],
+    false,
+)]
+#[case::apparmor_landlock_6_with_helper_direct_uses_landlock_directly(
+    HostFacts { apparmor_restricts: true, sandbox_helper: true, ..host(UserNamespace::Unmapped(EPERM), 6) },
+    NetworkLevel::Direct,
+    &[],
+    false,
+)]
+#[case::apparmor_landlock_4_with_helper_none_uses_helper(
+    HostFacts { apparmor_restricts: true, sandbox_helper: true, ..host(UserNamespace::Unmapped(EPERM), 4) },
+    NetworkLevel::None,
+    &[],
+    true,
+)]
+fn sandbox_helper_restores_confinement_and_is_selected_when_host_needs_userns(
+    #[case] facts: HostFacts,
+    #[case] level: NetworkLevel,
+    #[case] expected_missing: &[&str],
+    #[case] expected_uses_helper: bool,
+) {
+    assert_eq!(facts.missing_confinement(level), expected_missing);
+    assert_eq!(facts.needs_sandbox_helper(level), expected_uses_helper);
+}

@@ -14,8 +14,9 @@
 
 use std::ffi::OsStr;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use goodfetch_protocol::home::PLUGINS;
 use goodfetch_protocol::plugin::{COOKIE, COOKIE_VARIABLE};
 use serde::{Deserialize, Serialize};
 
@@ -102,6 +103,10 @@ pub enum LaunchError {
     /// The OS refused one of the Plugin's resource limits.
     #[error("cannot set the Plugin's resource limits: {0}")]
     Limits(io::Error),
+    /// The helper refused to start a program outside the Plugin store and
+    /// runtime cache (ADR 0033, issue 884).
+    #[error("`{}` is outside the Plugin store and runtime cache", .0.display())]
+    DisallowedProgram(PathBuf),
 }
 
 /// The launcher's exit statuses that tell the host cannot confine a Plugin,
@@ -109,7 +114,7 @@ pub enum LaunchError {
 pub const UNAVAILABLE_STATUSES: [u8; 2] = [247, 248];
 
 impl LaunchError {
-    /// The launcher's exit status for it, from 246 to 253: past every
+    /// The launcher's exit status for it, from 246 to 254: past every
     /// status the confinement probe reports (`linux::probe`), so a runner
     /// that starts the probe through its launcher tells one from the other.
     pub fn status(&self) -> u8 {
@@ -122,8 +127,72 @@ impl LaunchError {
             Self::Handles(_) => 251,
             Self::Start(_) => 252,
             Self::Limits(_) => 253,
+            Self::DisallowedProgram(_) => 254,
         }
     }
+}
+
+/// The folders `goodfetch-sandbox` allows a Plugin's program to live in under
+/// Goodfetch `home` (and optional `browsers_path` override): the Plugin store
+/// (`<home>/plugins`), the shared Browser/runtime cache (`<home>/browsers` or
+/// `browsers_path`), and `<home>/runtimes`.
+#[must_use]
+pub fn allowed_roots(home: &Path, browsers_path: Option<&Path>) -> Vec<PathBuf> {
+    let mut roots = vec![
+        home.join(PLUGINS),
+        home.join("browsers"),
+        home.join("runtimes"),
+    ];
+    if let Some(browsers) = browsers_path {
+        roots.push(browsers.to_path_buf());
+    }
+    roots
+}
+
+/// Validates that `program` canonicalizes to an existing regular file strictly
+/// inside one of `roots` (Plugin store or runtime cache), refusing traversal
+/// or symlinks that escape those roots (ADR 0033, issue 884).
+pub fn validate_program_in_roots(
+    program: &Path,
+    roots: &[PathBuf],
+) -> Result<PathBuf, LaunchError> {
+    let Ok(canonical_program) = std::fs::canonicalize(program) else {
+        return Err(LaunchError::DisallowedProgram(program.to_path_buf()));
+    };
+    if !canonical_program.is_file() {
+        return Err(LaunchError::DisallowedProgram(program.to_path_buf()));
+    }
+    for root in roots {
+        let Ok(canonical_root) = std::fs::canonicalize(root) else {
+            continue;
+        };
+        if canonical_program.starts_with(&canonical_root) && canonical_program != canonical_root {
+            return Ok(canonical_program);
+        }
+    }
+    Err(LaunchError::DisallowedProgram(program.to_path_buf()))
+}
+
+/// Runs the `goodfetch-sandbox` helper (ADR 0033, issue 884): parses its
+/// [`Launch`], verifies `launch.program` lies inside `allowed_roots` (the
+/// Plugin store or runtime cache), creates namespaces, drops every capability,
+/// sets `no_new_privs`, installs the helper's baseline seccomp filter, then
+/// installs Landlock and the caller's policy filter, and replaces itself with
+/// the Plugin. Returns only on error.
+pub fn sandbox_shim(launch: Option<&OsStr>, allowed_roots: &[PathBuf]) -> LaunchError {
+    let Some(launch) = launch
+        .and_then(OsStr::to_str)
+        .and_then(|text| serde_json::from_str::<Launch>(text).ok())
+    else {
+        return LaunchError::Request;
+    };
+    let program = match validate_program_in_roots(&launch.program, allowed_roots) {
+        Ok(program) => program,
+        Err(error) => return error,
+    };
+    let mut verified = launch;
+    verified.program = program;
+    start_sandbox(&verified)
 }
 
 /// Runs the launcher: reads its [`Launch`] from `launch`, the value of its
@@ -143,10 +212,21 @@ pub fn shim(launch: Option<&OsStr>) -> LaunchError {
 
 #[cfg(target_os = "linux")]
 fn start(launch: &Launch) -> LaunchError {
+    start_linux(launch, false)
+}
+
+#[cfg(target_os = "linux")]
+fn start_sandbox(launch: &Launch) -> LaunchError {
+    start_linux(launch, true)
+}
+
+#[cfg(target_os = "linux")]
+fn start_linux(launch: &Launch, sandbox_helper: bool) -> LaunchError {
     use std::os::unix::process::CommandExt as _;
 
     use crate::linux::{
-        ConfineError, MechanismKind, confine_self_reduced, confine_self_with_relay,
+        ConfineError, MechanismKind, confine_for_sandbox, confine_self_reduced,
+        confine_self_with_relay,
     };
 
     if let Err(error) = crate::linux::close_beyond_stdio() {
@@ -161,7 +241,18 @@ fn start(launch: &Launch) -> LaunchError {
         Err(error) => return LaunchError::Folder(error),
     };
     let control_fd = launch.proxy_relay.as_ref().map(|relay| relay.control_fd);
-    let relay_port = if launch.reduced_confinement {
+    let relay_port = if sandbox_helper {
+        // The helper never runs reduced confinement: its security boundary is
+        // that it always confines with capabilities dropped, `no_new_privs`,
+        // its baseline seccomp filter, and the caller's policy filter.
+        match confine_for_sandbox(&launch.policy, MechanismKind::of_kernel(), control_fd) {
+            Ok((_, port)) => port,
+            Err(ConfineError::Unavailable(reason)) => {
+                return LaunchError::Unavailable(reason.to_owned());
+            }
+            Err(error) => return LaunchError::Confine(error.to_string()),
+        }
+    } else if launch.reduced_confinement {
         match confine_self_reduced(&launch.policy, control_fd) {
             Ok(port) => port,
             Err(error) => return LaunchError::Confine(error.to_string()),
@@ -222,6 +313,11 @@ fn start(launch: &Launch) -> LaunchError {
 
 #[cfg(not(target_os = "linux"))]
 fn start(_launch: &Launch) -> LaunchError {
+    LaunchError::Unsupported
+}
+
+#[cfg(not(target_os = "linux"))]
+fn start_sandbox(_launch: &Launch) -> LaunchError {
     LaunchError::Unsupported
 }
 

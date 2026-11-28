@@ -72,6 +72,8 @@ const TEST_ADAPTERS: [&str; 5] = [
     "goodfetch-memory-site",
 ];
 const CONFORMANCE: &str = "goodfetch-conformance";
+const CONFINEMENT: &str = "goodfetch-confinement";
+const SANDBOX_HELPER: &str = "goodfetch-sandbox";
 const PROTOCOL: &str = "goodfetch-protocol";
 const WORKSPACE_HACK: &str = "goodfetch-workspace-hack";
 const DEV_WORKSPACE_HACK: &str = "goodfetch-dev-workspace-hack";
@@ -141,6 +143,7 @@ pub(crate) fn check(cargo: &OsStr, root: &Path) -> Result<Vec<Finding>> {
                 ),
             ));
         }
+        check_sandbox_helper(package, &mut members(), &mut findings);
         if package.name == CONFORMANCE
             && let Some(dependency) =
                 members().find(|d| d.name != PROTOCOL && d.name != TEST_SUPPORT)
@@ -175,6 +178,29 @@ pub(crate) fn check(cargo: &OsStr, root: &Path) -> Result<Vec<Finding>> {
         in_unit_tests_of_its_dependencies(adapter, &packages, &root, &mut findings)?;
     }
     Ok(findings)
+}
+
+/// Enforces ADR 0033's rule that `goodfetch-sandbox` links only
+/// `goodfetch-confinement` (and `goodfetch-protocol`) and never the engine.
+fn check_sandbox_helper<'a>(
+    package: &Package,
+    members: &mut impl Iterator<Item = &'a Dependency>,
+    findings: &mut Vec<Finding>,
+) {
+    if package.name == SANDBOX_HELPER
+        && let Some(dependency) = members.find(|d| {
+            d.name != CONFINEMENT && d.name != PROTOCOL && d.kind.as_deref() != Some("dev")
+        })
+    {
+        findings.push(Finding::new(
+            "sandbox-helper-depends-on-engine",
+            &package.name,
+            format!(
+                "it depends on `{}`; the sandbox helper links `{CONFINEMENT}` (and `{PROTOCOL}`) and never the engine (ADR 0033)",
+                dependency.name
+            ),
+        ));
+    }
 }
 
 /// A finding for each file under the `src/` of a crate among `adapter`'s

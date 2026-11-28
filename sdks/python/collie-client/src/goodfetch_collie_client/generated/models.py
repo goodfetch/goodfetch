@@ -3577,6 +3577,29 @@ class PluginSettingsSchema(BaseModel):
     """The version installed."""
 
 
+class PluginSetupParams(BaseModel):
+    """What `plugin.setup` takes (ADRs 0033 and 0039; issue 884)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    attestation: str
+    """Path to the Sigstore provenance attestation JSON for `helper`."""
+    helper: str
+    """Path to the `goodfetch-sandbox` helper executable to verify and install."""
+    profile: str | None = None
+    """
+    Optional path to an AppArmor profile file to verify and install. When
+    omitted, `plugin.setup` writes the standard AppArmor profile granting
+    `userns` exclusively to the installed helper path.
+    """
+    profile_attestation: str | None = None
+    """
+    Path to the Sigstore provenance attestation JSON for `profile`;
+    required whenever `profile` is provided.
+    """
+
+
 class PluginStreamUsage(BaseModel):
     """
     Opaque stream traffic a Run's Plugins exchanged with one destination
@@ -9182,6 +9205,27 @@ class PluginSearchResult(BaseModel):
     Matching Plugins from the index, each carrying its kinds, signer
     identity and conformance results.
     """
+
+
+class PluginSetupResult(BaseModel):
+    """
+    What `plugin.setup` answers once the helper and its AppArmor profile are
+    verified and installed (ADRs 0033 and 0039; issue 884).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    helper_digest: str
+    """The SHA-256 digest (`sha256:<hex>`) of the verified helper bytes."""
+    helper_path: str
+    """Where the verified `goodfetch-sandbox` helper was installed."""
+    profile_loaded: bool
+    """Whether `apparmor_parser --replace` loaded the profile into the kernel."""
+    profile_path: str
+    """Where the AppArmor profile was installed."""
+    signer: SignerIdentity
+    """The verified signer identity carried by the helper's attestation."""
 
 
 class PluginSignerChangedDetails(BaseModel):

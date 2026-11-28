@@ -5,10 +5,10 @@ use rstest::rstest;
 
 use super::{
     Arg, CallCase, Errno, Mismatch, Outcome, PathCase, Placed, Placeholder, ProbeTable, ProcessArg,
-    check, committed,
+    check, check_calls_only, committed, committed_sandbox_baseline,
 };
 use crate::deny_list::{self, Denied, Host};
-use crate::seccomp::{Call, rules};
+use crate::seccomp::{Call, rules, sandbox_baseline_rules};
 
 fn linux_none() -> ProbeTable {
     ProbeTable::read(committed(Host::Linux, NetworkLevel::None).unwrap()).unwrap()
@@ -22,6 +22,24 @@ fn linux_entries() -> Vec<&'static Denied> {
 #[test]
 fn every_rule_entry_and_file_rule_at_none_on_linux_has_its_probe_and_no_probe_lacks_a_rule() {
     let mismatches = check(&linux_none(), &rules(NetworkLevel::None), &linux_entries());
+
+    assert_eq!(
+        mismatches
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        Vec::<String>::new(),
+    );
+}
+
+/// Every rule of `goodfetch-sandbox`'s unconditional baseline seccomp filter
+/// has its probe in `probes/linux/sandbox_baseline.toml`, and no probe lacks a
+/// rule (ADR 0067, issue 884).
+/// Covers: story:7-23
+#[test]
+fn every_rule_of_sandbox_baseline_has_its_probe_and_no_probe_lacks_a_rule() {
+    let table = ProbeTable::read(committed_sandbox_baseline(Host::Linux).unwrap()).unwrap();
+    let mismatches = check_calls_only(&table, &sandbox_baseline_rules());
 
     assert_eq!(
         mismatches

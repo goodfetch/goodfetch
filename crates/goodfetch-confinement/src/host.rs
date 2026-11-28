@@ -28,6 +28,10 @@ pub enum UserNamespace {
 
 /// What this process's host allows, alike for every engine in it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "HostFacts holds independent host capability facts read once at startup (ADR 0049)"
+)]
 pub struct HostFacts {
     /// The user namespace a child of this process tried to make.
     pub user_namespace: UserNamespace,
@@ -41,6 +45,10 @@ pub struct HostFacts {
     /// Whether the kernel is WSL1's, which offers neither seccomp nor user
     /// namespaces.
     pub wsl1: bool,
+    /// Whether the installed `goodfetch-sandbox` helper is available and can
+    /// create and map a user namespace on this host (Ubuntu 23.10+ after
+    /// `plugin setup`, ADRs 0033 and 0039).
+    pub sandbox_helper: bool,
 }
 
 impl HostFacts {
@@ -52,16 +60,31 @@ impl HostFacts {
         apparmor_restricts: false,
         landlock_abi: 0,
         wsl1: false,
+        sandbox_helper: false,
     };
 
-    /// Whether a Plugin can be confined here, by Landlock from ABI 6 or by
-    /// a user namespace of its own, as `linux::MechanismKind::of_kernel`
-    /// picks: never on WSL1, which has no seccomp, nor where neither is
-    /// given (ADR 0033's hosts that cannot confine).
+    /// Whether a Plugin can be confined here, by Landlock from ABI 6, by a
+    /// user namespace of its own, or through the installed `goodfetch-sandbox`
+    /// helper: never on WSL1, which has no seccomp, nor where none is given
+    /// (ADR 0033's hosts that cannot confine).
     pub fn confines(&self) -> bool {
         !self.wsl1
             && (self.landlock_abi >= SIGNAL_SCOPE_ABI
-                || self.user_namespace == UserNamespace::Created)
+                || self.user_namespace == UserNamespace::Created
+                || self.sandbox_helper)
+    }
+
+    /// Whether starting a process Plugin at `network_level` on this host
+    /// should use the installed `goodfetch-sandbox` helper instead of the
+    /// Product executable's `plugin-shim` (ADR 0033, issue 884): true when
+    /// the engine itself cannot map a user namespace, `network_level` or the
+    /// kernel's Landlock ABI needs one, and the installed helper provides it.
+    #[must_use]
+    pub fn needs_sandbox_helper(&self, network_level: NetworkLevel) -> bool {
+        self.sandbox_helper
+            && !self.wsl1
+            && self.user_namespace != UserNamespace::Created
+            && (network_level == NetworkLevel::ProxyTcp || self.landlock_abi < SIGNAL_SCOPE_ABI)
     }
 
     /// The parts of process-Plugin confinement this host cannot provide for
@@ -76,7 +99,7 @@ impl HostFacts {
             }
             return missing;
         }
-        let has_userns = self.user_namespace == UserNamespace::Created;
+        let has_userns = self.user_namespace == UserNamespace::Created || self.sandbox_helper;
         let has_fs = self.landlock_abi > 0 || has_userns;
         let has_signal_scope = self.landlock_abi >= SIGNAL_SCOPE_ABI || has_userns;
         let has_netns = network_level != NetworkLevel::ProxyTcp || has_userns;

@@ -47,6 +47,7 @@ fn run(probe: Probe, confined: Option<Confined<'_>>) -> Result<Report, String> {
         probe,
         policy: confined.map(|confined| confined.policy.clone()),
         mechanism: confined.and_then(|confined| confined.kind),
+        sandbox_baseline: false,
     };
     let status = Command::new(PROBE)
         .arg(serde_json::to_string(&request).unwrap())
@@ -157,6 +158,111 @@ fn every_probe_at_the_proxy_tcp_level_gives_its_outcome_unconfined_then_exactly_
 fn every_probe_at_the_direct_level_gives_its_outcome_unconfined_then_exactly_its_refusal_confined()
 {
     assert_every_probe_at(NetworkLevel::Direct, None);
+}
+
+/// Every rule of `goodfetch-sandbox`'s unconditional baseline seccomp filter
+/// gives its positive control unconfined and its exact refusal (`EPERM` or
+/// `ENOSYS`) once `apply_sandbox_baseline()` runs (ADRs 0033 and 0067, issue
+/// 884).
+///
+/// Covers: story:7-23
+#[test]
+fn every_probe_of_sandbox_baseline_gives_positive_control_unconfined_then_refusal_confined() {
+    let table = ProbeTable::read(probes::committed_sandbox_baseline(Host::Linux).unwrap()).unwrap();
+    let mut failures = Vec::new();
+    for case in &table.call {
+        let probe = || Probe::Call {
+            call: case.call,
+            args: case.args.clone(),
+        };
+        let run_baseline = || {
+            let request = Request {
+                probe: probe(),
+                policy: None,
+                mechanism: None,
+                sandbox_baseline: true,
+            };
+            let status = Command::new(PROBE)
+                .arg(serde_json::to_string(&request).unwrap())
+                .stdin(Stdio::null())
+                .status()
+                .unwrap();
+            let code = status
+                .code()
+                .ok_or_else(|| format!("it ended without a report: {status}"))?;
+            u8::try_from(code)
+                .ok()
+                .and_then(Report::of_status)
+                .ok_or_else(|| format!("its status {code} is no report"))
+        };
+        if let Err(failure) = run_probe_case(
+            &case.rule,
+            Report::Outcome(case.unconfined),
+            Report::Outcome(case.confined),
+            || run(probe(), None),
+            run_baseline,
+        ) {
+            failures.push(failure);
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// The capability-drop and `no_new_privs` probe passes under
+/// `goodfetch-sandbox`'s baseline (`Outcome::Ok`) and fails its positive
+/// controls unconfined (`Exit(2)` for `no_new_privs = 0`, and `Exit(1)` for
+/// non-zero capabilities inside a fresh user namespace without dropping them)
+/// (ADRs 0033 and 0067, issue 884).
+///
+/// Covers: story:7-23
+#[test]
+fn capability_drop_and_no_new_privs_probe_passes_under_sandbox_baseline() {
+    let unconfined = run(Probe::Capabilities, None).unwrap();
+    assert_ne!(
+        unconfined,
+        Report::Outcome(Outcome::Ok),
+        "positive control: unconfined process must not already satisfy dropped caps + no_new_privs"
+    );
+
+    let test_unshare = std::path::Path::new("/usr/local/libexec/goodfetch-test-tools/unshare");
+    if test_unshare.is_file() {
+        let req = serde_json::to_string(&Request {
+            probe: Probe::Capabilities,
+            policy: None,
+            mechanism: None,
+            sandbox_baseline: false,
+        })
+        .unwrap();
+        let status = Command::new(test_unshare)
+            .args(["--user", "--map-root-user", PROBE, &req])
+            .stdin(Stdio::null())
+            .status()
+            .unwrap();
+        let code = u8::try_from(status.code().unwrap()).unwrap();
+        assert_eq!(
+            Report::of_status(code),
+            Some(Report::Outcome(Outcome::Exit(1))),
+            "positive control: fresh user namespace without cap drop must report non-zero capabilities"
+        );
+    }
+
+    let request = Request {
+        probe: Probe::Capabilities,
+        policy: None,
+        mechanism: None,
+        sandbox_baseline: true,
+    };
+    let status = Command::new(PROBE)
+        .arg(serde_json::to_string(&request).unwrap())
+        .stdin(Stdio::null())
+        .status()
+        .unwrap();
+    let code = u8::try_from(status.code().unwrap()).unwrap();
+    assert_eq!(
+        Report::of_status(code),
+        Some(Report::Outcome(Outcome::Ok)),
+        "sandbox baseline must drop every capability and set no_new_privs"
+    );
 }
 
 /// The engine's startup probe reads this host as the launcher finds it: it

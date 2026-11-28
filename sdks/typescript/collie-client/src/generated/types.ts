@@ -8895,6 +8895,62 @@ export interface PluginSettingsSchema {
   version: string;
 }
 /**
+ * What `plugin.setup` takes (ADRs 0033 and 0039; issue 884).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginSetupParams".
+ */
+export interface PluginSetupParams {
+  /**
+   * Path to the Sigstore provenance attestation JSON for `helper`.
+   */
+  attestation: string;
+  /**
+   * Path to the `goodfetch-sandbox` helper executable to verify and install.
+   */
+  helper: string;
+  /**
+   * Optional path to an AppArmor profile file to verify and install. When
+   * omitted, `plugin.setup` writes the standard AppArmor profile granting
+   * `userns` exclusively to the installed helper path.
+   */
+  profile?: string | null;
+  /**
+   * Path to the Sigstore provenance attestation JSON for `profile`;
+   * required whenever `profile` is provided.
+   */
+  profileAttestation?: string | null;
+}
+/**
+ * What `plugin.setup` answers once the helper and its AppArmor profile are
+ * verified and installed (ADRs 0033 and 0039; issue 884).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginSetupResult".
+ */
+export interface PluginSetupResult {
+  /**
+   * The SHA-256 digest (`sha256:<hex>`) of the verified helper bytes.
+   */
+  helperDigest: string;
+  /**
+   * Where the verified `goodfetch-sandbox` helper was installed.
+   */
+  helperPath: string;
+  /**
+   * Whether `apparmor_parser --replace` loaded the profile into the kernel.
+   */
+  profileLoaded: boolean;
+  /**
+   * Where the AppArmor profile was installed.
+   */
+  profilePath: string;
+  /**
+   * The verified signer identity carried by the helper's attestation.
+   */
+  signer: SignerIdentity;
+}
+/**
  * What `plugin_signer_changed` details (ADR 0033, issue 924).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema

@@ -63,24 +63,28 @@ pub(super) fn generate_table(policy: &PolicySpec, level: &LevelSpec) -> Result<P
             confined: confined.to_owned(),
             pid_namespace: None,
         });
-        if rule.name == "tgkill"
+        if !level.calls_only
+            && rule.name == "tgkill"
             && let Some(signal_rule) = &policy.signal_rule
         {
             call.push(signal_probe(signal_rule));
         }
     }
-    if let Some(signal_rule) = &policy.signal_rule
+    if !level.calls_only
+        && let Some(signal_rule) = &policy.signal_rule
         && !call.iter().any(|case| case.rule == *signal_rule)
     {
         call.push(signal_probe(signal_rule));
     }
 
     let mut path = Vec::new();
-    for entry in &policy.deny_list {
-        path.push(deny_probe(entry));
-    }
-    for rule in &policy.file_rules {
-        path.push(file_rule_probe(rule)?);
+    if !level.calls_only {
+        for entry in &policy.deny_list {
+            path.push(deny_probe(entry));
+        }
+        for rule in &policy.file_rules {
+            path.push(file_rule_probe(rule)?);
+        }
     }
     Ok(ProbeTable { call, path })
 }
@@ -113,6 +117,9 @@ fn call_template(rule: &SeccompRule) -> Result<CallTemplate> {
             )
         })?;
         return Ok(tpl([num(-1), num(req), num(0)], "EBADF"));
+    }
+    if let Some(template) = sandbox_baseline_template(&rule.name) {
+        return Ok(template);
     }
     let template = match rule.name.as_str() {
         "brk" | "set_tid_address" | "unshare" => tpl([num(0)], "ok"),
@@ -200,6 +207,25 @@ fn call_template(rule: &SeccompRule) -> Result<CallTemplate> {
         other => bail!("no probe template registered for seccomp rule `{other}`"),
     };
     Ok(template)
+}
+
+/// Probe templates for `goodfetch-sandbox`'s baseline `clone(CLONE_NEW*)`
+/// rules: combining each `CLONE_NEW*` flag with `CLONE_THREAD` (0x10000)
+/// without `CLONE_SIGHAND` returns `EINVAL` unconfined on every Linux kernel
+/// and `EPERM` under the baseline seccomp filter.
+fn sandbox_baseline_template(name: &str) -> Option<CallTemplate> {
+    let flags = match name {
+        "clone.newns" => 0x30000,
+        "clone.newcgroup" => 0x201_0000,
+        "clone.newuts" => 0x401_0000,
+        "clone.newipc" => 0x801_0000,
+        "clone.newuser" => 0x1001_0000,
+        "clone.newpid" => 0x2001_0000,
+        "clone.newnet" => 0x4001_0000,
+        "clone.newtime" => 0x10080,
+        _ => return None,
+    };
+    Some(tpl([num(flags), num(0), num(0), num(0), num(0)], "EINVAL"))
 }
 
 fn deny_probe(entry: &DenyEntry) -> PathCase {
@@ -346,6 +372,14 @@ fn format_number(n: i64) -> String {
             | 0x6766
             | 0xffff
             | 0x10000
+            | 0x10080
+            | 0x30000
+            | 0x201_0000
+            | 0x401_0000
+            | 0x801_0000
+            | 0x1001_0000
+            | 0x2001_0000
+            | 0x4001_0000
     ) {
         format!("{n:#x}")
     } else {
@@ -541,6 +575,9 @@ fn check_coverage(
                 ));
             }
         }
+    }
+    if level.calls_only {
+        return;
     }
     if let Some(signal_rule) = &policy.signal_rule
         && !probed.contains(signal_rule.as_str())

@@ -14821,6 +14821,85 @@
       ],
       "type": "object"
     },
+    "PluginSetupParams": {
+      "additionalProperties": false,
+      "description": "What `plugin.setup` takes (ADRs 0033 and 0039; issue 884).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "attestation": {
+          "arrived_in": "0.1",
+          "description": "Path to the Sigstore provenance attestation JSON for `helper`.",
+          "type": "string"
+        },
+        "helper": {
+          "arrived_in": "0.1",
+          "description": "Path to the `goodfetch-sandbox` helper executable to verify and install.",
+          "type": "string"
+        },
+        "profile": {
+          "arrived_in": "0.1",
+          "description": "Optional path to an AppArmor profile file to verify and install. When\nomitted, `plugin.setup` writes the standard AppArmor profile granting\n`userns` exclusively to the installed helper path.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "profile_attestation": {
+          "arrived_in": "0.1",
+          "description": "Path to the Sigstore provenance attestation JSON for `profile`;\nrequired whenever `profile` is provided.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "helper",
+        "attestation"
+      ],
+      "type": "object"
+    },
+    "PluginSetupResult": {
+      "description": "What `plugin.setup` answers once the helper and its AppArmor profile are\nverified and installed (ADRs 0033 and 0039; issue 884).",
+      "properties": {
+        "helper_digest": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 digest (`sha256:<hex>`) of the verified helper bytes.",
+          "type": "string"
+        },
+        "helper_path": {
+          "arrived_in": "0.1",
+          "description": "Where the verified `goodfetch-sandbox` helper was installed.",
+          "type": "string"
+        },
+        "profile_loaded": {
+          "arrived_in": "0.1",
+          "description": "Whether `apparmor_parser --replace` loaded the profile into the kernel.",
+          "type": "boolean"
+        },
+        "profile_path": {
+          "arrived_in": "0.1",
+          "description": "Where the AppArmor profile was installed.",
+          "type": "string"
+        },
+        "signer": {
+          "$ref": "#/$defs/SignerIdentity",
+          "arrived_in": "0.1",
+          "description": "The verified signer identity carried by the helper's attestation."
+        }
+      },
+      "required": [
+        "helper_path",
+        "helper_digest",
+        "profile_path",
+        "profile_loaded",
+        "signer"
+      ],
+      "type": "object"
+    },
     "PluginSignerChangedDetails": {
       "description": "What `plugin_signer_changed` details (ADR 0033, issue 924).",
       "properties": {
@@ -30030,6 +30109,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/PluginSearchResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Verifies the Sigstore provenance attestation of the Linux `goodfetch-sandbox` helper (and optional AppArmor profile) against the bundled trust root, then installs a non-setuid copy of the helper and its AppArmor profile granting `userns` on Ubuntu 23.10 and later. Refuses with `plugin_attestation_invalid` and writes nothing when verification fails. Offered to a person only, never to an agent or a program (ADR 0099): any other surface is refused with `person_required`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "plugin.setup",
+      "params": {
+        "$ref": "#/$defs/PluginSetupParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/PluginSetupResult"
       },
       "stability": "experimental"
     },

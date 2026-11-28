@@ -50,7 +50,23 @@ impl PluginProcess {
     ///
     /// [`stop`]: Self::stop
     pub fn start(launcher: &Path, launch: &Launch) -> io::Result<(Self, Pipes)> {
-        let command = shim_command(launcher, launch)?;
+        Self::start_with_env(launcher, launch, &[])
+    }
+
+    /// Starts the Plugin `launch` describes through `launcher`, passing
+    /// `launcher_env` alongside [`LAUNCH_VARIABLE`] (for example
+    /// `GOODFETCH_HOME` for `goodfetch-sandbox`'s allowed-root check; the
+    /// launcher clears its environment before `exec`ing the Plugin).
+    ///
+    /// # Errors
+    ///
+    /// When the OS refuses to start the launcher.
+    pub fn start_with_env(
+        launcher: &Path,
+        launch: &Launch,
+        launcher_env: &[(String, String)],
+    ) -> io::Result<(Self, Pipes)> {
+        let command = shim_command(launcher, launch, launcher_env)?;
         let mut group = Children::new()?;
         let mut child = group.spawn(command)?;
         let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
@@ -78,7 +94,25 @@ impl PluginProcess {
         control_fd: std::os::unix::io::OwnedFd,
         target_fd: libc::c_int,
     ) -> io::Result<(Self, Pipes)> {
-        let command = shim_command(launcher, launch)?;
+        Self::start_with_fd_and_env(launcher, launch, &[], control_fd, target_fd)
+    }
+
+    /// Starts the Plugin on Linux as [`Self::start_with_env`] does, passing
+    /// `control_fd` inherited at `target_fd` for the `proxy_tcp` loopback
+    /// relay.
+    ///
+    /// # Errors
+    ///
+    /// When the OS refuses to start the launcher.
+    #[cfg(target_os = "linux")]
+    pub fn start_with_fd_and_env(
+        launcher: &Path,
+        launch: &Launch,
+        launcher_env: &[(String, String)],
+        control_fd: std::os::unix::io::OwnedFd,
+        target_fd: libc::c_int,
+    ) -> io::Result<(Self, Pipes)> {
+        let command = shim_command(launcher, launch, launcher_env)?;
         let mut group = Children::new()?;
         let mut child = group.spawn_with_fd(command, control_fd, target_fd)?;
         let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
@@ -180,13 +214,18 @@ impl Ended {
     }
 }
 
-fn shim_command(launcher: &Path, launch: &Launch) -> io::Result<Command> {
+fn shim_command(
+    launcher: &Path,
+    launch: &Launch,
+    launcher_env: &[(String, String)],
+) -> io::Result<Command> {
     let request = serde_json::to_string(launch).map_err(io::Error::other)?;
     let mut command = Command::new(launcher);
     command
         .arg(SHIM_COMMAND)
         .env_clear()
         .env(LAUNCH_VARIABLE, request)
+        .envs(launcher_env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());

@@ -768,6 +768,8 @@ impl RunPlugins {
         let folder = self.instances.join(format!("{}-{name}", self.run_id));
         let digest = installed.digest.clone();
         let places = self.places.clone();
+        let cache_root = self.cache.root().to_path_buf();
+        let helper_launcher = self.sandbox_helper_for(probe, network_level).await;
         let plugin = self
             .owner
             .blocking(move || {
@@ -777,6 +779,8 @@ impl RunPlugins {
                     resolved_runtime,
                     &folder,
                     places.as_deref(),
+                    &cache_root,
+                    helper_launcher,
                     reduced_confinement,
                 )
             })
@@ -790,6 +794,7 @@ impl RunPlugins {
             &self.owner,
             instance::Plugin {
                 launcher: plugin.launcher,
+                launcher_env: plugin.launcher_env,
                 launch: plugin.launch,
                 manifest: plugin.manifest,
                 product: self.product,
@@ -818,6 +823,24 @@ impl RunPlugins {
         )
         .await;
         Ok((instance, effects))
+    }
+
+    /// Returns the configured `goodfetch-sandbox` helper path when this host
+    /// needs it to confine a process Plugin at `network_level` (ADR 0033,
+    /// issue 884).
+    async fn sandbox_helper_for(
+        &self,
+        probe: &SandboxProbe,
+        network_level: NetworkLevel,
+    ) -> Option<PathBuf> {
+        let probe = probe.clone();
+        self.owner
+            .blocking(move || {
+                probe
+                    .needs_sandbox_helper(network_level)
+                    .then(|| probe.sandbox_helper_path().to_path_buf())
+            })
+            .await
     }
 
     /// Checks host confinement for `network_level`, permitting reduced
@@ -1286,6 +1309,7 @@ struct StartedPlugin {
 /// What starts one instance, set up on the blocking policy.
 struct SetUp {
     launcher: PathBuf,
+    launcher_env: Vec<(String, String)>,
     launch: Launch,
     manifest: PluginManifest,
 }
@@ -1297,12 +1321,18 @@ struct SetUp {
     clippy::disallowed_methods,
     reason = "called on the tasks module's blocking policy, never on an async worker"
 )]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "internal blocking setup helper assembling a Plugin launch from resolved values"
+)]
 fn set_up(
     installed: Installed,
     environment: BTreeMap<String, String>,
     resolved_runtime: Option<(PathBuf, PathBuf)>,
     folder: &Path,
     places: Option<&Places>,
+    cache_root: &Path,
+    helper_launcher: Option<PathBuf>,
     reduced_confinement: bool,
 ) -> Result<SetUp, String> {
     let places =
@@ -1335,9 +1365,27 @@ fn set_up(
     };
     let policy =
         Policy::of(&installed.manifest, &instance, places).map_err(|error| error.to_string())?;
-    let launcher = std::env::current_exe().map_err(|error| error.to_string())?;
+    let launcher_env = if helper_launcher.is_some() {
+        vec![
+            (
+                goodfetch_protocol::settings::HOME_VARIABLE.to_owned(),
+                places.goodfetch_home.to_string_lossy().into_owned(),
+            ),
+            (
+                goodfetch_protocol::settings::BROWSERS_PATH_VARIABLE.to_owned(),
+                cache_root.to_string_lossy().into_owned(),
+            ),
+        ]
+    } else {
+        Vec::new()
+    };
+    let launcher = match helper_launcher {
+        Some(helper) => helper,
+        None => std::env::current_exe().map_err(|error| error.to_string())?,
+    };
     Ok(SetUp {
         launcher,
+        launcher_env,
         launch: Launch {
             policy,
             program,

@@ -27,6 +27,7 @@ use goodfetch_protocol::plugin::index::{
 use goodfetch_protocol::plugin::manage::{
     PLUGIN_REMOVE, PluginApprovalsRemoval, PluginRemoveParams, PluginRemoved,
 };
+use goodfetch_protocol::plugin::setup::{PLUGIN_SETUP, PluginSetupParams, PluginSetupResult};
 use goodfetch_protocol::plugin::update::{PLUGIN_UPDATE, PluginUpdateParams, PluginUpdated};
 use goodfetch_protocol::settings::ProjectSettings;
 
@@ -61,6 +62,13 @@ const REMOVE: Prompt = Prompt {
 /// signer and permission diff.
 const UPDATE: Prompt = Prompt {
     operation: &PLUGIN_UPDATE,
+    elsewhere: None,
+};
+
+/// The prompt that verifies and installs the Linux `goodfetch-sandbox` helper
+/// and its AppArmor profile (ADRs 0033, 0039 and 0099; issue 884).
+const SETUP: Prompt = Prompt {
+    operation: &PLUGIN_SETUP,
     elsewhere: None,
 };
 
@@ -118,6 +126,31 @@ pub(super) enum OwnPluginCommand {
         /// The target OCI reference (`<registry>/<repository>@sha256:<hex>`)
         /// or Plugin name listed in the Plugin index.
         reference: String,
+        /// Refused: a person answers at a terminal, never under `--json`.
+        #[arg(long)]
+        json: bool,
+        #[command(flatten)]
+        engine: EngineFlags,
+    },
+    /// Installs the root-owned, non-setuid `goodfetch-sandbox` helper and its
+    /// AppArmor profile on Ubuntu 23.10 and later after verifying their
+    /// Sigstore provenance attestation: a person's answer, asked at the
+    /// terminal, and refused with `person_required` under `--json` or when
+    /// stdin is no terminal.
+    Setup {
+        /// Path to the `goodfetch-sandbox` helper executable to verify and
+        /// install.
+        #[arg(long)]
+        helper: PathBuf,
+        /// Path to the Sigstore provenance attestation JSON for `--helper`.
+        #[arg(long)]
+        attestation: PathBuf,
+        /// Optional path to an AppArmor profile to verify and install.
+        #[arg(long)]
+        profile: Option<PathBuf>,
+        /// Path to the Sigstore provenance attestation JSON for `--profile`.
+        #[arg(long, requires = "profile")]
+        profile_attestation: Option<PathBuf>,
         /// Refused: a person answers at a terminal, never under `--json`.
         #[arg(long)]
         json: bool,
@@ -199,7 +232,90 @@ pub(super) fn run(
             let reach = EngineChoice::passing(flags.choice(), machine, &warn);
             update(engine, dependencies, &reach, reference, json, human)
         }
+        PluginCommand::Own(OwnPluginCommand::Setup {
+            helper,
+            attestation,
+            profile,
+            profile_attestation,
+            json,
+            engine: flags,
+        }) => {
+            let warn = |text: &str| human.warning(text);
+            let reach = EngineChoice::passing(flags.choice(), machine, &warn);
+            setup(
+                engine,
+                dependencies,
+                &reach,
+                &PluginSetupParams {
+                    helper: helper.display().to_string(),
+                    attestation: attestation.display().to_string(),
+                    profile: profile.map(|path| path.display().to_string()),
+                    profile_attestation: profile_attestation.map(|path| path.display().to_string()),
+                },
+                json,
+                human,
+            )
+        }
     }
+}
+
+/// Verifies and installs the Linux `goodfetch-sandbox` helper and its AppArmor
+/// profile after asking the person once at the terminal (ADRs 0033, 0039 and
+/// 0099; issue 884).
+fn setup(
+    engine: &Engine,
+    dependencies: Dependencies,
+    reach: &EngineChoice<'_>,
+    params: &PluginSetupParams,
+    json: bool,
+    human: &Human,
+) -> ExitCode {
+    if let Err(exit) = SETUP.person_present(json, human) {
+        return exit;
+    }
+    let warning = "This verifies the Sigstore attestation of `goodfetch-sandbox` against the bundled trust root, then installs a non-setuid copy and loads its AppArmor profile granting `userns` only to that path.";
+    let question = format!(
+        "Verify and install the `goodfetch-sandbox` helper from {}?",
+        params.helper
+    );
+    let yes = match SETUP.ask(&question, Some(warning), human) {
+        Ok(yes) => yes,
+        Err(exit) => return exit,
+    };
+    if !yes {
+        output::line("Nothing installed.");
+        return ExitCode::from(exit_codes::SUCCESS);
+    }
+    let params = serde_json::to_value(params).expect("invariant: the params serialize");
+    let result = match run_operation(
+        engine,
+        dependencies,
+        reach,
+        &PLUGIN_SETUP,
+        params,
+        false,
+        human,
+    ) {
+        Ok(result) => result,
+        Err(exit) => return exit,
+    };
+    let installed: PluginSetupResult = match serde_json::from_value(result) {
+        Ok(installed) => installed,
+        Err(error) => {
+            tracing::error!(%error, "the engine's `plugin.setup` answer does not read");
+            return ExitCode::FAILURE;
+        }
+    };
+    let loaded = if installed.profile_loaded {
+        " and loaded"
+    } else {
+        ""
+    };
+    output::line(&format!(
+        "Installed `goodfetch-sandbox` ({}) at {} and AppArmor profile{loaded} at {}.",
+        installed.helper_digest, installed.helper_path, installed.profile_path
+    ));
+    ExitCode::from(exit_codes::SUCCESS)
 }
 
 /// Previews an update to the Plugin `reference` names, prints the new digest,

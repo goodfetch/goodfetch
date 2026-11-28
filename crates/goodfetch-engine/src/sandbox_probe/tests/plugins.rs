@@ -98,3 +98,51 @@ fn a_host_that_confines_refuses_no_plugin(#[case] facts: Facts) {
 
     assert!(refusal.is_none(), "{refusal:?}");
 }
+
+/// On Ubuntu 23.10+ with AppArmor restricting unprivileged user namespaces,
+/// `proxy_tcp` is refused with `confinement_unavailable` whose `fix` names
+/// `plugin setup` until `goodfetch-sandbox` is installed (`sandbox_helper =
+/// true`), after which `proxy_tcp` is accepted and routed through the helper
+/// (ADRs 0033 and 0039, issue 884).
+/// Covers: story:7-23, error:confinement_unavailable
+#[test]
+fn apparmor_restriction_refuses_proxy_tcp_naming_plugin_setup_until_helper_is_installed() {
+    let without_helper = facts(HostFacts {
+        apparmor_restricts: true,
+        landlock_abi: 6,
+        ..host(UserNamespace::Unmapped(EPERM))
+    });
+    let (missing, refusal) = without_helper
+        .plugin_confinement(goodfetch_protocol::plugin::NetworkLevel::ProxyTcp)
+        .expect_err("without plugin setup, proxy_tcp must be refused under AppArmor restriction");
+    let data = refusal.details().unwrap();
+    let fix = data["fix"].as_str().unwrap();
+    assert_eq!(refusal.code(), "confinement_unavailable");
+    assert_eq!(data["environment"], json!("apparmor_userns"));
+    assert!(
+        fix.contains("plugin setup"),
+        "expected fix to name `plugin setup`, got: {fix}"
+    );
+    assert!(
+        missing.contains(&"network_namespace".to_owned()),
+        "{missing:?}"
+    );
+
+    let with_helper = facts(HostFacts {
+        apparmor_restricts: true,
+        landlock_abi: 6,
+        sandbox_helper: true,
+        ..host(UserNamespace::Unmapped(EPERM))
+    });
+    assert!(
+        with_helper
+            .plugin_confinement(goodfetch_protocol::plugin::NetworkLevel::ProxyTcp)
+            .is_ok(),
+        "with goodfetch-sandbox installed, proxy_tcp must be accepted"
+    );
+    assert!(
+        with_helper
+            .host
+            .needs_sandbox_helper(goodfetch_protocol::plugin::NetworkLevel::ProxyTcp)
+    );
+}

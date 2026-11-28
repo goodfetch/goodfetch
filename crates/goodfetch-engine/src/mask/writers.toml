@@ -143,6 +143,11 @@ count = 1
 how = "holds no value: the user namespace's `uid_map`, `gid_map` and `setgroups` lines, numbers and `deny` the launcher computes"
 
 [[writer]]
+path = "crates/goodfetch-engine/src/plugin_setup.rs"
+count = 1
+how = "holds no value: `plugin setup` installs the attested `goodfetch-sandbox` binary and its static AppArmor profile, no Run's value"
+
+[[writer]]
 path = "crates/goodfetch-engine/src/accounts/store.rs"
 count = 4
 how = "holds no resolved value: the Accounts store's tables hold the Account's name, its passkeys' public keys, and the SHA-256 digests of its recovery codes and named tokens, never a code, a token or a Secret a Run resolved"

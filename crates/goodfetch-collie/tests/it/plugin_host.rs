@@ -171,6 +171,7 @@ impl Plugin {
         let fetch = PluginFetch::of(&settings, "scripted", Clock::system(), blocking).unwrap();
         instance::Plugin {
             launcher: COLLIE.into(),
+            launcher_env: Vec::new(),
             launch: self.launch.clone(),
             manifest: self.manifest.clone(),
             product: Product::Collie,

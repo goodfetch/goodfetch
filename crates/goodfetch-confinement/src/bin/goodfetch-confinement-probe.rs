@@ -45,7 +45,7 @@ mod linux {
     use goodfetch_confinement::linux::limits::Resource;
     use goodfetch_confinement::linux::number;
     use goodfetch_confinement::linux::probe::{Fault, Probe, Report, Request};
-    use goodfetch_confinement::linux::{confine_self, confine_self_with};
+    use goodfetch_confinement::linux::{apply_sandbox_baseline, confine_self, confine_self_with};
     use goodfetch_confinement::probes::{Access, Arg, Outcome, ProcessArg};
     use goodfetch_confinement::seccomp::Call;
 
@@ -66,7 +66,14 @@ mod linux {
         // The runner's id, read before a PID namespace hides it.
         let parent = i64::from(std::os::unix::process::parent_id());
         let mechanism = match &request.policy {
-            None => None,
+            None => {
+                if request.sandbox_baseline
+                    && let Err(error) = apply_sandbox_baseline()
+                {
+                    return Report::Fault(Fault::from(&error));
+                }
+                None
+            }
             Some(policy) => match request.mechanism.map_or_else(
                 || confine_self(policy),
                 |kind| confine_self_with(policy, kind),
@@ -82,6 +89,7 @@ mod linux {
             (Probe::KernelAbi, None) => kernel_abi(),
             (Probe::UserNamespace, None) => user_namespace(),
             (Probe::Raise { resource, to }, _) => raised(resource, to),
+            (Probe::Capabilities, _) => capabilities(),
             (Probe::Mechanism, None) | (Probe::KernelAbi | Probe::UserNamespace, Some(_)) => {
                 Report::Fault(Fault::Request)
             }
@@ -285,6 +293,49 @@ mod linux {
         };
         if result == -1 {
             return last_errno();
+        }
+        Report::Outcome(Outcome::Ok)
+    }
+
+    /// Probes that all effective, permitted and inheritable capabilities are
+    /// zero (via raw `capget`) and `PR_GET_NO_NEW_PRIVS` is 1.
+    fn capabilities() -> Report {
+        const CAPABILITY_VERSION_3: u32 = 0x2008_0522;
+        #[repr(C)]
+        struct CapHeader {
+            version: u32,
+            pid: c_int,
+        }
+        #[repr(C)]
+        #[derive(Clone, Copy, Default)]
+        struct CapData {
+            effective: u32,
+            permitted: u32,
+            inheritable: u32,
+        }
+        let mut header = CapHeader {
+            version: CAPABILITY_VERSION_3,
+            pid: 0,
+        };
+        let mut data = [CapData::default(); 2];
+        // SAFETY: `header` and `data` match Linux's version-3 `capget` layout
+        // and outlive the syscall; pid 0 queries the calling thread.
+        if unsafe { libc::syscall(libc::SYS_capget, &raw mut header, data.as_mut_ptr()) } == -1 {
+            return last_errno();
+        }
+        let any_cap = data
+            .iter()
+            .any(|word| word.effective != 0 || word.permitted != 0 || word.inheritable != 0);
+        if any_cap {
+            return Report::Outcome(Outcome::Exit(1));
+        }
+        // SAFETY: `prctl(PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0)` takes integer arguments only.
+        let nnp = unsafe { libc::prctl(libc::PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) };
+        if nnp == -1 {
+            return last_errno();
+        }
+        if nnp != 1 {
+            return Report::Outcome(Outcome::Exit(2));
         }
         Report::Outcome(Outcome::Ok)
     }

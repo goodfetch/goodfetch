@@ -47,6 +47,8 @@ impl PolicySpec {
 pub(super) struct LevelSpec {
     pub(super) name: String,
     pub(super) seccomp: Vec<SeccompRule>,
+    #[serde(default)]
+    pub(super) calls_only: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -130,6 +132,7 @@ pub(super) fn read_workspace_confinement(root: &Path) -> Result<PolicySpec> {
     let seccomp_path = root.join(SECCOMP_SOURCE);
     let none = read_seccomp_level(&seccomp_path, "NONE")?;
     let outgoing_ip = read_seccomp_level(&seccomp_path, "OUTGOING_IP")?;
+    let sandbox_baseline = read_seccomp_slice(&seccomp_path, "SANDBOX_BASELINE")?;
     let deny_list = read_linux_deny_list(&root.join(DENY_LIST_SOURCE))?;
     let (signal_rule, file_rules) = read_policy_rules(&root.join(POLICY_SOURCE))?;
     Ok(PolicySpec {
@@ -144,19 +147,32 @@ pub(super) fn read_workspace_confinement(root: &Path) -> Result<PolicySpec> {
             LevelSpec {
                 name: "none".to_owned(),
                 seccomp: none,
+                calls_only: false,
             },
             LevelSpec {
                 name: "proxy_tcp".to_owned(),
                 seccomp: outgoing_ip.clone(),
+                calls_only: false,
             },
             LevelSpec {
                 name: "direct".to_owned(),
                 seccomp: outgoing_ip,
+                calls_only: false,
+            },
+            LevelSpec {
+                name: "sandbox_baseline".to_owned(),
+                seccomp: sandbox_baseline,
+                calls_only: true,
             },
         ],
         deny_list,
         file_rules,
     })
+}
+
+fn read_seccomp_slice(path: &Path, slice_const: &str) -> Result<Vec<SeccompRule>> {
+    let file = parse(path)?;
+    parse_rule_slice(&file, slice_const, path)
 }
 
 fn read_seccomp_level(path: &Path, extra_const: &str) -> Result<Vec<SeccompRule>> {

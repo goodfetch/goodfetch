@@ -224,6 +224,16 @@ const fn allow_when(name: &'static str, call: Call, when: Condition) -> Rule {
 
 /// `CLONE_THREAD`: a `clone` that makes a thread, not a process.
 pub const CLONE_THREAD: u64 = 0x0001_0000;
+/// Linux `CLONE_NEW*` namespace creation flags refused by `goodfetch-sandbox`'s
+/// baseline seccomp filter (ADR 0033, issue 884).
+pub const CLONE_NEWTIME: u64 = 0x0000_0080;
+pub const CLONE_NEWNS: u64 = 0x0002_0000;
+pub const CLONE_NEWCGROUP: u64 = 0x0200_0000;
+pub const CLONE_NEWUTS: u64 = 0x0400_0000;
+pub const CLONE_NEWIPC: u64 = 0x0800_0000;
+pub const CLONE_NEWUSER: u64 = 0x1000_0000;
+pub const CLONE_NEWPID: u64 = 0x2000_0000;
+pub const CLONE_NEWNET: u64 = 0x4000_0000;
 /// `AF_UNIX`, the one family `socketpair` makes at any level; refused to
 /// `socket` at `none` and `proxy_tcp`.
 pub const AF_UNIX: u64 = 1;
@@ -483,6 +493,99 @@ const OUTGOING_IP: &[Rule] = &[
         },
     ),
 ];
+
+/// The `goodfetch-sandbox` helper's own baseline seccomp filter (ADR 0033,
+/// issue 884): applied unconditionally before the caller's policy filter so
+/// that no program started through the helper can create further namespaces or
+/// open a netlink socket, whatever its caller passes.
+const SANDBOX_BASELINE: &[Rule] = &[
+    refuse("unshare", Call::Unshare),
+    refuse("setns", Call::Setns),
+    Rule {
+        name: "clone3",
+        call: Call::Clone3,
+        when: None,
+        verdict: Verdict::NotImplemented,
+    },
+    refuse_when(
+        "clone.newns",
+        Call::Clone,
+        Condition::HasAll {
+            arg: 0,
+            mask: CLONE_NEWNS,
+        },
+    ),
+    refuse_when(
+        "clone.newcgroup",
+        Call::Clone,
+        Condition::HasAll {
+            arg: 0,
+            mask: CLONE_NEWCGROUP,
+        },
+    ),
+    refuse_when(
+        "clone.newuts",
+        Call::Clone,
+        Condition::HasAll {
+            arg: 0,
+            mask: CLONE_NEWUTS,
+        },
+    ),
+    refuse_when(
+        "clone.newipc",
+        Call::Clone,
+        Condition::HasAll {
+            arg: 0,
+            mask: CLONE_NEWIPC,
+        },
+    ),
+    refuse_when(
+        "clone.newuser",
+        Call::Clone,
+        Condition::HasAll {
+            arg: 0,
+            mask: CLONE_NEWUSER,
+        },
+    ),
+    refuse_when(
+        "clone.newpid",
+        Call::Clone,
+        Condition::HasAll {
+            arg: 0,
+            mask: CLONE_NEWPID,
+        },
+    ),
+    refuse_when(
+        "clone.newnet",
+        Call::Clone,
+        Condition::HasAll {
+            arg: 0,
+            mask: CLONE_NEWNET,
+        },
+    ),
+    refuse_when(
+        "clone.newtime",
+        Call::Clone,
+        Condition::HasAll {
+            arg: 0,
+            mask: CLONE_NEWTIME,
+        },
+    ),
+    refuse_when(
+        "socket.netlink",
+        Call::Socket,
+        Condition::Equals {
+            arg: 0,
+            value: AF_NETLINK,
+        },
+    ),
+];
+
+/// The rules of `goodfetch-sandbox`'s unconditional baseline seccomp filter
+/// (ADR 0033, issue 884).
+pub fn sandbox_baseline_rules() -> Vec<Rule> {
+    SANDBOX_BASELINE.to_vec()
+}
 
 /// The rules of the seccomp list at `level`.
 pub fn rules(level: NetworkLevel) -> Vec<Rule> {

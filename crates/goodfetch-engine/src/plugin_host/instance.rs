@@ -125,8 +125,13 @@ const MAX_ABANDONED: usize = 1024;
 /// What starts a process Plugin's instance.
 #[derive(Debug)]
 pub struct Plugin {
-    /// The Product executable, whose `plugin-shim` mode is the launcher.
+    /// The Product executable (`plugin-shim`) or installed `goodfetch-sandbox`
+    /// helper that confines and starts the Plugin.
     pub launcher: PathBuf,
+    /// Extra environment variables passed to the launcher itself (such as
+    /// `GOODFETCH_HOME` for `goodfetch-sandbox`'s allowed-root check); the
+    /// launcher clears its environment before `exec`ing the Plugin.
+    pub launcher_env: Vec<(String, String)>,
     /// The confined start: the policy, the Plugin's program and its
     /// private temporary folder, which must exist.
     pub launch: Launch,
@@ -496,6 +501,7 @@ impl PluginInstance {
     ) -> Self {
         let start_process = ProcessStart {
             launcher: plugin.launcher,
+            launcher_env: plugin.launcher_env,
             launch: plugin.launch,
         };
         let config = Config {
@@ -869,6 +875,7 @@ struct Config {
 /// What launches a confined child process for a process instance.
 struct ProcessStart {
     launcher: PathBuf,
+    launcher_env: Vec<(String, String)>,
     launch: Launch,
 }
 
@@ -1320,6 +1327,26 @@ impl Running {
         .await
     }
 
+    /// Resolves the resource monitor for a started process generation (either
+    /// an injected test monitor or Linux's `/proc`-based group monitor).
+    fn monitor_for_process(&self, process: &PluginProcess) -> Option<Arc<dyn ResourceMonitor>> {
+        if let Some(custom) = &self.hooks.resource_monitor {
+            return Some(Arc::clone(custom));
+        }
+        #[cfg(target_os = "linux")]
+        {
+            process
+                .pid()
+                .and_then(limits::ProcGroupMonitor::for_pid)
+                .map(|m| Arc::new(m) as Arc<dyn ResourceMonitor>)
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = process;
+            None
+        }
+    }
+
     async fn run_process_generation(
         &mut self,
         instance: &mut Instance,
@@ -1360,9 +1387,10 @@ impl Running {
                         username: creds.username.clone(),
                         password: creds.password.clone(),
                     });
-                    let started = PluginProcess::start_with_fd(
+                    let started = PluginProcess::start_with_fd_and_env(
                         &start.launcher,
                         &launch,
+                        &start.launcher_env,
                         control_fd,
                         goodfetch_confinement::linux::relay::CONTROL_FD,
                     );
@@ -1374,13 +1402,13 @@ impl Running {
             (
                 None,
                 self.hooks.proxied_streams.clone(),
-                PluginProcess::start(&start.launcher, &launch),
+                PluginProcess::start_with_env(&start.launcher, &launch, &start.launcher_env),
             )
         };
         #[cfg(not(target_os = "linux"))]
         let (proxied_streams, started) = (
             self.hooks.proxied_streams.clone(),
-            PluginProcess::start(&start.launcher, &launch),
+            PluginProcess::start_with_env(&start.launcher, &launch, &start.launcher_env),
         );
 
         let (process, Pipes { mut stdin, stdout }) = match started {
@@ -1392,22 +1420,7 @@ impl Running {
             }
         };
 
-        let monitor: Option<Arc<dyn ResourceMonitor>> =
-            if let Some(custom) = &self.hooks.resource_monitor {
-                Some(Arc::clone(custom))
-            } else {
-                #[cfg(target_os = "linux")]
-                {
-                    process
-                        .pid()
-                        .and_then(limits::ProcGroupMonitor::for_pid)
-                        .map(|m| Arc::new(m) as Arc<dyn ResourceMonitor>)
-                }
-                #[cfg(not(target_os = "linux"))]
-                {
-                    None
-                }
-            };
+        let monitor = self.monitor_for_process(&process);
 
         let guards = GenerationGuards {
             #[cfg(target_os = "linux")]

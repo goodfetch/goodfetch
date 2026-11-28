@@ -665,3 +665,61 @@ fn plugin_add_for_direct_prints_what_is_not_checked_and_approves_direct() {
         "expected `direct = true` in policy:\n{written}"
     );
 }
+
+/// Under `--json` and in a non-terminal pipe/script, `plugin setup` is refused
+/// with `person_required` and exit `4`, its `fix` naming `plugin setup`,
+/// before any engine call (ADRs 0033, 0039 and 0099; issue 884).
+///
+/// Covers: story:7-23, operation:plugin.setup, command:plugin.setup
+#[test]
+fn plugin_setup_refuses_json_and_piped_stdin_with_person_required() {
+    let env = TestEnv::new();
+    let helper = env.folder().join("goodfetch-sandbox");
+    let att = env.folder().join("goodfetch-sandbox.att.json");
+    std::fs::write(&helper, b"helper").unwrap();
+    std::fs::write(&att, b"{}").unwrap();
+    let helper_s = helper.display().to_string();
+    let att_s = att.display().to_string();
+
+    // 1. Under `--json`.
+    let json_out = cli(&env, COLLIE)
+        .args([
+            "plugin",
+            "setup",
+            "--helper",
+            &helper_s,
+            "--attestation",
+            &att_s,
+            "--json",
+        ])
+        .run()
+        .unwrap();
+    let failed: Value = serde_json::from_str(&json_out.stdout).unwrap();
+    assert_eq!(json_out.exit, Some(4), "{json_out:?}");
+    assert_eq!(failed["error"]["code"], json!("person_required"));
+    assert!(
+        failed["error"]["fix"]
+            .as_str()
+            .is_some_and(|fix| fix.contains("plugin setup")),
+        "{failed}"
+    );
+
+    // 2. From a pipe/script (no TTY, no `--json`).
+    let pipe_out = cli(&env, COLLIE)
+        .args([
+            "plugin",
+            "setup",
+            "--helper",
+            &helper_s,
+            "--attestation",
+            &att_s,
+        ])
+        .stdin("y\n")
+        .run()
+        .unwrap();
+    assert_eq!(pipe_out.exit, Some(4), "{pipe_out:?}");
+    assert!(
+        pipe_out.stderr.contains("person_required") || pipe_out.stderr.contains("plugin setup"),
+        "{pipe_out:?}"
+    );
+}

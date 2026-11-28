@@ -3425,6 +3425,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "goodfetch-sandbox"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-confinement",
+ "goodfetch-dev-workspace-hack",
+ "goodfetch-protocol",
+ "goodfetch-workspace-hack",
+ "libc",
+ "rstest",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "goodfetch-saved-file"
 version = "0.0.0"
 dependencies = [

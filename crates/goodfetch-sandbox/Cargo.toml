@@ -1,0 +1,27 @@
+[package]
+name = "goodfetch-sandbox"
+description = "Root-owned, non-setuid Linux confinement helper for Goodfetch Plugins (ADRs 0033 and 0039): creates namespaces, drops capabilities, sets no_new_privs, applies its baseline seccomp filter then the caller's policy filter, and starts only entries of the Plugin store or runtime cache."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# Links goodfetch-confinement and never goodfetch-engine (ADR 0033, issue 884).
+[dependencies]
+goodfetch-confinement.workspace = true
+goodfetch-protocol.workspace = true
+goodfetch-workspace-hack.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+goodfetch-dev-workspace-hack.workspace = true
+rstest.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

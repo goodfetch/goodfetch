@@ -37,6 +37,7 @@ mod linux;
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use goodfetch_confinement::host::SIGNAL_SCOPE_ABI;
@@ -267,7 +268,21 @@ pub struct SandboxProbe(Arc<Probing>);
 struct Probing {
     environment: BTreeMap<OsString, OsString>,
     host: fn() -> HostFacts,
+    sandbox_helper_path: PathBuf,
     answer: OnceLock<(Facts, Probed)>,
+}
+
+/// Default Linux path of the installed `goodfetch-sandbox` helper (ADRs 0033
+/// and 0039, issue 884).
+fn default_sandbox_helper_path() -> PathBuf {
+    #[cfg(target_os = "linux")]
+    {
+        PathBuf::from(goodfetch_confinement::linux::host::DEFAULT_SANDBOX_HELPER_PATH)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        PathBuf::from("/usr/local/libexec/goodfetch/goodfetch-sandbox")
+    }
 }
 
 impl SandboxProbe {
@@ -280,11 +295,37 @@ impl SandboxProbe {
     /// The probe of an engine started with `environment`, on the host
     /// `host` reads: [`this_host`], for a real engine.
     pub(crate) fn of(host: fn() -> HostFacts, environment: BTreeMap<OsString, OsString>) -> Self {
+        Self::of_with_helper(host, environment, default_sandbox_helper_path())
+    }
+
+    /// The probe of an engine using a custom `goodfetch-sandbox` helper path
+    /// (for tests injecting a test-built helper, ADR 0059).
+    pub(crate) fn of_with_helper(
+        host: fn() -> HostFacts,
+        environment: BTreeMap<OsString, OsString>,
+        sandbox_helper_path: PathBuf,
+    ) -> Self {
         Self(Arc::new(Probing {
             environment,
             host,
+            sandbox_helper_path,
             answer: OnceLock::new(),
         }))
+    }
+
+    /// Path to the `goodfetch-sandbox` helper executable configured for this
+    /// host.
+    #[must_use]
+    pub fn sandbox_helper_path(&self) -> &Path {
+        &self.0.sandbox_helper_path
+    }
+
+    /// Whether starting a process Plugin at `network_level` on this host
+    /// should launch through [`Self::sandbox_helper_path`] instead of the
+    /// Product executable's `plugin-shim` (ADR 0033, issue 884).
+    #[must_use]
+    pub fn needs_sandbox_helper(&self, network_level: NetworkLevel) -> bool {
+        self.answer().0.host.needs_sandbox_helper(network_level)
     }
 
     /// The engine's answer for the browser's sandbox. The process's first
@@ -537,7 +578,7 @@ fn plugin_fix(environment: SandboxEnvironment, platform: Option<NoSandboxPlatfor
             "Kubernetes' `RuntimeDefault` seccomp profile refuses the user namespace a Plugin is confined in on this kernel: {KUBERNETES_PROFILE}, {kernel}."
         ),
         SandboxEnvironment::ApparmorUserns => format!(
-            "{APPARMOR_RESTRICTS}, and no AppArmor profile gives one to Goodfetch's executable, which confines each Plugin: load a profile that grants it `userns`, {kernel}."
+            "{APPARMOR_RESTRICTS}: run `plugin setup` (as root / with sudo) to install the `goodfetch-sandbox` helper and its AppArmor profile that grants it `userns`, {kernel}."
         ),
         SandboxEnvironment::Unknown => format!(
             "This host refuses the user namespace a Plugin is confined in, for a reason the probe does not recognise: {UNSHARE_CHECK}, {kernel}."

@@ -731,6 +731,17 @@
       ]
     },
     {
+      "id": "command:plugin.setup",
+      "kind": "command",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:plugin.update",
       "kind": "command",
       "area": 7,
@@ -4869,6 +4880,17 @@
     },
     {
       "id": "operation:plugin.search",
+      "kind": "operation",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:plugin.setup",
       "kind": "operation",
       "area": 7,
       "milestone": null,

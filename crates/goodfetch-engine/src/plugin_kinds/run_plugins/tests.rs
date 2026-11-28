@@ -706,6 +706,7 @@ fn unconfining_host() -> goodfetch_confinement::host::HostFacts {
         apparmor_restricts: false,
         landlock_abi: 4,
         wsl1: false,
+        sandbox_helper: false,
     }
 }
 

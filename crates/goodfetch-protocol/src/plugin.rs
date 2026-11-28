@@ -46,6 +46,7 @@ pub mod net;
 pub mod notification;
 pub mod secret;
 pub mod settings;
+pub mod setup;
 pub mod spend;
 pub mod update;
 

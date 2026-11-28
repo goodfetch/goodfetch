@@ -82,6 +82,10 @@
           {
             "commands": [],
             "name": "update"
+          },
+          {
+            "commands": [],
+            "name": "setup"
           }
         ],
         "name": "plugin"
@@ -572,6 +576,10 @@
           {
             "commands": [],
             "name": "update"
+          },
+          {
+            "commands": [],
+            "name": "setup"
           }
         ],
         "name": "plugin"

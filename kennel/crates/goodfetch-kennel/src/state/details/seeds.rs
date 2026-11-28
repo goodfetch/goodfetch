@@ -47,6 +47,7 @@ impl SeedsOffer {
                     priority: 0,
                     forefront: false,
                     method: HttpMethod::default(),
+                    headers: std::collections::BTreeMap::new(),
                     body: None,
                     key: None,
                 })

@@ -85,6 +85,7 @@ pub(crate) fn enqueue(
     };
     let adding = Adding {
         method: &params.method,
+        headers: (!params.headers.is_empty()).then_some(&params.headers),
         body: params.body.as_ref(),
         label: &params.label,
         payload,
@@ -151,6 +152,32 @@ pub(crate) fn seeds(
         Err(refused) => return Ok(Err(refused)),
     };
     admit_seeds(connection, positions, (egress, invariants), &checked).map(Ok)
+}
+
+/// Admits each of `seeds` within the Run's `invariants` and under its
+/// domain policy `egress`, at its position from `positions`, while
+/// `attempt` holds its lease; `None` once that attempt ended.
+pub(crate) fn staged_seeds(
+    connection: &Connection,
+    positions: &mut Positions,
+    (egress, invariants, work): (&Policy, &Invariants, &CountedWork),
+    seeds: Vec<Seed>,
+    attempt: &SeedAttempt,
+) -> Answered<Vec<Enqueued>> {
+    if work_items::attempt(
+        connection,
+        AttemptKey::new(&attempt.crawl_request_id, attempt.lease_epoch),
+    )?
+    .is_none()
+    {
+        return Ok(None);
+    }
+    let checked = match work_items::check_seeds(invariants, seeds, work) {
+        Ok(checked) => checked,
+        Err(refused) => return Ok(Some(Err(refused))),
+    };
+    let answers = admit_seeds(connection, positions, (egress, invariants), &checked)?;
+    Ok(Some(Ok(answers)))
 }
 
 /// Admits each of `checked`, seeds whose Payloads were checked, within the
@@ -356,6 +383,7 @@ pub(crate) fn links(
             } => {
                 let adding = Adding {
                     method: &method,
+                    headers: None,
                     body: None,
                     label: &params.label,
                     payload: payload.as_ref(),

@@ -39,13 +39,27 @@ def test_a_crawls_progress_reads_into_its_type_a_newer_wait_reason_kept() -> Non
                 },
             },
             {
+                "reason": "analysis_pending_bytes",
+                "count": 4,
+                "domains": [],
+                "setting": {
+                    "key": "crawl.analysis.max_pending_bytes",
+                    "value": 67_108_864,
+                    "layer": "default",
+                },
+            },
+            {
                 "reason": "a_reason_from_a_newer_engine",
                 "count": 1,
                 "domains": [{"domain": "a.test"}],
             },
         ],
         "idle": False,
-        "concurrency": {"handlers": 3, "handler_concurrency": 8},
+        "concurrency": {
+            "handlers": 3,
+            "handler_concurrency": 8,
+            "handler_concurrency_layer": "run",
+        },
     }
 
     progress = result_of(CrawlRunProgress, sent)
@@ -58,10 +72,12 @@ def test_a_crawls_progress_reads_into_its_type_a_newer_wait_reason_kept() -> Non
         [group.reason for group in progress.waiting],
         progress.idle,
         progress.concurrency.handler_concurrency,
+        progress.concurrency.handler_concurrency_layer,
     ) == (
         datetime(2026, 1, 5, 9, tzinfo=UTC),
         datetime(2026, 1, 5, 9, 0, 1, tzinfo=UTC),
-        ["domain_delay", "a_reason_from_a_newer_engine"],
+        ["domain_delay", "analysis_pending_bytes", "a_reason_from_a_newer_engine"],
         False,
         8,
+        "run",
     )

@@ -83,6 +83,7 @@ fn crawl_of(count: usize) -> Connection {
                     forefront: false,
                     method: goodfetch_protocol::foxhound::frontier::HttpMethod::get(),
                     body: None,
+                    headers: std::collections::BTreeMap::new(),
                     key: None,
                 },
             )
@@ -449,6 +450,7 @@ fn a_seed_added_after_the_crawls_last_look_is_not_admitted() {
             forefront: false,
             method: goodfetch_protocol::foxhound::frontier::HttpMethod::get(),
             body: None,
+            headers: std::collections::BTreeMap::new(),
             key: None,
         },
     );

@@ -30,6 +30,7 @@ use goodfetch_dataset::{Checked, Committing};
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::{Keys, Waiting};
 use goodfetch_engine::egress::Policy;
+use goodfetch_engine::hostile_input;
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::{BatchRows, BatchWriter, RunStateTables, run_row};
 use goodfetch_frontier::payload::{self, Payload};
@@ -46,6 +47,9 @@ use goodfetch_protocol::foxhound::provenance::{
     CertificateExceptionMark, EncodingProvenance, RecordProvenance, RobotsTxtMark, TierProvenance,
 };
 use goodfetch_protocol::foxhound::report::SitemapReport;
+use goodfetch_protocol::hook::{
+    HEADER_FORBIDDEN, HeaderForbiddenDetails, is_forbidden_request_header,
+};
 use goodfetch_protocol::page::read::{TransformProvenance, UnreadField};
 use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::{Map, Value};
@@ -61,6 +65,7 @@ pub(crate) const TABLES: RunStateTables = RunStateTables {
             position INTEGER NOT NULL UNIQUE,
             url TEXT NOT NULL,
             method TEXT NOT NULL,
+            headers TEXT,
             body BLOB,
             label TEXT NOT NULL,
             depth INTEGER NOT NULL,
@@ -335,6 +340,8 @@ fn integer(value: u64) -> i64 {
 pub(crate) struct Adding<'a> {
     /// The method it is sent with.
     pub(crate) method: &'a HttpMethod,
+    /// Extra request headers sent with the request, if any.
+    pub(crate) headers: Option<&'a BTreeMap<String, String>>,
     /// The body it is sent with, if any.
     pub(crate) body: Option<&'a HttpBody>,
     /// Its Label.
@@ -349,6 +356,61 @@ pub(crate) struct Adding<'a> {
     pub(crate) depth: u32,
 }
 
+/// Whether `byte` is an RFC 9110 / RFC 7230 HTTP header name token byte (`tchar`).
+fn is_http_token_byte(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'!' | b'#'
+            | b'$'
+            | b'%'
+            | b'&'
+            | b'\''
+            | b'*'
+            | b'+'
+            | b'-'
+            | b'.'
+            | b'^'
+            | b'_'
+            | b'`'
+            | b'|'
+            | b'~'
+            | b'0'..=b'9'
+            | b'A'..=b'Z'
+            | b'a'..=b'z'
+    )
+}
+
+/// Checks `headers` on a seed or enqueue: refuses invalid HTTP header names,
+/// ADR 0033's forbidden headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`,
+/// method overrides) with `header_forbidden`, and CR/LF/NUL characters with
+/// `header_value_invalid`.
+///
+/// # Errors
+///
+/// `header_value_invalid`, `invalid_params`, or `header_forbidden`.
+pub(crate) fn check_request_headers(headers: &BTreeMap<String, String>) -> Result<(), CallError> {
+    for (name, value) in headers {
+        hostile_input::check_header_value(name, name).map_err(|invalid| invalid.error())?;
+        if name.is_empty() || !name.bytes().all(is_http_token_byte) {
+            return Err(CallError::protocol(
+                goodfetch_protocol::jsonrpc::ProtocolFailure::InvalidParams,
+                format!("The header name `{name}` is not a valid HTTP header token."),
+            ));
+        }
+        if is_forbidden_request_header(name) {
+            return Err(CallError::new(
+                &HEADER_FORBIDDEN,
+                format!(
+                    "The header `{name}` is forbidden on a crawl request: remove it and use the engine's session, proxy or method APIs instead."
+                ),
+                &HeaderForbiddenDetails { name: name.clone() },
+            ));
+        }
+        hostile_input::check_header_value(name, value).map_err(|invalid| invalid.error())?;
+    }
+    Ok(())
+}
+
 /// A `GET`, the method of a sitemap's fetch and of its entries.
 static GET: LazyLock<HttpMethod> = LazyLock::new(HttpMethod::get);
 
@@ -358,6 +420,7 @@ static GET: LazyLock<HttpMethod> = LazyLock::new(HttpMethod::get);
 fn from_sitemap(adding: sitemap::Adding<'_>) -> Adding<'_> {
     Adding {
         method: &GET,
+        headers: None,
         body: None,
         label: match adding {
             sitemap::Adding::Entry(label) => label,
@@ -426,6 +489,7 @@ pub(crate) fn check_seed(
     let payloads = invariants.payloads();
     match &mut seed {
         Seed::Request(request) => {
+            check_request_headers(&request.headers)?;
             let payload = request
                 .payload
                 .take()
@@ -535,6 +599,7 @@ pub(crate) fn admit_seeds(
             };
             let adding = Adding {
                 method: &seed.method,
+                headers: (!seed.headers.is_empty()).then_some(&seed.headers),
                 body: seed.body.as_ref(),
                 label: &seed.label,
                 payload: checked.payload.as_ref(),
@@ -751,6 +816,7 @@ impl Coming<'_> {
             from: self.entering.from.cloned(),
             entering: self.entering.depth,
             method: self.adding.method.clone(),
+            headers: self.adding.headers.cloned().unwrap_or_default(),
             body: self.adding.body.cloned(),
             label: self.adding.label.to_owned(),
             payload: self.adding.payload.cloned(),
@@ -794,6 +860,7 @@ pub(crate) struct Request {
     /// The depth it enters the crawl at.
     entering: u32,
     method: HttpMethod,
+    headers: BTreeMap<String, String>,
     body: Option<HttpBody>,
     label: String,
     payload: Option<Arc<Payload>>,
@@ -833,6 +900,7 @@ impl Decided {
                     },
                     adding: Adding {
                         method: &request.method,
+                        headers: (!request.headers.is_empty()).then_some(&request.headers),
                         body: request.body.as_ref(),
                         label: &request.label,
                         payload: request.payload.as_ref(),
@@ -1064,13 +1132,20 @@ pub(crate) fn add(
         .keyed
         .as_ref()
         .map(|(keys, _)| keys.key(url.as_str()));
+    let headers = adding
+        .headers
+        .filter(|headers| !headers.is_empty())
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
     let id: String = connection.prepare_cached("INSERT INTO work_items
-             (id, position, url, method, body, label, depth, status, attempts, retried_from, lease_epoch, priority, forefront, domain_key)
-         VALUES (CAST(?1 AS TEXT), ?1, ?2, ?3, ?4, ?5, ?6, 'pending', 0, 0, 0, ?7, CASE WHEN ?8 THEN ?1 END, ?9)
+             (id, position, url, method, headers, body, label, depth, status, attempts, retried_from, lease_epoch, priority, forefront, domain_key)
+         VALUES (CAST(?1 AS TEXT), ?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', 0, 0, 0, ?8, CASE WHEN ?9 THEN ?1 END, ?10)
          RETURNING id").and_then(|mut cached| cached.query_row((
             position,
             url.as_str(),
             adding.method.as_str(),
+            headers.as_deref(),
             adding.body.map(HttpBody::bytes),
             adding.label,
             adding.depth,
@@ -1235,7 +1310,7 @@ pub(crate) fn lease(connection: &Connection, ids: &[String]) -> rusqlite::Result
     let mut statement = connection.prepare_cached("UPDATE work_items SET status = 'leased', attempts = attempts + 1, lease_epoch = lease_epoch + 1
          WHERE id = ?1 AND status = 'pending'
          RETURNING id, url, label, attempts, lease_epoch, domain_key, priority, position,
-             forefront IS NOT NULL, method, body, attempts - retried_from")?;
+             forefront IS NOT NULL, method, body, attempts - retried_from, headers")?;
     leased_rows(connection, &mut statement, ids)
 }
 
@@ -1245,7 +1320,7 @@ pub(crate) fn lease(connection: &Connection, ids: &[String]) -> rusqlite::Result
 pub(crate) fn leasable(connection: &Connection, ids: &[String]) -> rusqlite::Result<Vec<Leased>> {
     let mut statement = connection.prepare_cached(
         "SELECT id, url, label, attempts + 1, lease_epoch + 1, domain_key, priority, position,
-             forefront IS NOT NULL, method, body, attempts + 1 - retried_from
+             forefront IS NOT NULL, method, body, attempts + 1 - retried_from, headers
          FROM work_items WHERE id = ?1 AND status = 'pending'",
     )?;
     leased_rows(connection, &mut statement, ids)
@@ -1319,6 +1394,18 @@ fn leased_rows(
                                 Box::new(error),
                             )
                         })?,
+                        headers: row
+                            .get::<_, Option<String>>(12)?
+                            .map(|json| serde_json::from_str(&json))
+                            .transpose()
+                            .map_err(|error| {
+                                rusqlite::Error::FromSqlConversionFailure(
+                                    12,
+                                    rusqlite::types::Type::Text,
+                                    Box::new(error),
+                                )
+                            })?
+                            .unwrap_or_default(),
                         body: row.get::<_, Option<Vec<u8>>>(10)?.map(HttpBody::new),
                     },
                     attempt: row.get(3)?,

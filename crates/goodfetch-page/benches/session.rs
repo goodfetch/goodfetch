@@ -1828,6 +1828,7 @@ fn pool_pages(pages: &PoolPages) -> Contribution {
                     let own = OwnFetch {
                         url,
                         method: "GET",
+                        headers: None,
                         body: None,
                         bypass_cache: false,
                     };

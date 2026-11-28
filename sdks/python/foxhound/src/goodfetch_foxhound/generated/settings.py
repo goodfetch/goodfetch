@@ -1038,13 +1038,13 @@ class ConnectionPolitenessDomainSettings(TypedDict):
     """
 
     concurrency: NotRequired[int | None]
-    """How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1. A value above 1 is listed in the run's result as one that presses a site harder.
+    """How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder.
 
     `politeness.domain.concurrency`.
     """
 
     delay: NotRequired[timedelta | None]
-    """How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s. A value below 1 s is listed in the run's result as one that presses a site harder.
+    """How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder.
 
     `politeness.domain.delay`.
     """
@@ -1053,6 +1053,16 @@ class ConnectionPolitenessDomainSettings(TypedDict):
     """How many crawl requests a minute may start on one domain key, counted across every run of the user that shares Politeness, as a token bucket of `politeness.domain.burst` tokens refilled at this rate: 30 holds a site to 30 requests a minute. Each run is held to its own value; the delay between starts still applies. None by default.
 
     `politeness.domain.rate`.
+    """
+
+
+class ConnectionPolitenessIpSettings(TypedDict):
+    """The `politeness.ip` settings of `FoxhoundSettings`."""
+
+    concurrency: NotRequired[int | None]
+    """How many crawl requests may be in flight at once to one resolved IP address, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. At least 1; none by default, for no per-IP cap.
+
+    `politeness.ip.concurrency`.
     """
 
 
@@ -1094,6 +1104,8 @@ class ConnectionPolitenessSettings(TypedDict):
     """
 
     domain: NotRequired[ConnectionPolitenessDomainSettings]
+
+    ip: NotRequired[ConnectionPolitenessIpSettings]
 
     proxy: NotRequired[ConnectionPolitenessProxySettings]
 
@@ -3080,13 +3092,13 @@ class RunPolitenessDomainSettings(TypedDict):
     """
 
     concurrency: NotRequired[int | None]
-    """How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1. A value above 1 is listed in the run's result as one that presses a site harder.
+    """How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder.
 
     `politeness.domain.concurrency`.
     """
 
     delay: NotRequired[timedelta | None]
-    """How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s. A value below 1 s is listed in the run's result as one that presses a site harder.
+    """How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder.
 
     `politeness.domain.delay`.
     """
@@ -3095,6 +3107,16 @@ class RunPolitenessDomainSettings(TypedDict):
     """How many crawl requests a minute may start on one domain key, counted across every run of the user that shares Politeness, as a token bucket of `politeness.domain.burst` tokens refilled at this rate: 30 holds a site to 30 requests a minute. Each run is held to its own value; the delay between starts still applies. None by default.
 
     `politeness.domain.rate`.
+    """
+
+
+class RunPolitenessIpSettings(TypedDict):
+    """The `politeness.ip` settings of `CrawlSettings`."""
+
+    concurrency: NotRequired[int | None]
+    """How many crawl requests may be in flight at once to one resolved IP address, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. At least 1; none by default, for no per-IP cap.
+
+    `politeness.ip.concurrency`.
     """
 
 
@@ -3136,6 +3158,8 @@ class RunPolitenessSettings(TypedDict):
     """
 
     domain: NotRequired[RunPolitenessDomainSettings]
+
+    ip: NotRequired[RunPolitenessIpSettings]
 
     proxy: NotRequired[RunPolitenessProxySettings]
 

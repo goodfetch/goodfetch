@@ -27,10 +27,24 @@ describe("a crawl's progress", () => {
           domains: [{ domain: "shop.test", next_admitted_at: "2026-01-05T09:00:01Z" }],
           setting: { key: "politeness.domain.delay", value: 1000, layer: "run" },
         },
+        {
+          reason: "analysis_pending_bytes",
+          count: 4,
+          domains: [],
+          setting: {
+            key: "crawl.analysis.max_pending_bytes",
+            value: 67_108_864,
+            layer: "default",
+          },
+        },
         { reason: "a_reason_from_a_newer_engine", count: 1, domains: [{ domain: "a.test" }] },
       ],
       idle: false,
-      concurrency: { handlers: 3, handler_concurrency: 8 },
+      concurrency: {
+        handlers: 3,
+        handler_concurrency: 8,
+        handler_concurrency_layer: "run",
+      },
     };
 
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine answers are not validated beyond `hello`'s protocol version (STYLE.md): a crawl's `run.progress` answer is the catalog's `CrawlRunProgress`.
@@ -49,10 +63,19 @@ describe("a crawl's progress", () => {
           reason: "domain_delay",
           domains: [{ domain: "shop.test", nextAdmittedAt: new Date("2026-01-05T09:00:01.000Z") }],
         },
+        {
+          reason: "analysis_pending_bytes",
+          count: 4,
+          setting: { key: "crawl.analysis.max_pending_bytes", layer: "default" },
+        },
         { reason: "a_reason_from_a_newer_engine", count: 1 },
       ],
       idle: false,
-      concurrency: { handlers: 3, handlerConcurrency: 8 },
+      concurrency: {
+        handlers: 3,
+        handlerConcurrency: 8,
+        handlerConcurrencyLayer: "run",
+      },
     });
   });
 });

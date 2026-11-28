@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::catalog::{KindPart, ProtocolVersion, schema_of};
 use crate::governor::{AllowanceSource, GovernorLevel};
 use crate::run::RunProgress;
-use crate::settings::SettingLimit;
+use crate::settings::{SettingLimit, SettingsLayer};
 
 use super::report::{CountOf, SitemapReport};
 
@@ -61,6 +61,10 @@ pub const GOVERNOR: &str = "governor";
 pub const SESSION: &str = "session";
 /// The reason a request waits behind a Human pause (ADR 0092).
 pub const HUMAN_PAUSE: &str = "human_pause";
+/// The reason `crawl.analysis.max_pending_bytes` holds admission: fetched
+/// bodies waiting for analysis reached the pending-bytes cap (ADR 0102;
+/// spec #2194).
+pub const ANALYSIS_PENDING_BYTES: &str = "analysis_pending_bytes";
 
 /// A crawl's progress (ADR 0102): what a crawl adds to every Run's, a part
 /// no area supplied being absent.
@@ -238,6 +242,10 @@ pub struct CrawlConcurrency {
     /// `crawl.handler.concurrency`, per serving Connection.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub handler_concurrency: u64,
+    /// The settings layer that set `crawl.handler.concurrency` (ADR 0102).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub handler_concurrency_layer: Option<SettingsLayer>,
     /// The Resource governor's level, once it sampled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]

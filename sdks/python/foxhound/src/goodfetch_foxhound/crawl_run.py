@@ -24,11 +24,13 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Generic,
+    Literal,
     Protocol,
     TypeAlias,
     TypeVar,
     cast,
     final,
+    overload,
 )
 
 import anyio
@@ -40,6 +42,7 @@ from goodfetch_collie_client.generated.handles import AsyncPage, Page, Session
 from goodfetch_collie_client.generated.models import (
     RunFinishParams,
     RunParams,
+    RunStarted,
     RunStopParams,
 )
 from goodfetch_collie_client.goodfetch_error import GoodfetchError
@@ -62,26 +65,53 @@ from goodfetch_foxhound.crawl import (
     CrawlRequest,
     DatasetRecord,
     HandlerAttempt,
+    Label,
+    build_seed_for_crawl,
     check_startable,
     crawl_declaration,
     handler_of,
     payload_of,
     read_record,
 )
-from goodfetch_foxhound.generated.errors import HandlerFailedError, RecordInvalidError
+from goodfetch_foxhound.export import AsyncExport, Export
+from goodfetch_foxhound.generated.errors import (
+    CrawlNotImportableError,
+    HandlerFailedError,
+    RecordInvalidError,
+)
 from goodfetch_foxhound.generated.models import (
     CrawlDeclaration,
     CrawlExtraction,
     CrawlRequestHandleParams,
+    CrawlRequestOutcome,
+    CrawlRequestOutcomes,
     CrawlRunProgress,
     CrawlRunReport,
     CrawlStartParams,
     DatasetList,
     DatasetListParams,
     DatasetPageParams,
+    Enqueued,
+    ExportCompression,
+    ExportFormat,
+    FailedRequests,
+    Now,
+    OutcomesAfter,
+    OutcomesAfter1,
     RejectedRecord,
     RejectedRecords,
+    RetriedFailed,
+    RunAddSeedParams,
+    RunAddSeedsParams,
+    RunExportParams,
+    RunFailedRequestsParams,
+    RunOutcomesParams,
     RunRejectedRecordsParams,
+    RunRetryFailedParams,
+    SeedAttempt,
+)
+from goodfetch_foxhound.generated.models import (
+    Export as WireExport,
 )
 from goodfetch_foxhound.generated.operations import (
     DEPRECATED_OPERATIONS,
@@ -89,9 +119,11 @@ from goodfetch_foxhound.generated.operations import (
     AsyncFoxhoundOperations,
     FoxhoundOperations,
 )
+from goodfetch_foxhound.seed_stream import SeedStreamReading
+from goodfetch_foxhound.workers import WorkerPool, prepare_workers, spawn_workers
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Iterable
+    from collections.abc import AsyncIterable, Awaitable, Callable, Iterable, Mapping
     from datetime import timedelta
 
     from goodfetch_collie_client.connection import ClientConnection
@@ -99,10 +131,10 @@ if TYPE_CHECKING:
         KeyValueStoreAttempt,
         PageId,
         RunId,
-        RunStarted,
         SessionId,
     )
     from goodfetch_collie_client.handle import HandleHost
+    from goodfetch_collie_client.json_values import JSONObject
     from goodfetch_collie_client.key_value_store import KeyValueStore
     from goodfetch_collie_client.limits import Limits
     from goodfetch_collie_client.portal import PrivateLoop
@@ -110,6 +142,7 @@ if TYPE_CHECKING:
 
     from goodfetch_foxhound.crawl import AsyncCrawl, Dataset
     from goodfetch_foxhound.generated.models import RequestSeed, SitemapSeed
+    from goodfetch_foxhound.generated.open_values import OutcomeKind
     from goodfetch_foxhound.generated.settings import CrawlSettings
 
     _Handle: TypeAlias = Callable[
@@ -132,6 +165,9 @@ RECORD = "$/record"
 
 R = TypeVar("R")
 """What a Dataset's Records read as."""
+
+M = TypeVar("M", bound=BaseModel)
+"""What a Pydantic Payload model types as."""
 
 _Item = TypeVar("_Item")
 """What a read hands the program, one at a time."""
@@ -190,6 +226,7 @@ class AsyncCrawlRun(AsyncRun):
         crawl: AsyncCrawl | Crawl | None,
         crawls: CrawlRuns,
         *,
+        seeds: list[Enqueued] | None = None,
         detached: bool = False,
     ) -> None:
         """Takes its Connection, its start's answer, its crawl and the crawls' Runs.
@@ -198,11 +235,171 @@ class AsyncCrawlRun(AsyncRun):
         start's Run outlives its program (ADR 0102).
         """
         super().__init__(connection, started, detached=detached)
+        self._client = connection
         self._crawl = crawl
         self._crawls = crawls
+        self._seeds: list[Enqueued] = list(seeds or [])
         self._attempts: set[_Attempt] = set()
+        self._workers: WorkerPool | None = None
         self._stopping = False
         crawls.hold(self, self._handle)
+
+    def seeds(self) -> list[Enqueued]:
+        """Each seed's original answer in order, with no round trip (ADR 0102).
+
+        Lists each seed's answer, in the order the crawl's start gave them, as
+        the Frontier answered it when the Run began: added, with its crawl
+        request's ID and its URL as parsed, or not added, with its reason
+        (`duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a
+        cap's name). A relative seed is `invalid_url`, since nothing gives it a
+        base. So a crawl that does nothing says why. Read from the Run's
+        committed state, so it works on a Run no program holds.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return list(self._seeds)
+
+    @overload
+    async def add_seed(self, seed_or_url: RequestSeed | SitemapSeed) -> Enqueued: ...
+    @overload
+    async def add_seed(
+        self,
+        seed_or_url: str,
+        label: Label[None] | str,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued: ...
+    @overload
+    async def add_seed(
+        self,
+        seed_or_url: str,
+        label: Label[M],
+        payload: M,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued: ...
+    @overload
+    async def add_seed(
+        self,
+        seed_or_url: str,
+        label: Label[JSONObject],
+        payload: JSONObject,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued: ...
+    async def add_seed(
+        self,
+        seed_or_url: RequestSeed | SitemapSeed | str,
+        label: Label[Any] | str | None = None,
+        payload: object = None,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued:
+        """Adds one seed to the running crawl (`run.add_seed`, ADR 0102).
+
+        Adds one seed to a running crawl, `run.addSeed`, admitted and answered
+        as soon as the Run state accepts it (written with the next Run-state
+        batch at the default durability, or committed before answering at
+        `full`), and answers as an enqueue does: added, with its crawl request's
+        ID and its URL as parsed, or not added, with its reason (`duplicate`,
+        `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is
+        `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on.
+        Through a handler's context, naming its `attempt`, it is staged with
+        that attempt: once the attempt ended it fails with `attempt_ended`. A
+        Run this engine does not run as a live crawl, or a crawl already ending
+        its Run, fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        candidate = build_seed_for_crawl(
+            self._crawl,
+            seed_or_url,
+            label,
+            payload,
+            method,
+            body,
+            headers,
+            priority,
+            forefront,
+            key,
+        )
+        return await self._add_seed(candidate, attempt=None)
+
+    def add_seeds(
+        self,
+        seeds: Iterable[RequestSeed | SitemapSeed]
+        | AsyncIterable[RequestSeed | SitemapSeed],
+    ) -> AsyncSequence[Enqueued]:
+        """Streams seeds to the running crawl (`run.add_seeds`, ADRs 0024 and 0102).
+
+        Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers
+        each as `run.add_seed` does, in order, so a million seeds never sit in
+        memory. The engine grants the call 256 credits with `$/credit`, one seed
+        each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches,
+        never more than its credits, and the engine admits each batch (staged
+        with `attempt` when named, or written with the next Run-state batch at
+        default durability), sends its answers in one `$/enqueued {id, answers}`
+        and grants as many credits again. Once it answered the batch marked
+        `end`, the call answers how many seeds were added and how many were not.
+        Cancelling it keeps the seeds already answered. A batch beyond the
+        credits granted, or a seed that is no seed, fails the call with
+        `invalid_params`; a Run this engine does not run as a live crawl, or a
+        crawl already ending its Run, fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return self._add_seeds(seeds, attempt=None)
+
+    async def _add_seed(
+        self, candidate: RequestSeed | SitemapSeed, *, attempt: SeedAttempt | None
+    ) -> Enqueued:
+        warn_entry("run.add_seed", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        fields: dict[str, object] = {"run_id": self._host.id, "seed": _wire(candidate)}
+        if attempt is not None:
+            fields["attempt"] = _wire(attempt)
+        params = RunAddSeedParams.model_validate(fields)
+        answer = await self._host.call("run.add_seed", params)
+        return result_of(Enqueued, answer)
+
+    def _add_seeds(
+        self,
+        seeds: Iterable[RequestSeed | SitemapSeed]
+        | AsyncIterable[RequestSeed | SitemapSeed],
+        *,
+        attempt: SeedAttempt | None,
+    ) -> AsyncSequence[Enqueued]:
+        warn_entry("run.add_seeds", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        fields: dict[str, object] = {"run_id": self._host.id}
+        if attempt is not None:
+            fields["attempt"] = _wire(attempt)
+        params = RunAddSeedsParams.model_validate(fields)
+        crawl = self._crawl
+        return self._open_sequence(
+            "run.add_seeds",
+            lambda connection, order: SeedStreamReading(
+                connection, params, crawl, seeds, order
+            ),
+        )
 
     def records(
         self, dataset: Dataset[R], *, after: int | None = None
@@ -288,6 +485,214 @@ class AsyncCrawlRun(AsyncRun):
             RuntimeError: No asyncio or Trio loop runs on this thread.
         """
         return self._rejected(dataset, after, committed=False)
+
+    async def export(
+        self,
+        dataset: Dataset[Any],
+        *,
+        format: ExportFormat | str,
+        compression: ExportCompression | str | None = None,
+        wall: bool | None = None,
+        settings: CrawlSettings | None = None,
+    ) -> AsyncExport:
+        """Exports `dataset`'s committed Records into an `AsyncExport` (ADR 0103).
+
+        Writes an Export of one Dataset of a crawl's Run: the Records it
+        committed when the call is made, in number order, in the format named,
+        as its `format` value says: a table (`csv`, `xlsx`, `html_table`,
+        `markdown`, and typed, `parquet`, `avro` and `arrow_ipc`) has one
+        column per field seen in any of its Records, in first-seen order, and
+        one row per Record. Every text Export is UTF-8 with no BOM unless
+        `export.csv.bom` puts one on CSV, characters written as themselves (a
+        character XML 1.0 cannot hold as U+FFFD in XML and feeds) and each
+        value as it was committed: a table cell holds a string as its text, a
+        number, `true` or `false` as JSON writes it, nothing for `null` or a
+        field its Record lacks, and an object or array as its JSON text, or, in
+        CSV under `export.csv.nested: flatten`, an object's fields in dotted
+        columns. A Record whose page was read past a Wall carries its Wall
+        marker, `{kind, vendor?}` as its Provenance holds it, as a `#wall`
+        field in every format but the feeds, where it is a category of the
+        scheme `urn:goodfetch:wall` naming its kind; `wall` set to `true`
+        writes only those Records, `false` only the others. `compression`
+        `gzip` or `zstd` compresses the whole file. Its `settings` and
+        `project` are the run layer and the project configuration its
+        `export.*` settings resolve under; a value the format cannot take fails
+        with `setting_invalid`. Answers the Export, with its Record count, its
+        last Record's number, its size, its SHA-256 and the run epoch of the
+        Run's state it was written from, only once its file is whole in the
+        Run's folder, where `export.save_as` and `export.stream` read it.
+        Records committed after the call starts are not in it. A write the
+        engine's storage refuses fails with `file_write_failed`, side `engine`,
+        leaving no unfinished file, as does a call while that storage is at the
+        `critical` level, before any byte is written. A Dataset the crawl does
+        not declare fails with `dataset_unknown`; an `xlsx` sheet past Excel's
+        limits, with `sheet_capacity_exceeded`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Raises:
+            DatasetUnknownError: `dataset` is not declared by this crawl.
+            SettingInvalidError: A setting is not valid for the chosen format.
+            SheetCapacityExceededError: An `xlsx` sheet passes Excel's limits.
+            FileWriteFailedError: The engine's storage refused the write.
+            ClosedError: The Run is closed; nothing is sent.
+        """
+        warn_entry("run.export", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        fields: dict[str, object] = {
+            "run_id": self._host.id,
+            "dataset": dataset.name,
+            "format": ExportFormat(format),
+        }
+        if compression is not None:
+            fields["compression"] = ExportCompression(compression)
+        if wall is not None:
+            fields["wall"] = wall
+        if settings is not None:
+            fields["settings"] = settings_on_wire(settings)
+        project = self._client.project
+        if project is not None:
+            fields["project"] = project
+        params = RunExportParams.model_validate(fields)
+        answer = await self._host.call("run.export", params)
+        descriptor = result_of(WireExport, answer)
+        return AsyncExport(self._client, descriptor, self._read)
+
+    def outcomes(
+        self,
+        *,
+        kinds: Iterable[OutcomeKind] | None = None,
+        labels: Iterable[str | Label[Any]] | None = None,
+        codes: Iterable[str] | None = None,
+        after: int | Literal["now"] | None = None,
+    ) -> AsyncSequence[CrawlRequestOutcome]:
+        """A log of endings, not current state; retries supersede by `request.id`.
+
+        Reads a crawl's outcomes from its committed state, in commit order: from the
+        first, after a position, or with `after: "now"` from the next commit. Its
+        filters, `kinds`, `labels` and `codes` (an Error code any of the request's
+        failed attempts failed with), run in the engine. While the Run is live and
+        nothing new matches, it waits for the next commit; a page says `ended` once
+        the Run has ended, or has no live writer, and nothing more matches. A reader
+        never slows the Run. A request `run.retry_failed` re-admits ends again, and
+        its later outcome supersedes the earlier one by `request.id`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Raises:
+            ClosedError: The Run is closed; nothing is sent.
+            RuntimeError: No asyncio or Trio loop runs on this thread.
+        """
+        warn_entry("run.outcomes", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        host = self._host
+        kind_list: list[OutcomeKind] | None = None if kinds is None else list(kinds)
+        label_list = (
+            None
+            if labels is None
+            else [lbl.name if isinstance(lbl, Label) else lbl for lbl in labels]
+        )
+        code_list = None if codes is None else list(codes)
+        initial_after: OutcomesAfter | None = (
+            None
+            if after is None
+            else (
+                OutcomesAfter(Now.now)
+                if after == "now"
+                else OutcomesAfter(OutcomesAfter1(after))
+            )
+        )
+
+        async def read(position: int | None) -> CrawlRequestOutcomes:
+            cursor = (
+                initial_after
+                if position is None
+                else OutcomesAfter(OutcomesAfter1(position))
+            )
+            params = RunOutcomesParams(
+                run_id=host.id,
+                kinds=kind_list,
+                labels=label_list,
+                codes=code_list,
+                after=cursor,
+            )
+            answer = await host.call("run.outcomes", params)
+            return result_of(CrawlRequestOutcomes, answer)
+
+        return self._paged(
+            "run.outcomes",
+            read,
+            items=lambda page: page.outcomes,
+            position=lambda page: page.next,
+            last=lambda page: page.ended,
+            credits=CREDITS,
+            regrant=REGRANT,
+        )
+
+    async def failed_requests(
+        self, *, blocked: bool = False
+    ) -> list[CrawlRequestOutcome]:
+        """Lists the requests `retry_failed` would re-admit, each with its outcome.
+
+        Reads from a crawl's committed state the requests whose latest outcome is
+        `failed`, and with `blocked` also `blocked`, each with that outcome: exactly
+        those `run.retry_failed` re-admits with the same option. A skip is a decision
+        and is never listed.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Raises:
+            ClosedError: The Run is closed; nothing is sent.
+        """
+        warn_entry(
+            "run.failed_requests", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS
+        )
+        params = RunFailedRequestsParams(run_id=self._host.id, blocked=blocked)
+        answer = await self._host.call("run.failed_requests", params)
+        return list(result_of(FailedRequests, answer).requests)
+
+    async def retry_failed(
+        self,
+        *,
+        blocked: bool = False,
+        settings: CrawlSettings | None = None,
+    ) -> int:
+        """Re-admits the requests `failed_requests` lists and answers how many.
+
+        Re-admits, in the same Run and its Datasets, every request of a crawl whose
+        latest outcome is `failed`, and with `blocked` also `blocked`: exactly those
+        `run.failed_requests` lists with the same option. Each keeps its ID, Label,
+        Payload and depth; its attempts count on, with a fresh `crawl.retry.max`. A
+        skip is a decision and is never re-admitted. It answers how many it
+        re-admitted, 0 when there was nothing to retry. On a crawl this engine runs,
+        the requests join its work at once, unless the crawl is already ending its
+        Run: the call then waits for that end and re-admits them as on an ended Run.
+        On an ended Run with requests to retry, the Run returns to `running` under
+        `settings`, as a resume does, its Verdict and Completeness given anew when it
+        ends, and the calling Connection serves its handlers. A Run with no writer
+        that has not ended fails with `run_interrupted`: resume it first. A request
+        to retry whose Label the crawl no longer declares, which a resume may drop,
+        fails the call with `label_unknown`, naming that Label and those declared,
+        and nothing is re-admitted: on an ended Run, against the Labels its latest
+        start declared, before the Run returns to `running`. It is not sent again
+        after a lost Connection, which fails it with `connection_lost`:
+        `run.failed_requests` then lists the requests still to retry.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Raises:
+            RunInterruptedError: The Run has no live writer and has not ended.
+            LabelUnknownError: A request to retry names a Label no longer declared.
+            ClosedError: The Run is closed; nothing is sent.
+        """
+        warn_entry("run.retry_failed", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        fields: dict[str, object] = {"run_id": self._host.id, "blocked": blocked}
+        if settings is not None:
+            fields["settings"] = settings_on_wire(settings)
+        project = self._client.project
+        if project is not None:
+            fields["project"] = project
+        params = RunRetryFailedParams.model_validate(fields)
+        answer = await self._host.call("run.retry_failed", params)
+        return result_of(RetriedFailed, answer).readmitted
 
     def _committed_records(
         self, dataset: Dataset[R], after: int | None
@@ -418,7 +823,10 @@ class AsyncCrawlRun(AsyncRun):
         answer = await self._host.call(
             "run.finish", params, timeout_setting="timeout.run"
         )
-        return result_of(CrawlRunReport, answer)
+        report = result_of(CrawlRunReport, answer)
+        if self._workers is not None:
+            await self._workers.stop()
+        return report
 
     async def stop(
         self, *, timeout: timedelta | NotGiven | None = not_given
@@ -441,7 +849,10 @@ class AsyncCrawlRun(AsyncRun):
         answer = await self._host.call(
             "run.stop", params, timeout_setting="timeout.close"
         )
-        return result_of(CrawlRunReport, answer)
+        report = result_of(CrawlRunReport, answer)
+        if self._workers is not None:
+            await self._workers.stop()
+        return report
 
     async def report(self) -> CrawlRunReport:
         """Reads the crawl's Run report, a crawl's.
@@ -498,7 +909,11 @@ class AsyncCrawlRun(AsyncRun):
         try:
             await super()._close()
         finally:
-            await self._crawls.forget(self)
+            try:
+                if self._workers is not None:
+                    await self._workers.stop()
+            finally:
+                await self._crawls.forget(self)
 
     async def _handle(
         self, request: CrawlRequestHandleParams, attempt: _Attempt
@@ -546,13 +961,16 @@ class AsyncCrawlRun(AsyncRun):
         crawl_request = self._request_of(crawl, request)
         lease = self._lease_of(crawl, request)
         page_id = request.page_id
+        seed_attempt = SeedAttempt(
+            crawl_request_id=lease.crawl_request_id, lease_epoch=lease.lease_epoch
+        )
         if not isinstance(crawl, Crawl):
             page = (
                 None if page_id is None else self._page_of(page_id, request.session.id)
             )
             operations = AsyncFoxhoundOperations(self._host)
             store = self._attempt_key_value_store(lease.key_value_store_attempt())
-            run = AsyncAttemptRun(self.id, store, _AttemptReads(self))
+            run = AsyncAttemptRun(self.id, store, _AttemptReads(self, seed_attempt))
             context = AsyncCrawlContext(crawl_request, lease, run, operations, page)
             await cast("Callable[[AsyncCrawlContext[Any]], Awaitable[None]]", handler)(
                 context
@@ -568,7 +986,7 @@ class AsyncCrawlRun(AsyncRun):
         sync_run = AttemptRun(
             self.id,
             threaded.key_value_store(lease.key_value_store_attempt()),
-            _ThreadedReads(threaded.loop, _AttemptReads(self)),
+            _ThreadedReads(threaded.loop, _AttemptReads(self, seed_attempt)),
         )
         sync_context = CrawlContext(
             crawl_request,
@@ -605,6 +1023,7 @@ class AsyncCrawlRun(AsyncRun):
             label=crawl_request.label,
             method=crawl_request.method.root,
             payload=payload_of(crawl, crawl_request.label, crawl_request.payload),
+            headers=dict(crawl_request.headers or {}),
         )
 
     def _lease_of(
@@ -650,6 +1069,139 @@ class CrawlRun(Run):
         _threaded[run] = _Threaded(
             loop, self._host, self._sessions, self._attempt_key_value_store
         )
+
+    def seeds(self) -> list[Enqueued]:
+        """Each seed's original answer in order, with no round trip (ADR 0102).
+
+        Lists each seed's answer, in the order the crawl's start gave them, as
+        the Frontier answered it when the Run began: added, with its crawl
+        request's ID and its URL as parsed, or not added, with its reason
+        (`duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a
+        cap's name). A relative seed is `invalid_url`, since nothing gives it a
+        base. So a crawl that does nothing says why. Read from the Run's
+        committed state, so it works on a Run no program holds.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return self._crawl_run.seeds()
+
+    @overload
+    def add_seed(self, seed_or_url: RequestSeed | SitemapSeed) -> Enqueued: ...
+    @overload
+    def add_seed(
+        self,
+        seed_or_url: str,
+        label: Label[None] | str,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued: ...
+    @overload
+    def add_seed(
+        self,
+        seed_or_url: str,
+        label: Label[M],
+        payload: M,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued: ...
+    @overload
+    def add_seed(
+        self,
+        seed_or_url: str,
+        label: Label[JSONObject],
+        payload: JSONObject,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued: ...
+    def add_seed(
+        self,
+        seed_or_url: RequestSeed | SitemapSeed | str,
+        label: Label[Any] | str | None = None,
+        payload: object = None,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued:
+        """Adds one seed to the running crawl (`run.add_seed`), as the async Run's.
+
+        Adds one seed to a running crawl, `run.addSeed`, admitted and answered
+        as soon as the Run state accepts it (written with the next Run-state
+        batch at the default durability, or committed before answering at
+        `full`), and answers as an enqueue does: added, with its crawl request's
+        ID and its URL as parsed, or not added, with its reason (`duplicate`,
+        `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is
+        `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on.
+        Through a handler's context, naming its `attempt`, it is staged with
+        that attempt: once the attempt ended it fails with `attempt_ended`. A
+        Run this engine does not run as a live crawl, or a crawl already ending
+        its Run, fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        run = self._crawl_run
+        candidate = build_seed_for_crawl(
+            run._crawl,  # pyright: ignore[reportPrivateUsage]
+            seed_or_url,
+            label,
+            payload,
+            method,
+            body,
+            headers,
+            priority,
+            forefront,
+            key,
+        )
+        try:
+            return self._loop.call(lambda: run._add_seed(candidate, attempt=None))  # pyright: ignore[reportPrivateUsage]
+        except LoopStopped:
+            raise closed_error("run.add_seed") from None
+
+    def add_seeds(
+        self, seeds: Iterable[RequestSeed | SitemapSeed]
+    ) -> Sequence[Enqueued]:
+        """Streams seeds to the running crawl (`run.add_seeds`), as the async Run's.
+
+        Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers
+        each as `run.add_seed` does, in order, so a million seeds never sit in
+        memory. The engine grants the call 256 credits with `$/credit`, one seed
+        each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches,
+        never more than its credits, and the engine admits each batch (staged
+        with `attempt` when named, or written with the next Run-state batch at
+        default durability), sends its answers in one `$/enqueued {id, answers}`
+        and grants as many credits again. Once it answered the batch marked
+        `end`, the call answers how many seeds were added and how many were not.
+        Cancelling it keeps the seeds already answered. A batch beyond the
+        credits granted, or a seed that is no seed, fails the call with
+        `invalid_params`; a Run this engine does not run as a live crawl, or a
+        crawl already ending its Run, fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        run = self._crawl_run
+
+        async def opening() -> AsyncSequence[Enqueued]:
+            return run._add_seeds(seeds, attempt=None)  # pyright: ignore[reportPrivateUsage]
+
+        return _on_thread(self._loop, "run.add_seeds", opening)
 
     def records(
         self, dataset: Dataset[R], *, after: int | None = None
@@ -738,6 +1290,170 @@ class CrawlRun(Run):
             return run.rejected_records(dataset, after=after)
 
         return _on_thread(self._loop, "run.rejected_records", reading)
+
+    def export(
+        self,
+        dataset: Dataset[Any],
+        *,
+        format: ExportFormat | str,
+        compression: ExportCompression | str | None = None,
+        wall: bool | None = None,
+        settings: CrawlSettings | None = None,
+    ) -> Export:
+        """Exports `dataset`'s committed Records into an `Export`, as the async Run's.
+
+        Writes an Export of one Dataset of a crawl's Run: the Records it
+        committed when the call is made, in number order, in the format named,
+        as its `format` value says: a table (`csv`, `xlsx`, `html_table`,
+        `markdown`, and typed, `parquet`, `avro` and `arrow_ipc`) has one
+        column per field seen in any of its Records, in first-seen order, and
+        one row per Record. Every text Export is UTF-8 with no BOM unless
+        `export.csv.bom` puts one on CSV, characters written as themselves (a
+        character XML 1.0 cannot hold as U+FFFD in XML and feeds) and each
+        value as it was committed: a table cell holds a string as its text, a
+        number, `true` or `false` as JSON writes it, nothing for `null` or a
+        field its Record lacks, and an object or array as its JSON text, or, in
+        CSV under `export.csv.nested: flatten`, an object's fields in dotted
+        columns. A Record whose page was read past a Wall carries its Wall
+        marker, `{kind, vendor?}` as its Provenance holds it, as a `#wall`
+        field in every format but the feeds, where it is a category of the
+        scheme `urn:goodfetch:wall` naming its kind; `wall` set to `true`
+        writes only those Records, `false` only the others. `compression`
+        `gzip` or `zstd` compresses the whole file. Its `settings` and
+        `project` are the run layer and the project configuration its
+        `export.*` settings resolve under; a value the format cannot take fails
+        with `setting_invalid`. Answers the Export, with its Record count, its
+        last Record's number, its size, its SHA-256 and the run epoch of the
+        Run's state it was written from, only once its file is whole in the
+        Run's folder, where `export.save_as` and `export.stream` read it.
+        Records committed after the call starts are not in it. A write the
+        engine's storage refuses fails with `file_write_failed`, side `engine`,
+        leaving no unfinished file, as does a call while that storage is at the
+        `critical` level, before any byte is written. A Dataset the crawl does
+        not declare fails with `dataset_unknown`; an `xlsx` sheet past Excel's
+        limits, with `sheet_capacity_exceeded`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Raises:
+            DatasetUnknownError: `dataset` is not declared by this crawl.
+            SettingInvalidError: A setting is not valid for the chosen format.
+            SheetCapacityExceededError: An `xlsx` sheet passes Excel's limits.
+            FileWriteFailedError: The engine's storage refused the write.
+            ClosedError: The Run or its Connection is closed; nothing is sent.
+        """
+        run = self._crawl_run
+        try:
+            async_export = self._loop.call(
+                lambda: run.export(
+                    dataset,
+                    format=format,
+                    compression=compression,
+                    wall=wall,
+                    settings=settings,
+                )
+            )
+        except LoopStopped:
+            raise closed_error("run.export") from None
+        return Export(self._loop, async_export)
+
+    def outcomes(
+        self,
+        *,
+        kinds: Iterable[OutcomeKind] | None = None,
+        labels: Iterable[str | Label[Any]] | None = None,
+        codes: Iterable[str] | None = None,
+        after: int | Literal["now"] | None = None,
+    ) -> Sequence[CrawlRequestOutcome]:
+        """A log of endings, not current state; retries supersede by `request.id`.
+
+        Reads a crawl's outcomes from its committed state, in commit order: from the
+        first, after a position, or with `after: "now"` from the next commit. Its
+        filters, `kinds`, `labels` and `codes` (an Error code any of the request's
+        failed attempts failed with), run in the engine. While the Run is live and
+        nothing new matches, it waits for the next commit; a page says `ended` once
+        the Run has ended, or has no live writer, and nothing more matches. A reader
+        never slows the Run. A request `run.retry_failed` re-admits ends again, and
+        its later outcome supersedes the earlier one by `request.id`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Raises:
+            ClosedError: The Run or its Connection is closed; nothing is sent.
+        """
+        warn_entry("run.outcomes", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        run = self._crawl_run
+        kind_list = None if kinds is None else list(kinds)
+        label_list = None if labels is None else list(labels)
+        code_list = None if codes is None else list(codes)
+
+        async def reading() -> AsyncSequence[CrawlRequestOutcome]:
+            return run.outcomes(
+                kinds=kind_list, labels=label_list, codes=code_list, after=after
+            )
+
+        return _on_thread(self._loop, "run.outcomes", reading)
+
+    def failed_requests(self, *, blocked: bool = False) -> list[CrawlRequestOutcome]:
+        """Lists the requests `retry_failed` would re-admit, each with its outcome.
+
+        Reads from a crawl's committed state the requests whose latest outcome is
+        `failed`, and with `blocked` also `blocked`, each with that outcome: exactly
+        those `run.retry_failed` re-admits with the same option. A skip is a decision
+        and is never listed.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Raises:
+            ClosedError: The Run or its Connection is closed; nothing is sent.
+        """
+        run = self._crawl_run
+        try:
+            return self._loop.call(lambda: run.failed_requests(blocked=blocked))
+        except LoopStopped:
+            raise closed_error("run.failed_requests") from None
+
+    def retry_failed(
+        self,
+        *,
+        blocked: bool = False,
+        settings: CrawlSettings | None = None,
+    ) -> int:
+        """Re-admits the requests `failed_requests` lists and answers how many.
+
+        Re-admits, in the same Run and its Datasets, every request of a crawl whose
+        latest outcome is `failed`, and with `blocked` also `blocked`: exactly those
+        `run.failed_requests` lists with the same option. Each keeps its ID, Label,
+        Payload and depth; its attempts count on, with a fresh `crawl.retry.max`. A
+        skip is a decision and is never re-admitted. It answers how many it
+        re-admitted, 0 when there was nothing to retry. On a crawl this engine runs,
+        the requests join its work at once, unless the crawl is already ending its
+        Run: the call then waits for that end and re-admits them as on an ended Run.
+        On an ended Run with requests to retry, the Run returns to `running` under
+        `settings`, as a resume does, its Verdict and Completeness given anew when it
+        ends, and the calling Connection serves its handlers. A Run with no writer
+        that has not ended fails with `run_interrupted`: resume it first. A request
+        to retry whose Label the crawl no longer declares, which a resume may drop,
+        fails the call with `label_unknown`, naming that Label and those declared,
+        and nothing is re-admitted: on an ended Run, against the Labels its latest
+        start declared, before the Run returns to `running`. It is not sent again
+        after a lost Connection, which fails it with `connection_lost`:
+        `run.failed_requests` then lists the requests still to retry.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Raises:
+            RunInterruptedError: The Run has no live writer and has not ended.
+            LabelUnknownError: A request to retry names a Label no longer declared.
+            ClosedError: The Run or its Connection is closed; nothing is sent.
+        """
+        run = self._crawl_run
+        try:
+            return self._loop.call(
+                lambda: run.retry_failed(blocked=blocked, settings=settings)
+            )
+        except LoopStopped:
+            raise closed_error("run.retry_failed") from None
 
     def finish(
         self, *, timeout: timedelta | NotGiven | None = not_given
@@ -852,11 +1568,12 @@ class _CommittedRecords(Generic[R]):
 
 @final
 class _AttemptReads:
-    """What an `AsyncAttemptRun` reads its Run's committed Records through."""
+    """What an `AsyncAttemptRun` reads and seeds its Run through."""
 
-    def __init__(self, run: AsyncCrawlRun) -> None:
-        """Takes the crawl's Run the attempt belongs to."""
+    def __init__(self, run: AsyncCrawlRun, attempt: SeedAttempt) -> None:
+        """Takes the crawl's Run and attempt lease."""
         self._run = run
+        self._attempt = attempt
 
     def records(
         self, dataset: Dataset[R], after: int | None
@@ -870,10 +1587,48 @@ class _AttemptReads:
         """The rejected Records of `dataset` committed when it is sent, past `after`."""
         return self._run._rejected(dataset, after, committed=True)  # pyright: ignore[reportPrivateUsage]
 
+    async def add_seed(self, candidate: RequestSeed | SitemapSeed) -> Enqueued:
+        """Adds one seed staged with this attempt."""
+        return await self._run._add_seed(candidate, attempt=self._attempt)  # pyright: ignore[reportPrivateUsage]
+
+    def add_seeds(
+        self,
+        seeds: Iterable[RequestSeed | SitemapSeed]
+        | AsyncIterable[RequestSeed | SitemapSeed],
+    ) -> AsyncSequence[Enqueued]:
+        """Streams seeds staged with this attempt."""
+        return self._run._add_seeds(seeds, attempt=self._attempt)  # pyright: ignore[reportPrivateUsage]
+
+    def build_seed(
+        self,
+        seed_or_url: RequestSeed | SitemapSeed | str,
+        label: Label[Any] | str | None,
+        payload: object,
+        method: str | None,
+        body: bytes | None,
+        headers: Mapping[str, str] | None,
+        priority: int | None,
+        forefront: bool | None,
+        key: str | None,
+    ) -> RequestSeed | SitemapSeed:
+        """Builds and validates one seed against the Run's crawl."""
+        return build_seed_for_crawl(
+            self._run._crawl,  # pyright: ignore[reportPrivateUsage]
+            seed_or_url,
+            label,
+            payload,
+            method,
+            body,
+            headers,
+            priority,
+            forefront,
+            key,
+        )
+
 
 @final
 class _ThreadedReads:
-    """What an `AttemptRun` reads its Run's committed Records through, on the loop."""
+    """What an `AttemptRun` reads and seeds its Run through, on the loop."""
 
     def __init__(self, loop: PrivateLoop, reads: _AttemptReads) -> None:
         """Takes the Connection's private loop and the async reads it drives there."""
@@ -901,6 +1656,50 @@ class _ThreadedReads:
             return reads.rejected_records(dataset, after)
 
         return _on_thread(self._loop, "run.rejected_records", reading)
+
+    def add_seed(self, candidate: RequestSeed | SitemapSeed) -> Enqueued:
+        """Adds one seed staged with this attempt, on the loop."""
+        reads = self._reads
+        try:
+            return self._loop.call(lambda: reads.add_seed(candidate))
+        except LoopStopped:
+            raise closed_error("run.add_seed") from None
+
+    def add_seeds(
+        self, seeds: Iterable[RequestSeed | SitemapSeed]
+    ) -> Sequence[Enqueued]:
+        """Streams seeds staged with this attempt, on the loop."""
+        reads = self._reads
+
+        async def opening() -> AsyncSequence[Enqueued]:
+            return reads.add_seeds(seeds)
+
+        return _on_thread(self._loop, "run.add_seeds", opening)
+
+    def build_seed(
+        self,
+        seed_or_url: RequestSeed | SitemapSeed | str,
+        label: Label[Any] | str | None,
+        payload: object,
+        method: str | None,
+        body: bytes | None,
+        headers: Mapping[str, str] | None,
+        priority: int | None,
+        forefront: bool | None,
+        key: str | None,
+    ) -> RequestSeed | SitemapSeed:
+        """Builds and validates one seed against the Run's crawl."""
+        return self._reads.build_seed(
+            seed_or_url,
+            label,
+            payload,
+            method,
+            body,
+            headers,
+            priority,
+            forefront,
+            key,
+        )
 
 
 def _on_thread(
@@ -984,12 +1783,15 @@ class CrawlRuns:
         limits: Limits | None,
         settings: CrawlSettings | None,
         detached: bool,
+        workers: int = 1,
     ) -> AsyncCrawlRun:
         """Starts `crawl` from `seeds`: `AsyncFoxhound.start_crawl`.
 
         Raises:
             LabelUnhandledError: A Label has no handler; nothing is sent.
             LabelUnknownError: A seed names a Label `crawl` does not declare.
+            CrawlNotImportableError: `workers > 1` on a Crawl not defined at
+                module level.
             ClosedError: The Connection is closed; nothing is sent.
         """
         served = (
@@ -1004,6 +1806,7 @@ class CrawlRuns:
             limits=limits,
             settings=settings,
             detached=detached,
+            workers=workers,
         )
 
     async def start_threaded(
@@ -1017,12 +1820,15 @@ class CrawlRuns:
         limits: Limits | None,
         settings: CrawlSettings | None,
         detached: bool,
+        workers: int = 1,
     ) -> CrawlRun:
         """Starts the sync `crawl` from `seeds` on `loop`: `Foxhound.start_crawl`.
 
         Raises:
             LabelUnhandledError: A Label has no handler; nothing is sent.
             LabelUnknownError: A seed names a Label `crawl` does not declare.
+            CrawlNotImportableError: `workers > 1` on a Crawl not defined at
+                module level.
             ClosedError: The Connection is closed; nothing is sent.
         """
         threaded: list[CrawlRun] = []
@@ -1030,8 +1836,8 @@ class CrawlRuns:
             None if isinstance(crawl, CrawlDeclaration | CrawlExtraction) else crawl
         )
 
-        def opened(started: RunStarted) -> AsyncCrawlRun:
-            run = self._opened(served, detached, started)
+        def opened(started: RunStarted, seeds: list[Enqueued]) -> AsyncCrawlRun:
+            run = self._opened(served, detached, started, seeds)
             threaded.append(CrawlRun(loop, run))
             return run
 
@@ -1044,13 +1850,14 @@ class CrawlRuns:
             limits=limits,
             settings=settings,
             detached=detached,
+            workers=workers,
         )
         return threaded[0]
 
     async def _start(
         self,
         crawl: AsyncCrawl | Crawl | CodeFreeCrawl,
-        opened: Callable[[RunStarted], AsyncCrawlRun],
+        opened: Callable[[RunStarted, list[Enqueued]], AsyncCrawlRun],
         *,
         seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None,
@@ -1058,13 +1865,31 @@ class CrawlRuns:
         limits: Limits | None,
         settings: CrawlSettings | None,
         detached: bool,
+        workers: int = 1,
     ) -> AsyncCrawlRun:
         """Sends `crawl.start`, and `opened` builds the Run it answers.
 
         Raises:
             SettingInvalidError: A `limits` amount the SDK cannot turn
-                exactly; nothing is sent.
+                exactly, or `workers < 1`; nothing is sent.
+            CrawlNotImportableError: `workers > 1` on a Crawl not defined at
+                module level; nothing is sent.
         """
+        handler_crawl = (
+            None if isinstance(crawl, CrawlDeclaration | CrawlExtraction) else crawl
+        )
+        plan = prepare_workers(handler_crawl, workers)
+        target = None if plan is None else self._connection.worker_target
+        if plan is not None and target is None:
+            raise CrawlNotImportableError(
+                "this Connection has no private endpoint or Daemon address for "
+                "extra worker processes",
+                fix=(
+                    "Connect to an Attached engine or a Daemon before starting a "
+                    "crawl with workers > 1."
+                ),
+                details={"module": plan.module, "export": plan.export},
+            )
         sent_seeds = list(seeds)
         fields = _crawl_shape(crawl, sent_seeds)
         fields["seeds"] = [_wire(sent) for sent in sent_seeds]
@@ -1087,13 +1912,49 @@ class CrawlRuns:
         operations = AsyncFoxhoundOperations(self._connection)
         starting = anyio.Event()
         self._starting.add(starting)
-        try:
-            return await self._connection.start_run(
-                "crawl.start", functools.partial(operations.crawl_start, params), opened
+        started_seeds: list[Enqueued] = []
+
+        async def start_crawl() -> RunStarted:
+            crawl_started = await operations.crawl_start(params)
+            if crawl_started.seeds:
+                started_seeds.extend(crawl_started.seeds)
+            return RunStarted(
+                run_id=crawl_started.run_id,
+                lifecycle=crawl_started.lifecycle,
+                started_as=crawl_started.started_as,
+                needs=crawl_started.needs,
             )
+
+        pool = (
+            await spawn_workers(plan, target)
+            if plan is not None and target is not None
+            else None
+        )
+        try:
+            run = await self._connection.start_run(
+                "crawl.start",
+                start_crawl,
+                lambda started: opened(started, started_seeds),
+            )
+        except BaseException:
+            if pool is not None:
+                await pool.stop()
+            raise
         finally:
             self._starting.discard(starting)
             starting.set()
+        if pool is not None:
+            if run.started_as == "ended":
+                await pool.stop()
+            else:
+                try:
+                    await pool.join(run.id)
+                    run._workers = pool  # pyright: ignore[reportPrivateUsage]
+                except BaseException:
+                    await pool.stop()
+                    await run.close()
+                    raise
+        return run
 
     async def forget(self, run: AsyncCrawlRun) -> None:
         """Forgets a closed crawl's Run; a later start of its Run ID holds its own.
@@ -1121,9 +1982,15 @@ class CrawlRuns:
             spawner()(functools.partial(self._read, *self._reading))
 
     def _opened(
-        self, crawl: AsyncCrawl | Crawl | None, detached: bool, started: RunStarted
+        self,
+        crawl: AsyncCrawl | Crawl | None,
+        detached: bool,
+        started: RunStarted,
+        seeds: list[Enqueued],
     ) -> AsyncCrawlRun:
-        return AsyncCrawlRun(self._connection, started, crawl, self, detached=detached)
+        return AsyncCrawlRun(
+            self._connection, started, crawl, self, seeds=seeds, detached=detached
+        )
 
     async def _read(self, scope: anyio.CancelScope, ended: anyio.Event) -> None:
         """Reads the engine's messages while no call does, until `scope` is cancelled.

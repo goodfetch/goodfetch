@@ -15,6 +15,10 @@
 //! Each job that changes the crawl's requests by state answers what it
 //! changed ([`Changed`]), which the Run state counts in memory: once the
 //! crawl opened, no count is read from the run file (#2167).
+//!
+//! Size: one concern, the single-writer run-file jobs and reads behind a
+//! crawl's Run state, kept together so every admission, claim and outcome
+//! queues in one actor order.
 
 use std::pin::Pin;
 use std::sync::Arc;
@@ -33,8 +37,13 @@ use goodfetch_engine::run_state::{
 use goodfetch_engine::runs::CompletenessReason;
 use goodfetch_fetch_tier::ChainHop;
 use goodfetch_frontier::{SharedBudget, sitemap};
+use goodfetch_protocol::foxhound::crawl::Seed;
+use goodfetch_protocol::foxhound::frontier::{Enqueued, SeedAttempt};
 use goodfetch_session_pool::{Changes, SessionPool};
 use rusqlite::Connection;
+
+/// An attempt-staged admission answer (`None` once the attempt ended).
+type StagedAnswer<T> = Option<Result<T, CallError>>;
 
 use super::admission::{self, Enqueue, LinksBatch};
 use super::asks::{self, Answering, Ask, HopAsk, Queued};
@@ -268,26 +277,13 @@ impl Stored {
                 // Made inside a handler, it rides its attempt's batch: a
                 // crash that takes it takes the outcome after it, so the
                 // page makes it again (ADR 0142; synced at `full`).
-                self.queue(answer, STAGED, move |connection| {
-                    this.intake.admitting(|| {
-                        this.staging.admit(
-                            connection,
-                            &attempt.crawl_request_id,
-                            attempt.lease_epoch,
-                            |connection, positions| {
-                                admission::seed(
-                                    connection,
-                                    positions,
-                                    (&this.egress, &this.invariants, &this.work),
-                                    &seed,
-                                    Some(&attempt),
-                                )
-                            },
-                        )
-                    })
-                })
-                .await;
+                self.stage_seed(seed, attempt, answer).await;
             }
+            Ask::StagedSeeds {
+                seeds,
+                attempt,
+                answer,
+            } => self.stage_seeds(seeds, attempt, answer).await,
             Ask::Enqueue { enqueue, answer } => {
                 self.queue(answer, STAGED, move |connection| {
                     this.enqueue(connection, &enqueue)
@@ -344,6 +340,83 @@ impl Stored {
             Err(error) => Box::pin(std::future::ready(Err(error.into()))),
         };
         drop(answer.send(queued));
+    }
+
+    /// Queues an attempt-staged single seed admission while intake is open.
+    async fn stage_seed(
+        &self,
+        seed: Seed,
+        attempt: SeedAttempt,
+        answer: Answering<Option<StagedAnswer<Enqueued>>>,
+    ) {
+        self.queue_staged(
+            answer,
+            attempt,
+            move |connection, positions, state, attempt| {
+                admission::seed(
+                    connection,
+                    positions,
+                    (&state.egress, &state.invariants, &state.work),
+                    &seed,
+                    Some(attempt),
+                )
+            },
+        )
+        .await;
+    }
+
+    /// Queues an attempt-staged batch of seeds while intake is open.
+    async fn stage_seeds(
+        &self,
+        seeds: Vec<Seed>,
+        attempt: SeedAttempt,
+        answer: Answering<Option<StagedAnswer<Vec<Enqueued>>>>,
+    ) {
+        self.queue_staged(
+            answer,
+            attempt,
+            move |connection, positions, state, attempt| {
+                admission::staged_seeds(
+                    connection,
+                    positions,
+                    (&state.egress, &state.invariants, &state.work),
+                    seeds,
+                    attempt,
+                )
+            },
+        )
+        .await;
+    }
+
+    /// Queues an attempt-staged admission job while intake is open.
+    async fn queue_staged<T, F>(
+        &self,
+        answer: Answering<Option<StagedAnswer<T>>>,
+        attempt: SeedAttempt,
+        admit: F,
+    ) where
+        T: Send + 'static,
+        F: FnOnce(
+                &Connection,
+                &mut crate::work_items::Positions,
+                &Self,
+                &SeedAttempt,
+            ) -> crate::staging::Answered<T>
+            + Send
+            + 'static,
+    {
+        let this = self.clone();
+        self.queue(answer, STAGED, move |connection| {
+            this.intake.admitting(|| {
+                this.staging.admit(
+                    connection,
+                    &attempt.crawl_request_id,
+                    attempt.lease_epoch,
+                    |connection, positions| admit(connection, positions, &this, &attempt),
+                )
+            })
+        })
+        .await;
     }
 
     /// Counts `pages` waits of a page for the run file's writer

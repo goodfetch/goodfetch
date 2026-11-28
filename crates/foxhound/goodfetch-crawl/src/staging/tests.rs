@@ -98,6 +98,7 @@ fn enqueue(
         let adding = Adding {
             method: &method,
             body: None,
+            headers: None,
             label: "page",
             payload: None,
             priority: 0,

@@ -591,18 +591,32 @@ struct OwnSent {
     url: url::Url,
     /// Its method and its body.
     overrides: Overrides,
+    /// Extra headers merged onto the browser's request headers.
+    extra_headers: BTreeMap<String, String>,
 }
 
 impl PageState {
     /// The overrides of the crawl request's own document fetch for the
     /// main-frame request to `url` that no redirect sent, when the
     /// navigation call going on fetches that document.
-    fn own(&self, url: &str) -> Option<Overrides> {
+    fn own(&self, url: &str, paused_headers: RequestHeaders<'_>) -> Option<Overrides> {
         let own = lock(&self.own);
         let own = own.as_ref()?;
         let mut url = url::Url::parse(url).ok()?;
         url.set_fragment(None);
-        (url == own.url).then(|| own.overrides.clone())
+        if url != own.url {
+            return None;
+        }
+        let mut overrides = own.overrides.clone();
+        if !own.extra_headers.is_empty() {
+            let mut merged = paused_headers.by_name();
+            for (name, value) in &own.extra_headers {
+                merged.retain(|existing, _| !existing.eq_ignore_ascii_case(name));
+                merged.insert(name.clone(), value.clone());
+            }
+            overrides.headers = Some(merged);
+        }
+        Some(overrides)
     }
 
     /// Active discovery-click slot, if armed.
@@ -1403,10 +1417,11 @@ impl PageInterception {
             *lock(&state.own) = Some(OwnSent {
                 url,
                 overrides: Overrides {
-                    method: Some(own.method.to_owned()),
+                    method: (own.method != "GET").then(|| own.method.to_owned()),
                     post_data: own.body.map(|body| BASE64.encode(body)),
                     ..Overrides::default()
                 },
+                extra_headers: own.headers.cloned().unwrap_or_default(),
             });
         }
         OwnFetchSent(state)

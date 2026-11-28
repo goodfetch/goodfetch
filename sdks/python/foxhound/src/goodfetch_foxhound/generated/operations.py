@@ -11,8 +11,8 @@ from typing import Final, Literal
 from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 from goodfetch_collie_client.markers import warn_deprecated_settings, warn_experimental
 
-from goodfetch_collie_client.generated.models import RunParams, RunStarted
-from .models import CrawlRequestEnqueueLinksByClickingElementsParams, CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, EnqueuedLinksByClickingElements, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult, SinkDeliver, SinkDeliverParams, SinkList, SinkListParams, SinkProbe, SinkProbeParams
+from goodfetch_collie_client.generated.models import RunParams
+from .models import CrawlRequestEnqueueLinksByClickingElementsParams, CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, CrawlStarted, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, EnqueuedLinksByClickingElements, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult, SinkDeliver, SinkDeliverParams, SinkList, SinkListParams, SinkProbe, SinkProbeParams
 from .settings import DEPRECATED_SETTINGS
 
 
@@ -31,14 +31,14 @@ class AsyncFoxhoundOperations:
         warn_experimental("crawl.serve")
         return result_of(CrawlRunReport, await self._caller.call("crawl.serve", params))
 
-    async def crawl_start(self, params: CrawlStartParams) -> RunStarted:
+    async def crawl_start(self, params: CrawlStartParams) -> CrawlStarted:
         """Starts a crawl from its seeds, and answers once its Run is started. The engine then leases each work item to the program's handler as a `crawl_request.handle` request, and the crawl's Run finishes once every work item is done, or, with `crawl.keep_alive`, once `run.finish` lets it and every work item is done. A Run ID works as `run.start`'s.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("crawl.start")
         warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
-        return result_of(RunStarted, await self._caller.call("crawl.start", params))
+        return result_of(CrawlStarted, await self._caller.call("crawl.start", params))
 
     async def crawl_request_enqueue(self, params: CrawlRequestEnqueueParams) -> Enqueued:
         """Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `out_of_scope`, `unsupported_scheme`, `invalid_url`, `max_depth`, `max_requests`, `path_budget` or a URL cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. A request is `duplicate` when one of its identity was already admitted: its method, its URL's key (the fragment, `utm_*`, `gclid`, `fbclid`, empty pairs and `;jsessionid=` dropped, the parameters sorted) and its body's hash, or the `key` the program declares in their place; it is still fetched at its own URL. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.
@@ -137,7 +137,7 @@ class AsyncFoxhoundOperations:
         return result_of(RecordSearchResult, await self._caller.call("record.search", params))
 
     async def run_add_seed(self, params: RunAddSeedParams) -> Enqueued:
-        """Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.
+        """Adds one seed to a running crawl, `run.addSeed`, admitted and answered as soon as the Run state accepts it (written with the next Run-state batch at the default durability, or committed before answering at `full`), and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is staged with that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -145,7 +145,7 @@ class AsyncFoxhoundOperations:
         return result_of(Enqueued, await self._caller.call("run.add_seed", params))
 
     async def run_add_seeds(self, params: RunAddSeedsParams) -> RunSeedsAdded:
-        """Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine commits each batch, sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.
+        """Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine admits each batch (staged with `attempt` when named, or written with the next Run-state batch at default durability), sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -257,14 +257,14 @@ class FoxhoundOperations:
         warn_experimental("crawl.serve")
         return result_of(CrawlRunReport, self._caller.call("crawl.serve", params))
 
-    def crawl_start(self, params: CrawlStartParams) -> RunStarted:
+    def crawl_start(self, params: CrawlStartParams) -> CrawlStarted:
         """Starts a crawl from its seeds, and answers once its Run is started. The engine then leases each work item to the program's handler as a `crawl_request.handle` request, and the crawl's Run finishes once every work item is done, or, with `crawl.keep_alive`, once `run.finish` lets it and every work item is done. A Run ID works as `run.start`'s.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("crawl.start")
         warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
-        return result_of(RunStarted, self._caller.call("crawl.start", params))
+        return result_of(CrawlStarted, self._caller.call("crawl.start", params))
 
     def crawl_request_enqueue(self, params: CrawlRequestEnqueueParams) -> Enqueued:
         """Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `out_of_scope`, `unsupported_scheme`, `invalid_url`, `max_depth`, `max_requests`, `path_budget` or a URL cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. A request is `duplicate` when one of its identity was already admitted: its method, its URL's key (the fragment, `utm_*`, `gclid`, `fbclid`, empty pairs and `;jsessionid=` dropped, the parameters sorted) and its body's hash, or the `key` the program declares in their place; it is still fetched at its own URL. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.
@@ -363,7 +363,7 @@ class FoxhoundOperations:
         return result_of(RecordSearchResult, self._caller.call("record.search", params))
 
     def run_add_seed(self, params: RunAddSeedParams) -> Enqueued:
-        """Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.
+        """Adds one seed to a running crawl, `run.addSeed`, admitted and answered as soon as the Run state accepts it (written with the next Run-state batch at the default durability, or committed before answering at `full`), and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is staged with that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -371,7 +371,7 @@ class FoxhoundOperations:
         return result_of(Enqueued, self._caller.call("run.add_seed", params))
 
     def run_add_seeds(self, params: RunAddSeedsParams) -> RunSeedsAdded:
-        """Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine commits each batch, sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.
+        """Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine admits each batch (staged with `attempt` when named, or written with the next Run-state batch at default durability), sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """

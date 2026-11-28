@@ -1005,7 +1005,7 @@ pub mod politeness {
             ],
         );
 
-        /// How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1. A value above 1 is listed in the run's result as one that presses a site harder.
+        /// How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder.
         ///
         /// `politeness.domain.concurrency`. `None` clears it.
         pub const CONCURRENCY: crate::settings::Setting<Option<u64>> =
@@ -1017,7 +1017,7 @@ pub mod politeness {
                 ],
             );
 
-        /// How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s. A value below 1 s is listed in the run's result as one that presses a site harder.
+        /// How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder.
         ///
         /// `politeness.domain.delay`. `None` clears it.
         pub const DELAY: crate::settings::Setting<Option<::std::time::Duration>> =
@@ -1039,6 +1039,22 @@ pub mod politeness {
                 ::goodfetch_protocol::catalog::SettingScope::Run,
             ],
         );
+    }
+
+    /// The `politeness.ip.*` settings.
+    pub mod ip {
+
+        /// How many crawl requests may be in flight at once to one resolved IP address, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. At least 1; none by default, for no per-IP cap.
+        ///
+        /// `politeness.ip.concurrency`. `None` clears it.
+        pub const CONCURRENCY: crate::settings::Setting<Option<u64>> =
+            crate::settings::Setting::new(
+                "politeness.ip.concurrency",
+                &[
+                    ::goodfetch_protocol::catalog::SettingScope::Connection,
+                    ::goodfetch_protocol::catalog::SettingScope::Run,
+                ],
+            );
     }
 
     /// The `politeness.retry_after.*` settings.

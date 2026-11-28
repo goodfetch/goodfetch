@@ -44,6 +44,7 @@ impl Call {
                 method,
                 &RunAddSeedsParams {
                     run_id: seeds.run_id.clone(),
+                    attempt: None,
                 },
             ),
         }

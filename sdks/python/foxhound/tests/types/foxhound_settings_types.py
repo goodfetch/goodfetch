@@ -9,14 +9,32 @@ refused; mypy's `--strict` reports an ignore that no longer silences an
 error. TypeScript's `settings.test-d.ts` of Foxhound's package is its twin.
 """
 
+from __future__ import annotations
+
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from goodfetch_collie_client.generated.settings import (
+        ConnectionPolitenessSettings as CollieConnectionPolitenessSettings,
+    )
+    from goodfetch_collie_client.generated.settings import (
+        ConnectionSitePreferencesSettings as CollieConnectionSitePreferencesSettings,
+    )
+    from goodfetch_collie_client.generated.settings import (
+        RunPolitenessSettings as CollieRunPolitenessSettings,
+    )
+    from goodfetch_collie_client.generated.settings import (
+        RunSitePreferencesSettings as CollieRunSitePreferencesSettings,
+    )
     from goodfetch_foxhound.generated.settings import (
+        ConnectionPolitenessSettings,
+        ConnectionSitePreferencesSettings,
         CrawlSettings,
         FoxhoundSettings,
         LabelSettings,
+        RunPolitenessSettings,
+        RunSitePreferencesSettings,
     )
 
 SECOND = timedelta(seconds=1)
@@ -51,4 +69,50 @@ def refuses_what_a_label_cannot_set() -> None:
     f: LabelSettings = {"fetch": {"tier": "fastest"}}  # type: ignore[typeddict-item]
     g: LabelSettings = {"timeout": {"hook": 10_000}}  # type: ignore[typeddict-item]
     h: CrawlSettings = {"fetch": {"tier": None}}  # type: ignore[typeddict-item]
-    del a, b, c, d, e, f, g, h
+    i: CrawlSettings = {"politeness": {"degraded_max": SECOND}}  # type: ignore[typeddict-unknown-key]
+    j: FoxhoundSettings = {"politeness": {"degraded_max": SECOND}}  # type: ignore[typeddict-unknown-key]
+    del a, b, c, d, e, f, g, h, i, j
+
+
+def politeness_extends_collie(
+    collie_conn_politeness: CollieConnectionPolitenessSettings,
+    collie_run_politeness: CollieRunPolitenessSettings,
+    collie_conn_site_prefs: CollieConnectionSitePreferencesSettings,
+    collie_run_site_prefs: CollieRunSitePreferencesSettings,
+) -> None:
+    """Foxhound's Politeness and Site-preferences types extend Collie's (ADR 0086)."""
+    conn_politeness: ConnectionPolitenessSettings = {
+        "sharing": collie_conn_politeness.get("sharing", "shared"),
+        "delegation": collie_conn_politeness.get("delegation", True),
+        "domain": {"concurrency": 2, "delay": SECOND},
+        "backoff": {"enabled": True, "initial": SECOND, "max": timedelta(seconds=60)},
+        "ip": {"concurrency": 4},
+        "retry_after": {"max": timedelta(minutes=15)},
+    }
+    run_politeness: RunPolitenessSettings = {
+        "sharing": collie_run_politeness.get("sharing", "shared"),
+        "delegation": collie_run_politeness.get("delegation", True),
+        "domain": {"concurrency": 2, "delay": SECOND},
+        "backoff": {"enabled": True, "initial": SECOND, "max": timedelta(seconds=60)},
+        "ip": {"concurrency": 4},
+        "retry_after": {"max": timedelta(minutes=15)},
+    }
+    conn_site_prefs: ConnectionSitePreferencesSettings = {
+        "purpose": collie_conn_site_prefs.get("purpose", "search"),
+        "respect_use_signals": collie_conn_site_prefs.get("respect_use_signals", False),
+        "respect_robots_txt": True,
+        "max_crawl_delay": timedelta(seconds=30),
+        "robots_txt_user_agent": "operator-bot",
+    }
+    run_site_prefs: RunSitePreferencesSettings = {
+        "purpose": collie_run_site_prefs.get("purpose", "search"),
+        "respect_use_signals": collie_run_site_prefs.get("respect_use_signals", False),
+        "respect_robots_txt": True,
+        "max_crawl_delay": timedelta(seconds=30),
+        "robots_txt_user_agent": "operator-bot",
+    }
+    if "proxy" in collie_conn_politeness:
+        conn_politeness["proxy"] = collie_conn_politeness["proxy"]
+    if "proxy" in collie_run_politeness:
+        run_politeness["proxy"] = collie_run_politeness["proxy"]
+    del conn_politeness, run_politeness, conn_site_prefs, run_site_prefs

@@ -118,7 +118,13 @@ impl Attempt {
             .clone()
             .map(|page_id| run.page_of(page_id, params.session.id.clone()));
         Self {
-            run: AttemptRun::new(run, connection.clone(), &params),
+            run: AttemptRun::new(
+                run,
+                connection.clone(),
+                &params,
+                crawl,
+                Arc::clone(&declared),
+            ),
             connection,
             page,
             params,
@@ -216,6 +222,11 @@ impl<P> CrawlContext<P> {
     /// The request's Label.
     pub fn label(&self) -> &str {
         &self.attempt.params.crawl_request.label
+    }
+
+    /// The extra request headers carried from the request's seed or enqueue.
+    pub fn headers(&self) -> &std::collections::BTreeMap<String, String> {
+        &self.attempt.params.crawl_request.headers
     }
 
     /// The attempt's number, 1 for the first.

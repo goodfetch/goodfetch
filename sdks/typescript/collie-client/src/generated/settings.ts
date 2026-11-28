@@ -2249,6 +2249,7 @@ const SPELLING: Spelling = {
     tracesEndpoint: "traces_endpoint",
   }],
   politeness: ["politeness", {
+    degradedMax: "degraded_max",
     delegation: "delegation",
     proxy: ["proxy", {
       concurrency: "concurrency",

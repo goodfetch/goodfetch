@@ -1,0 +1,13 @@
+# Pinned OCI image digests rendered into deployment templates (ADRs 0030,
+# 0049, 0090; issue 1262). Stable releases pin `<version>@<default>` and
+# nightlies pin `nightly@<nightly>`; no template ever renders `latest`.
+
+[collie]
+repository = "ghcr.io/goodfetch/collie"
+default = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+nightly = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+
+[foxhound]
+repository = "ghcr.io/goodfetch/foxhound"
+default = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+nightly = "sha256:4444444444444444444444444444444444444444444444444444444444444444"

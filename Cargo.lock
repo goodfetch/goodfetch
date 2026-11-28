@@ -2568,6 +2568,7 @@ dependencies = [
  "schemars",
  "secrecy",
  "serde",
+ "serde-saphyr",
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
@@ -2583,6 +2584,7 @@ dependencies = [
  "url",
  "windows-sys 0.61.2",
  "zip",
+ "zstd",
 ]
 
 [[package]]
@@ -9201,6 +9203,7 @@ dependencies = [
  "unicode-ident",
  "ureq",
  "windows-sys 0.61.2",
+ "zstd",
 ]
 
 [[package]]

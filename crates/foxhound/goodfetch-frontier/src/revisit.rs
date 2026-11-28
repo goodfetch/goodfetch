@@ -138,6 +138,10 @@ pub struct SiteHints {
     /// Earliest wall-clock timestamp (ms since Unix epoch) allowed by site
     /// caching headers (`Cache-Control: max-age`, `Expires`, `Retry-After`).
     pub floor_at_ms: Option<u64>,
+    /// Optional initial revisit interval hint in milliseconds (for example from
+    /// a sitemap entry's `<changefreq>` when `revisit.site_hints.changefreq` is
+    /// enabled), applied on the URL's first visit and clamped to `[min, max]`.
+    pub initial_interval_ms: Option<u64>,
 }
 
 impl SiteHints {
@@ -173,7 +177,10 @@ impl SiteHints {
         {
             raise(retry_after_floor(ra, date, now_ms));
         }
-        Self { floor_at_ms: floor }
+        Self {
+            floor_at_ms: floor,
+            initial_interval_ms: None,
+        }
     }
 }
 
@@ -246,7 +253,7 @@ pub fn next_visit(
             rate_changed,
             rate_unchanged,
         } => adaptive_interval(
-            initial,
+            hints.initial_interval_ms.unwrap_or(initial),
             min,
             max,
             rate_changed,
@@ -259,7 +266,14 @@ pub fn next_visit(
             min,
             max,
             target_freshness,
-        } => estimated_interval(initial, min, max, target_freshness, previous, result),
+        } => estimated_interval(
+            hints.initial_interval_ms.unwrap_or(initial),
+            min,
+            max,
+            target_freshness,
+            previous,
+            result,
+        ),
     };
     let policy_due = now_ms.saturating_add(interval_ms);
     let next_visit_at = hints

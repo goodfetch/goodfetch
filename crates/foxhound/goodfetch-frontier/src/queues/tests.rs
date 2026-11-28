@@ -1069,7 +1069,7 @@ fn enqueue_lane(
 #[test]
 fn revisit_order_defaults_to_sources_first_visits_revisits_with_priority_and_forefront() {
     let now = Instant::now();
-    let run = json!({ "crawl": { "continuous": true } });
+    let run = json!({ "crawl": { "continuous": { "enabled": true } } });
     let mut queues = queues_under(&settings(run), now);
     let url = "https://news.test/item";
 
@@ -1182,7 +1182,7 @@ fn revisit_domain_share_caps_revisits_while_first_visits_wait() {
     let now = Instant::now();
     let run = json!({
         "crawl": {
-            "continuous": true,
+            "continuous": { "enabled": true },
             "revisit": {
                 "order": ["revisits", "first_visits", "sources"]
             }
@@ -1225,7 +1225,7 @@ fn revisit_domain_share_caps_revisits_while_first_visits_wait() {
     // With domain_share = 0.0, zero revisits run while first visits wait.
     let run_zero = json!({
         "crawl": {
-            "continuous": true,
+            "continuous": { "enabled": true },
             "revisit": {
                 "order": ["revisits", "first_visits", "sources"],
                 "domain_share": 0.0

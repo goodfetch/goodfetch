@@ -44,7 +44,10 @@ fn next_visit_matches_table(
         &policy,
         PreviousState::default(),
         VisitResult::Changed,
-        SiteHints { floor_at_ms },
+        SiteHints {
+            floor_at_ms,
+            ..SiteHints::default()
+        },
         now_ms,
     );
     assert_eq!(
@@ -65,7 +68,10 @@ proptest! {
             &RevisitPolicy::Never,
             PreviousState { interval_ms: Some(60_000), visits, changes },
             VisitResult::Changed,
-            SiteHints { floor_at_ms: floor },
+            SiteHints {
+                floor_at_ms: floor,
+                ..SiteHints::default()
+            },
             now_ms,
         );
         prop_assert_eq!(scheduled, None);
@@ -81,7 +87,10 @@ proptest! {
             &RevisitPolicy::Every { interval },
             PreviousState::default(),
             VisitResult::Changed,
-            SiteHints { floor_at_ms: floor },
+            SiteHints {
+                floor_at_ms: floor,
+                ..SiteHints::default()
+            },
             now_ms,
         ).expect("every policy always schedules");
 
@@ -453,7 +462,10 @@ proptest! {
             &policy,
             PreviousState { interval_ms: prev_interval, visits, changes },
             result,
-            SiteHints { floor_at_ms: floor },
+            SiteHints {
+                floor_at_ms: floor,
+                ..SiteHints::default()
+            },
             now_ms,
         ).expect("adaptive policy always schedules");
 
@@ -490,7 +502,10 @@ proptest! {
             &policy,
             PreviousState { interval_ms: prev_interval, visits, changes },
             result,
-            SiteHints { floor_at_ms: floor },
+            SiteHints {
+                floor_at_ms: floor,
+                ..SiteHints::default()
+            },
             now_ms,
         ).expect("estimated policy always schedules");
 

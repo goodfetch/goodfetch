@@ -1537,7 +1537,7 @@ impl Subject {
             Ended::Unsuccessful { ended, again, .. } => {
                 (ended, if ended { again } else { Again::Not })
             }
-            Ended::SitemapRead(_) => panic!("the model reads no sitemap"),
+            Ended::SitemapRead { .. } => panic!("the model reads no sitemap"),
         };
         if !settled {
             crawl.state.settled(leased, again, written.commits);

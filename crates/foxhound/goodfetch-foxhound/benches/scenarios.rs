@@ -803,7 +803,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         crawl["keep_alive"] = json!(true);
     } else if after_start == AfterStart::Continuous {
         let crawl = settings.entry("crawl").or_insert_with(|| json!({}));
-        crawl["continuous"] = json!(true);
+        crawl["continuous"] = json!({ "enabled": true });
         let revisit = settings.entry("revisit").or_insert_with(|| json!({}));
         revisit["policy"] = json!({ "kind": "every", "interval": CONTINUOUS_INTERVAL_MS });
     }

@@ -36,7 +36,7 @@ A value this package does not know, which a newer engine may send, is kept as re
 - `before_record_commit`: Before each Record the attempt staged commits.
 """
 
-NotAddedReason: TypeAlias = Literal["duplicate", "out_of_scope", "domain_policy", "max_depth", "max_requests", "unsupported_scheme", "invalid_url", "max_url_length", "max_path_segments", "max_segment_repeats", "max_sitemap_nesting", "path_budget", "trap_path", "no_rule", "trap_link", "link_limit"] | str
+NotAddedReason: TypeAlias = Literal["duplicate", "out_of_scope", "domain_policy", "max_depth", "max_requests", "unsupported_scheme", "invalid_url", "max_url_length", "max_path_segments", "max_segment_repeats", "max_sitemap_nesting", "max_entry_age", "path_budget", "trap_path", "no_rule", "trap_link", "link_limit"] | str
 """Why the Frontier did not add a request (ADRs 0079, 0093 and 0120): an
 open enumeration, so a reason a newer engine gives reads as received.
 
@@ -53,6 +53,7 @@ A value this package does not know, which a newer engine may send, is kept as re
 - `max_path_segments`: Its URL's path has more segments than `crawl.max_path_segments`.
 - `max_segment_repeats`: A segment of its URL's path repeats more than `crawl.max_segment_repeats`.
 - `max_sitemap_nesting`: A sitemap nested more levels under its sitemap seed than `crawl.max_sitemap_nesting` (ADR 0093).
+- `max_entry_age`: A dated sitemap or syndication entry older than `crawl.continuous.max_entry_age` in a Continuous crawl (ADR 0139).
 - `path_budget`: The first entry of `crawl.path_budgets` whose pattern its URL's path and query match already counted that entry's `max_requests`.
 - `trap_path`: Its URL's path falls under a trap the Frontier learned and closed (ADR 0005): a path pattern whose pages brought no new page and no URL outside it, which leaves a finished Run `unverified`.
 - `no_rule`: A sitemap entry no rule of its sitemap seed matches (ADR 0093).

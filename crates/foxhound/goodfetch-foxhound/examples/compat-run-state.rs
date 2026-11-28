@@ -626,9 +626,20 @@ fn read_sitemap(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
         &invariants,
         &policy,
         &id,
-        &sitemap::Document::Entries(vec!["/about".to_owned(), "/books/1".to_owned()]),
+        &sitemap::Document::Entries {
+            entries: vec![
+                sitemap::SitemapEntry::loc("/about"),
+                sitemap::SitemapEntry::loc("/books/1"),
+            ],
+            is_news: true,
+        },
+        sitemap::ReadOptions::default(),
         &goodfetch_counted_work::CountedWork::default(),
         |_, _| Err(rusqlite::Error::InvalidQuery),
+    )?;
+    connection.execute(
+        "UPDATE work_items SET initial_interval_ms = 3600000 WHERE id = ?1",
+        [&id],
     )?;
     let missing = SitemapSeed {
         sitemap: "https://maps.test/missing.xml".to_owned(),

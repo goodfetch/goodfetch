@@ -44,9 +44,42 @@ pub(crate) enum Ending {
         egress: Arc<Policy>,
         invariants: Arc<goodfetch_frontier::Invariants>,
         document: SourceDocument,
+        options: Box<SourceReadOptions>,
         keys: Keys,
         work: CountedWork,
     },
+}
+
+/// Options for reading a sitemap or syndication source document (ADR 0139).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct SourceReadOptions {
+    /// Sitemap date/age/change options.
+    pub(crate) sitemap: sitemap::ReadOptions,
+    /// `<changefreq>` and `<priority>` site-hint switches.
+    pub(crate) hints: work_items::SitemapHintPolicy,
+    /// When `crawl.continuous` is on, plan for scheduling the source's next
+    /// standing re-read in the same writer transaction.
+    pub(crate) revisit: Option<SourceRevisitPlan>,
+}
+
+/// Parameters for scheduling a standing sitemap source's next re-read in a
+/// Continuous crawl (ADR 0139).
+#[derive(Clone, Debug)]
+pub(crate) struct SourceRevisitPlan {
+    /// `crawl.sitemap.revisit` policy (adaptive 24h / 1h..30d by default).
+    pub(crate) sitemap_policy: goodfetch_protocol::foxhound::continuous::RevisitPolicy,
+    /// `crawl.sitemap.news_revisit` policy (adaptive 1h / 15m..24h by default).
+    pub(crate) news_policy: goodfetch_protocol::foxhound::continuous::RevisitPolicy,
+    /// Current wall-clock time in milliseconds since the Unix epoch.
+    pub(crate) now_ms: u64,
+    /// The source's URL.
+    pub(crate) url: String,
+    /// The source's domain key.
+    pub(crate) domain_key: String,
+    /// Previous persisted revisit row for this source, if any.
+    pub(crate) previous: Option<RevisitRow>,
+    /// Whether `run.finish()` has been requested (schedule no further re-read).
+    pub(crate) let_finish: bool,
 }
 
 /// The parsed document of a non-handler source fetch (sitemap or syndication
@@ -85,8 +118,12 @@ pub(crate) enum Ended {
         again: Again,
     },
     /// Its sitemap was read, when its lease still held: each work item
-    /// its read added, keyed, in order, as its first lease takes it.
-    SitemapRead(Option<Vec<Leased>>),
+    /// its read added, keyed, in order, as its first lease takes it, plus
+    /// the updated standing-source [`RevisitRow`] in a Continuous crawl.
+    SitemapRead {
+        added: Option<Vec<Leased>>,
+        revisit: Option<Box<RevisitRow>>,
+    },
 }
 
 /// What an outcome's job answers.
@@ -169,32 +206,18 @@ impl Outcome {
                 egress,
                 invariants,
                 document,
+                options,
                 keys,
                 work,
-            } => {
-                let read = match &document {
-                    SourceDocument::Sitemap(document) => work_items::read_sitemap(
-                        connection,
-                        &invariants,
-                        &egress,
-                        (&attempt.work_item, attempt.lease_epoch),
-                        document,
-                        (&keys, &work, &mut changed),
-                    )?,
-                    SourceDocument::Syndication(document) => work_items::read_syndication(
-                        connection,
-                        &invariants,
-                        &egress,
-                        (&attempt.work_item, attempt.lease_epoch),
-                        document,
-                        (&keys, &work, &mut changed),
-                    )?,
-                };
-                Ended::SitemapRead(
-                    read.map(|added| work_items::leasable_added(connection, &added))
-                        .transpose()?,
-                )
-            }
+            } => write_source(
+                connection,
+                &attempt,
+                &egress,
+                &invariants,
+                &document,
+                *options,
+                (&keys, &work, &mut changed),
+            )?,
         };
         Ok(Written {
             ended,
@@ -232,6 +255,126 @@ pub(crate) fn end(
         recorded,
         again,
     })
+}
+
+/// Writes a sitemap or syndication source read and, in a Continuous crawl,
+/// upserts its next standing-source [`RevisitRow`] in the same transaction.
+fn write_source(
+    connection: &Connection,
+    attempt: &AttemptKey<String>,
+    egress: &Policy,
+    invariants: &goodfetch_frontier::Invariants,
+    document: &SourceDocument,
+    options: SourceReadOptions,
+    (keys, work, changed): (&Keys, &CountedWork, &mut Changed),
+) -> rusqlite::Result<Ended> {
+    let (read, source_revisit) = match document {
+        SourceDocument::Sitemap(document) => {
+            let read = work_items::read_sitemap(
+                connection,
+                invariants,
+                egress,
+                (&attempt.work_item, attempt.lease_epoch),
+                document,
+                (options.sitemap, &options.hints),
+                (keys, work, changed),
+            )?;
+            match read {
+                Some((added, outcome)) => {
+                    let row = options
+                        .revisit
+                        .map(|plan| schedule_sitemap_revisit(&attempt.work_item, plan, outcome));
+                    if let Some(row) = &row {
+                        revisit::upsert(connection, row)?;
+                    }
+                    (Some(added), row.map(Box::new))
+                }
+                None => (None, None),
+            }
+        }
+        SourceDocument::Syndication(document) => (
+            work_items::read_syndication(
+                connection,
+                invariants,
+                egress,
+                (&attempt.work_item, attempt.lease_epoch),
+                document,
+                (keys, work, changed),
+            )?,
+            None,
+        ),
+    };
+    Ok(Ended::SitemapRead {
+        added: read
+            .map(|added| work_items::leasable_added(connection, &added))
+            .transpose()?,
+        revisit: source_revisit,
+    })
+}
+
+/// Computes the next standing-source [`RevisitRow`] for a sitemap read in a
+/// Continuous crawl (ADR 0139).
+fn schedule_sitemap_revisit(
+    work_item: &str,
+    plan: SourceRevisitPlan,
+    outcome: sitemap::ReadOutcome,
+) -> RevisitRow {
+    let policy = if outcome.is_news {
+        &plan.news_policy
+    } else {
+        &plan.sitemap_policy
+    };
+    let previous = plan
+        .previous
+        .as_ref()
+        .map_or_else(revisit::PreviousState::default, |row| {
+            revisit::PreviousState {
+                interval_ms: row.interval_ms,
+                visits: row.visits,
+                changes: row.changes,
+            }
+        });
+    let visit_result = if outcome.changed {
+        revisit::VisitResult::Changed
+    } else {
+        revisit::VisitResult::Unchanged
+    };
+    let scheduled = if plan.let_finish {
+        None
+    } else {
+        revisit::next_visit(
+            policy,
+            previous,
+            visit_result,
+            revisit::SiteHints::default(),
+            plan.now_ms,
+        )
+    };
+    RevisitRow {
+        work_item: work_item.to_owned(),
+        identity: plan.url,
+        domain_key: plan.domain_key,
+        next_visit_at: scheduled.map(|s| s.next_visit_at),
+        interval_ms: scheduled.map(|s| s.interval_ms),
+        last_fetched_at: Some(plan.now_ms),
+        last_changed_at: if outcome.changed {
+            Some(plan.now_ms)
+        } else {
+            plan.previous.as_ref().and_then(|r| r.last_changed_at)
+        },
+        signature: None,
+        etag: None,
+        last_modified: None,
+        visits: previous.visits.saturating_add(1),
+        changes: if outcome.changed {
+            previous.changes.saturating_add(1)
+        } else {
+            previous.changes
+        },
+        consecutive_gone: 0,
+        last_tier: Some("source".to_owned()),
+        at_min_floor: scheduled.is_some_and(|s| s.clamped_at_min),
+    }
 }
 
 #[cfg(test)]

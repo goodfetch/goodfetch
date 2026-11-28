@@ -78,7 +78,8 @@ pub(crate) const TABLES: RunStateTables = RunStateTables {
             error_code TEXT,
             domain_key TEXT,
             priority INTEGER NOT NULL,
-            forefront INTEGER
+            forefront INTEGER,
+            initial_interval_ms INTEGER
         ) STRICT",
         "CREATE INDEX IF NOT EXISTS work_items_by_status ON work_items (status, position)",
         "CREATE INDEX IF NOT EXISTS work_items_unkeyed ON work_items (position)
@@ -193,6 +194,9 @@ pub(crate) struct Leased {
     /// Previous persisted [`RevisitRow`] for this URL when known (loaded on
     /// revisit lease for conditional GET validators, signature, and `last_tier`).
     pub(crate) revisit_row: Option<goodfetch_frontier::revisit::RevisitRow>,
+    /// Optional initial revisit interval hint in milliseconds (e.g. from a
+    /// sitemap `<changefreq>` when `revisit.site_hints.changefreq` is enabled).
+    pub(crate) initial_interval_ms: Option<u64>,
 }
 
 impl Leased {
@@ -412,6 +416,9 @@ pub(crate) struct Adding<'a> {
     pub(crate) forefront: bool,
     /// Its depth: 0 for a seed.
     pub(crate) depth: u32,
+    /// Optional initial revisit interval hint in milliseconds (e.g. from a
+    /// sitemap `<changefreq>`).
+    pub(crate) initial_interval_ms: Option<u64>,
 }
 
 /// Whether `byte` is an RFC 9110 / RFC 7230 HTTP header name token byte (`tchar`).
@@ -472,22 +479,75 @@ pub(crate) fn check_request_headers(headers: &BTreeMap<String, String>) -> Resul
 /// A `GET`, the method of a sitemap's fetch and of its entries.
 static GET: LazyLock<HttpMethod> = LazyLock::new(HttpMethod::get);
 
+/// How sitemap `<changefreq>` and `<priority>` hints are applied to admitted
+/// entries (`revisit.site_hints.changefreq` and `revisit.site_hints.priority`).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct SitemapHintPolicy {
+    pub(crate) labels: Arc<goodfetch_fetch_tier::LabelSettings>,
+    pub(crate) run_changefreq: bool,
+    pub(crate) run_priority: bool,
+}
+
+impl SitemapHintPolicy {
+    fn priority_for(&self, label: &str, raw: Option<f32>) -> i64 {
+        if !self
+            .labels
+            .revisit_site_hints_priority(label, self.run_priority)
+        {
+            return 0;
+        }
+        let Some(p) = raw else {
+            return 0;
+        };
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "sitemap priority is validated in 0.0..=1.0, so (p - 0.5) * 100.0 fits in -50..=50"
+        )]
+        let scaled = ((f64::from(p) - 0.5) * 100.0).round() as i64;
+        scaled
+    }
+
+    fn initial_interval_for(
+        &self,
+        label: &str,
+        changefreq: Option<sitemap::ChangeFreq>,
+    ) -> Option<u64> {
+        if !self
+            .labels
+            .revisit_site_hints_changefreq(label, self.run_changefreq)
+        {
+            return None;
+        }
+        changefreq.map(sitemap::ChangeFreq::interval_ms)
+    }
+}
+
 /// What a sitemap's read adds: its fetch, a `GET` at depth 0 of no Label,
 /// which runs no handler and writes no outcome, or one of its entries, a
 /// `GET` at depth 0 of its rule's Label, with no Payload (ADR 0093).
-fn from_sitemap(adding: sitemap::Adding<'_>) -> Adding<'_> {
+fn from_sitemap<'a>(adding: sitemap::Adding<'a>, hints: &SitemapHintPolicy) -> Adding<'a> {
+    let (label, priority, initial_interval_ms) = match adding {
+        sitemap::Adding::Entry {
+            label,
+            changefreq,
+            priority,
+        } => (
+            label,
+            hints.priority_for(label, priority),
+            hints.initial_interval_for(label, changefreq),
+        ),
+        sitemap::Adding::Sitemap => ("", 0, None),
+    };
     Adding {
         method: &GET,
         headers: None,
         body: None,
-        label: match adding {
-            sitemap::Adding::Entry(label) => label,
-            sitemap::Adding::Sitemap => "",
-        },
+        label,
         payload: None,
-        priority: 0,
+        priority,
         forefront: false,
         depth: 0,
+        initial_interval_ms,
     }
 }
 
@@ -600,26 +660,28 @@ pub(crate) fn read_sitemap(
     policy: &Policy,
     (id, lease_epoch): (&str, u64),
     document: &sitemap::Document,
+    (options, hints): (sitemap::ReadOptions, &SitemapHintPolicy),
     (keys, work, changed): (&Keys, &CountedWork, &mut Changed),
-) -> rusqlite::Result<Option<Vec<Waiting>>> {
+) -> rusqlite::Result<Option<(Vec<Waiting>, sitemap::ReadOutcome)>> {
     if !still_leased(connection, AttemptKey::new(id, lease_epoch))? {
         return Ok(None);
     }
     let mut positions = Positions::keying(connection, keys.clone())?;
-    sitemap::read(
+    let outcome = sitemap::read(
         connection,
         invariants,
         policy,
         id,
         document,
+        options,
         work,
-        |url, adding| add(connection, &mut positions, url, from_sitemap(adding)),
+        |url, adding| add(connection, &mut positions, url, from_sitemap(adding, hints)),
     )?;
     connection
         .prepare_cached(ENDED)
         .and_then(|mut cached| cached.execute((SUCCEEDED, id)))?;
     changed.fetches_ended += 1;
-    Ok(Some(changed.adds(&mut positions)))
+    Ok(Some((changed.adds(&mut positions), outcome)))
 }
 
 /// Reads `document`, what the syndication feed fetch `id` holding its lease
@@ -638,6 +700,7 @@ pub(crate) fn read_syndication(
         return Ok(None);
     }
     let mut positions = Positions::keying(connection, keys.clone())?;
+    let no_hints = SitemapHintPolicy::default();
     syndication::read(
         connection,
         invariants,
@@ -650,7 +713,14 @@ pub(crate) fn read_syndication(
                 connection,
                 &mut positions,
                 url,
-                from_sitemap(sitemap::Adding::Entry(label)),
+                from_sitemap(
+                    sitemap::Adding::Entry {
+                        label,
+                        changefreq: None,
+                        priority: None,
+                    },
+                    &no_hints,
+                ),
             )
         },
     )?;
@@ -736,6 +806,7 @@ pub(crate) fn admit_seeds(
                 priority: seed.priority,
                 forefront: seed.forefront,
                 depth: 0,
+                initial_interval_ms: None,
             };
             admit(connection, positions, invariants, policy, candidate, adding)
         })
@@ -764,7 +835,7 @@ fn admit_sitemap_seed(
                 connection,
                 positions,
                 url,
-                from_sitemap(sitemap::Adding::Sitemap),
+                from_sitemap(sitemap::Adding::Sitemap, &SitemapHintPolicy::default()),
             )
         },
     );
@@ -796,7 +867,7 @@ fn admit_syndication_seed(
                 connection,
                 positions,
                 url,
-                from_sitemap(sitemap::Adding::Sitemap),
+                from_sitemap(sitemap::Adding::Sitemap, &SitemapHintPolicy::default()),
             )
         },
     );
@@ -1072,6 +1143,7 @@ impl Decided {
                         priority: request.priority,
                         forefront: request.forefront,
                         depth: request.depth,
+                        initial_interval_ms: None,
                     },
                     via: request.via,
                 };
@@ -1310,9 +1382,12 @@ pub(crate) fn add(
         .map(serde_json::to_string)
         .transpose()
         .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+    let initial_interval_ms = adding
+        .initial_interval_ms
+        .map(|ms| i64::try_from(ms).unwrap_or(i64::MAX));
     let id: String = connection.prepare_cached("INSERT INTO work_items
-             (id, position, url, method, headers, body, label, depth, status, attempts, retried_from, lease_epoch, priority, forefront, domain_key)
-         VALUES (CAST(?1 AS TEXT), ?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', 0, 0, 0, ?8, CASE WHEN ?9 THEN ?1 END, ?10)
+             (id, position, url, method, headers, body, label, depth, status, attempts, retried_from, lease_epoch, priority, forefront, domain_key, initial_interval_ms)
+         VALUES (CAST(?1 AS TEXT), ?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', 0, 0, 0, ?8, CASE WHEN ?9 THEN ?1 END, ?10, ?11)
          RETURNING id").and_then(|mut cached| cached.query_row((
             position,
             url.as_str(),
@@ -1324,6 +1399,7 @@ pub(crate) fn add(
             adding.priority,
             adding.forefront,
             key.as_deref(),
+            initial_interval_ms,
         ), |row| row.get(0)))?;
     payload::store(connection, &id, adding.payload.map(|payload| &**payload))?;
     positions.added += 1;
@@ -1499,7 +1575,7 @@ pub(crate) fn lease(connection: &Connection, ids: &[String]) -> rusqlite::Result
     let mut statement = connection.prepare_cached("UPDATE work_items SET status = 'leased', attempts = attempts + 1, lease_epoch = lease_epoch + 1
          WHERE id = ?1 AND status = 'pending'
          RETURNING id, url, label, attempts, lease_epoch, domain_key, priority, position,
-             forefront IS NOT NULL, method, body, attempts - retried_from, headers")?;
+             forefront IS NOT NULL, method, body, attempts - retried_from, headers, initial_interval_ms")?;
     leased_rows(connection, &mut statement, ids)
 }
 
@@ -1509,7 +1585,7 @@ pub(crate) fn lease(connection: &Connection, ids: &[String]) -> rusqlite::Result
 pub(crate) fn leasable(connection: &Connection, ids: &[String]) -> rusqlite::Result<Vec<Leased>> {
     let mut statement = connection.prepare_cached(
         "SELECT id, url, label, attempts + 1, lease_epoch + 1, domain_key, priority, position,
-             forefront IS NOT NULL, method, body, attempts + 1 - retried_from, headers
+             forefront IS NOT NULL, method, body, attempts + 1 - retried_from, headers, initial_interval_ms
          FROM work_items WHERE id = ?1 AND status = 'pending'",
     )?;
     leased_rows(connection, &mut statement, ids)
@@ -1543,7 +1619,8 @@ pub(crate) fn leasable_revisits(
 ) -> rusqlite::Result<Vec<Leased>> {
     let mut statement = connection.prepare_cached(
         "SELECT w.id, w.url, w.label, w.attempts + 1, w.lease_epoch + 1, w.domain_key,
-                w.priority, w.position, w.forefront IS NOT NULL, w.method, w.body, 1, w.headers
+                w.priority, w.position, w.forefront IS NOT NULL, w.method, w.body, 1, w.headers,
+                w.initial_interval_ms
          FROM work_items w
          WHERE w.id = ?1 AND w.status IN ('succeeded', 'failed', 'unchanged')",
     )?;
@@ -1695,6 +1772,9 @@ fn leased_rows(
                     is_revisit: false,
                     revisit_previous: goodfetch_frontier::revisit::PreviousState::default(),
                     revisit_row: None,
+                    initial_interval_ms: row
+                        .get::<_, Option<i64>>(13)?
+                        .and_then(|v| u64::try_from(v).ok()),
                 })
             })
             .optional()?;

@@ -59,7 +59,12 @@ impl On<'_> {
                     return match read.as_ref().map(Reading::copy) {
                         Some(Fetched::File(file)) => Answer::SourceRead(
                             crate::attempt_outcome::SourceDocument::Sitemap(
-                                sitemap::Document::Sitemaps(file.sitemaps().to_vec()),
+                                sitemap::Document::Sitemaps(
+                                    file.sitemaps()
+                                        .iter()
+                                        .map(sitemap::SitemapIndexEntry::loc)
+                                        .collect(),
+                                ),
                             ),
                         ),
                         Some(Fetched::Unreachable(reason)) => Answer::RobotsTxtUnreachable(format!(

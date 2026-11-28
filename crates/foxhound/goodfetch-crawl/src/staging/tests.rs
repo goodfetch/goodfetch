@@ -105,6 +105,7 @@ fn enqueue(
             priority: 0,
             forefront: false,
             depth: 1,
+            initial_interval_ms: None,
         };
         work_items::admit(
             connection,

@@ -380,7 +380,6 @@ max_crawl_delay = 30000
 
 [settings.crawl]
 sample_pages = 4
-continuous = true
 handle_statuses = [4]
 content_types = ["example"]
 max_staged_enqueues = 4
@@ -395,6 +394,15 @@ max_segment_repeats = 4
 max_sitemap_nesting = 4
 path_budgets = [{ max_requests = 100, pattern = "/shop?*" }]
 keep_url_fragment = true
+
+[settings.crawl.continuous]
+enabled = true
+max_entry_age = 30000
+
+[settings.crawl.sitemap]
+read_lastmod = true
+news_revisit = { kind = "never" }
+revisit = { kind = "never" }
 
 [settings.crawl.revisit]
 order = ["sources", "first_visits", "revisits"]
@@ -427,6 +435,8 @@ gone_after = 4
 cache_control = true
 expires = true
 retry_after = true
+changefreq = true
+priority = true
 
 [settings.fetch]
 tier = "auto"

@@ -19,8 +19,9 @@ use goodfetch_extractor::BuiltIn;
 use goodfetch_protocol::foxhound::continuous::{
     REVISIT_CHANGE_CHECK, REVISIT_CHANGE_CHECK_VALUES, REVISIT_GONE_AFTER, REVISIT_ON_ERROR,
     REVISIT_ON_UNCHANGED, REVISIT_ON_UNCHANGED_VALUES, REVISIT_POLICY,
-    REVISIT_SITE_HINTS_CACHE_CONTROL, REVISIT_SITE_HINTS_EXPIRES, REVISIT_SITE_HINTS_RETRY_AFTER,
-    RevisitChangeCheck, RevisitOnUnchanged, RevisitPolicy,
+    REVISIT_SITE_HINTS_CACHE_CONTROL, REVISIT_SITE_HINTS_CHANGEFREQ, REVISIT_SITE_HINTS_EXPIRES,
+    REVISIT_SITE_HINTS_PRIORITY, REVISIT_SITE_HINTS_RETRY_AFTER, RevisitChangeCheck,
+    RevisitOnUnchanged, RevisitPolicy,
 };
 use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CRAWL_CONTENT_TYPES, CRAWL_RETRY_HANDLER_FAILED, LabelDeclaration,
@@ -79,6 +80,8 @@ pub struct LabelSettings {
     revisit_site_hints_cache_control: BTreeMap<String, bool>,
     revisit_site_hints_expires: BTreeMap<String, bool>,
     revisit_site_hints_retry_after: BTreeMap<String, bool>,
+    revisit_site_hints_changefreq: BTreeMap<String, bool>,
+    revisit_site_hints_priority: BTreeMap<String, bool>,
 }
 
 /// How a request's tier is chosen.
@@ -189,6 +192,8 @@ impl LabelSettings {
             revisit_site_hints_cache_control: BTreeMap::new(),
             revisit_site_hints_expires: BTreeMap::new(),
             revisit_site_hints_retry_after: BTreeMap::new(),
+            revisit_site_hints_changefreq: BTreeMap::new(),
+            revisit_site_hints_priority: BTreeMap::new(),
         };
         for (name, declaration) in labels {
             let mut keys = Vec::new();
@@ -321,6 +326,12 @@ impl LabelSettings {
         } else if key == REVISIT_SITE_HINTS_RETRY_AFTER.name {
             self.revisit_site_hints_retry_after
                 .insert(name.to_owned(), boolean(name, key, value)?);
+        } else if key == REVISIT_SITE_HINTS_CHANGEFREQ.name {
+            self.revisit_site_hints_changefreq
+                .insert(name.to_owned(), boolean(name, key, value)?);
+        } else if key == REVISIT_SITE_HINTS_PRIORITY.name {
+            self.revisit_site_hints_priority
+                .insert(name.to_owned(), boolean(name, key, value)?);
         } else {
             return Ok(false);
         }
@@ -383,6 +394,26 @@ impl LabelSettings {
                 .copied()
                 .unwrap_or(run.2),
         )
+    }
+
+    /// The `revisit.site_hints.changefreq` switch of `label`, falling back to
+    /// `run` when the Label sets none (ADR 0139).
+    #[must_use]
+    pub fn revisit_site_hints_changefreq(&self, label: &str, run: bool) -> bool {
+        self.revisit_site_hints_changefreq
+            .get(label)
+            .copied()
+            .unwrap_or(run)
+    }
+
+    /// The `revisit.site_hints.priority` switch of `label`, falling back to
+    /// `run` when the Label sets none (ADR 0139).
+    #[must_use]
+    pub fn revisit_site_hints_priority(&self, label: &str, run: bool) -> bool {
+        self.revisit_site_hints_priority
+            .get(label)
+            .copied()
+            .unwrap_or(run)
     }
 
     /// Each Label that declares `revisit.change_check`, with its value.

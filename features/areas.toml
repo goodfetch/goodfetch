@@ -597,6 +597,11 @@ prefix = "crawl.revisit."
 [[area]]
 number = 3
 kind = "setting"
+prefix = "crawl.sitemap."
+
+[[area]]
+number = 3
+kind = "setting"
 prefix = "revisit."
 
 [[area]]

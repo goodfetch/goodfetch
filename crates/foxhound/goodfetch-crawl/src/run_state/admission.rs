@@ -92,6 +92,7 @@ pub(crate) fn enqueue(
         priority: params.priority,
         forefront: params.forefront,
         depth: depth + 1,
+        initial_interval_ms: None,
     };
     work_items::admit(connection, positions, invariants, egress, candidate, adding)
         .map(|enqueued| Some(Ok(enqueued)))
@@ -377,6 +378,7 @@ pub(crate) fn links(
                     priority: params.priority,
                     forefront: false,
                     depth: depth + 1,
+                    initial_interval_ms: None,
                 };
                 let enqueued = work_items::admit_keyed(
                     connection,

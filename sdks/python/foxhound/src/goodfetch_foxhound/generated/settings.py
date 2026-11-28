@@ -258,6 +258,22 @@ class ConnectionContentSettings(TypedDict):
     """
 
 
+class ConnectionCrawlContinuousSettings(TypedDict):
+    """The `crawl.continuous` settings of `FoxhoundSettings`."""
+
+    enabled: NotRequired[bool]
+    """Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.
+
+    `crawl.continuous.enabled`.
+    """
+
+    max_entry_age: NotRequired[timedelta | None]
+    """Maximum age of a dated sitemap or syndication entry to admit in a Continuous crawl, in whole milliseconds: 30 days (2,592,000,000 ms, CC-NEWS's rule) by default; `null` turns the bound off. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.continuous.max_entry_age`.
+    """
+
+
 class ConnectionCrawlHandlerSettings(TypedDict):
     """The `crawl.handler` settings of `FoxhoundSettings`."""
 
@@ -348,6 +364,150 @@ class ConnectionCrawlScopeSettings(TypedDict):
     """
 
 
+class CrawlSitemapNewsRevisitNever(TypedDict):
+    """Never revisit the URL after its first visit, such as articles."""
+
+    kind: Literal["never"]
+
+
+class CrawlSitemapNewsRevisitEvery(TypedDict):
+    """Revisit at a fixed interval, in whole milliseconds (at least 1)."""
+
+    interval: int
+    """Interval between revisits in milliseconds (at least 1)."""
+
+    kind: Literal["every"]
+
+
+class CrawlSitemapNewsRevisitAdaptive(TypedDict):
+    """Multiplicative adaptive schedule (Nutch / `StormCrawler`, ADR 0139):
+    shrinks by `rate_changed` after a change and grows by `rate_unchanged`
+    after none, clamped to `[min, max]`. Default for pages.
+    """
+
+    initial: NotRequired[int]
+    """Initial revisit interval in milliseconds (default: 1 day)."""
+
+    kind: Literal["adaptive"]
+
+    max: NotRequired[int]
+    """Maximum revisit interval in milliseconds (default: 30 days)."""
+
+    min: NotRequired[int]
+    """Minimum revisit interval in milliseconds (default: 1 hour)."""
+
+    rate_changed: NotRequired[float]
+    """Fractional shrink applied after a changed visit, in `(0, 1]` (default: 0.5)."""
+
+    rate_unchanged: NotRequired[float]
+    """Fractional growth applied after an unchanged visit, in `(0, 1]` (default: 0.5)."""
+
+
+class CrawlSitemapNewsRevisitEstimated(TypedDict):
+    """Change-rate estimator schedule (Cho and Garcia-Molina, ADR 0139):
+    estimates change rate from visits and changes starting from a prior of
+    two intervals of `initial`, and schedules to reach `target_freshness`,
+    clamped to `[min, max]`.
+    """
+
+    initial: NotRequired[int]
+    """Prior interval in milliseconds (default: 1 day)."""
+
+    kind: Literal["estimated"]
+
+    max: NotRequired[int]
+    """Maximum revisit interval in milliseconds (default: 30 days)."""
+
+    min: NotRequired[int]
+    """Minimum revisit interval in milliseconds (default: 1 hour)."""
+
+    target_freshness: NotRequired[float]
+    """Target expected freshness, strictly in `(0, 1)` (default: 0.9)."""
+
+
+class CrawlSitemapRevisitNever(TypedDict):
+    """Never revisit the URL after its first visit, such as articles."""
+
+    kind: Literal["never"]
+
+
+class CrawlSitemapRevisitEvery(TypedDict):
+    """Revisit at a fixed interval, in whole milliseconds (at least 1)."""
+
+    interval: int
+    """Interval between revisits in milliseconds (at least 1)."""
+
+    kind: Literal["every"]
+
+
+class CrawlSitemapRevisitAdaptive(TypedDict):
+    """Multiplicative adaptive schedule (Nutch / `StormCrawler`, ADR 0139):
+    shrinks by `rate_changed` after a change and grows by `rate_unchanged`
+    after none, clamped to `[min, max]`. Default for pages.
+    """
+
+    initial: NotRequired[int]
+    """Initial revisit interval in milliseconds (default: 1 day)."""
+
+    kind: Literal["adaptive"]
+
+    max: NotRequired[int]
+    """Maximum revisit interval in milliseconds (default: 30 days)."""
+
+    min: NotRequired[int]
+    """Minimum revisit interval in milliseconds (default: 1 hour)."""
+
+    rate_changed: NotRequired[float]
+    """Fractional shrink applied after a changed visit, in `(0, 1]` (default: 0.5)."""
+
+    rate_unchanged: NotRequired[float]
+    """Fractional growth applied after an unchanged visit, in `(0, 1]` (default: 0.5)."""
+
+
+class CrawlSitemapRevisitEstimated(TypedDict):
+    """Change-rate estimator schedule (Cho and Garcia-Molina, ADR 0139):
+    estimates change rate from visits and changes starting from a prior of
+    two intervals of `initial`, and schedules to reach `target_freshness`,
+    clamped to `[min, max]`.
+    """
+
+    initial: NotRequired[int]
+    """Prior interval in milliseconds (default: 1 day)."""
+
+    kind: Literal["estimated"]
+
+    max: NotRequired[int]
+    """Maximum revisit interval in milliseconds (default: 30 days)."""
+
+    min: NotRequired[int]
+    """Minimum revisit interval in milliseconds (default: 1 hour)."""
+
+    target_freshness: NotRequired[float]
+    """Target expected freshness, strictly in `(0, 1)` (default: 0.9)."""
+
+
+class ConnectionCrawlSitemapSettings(TypedDict):
+    """The `crawl.sitemap` settings of `FoxhoundSettings`."""
+
+    news_revisit: NotRequired[CrawlSitemapNewsRevisitNever | CrawlSitemapNewsRevisitEvery | CrawlSitemapNewsRevisitAdaptive | CrawlSitemapNewsRevisitEstimated]
+    """Revisit policy for Google News sitemaps in a Continuous crawl: `adaptive` (initial 1 hour, 15 minutes to 24 hours) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.sitemap.news_revisit`.
+    """
+
+    read_lastmod: NotRequired[bool]
+    """Whether sitemap reads read `<lastmod>` and the `news:` extension (`<news:publication_date>`) in any crawl: `true` by default.
+
+    `crawl.sitemap.read_lastmod`.
+    """
+
+    revisit: NotRequired[CrawlSitemapRevisitNever | CrawlSitemapRevisitEvery | CrawlSitemapRevisitAdaptive | CrawlSitemapRevisitEstimated]
+    """Revisit policy for standing sitemaps (other than Google News sitemaps) in a Continuous crawl: `adaptive` (initial 24 hours, 1 hour to 30 days) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.sitemap.revisit`.
+    """
+
+
 class ConnectionCrawlSettings(TypedDict):
     """The `crawl` settings of `FoxhoundSettings`."""
 
@@ -357,11 +517,7 @@ class ConnectionCrawlSettings(TypedDict):
     `crawl.content_types`.
     """
 
-    continuous: NotRequired[bool]
-    """Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.
-
-    `crawl.continuous`.
-    """
+    continuous: NotRequired[ConnectionCrawlContinuousSettings]
 
     domain_keys: NotRequired[Mapping[str, str]]
     """Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.
@@ -456,6 +612,8 @@ class ConnectionCrawlSettings(TypedDict):
     """
 
     scope: NotRequired[ConnectionCrawlScopeSettings]
+
+    sitemap: NotRequired[ConnectionCrawlSitemapSettings]
 
 
 class ConnectionDatasetQuerySettings(TypedDict):
@@ -1284,10 +1442,22 @@ class ConnectionRevisitSiteHintsSettings(TypedDict):
     `revisit.site_hints.cache_control`.
     """
 
+    changefreq: NotRequired[bool]
+    """Whether a sitemap entry's `<changefreq>` sets its initial revisit interval in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.site_hints.changefreq`.
+    """
+
     expires: NotRequired[bool]
     """Whether `Expires` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
 
     `revisit.site_hints.expires`.
+    """
+
+    priority: NotRequired[bool]
+    """Whether a sitemap entry's `<priority>` steers its queue priority in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.site_hints.priority`.
     """
 
     retry_after: NotRequired[bool]
@@ -2489,6 +2659,22 @@ class RunContentSettings(TypedDict):
     """
 
 
+class RunCrawlContinuousSettings(TypedDict):
+    """The `crawl.continuous` settings of `CrawlSettings`."""
+
+    enabled: NotRequired[bool]
+    """Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.
+
+    `crawl.continuous.enabled`.
+    """
+
+    max_entry_age: NotRequired[timedelta | None]
+    """Maximum age of a dated sitemap or syndication entry to admit in a Continuous crawl, in whole milliseconds: 30 days (2,592,000,000 ms, CC-NEWS's rule) by default; `null` turns the bound off. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.continuous.max_entry_age`.
+    """
+
+
 class RunCrawlHandlerSettings(TypedDict):
     """The `crawl.handler` settings of `CrawlSettings`."""
 
@@ -2569,6 +2755,28 @@ class RunCrawlScopeSettings(TypedDict):
     """
 
 
+class RunCrawlSitemapSettings(TypedDict):
+    """The `crawl.sitemap` settings of `CrawlSettings`."""
+
+    news_revisit: NotRequired[CrawlSitemapNewsRevisitNever | CrawlSitemapNewsRevisitEvery | CrawlSitemapNewsRevisitAdaptive | CrawlSitemapNewsRevisitEstimated]
+    """Revisit policy for Google News sitemaps in a Continuous crawl: `adaptive` (initial 1 hour, 15 minutes to 24 hours) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.sitemap.news_revisit`.
+    """
+
+    read_lastmod: NotRequired[bool]
+    """Whether sitemap reads read `<lastmod>` and the `news:` extension (`<news:publication_date>`) in any crawl: `true` by default.
+
+    `crawl.sitemap.read_lastmod`.
+    """
+
+    revisit: NotRequired[CrawlSitemapRevisitNever | CrawlSitemapRevisitEvery | CrawlSitemapRevisitAdaptive | CrawlSitemapRevisitEstimated]
+    """Revisit policy for standing sitemaps (other than Google News sitemaps) in a Continuous crawl: `adaptive` (initial 24 hours, 1 hour to 30 days) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.sitemap.revisit`.
+    """
+
+
 class RunCrawlSettings(TypedDict):
     """The `crawl` settings of `CrawlSettings`."""
 
@@ -2578,11 +2786,7 @@ class RunCrawlSettings(TypedDict):
     `crawl.content_types`.
     """
 
-    continuous: NotRequired[bool]
-    """Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.
-
-    `crawl.continuous`.
-    """
+    continuous: NotRequired[RunCrawlContinuousSettings]
 
     domain_keys: NotRequired[Mapping[str, str]]
     """Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.
@@ -2677,6 +2881,8 @@ class RunCrawlSettings(TypedDict):
     """
 
     scope: NotRequired[RunCrawlScopeSettings]
+
+    sitemap: NotRequired[RunCrawlSitemapSettings]
 
 
 class RunDatasetQuerySettings(TypedDict):
@@ -3416,10 +3622,22 @@ class RunRevisitSiteHintsSettings(TypedDict):
     `revisit.site_hints.cache_control`.
     """
 
+    changefreq: NotRequired[bool]
+    """Whether a sitemap entry's `<changefreq>` sets its initial revisit interval in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.site_hints.changefreq`.
+    """
+
     expires: NotRequired[bool]
     """Whether `Expires` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
 
     `revisit.site_hints.expires`.
+    """
+
+    priority: NotRequired[bool]
+    """Whether a sitemap entry's `<priority>` steers its queue priority in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.site_hints.priority`.
     """
 
     retry_after: NotRequired[bool]
@@ -4144,10 +4362,22 @@ class LabelRevisitSiteHintsSettings(TypedDict):
     `revisit.site_hints.cache_control`.
     """
 
+    changefreq: NotRequired[bool]
+    """Whether a sitemap entry's `<changefreq>` sets its initial revisit interval in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.site_hints.changefreq`.
+    """
+
     expires: NotRequired[bool]
     """Whether `Expires` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
 
     `revisit.site_hints.expires`.
+    """
+
+    priority: NotRequired[bool]
+    """Whether a sitemap entry's `<priority>` steers its queue priority in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.site_hints.priority`.
     """
 
     retry_after: NotRequired[bool]

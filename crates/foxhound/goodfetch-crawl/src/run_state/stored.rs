@@ -876,12 +876,14 @@ impl Stored {
         &self,
         attempt: AttemptKey<String>,
         document: crate::attempt_outcome::SourceDocument,
+        options: crate::attempt_outcome::SourceReadOptions,
     ) -> Ending {
         Ending::Source {
             attempt,
             egress: Arc::clone(&self.egress),
             invariants: self.invariants.shared_frontier(),
             document,
+            options: Box::new(options),
             keys: self.keys.clone(),
             work: self.work.clone(),
         }

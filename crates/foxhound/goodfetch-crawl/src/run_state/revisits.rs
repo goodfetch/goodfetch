@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use goodfetch_engine::admission::Waiting;
 use goodfetch_frontier::revisit::{self, DueEntry, PreviousState, RevisitRow};
-use goodfetch_frontier::{LANE_REVISIT, SharedBudget};
+use goodfetch_frontier::{LANE_REVISIT, LANE_SOURCE, SharedBudget};
 use goodfetch_protocol::foxhound::outcomes::OutcomeKind;
 use rusqlite::Connection;
 
@@ -56,8 +56,9 @@ pub(super) struct ActiveRevisit {
     pub(super) domain_key: String,
     /// Cached `Leased` row prepared for the revisit attempt, when held in memory.
     pub(super) leased: Option<Leased>,
-    /// Previous outcome counted in `Tally` before this revisit was claimed.
-    pub(super) previous_outcome: CountedAs,
+    /// Previous outcome counted in `Tally` before this revisit was claimed
+    /// (`None` for standing sources, which write no outcome to `Tally`).
+    pub(super) previous_outcome: Option<CountedAs>,
     /// Whether this revisit has already been claimed into flight (not just
     /// waiting in `admission`'s domain queue).
     pub(super) in_flight: bool,
@@ -406,8 +407,10 @@ impl RevisitTracker {
             },
             |leased| leased.waiting.clone(),
         );
-        waiting.lane = LANE_REVISIT;
         let prev_row = self.previous_row(&entry.work_item).cloned();
+        let is_source = template.as_ref().is_some_and(Leased::is_source)
+            || prev_row.as_ref().and_then(|r| r.last_tier.as_deref()) == Some("source");
+        waiting.lane = if is_source { LANE_SOURCE } else { LANE_REVISIT };
         let leased = template.map(|t| {
             let mut l = Leased::for_revisit(t);
             if let Some(row) = prev_row {
@@ -420,11 +423,12 @@ impl RevisitTracker {
             }
             l
         });
-        let previous_outcome = self
-            .last_outcomes
-            .get(&entry.work_item)
-            .cloned()
-            .unwrap_or_else(|| (OutcomeKind::Succeeded, String::new()));
+        let previous_outcome = (!is_source).then(|| {
+            self.last_outcomes
+                .get(&entry.work_item)
+                .cloned()
+                .unwrap_or_else(|| (OutcomeKind::Succeeded, String::new()))
+        });
         self.active.insert(
             entry.work_item.clone(),
             ActiveRevisit {
@@ -463,7 +467,7 @@ impl RevisitTracker {
 
     /// Takes the cached [`Leased`] row for an active revisit being leased and
     /// marks it in flight, returning `(cached_leased, previous_outcome)`.
-    pub(super) fn begin_lease(&mut self, id: &str) -> Option<(Option<Leased>, CountedAs)> {
+    pub(super) fn begin_lease(&mut self, id: &str) -> Option<(Option<Leased>, Option<CountedAs>)> {
         let active = self.active.get_mut(id)?;
         active.in_flight = true;
         Some((active.leased.take(), active.previous_outcome.clone()))

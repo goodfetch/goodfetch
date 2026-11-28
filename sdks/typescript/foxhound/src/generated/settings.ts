@@ -227,12 +227,20 @@ export interface FoxhoundSettings {
      * `crawl.content_types`.
      */
     readonly contentTypes?: readonly string[];
-    /**
-     * Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.
-     *
-     * `crawl.continuous`.
-     */
-    readonly continuous?: boolean;
+    readonly continuous?: {
+      /**
+       * Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.
+       *
+       * `crawl.continuous.enabled`.
+       */
+      readonly enabled?: boolean;
+      /**
+       * Maximum age of a dated sitemap or syndication entry to admit in a Continuous crawl, in whole milliseconds: 30 days (2,592,000,000 ms, CC-NEWS's rule) by default; `null` turns the bound off. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `crawl.continuous.max_entry_age`.
+       */
+      readonly maxEntryAge?: number | null;
+    };
     /**
      * Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.
      *
@@ -386,6 +394,26 @@ export interface FoxhoundSettings {
        * `crawl.scope.strategy`.
        */
       readonly strategy?: "same_hostname" | "same_domain" | "same_origin" | "all";
+    };
+    readonly sitemap?: {
+      /**
+       * Revisit policy for Google News sitemaps in a Continuous crawl: `adaptive` (initial 1 hour, 15 minutes to 24 hours) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `crawl.sitemap.news_revisit`.
+       */
+      readonly newsRevisit?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number };
+      /**
+       * Whether sitemap reads read `<lastmod>` and the `news:` extension (`<news:publication_date>`) in any crawl: `true` by default.
+       *
+       * `crawl.sitemap.read_lastmod`.
+       */
+      readonly readLastmod?: boolean;
+      /**
+       * Revisit policy for standing sitemaps (other than Google News sitemaps) in a Continuous crawl: `adaptive` (initial 24 hours, 1 hour to 30 days) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `crawl.sitemap.revisit`.
+       */
+      readonly revisit?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number };
     };
   };
   readonly dataset?: {
@@ -1037,11 +1065,23 @@ export interface FoxhoundSettings {
        */
       readonly cacheControl?: boolean;
       /**
+       * Whether a sitemap entry's `<changefreq>` sets its initial revisit interval in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `revisit.site_hints.changefreq`.
+       */
+      readonly changefreq?: boolean;
+      /**
        * Whether `Expires` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
        *
        * `revisit.site_hints.expires`.
        */
       readonly expires?: boolean;
+      /**
+       * Whether a sitemap entry's `<priority>` steers its queue priority in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `revisit.site_hints.priority`.
+       */
+      readonly priority?: boolean;
       /**
        * Whether `Retry-After` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
        *
@@ -1725,12 +1765,20 @@ export interface CrawlSettings {
      * `crawl.content_types`.
      */
     readonly contentTypes?: readonly string[];
-    /**
-     * Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.
-     *
-     * `crawl.continuous`.
-     */
-    readonly continuous?: boolean;
+    readonly continuous?: {
+      /**
+       * Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.
+       *
+       * `crawl.continuous.enabled`.
+       */
+      readonly enabled?: boolean;
+      /**
+       * Maximum age of a dated sitemap or syndication entry to admit in a Continuous crawl, in whole milliseconds: 30 days (2,592,000,000 ms, CC-NEWS's rule) by default; `null` turns the bound off. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `crawl.continuous.max_entry_age`.
+       */
+      readonly maxEntryAge?: number | null;
+    };
     /**
      * Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.
      *
@@ -1884,6 +1932,26 @@ export interface CrawlSettings {
        * `crawl.scope.strategy`.
        */
       readonly strategy?: "same_hostname" | "same_domain" | "same_origin" | "all";
+    };
+    readonly sitemap?: {
+      /**
+       * Revisit policy for Google News sitemaps in a Continuous crawl: `adaptive` (initial 1 hour, 15 minutes to 24 hours) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `crawl.sitemap.news_revisit`.
+       */
+      readonly newsRevisit?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number };
+      /**
+       * Whether sitemap reads read `<lastmod>` and the `news:` extension (`<news:publication_date>`) in any crawl: `true` by default.
+       *
+       * `crawl.sitemap.read_lastmod`.
+       */
+      readonly readLastmod?: boolean;
+      /**
+       * Revisit policy for standing sitemaps (other than Google News sitemaps) in a Continuous crawl: `adaptive` (initial 24 hours, 1 hour to 30 days) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `crawl.sitemap.revisit`.
+       */
+      readonly revisit?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number };
     };
   };
   readonly dataset?: {
@@ -2535,11 +2603,23 @@ export interface CrawlSettings {
        */
       readonly cacheControl?: boolean;
       /**
+       * Whether a sitemap entry's `<changefreq>` sets its initial revisit interval in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `revisit.site_hints.changefreq`.
+       */
+      readonly changefreq?: boolean;
+      /**
        * Whether `Expires` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
        *
        * `revisit.site_hints.expires`.
        */
       readonly expires?: boolean;
+      /**
+       * Whether a sitemap entry's `<priority>` steers its queue priority in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `revisit.site_hints.priority`.
+       */
+      readonly priority?: boolean;
       /**
        * Whether `Retry-After` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
        *
@@ -3123,11 +3203,23 @@ export interface LabelSettings {
        */
       readonly cacheControl?: boolean;
       /**
+       * Whether a sitemap entry's `<changefreq>` sets its initial revisit interval in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `revisit.site_hints.changefreq`.
+       */
+      readonly changefreq?: boolean;
+      /**
        * Whether `Expires` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
        *
        * `revisit.site_hints.expires`.
        */
       readonly expires?: boolean;
+      /**
+       * Whether a sitemap entry's `<priority>` steers its queue priority in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `revisit.site_hints.priority`.
+       */
+      readonly priority?: boolean;
       /**
        * Whether `Retry-After` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
        *
@@ -3230,7 +3322,10 @@ const SPELLING: Spelling = {
   }],
   crawl: ["crawl", {
     contentTypes: "content_types",
-    continuous: "continuous",
+    continuous: ["continuous", {
+      enabled: "enabled",
+      maxEntryAge: "max_entry_age",
+    }],
     domainKeys: "domain_keys",
     domainOrder: "domain_order",
     handleStatuses: "handle_statuses",
@@ -3264,6 +3359,11 @@ const SPELLING: Spelling = {
       exclude: "exclude",
       include: "include",
       strategy: "strategy",
+    }],
+    sitemap: ["sitemap", {
+      newsRevisit: { setting: "news_revisit", value: { fields: { "rate_changed": "rateChanged", "rate_unchanged": "rateUnchanged", "target_freshness": "targetFreshness" } } },
+      readLastmod: "read_lastmod",
+      revisit: { setting: "revisit", value: { fields: { "rate_changed": "rateChanged", "rate_unchanged": "rateUnchanged", "target_freshness": "targetFreshness" } } },
     }],
   }],
   daemon: ["daemon", {
@@ -3512,7 +3612,9 @@ const SPELLING: Spelling = {
     policy: { setting: "policy", value: { fields: { "rate_changed": "rateChanged", "rate_unchanged": "rateUnchanged", "target_freshness": "targetFreshness" } } },
     siteHints: ["site_hints", {
       cacheControl: "cache_control",
+      changefreq: "changefreq",
       expires: "expires",
+      priority: "priority",
       retryAfter: "retry_after",
     }],
   }],

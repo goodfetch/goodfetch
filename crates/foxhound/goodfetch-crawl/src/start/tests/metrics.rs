@@ -415,6 +415,7 @@ fn a_work_item_left_with_no_domain_key_is_keyed_once_its_crawl_is_idle_and_its_k
                         priority: 0,
                         forefront: false,
                         depth: 0,
+                        initial_interval_ms: None,
                     },
                 )
                 .unwrap();

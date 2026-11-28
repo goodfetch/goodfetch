@@ -375,7 +375,8 @@ CREATE TABLE sitemaps (
             seed TEXT NOT NULL,
             rules TEXT NOT NULL,
             read INTEGER NOT NULL,
-            nesting INTEGER NOT NULL
+            nesting INTEGER NOT NULL,
+            is_news INTEGER NOT NULL DEFAULT 0
         ) STRICT;
 CREATE TABLE syndication_entries (
             work_item TEXT NOT NULL,
@@ -468,7 +469,8 @@ CREATE TABLE work_items (
             error_code TEXT,
             domain_key TEXT,
             priority INTEGER NOT NULL,
-            forefront INTEGER
+            forefront INTEGER,
+            initial_interval_ms INTEGER
         ) STRICT;
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
 CREATE INDEX pool_sessions_open ON pool_sessions (pool, position)

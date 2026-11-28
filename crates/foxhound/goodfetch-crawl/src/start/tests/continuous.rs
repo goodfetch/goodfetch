@@ -76,7 +76,7 @@ async fn progress_matching(
 /// and incrementing attempt numbers (never a `duplicate`), and runs a full
 /// month (30 daily revisits) in seconds on the paused clock.
 ///
-/// Covers: row:RT-12, row:RT-46, setting:crawl.continuous, setting:revisit.policy, operation:run.progress, operation:run.finish
+/// Covers: row:RT-12, row:RT-46, setting:crawl.continuous.enabled, setting:revisit.policy, operation:run.progress, operation:run.finish
 #[test]
 fn a_continuous_crawl_revisits_for_a_month_keeping_id_and_reporting_next_due_at() {
     let env = TestEnv::new();
@@ -103,7 +103,7 @@ fn a_continuous_crawl_revisits_for_a_month_keeping_id_and_reporting_next_due_at(
                     json!({
                         "run_id": "month",
                         "seeds": [seed("https://shop.test/daily"), seed("https://shop.test/once")],
-                        "settings": { "crawl": { "continuous": true } },
+                        "settings": { "crawl": { "continuous": { "enabled": true } } },
                         "labels": labels,
                     }),
                     &mut handler,
@@ -174,7 +174,7 @@ fn a_continuous_crawl_revisits_for_a_month_keeping_id_and_reporting_next_due_at(
 /// `run.finish` schedules no more revisits, finishes first visits still
 /// waiting, and ends the Run `finished`; idle time counts toward `timeout.run`.
 ///
-/// Covers: row:RT-12, row:RT-46, setting:crawl.continuous, setting:timeout.run
+/// Covers: row:RT-12, row:RT-46, setting:crawl.continuous.enabled, setting:timeout.run
 #[test]
 fn a_continuous_crawls_idle_time_counts_toward_run_timeout() {
     let env = TestEnv::new();
@@ -189,7 +189,7 @@ fn a_continuous_crawls_idle_time_counts_toward_run_timeout() {
                     json!({
                         "run_id": "timed",
                         "seeds": seeds(1),
-                        "settings": { "crawl": { "continuous": true } },
+                        "settings": { "crawl": { "continuous": { "enabled": true } } },
                         "labels": {
                             "page": {
                                 "settings": {
@@ -223,7 +223,7 @@ fn a_continuous_crawls_idle_time_counts_toward_run_timeout() {
 /// Completeness reads whether each URL has ever been visited: a URL that
 /// succeeded on its first visit and failed on a later revisit stays `complete`.
 ///
-/// Covers: row:RT-46, setting:crawl.continuous, setting:revisit.policy
+/// Covers: row:RT-46, setting:crawl.continuous.enabled, setting:revisit.policy
 #[test]
 fn a_later_failed_revisit_does_not_take_back_coverage() {
     let env = TestEnv::new();
@@ -247,7 +247,7 @@ fn a_later_failed_revisit_does_not_take_back_coverage() {
                     json!({
                         "run_id": "coverage",
                         "seeds": [seed("https://shop.test/item")],
-                        "settings": { "crawl": { "continuous": true } },
+                        "settings": { "crawl": { "continuous": { "enabled": true } } },
                         "labels": {
                             "page": {
                                 "settings": {
@@ -296,7 +296,7 @@ fn a_later_failed_revisit_does_not_take_back_coverage() {
 /// `revisits`, and a Continuous crawl at `run_state.memory.budget: 0` reads
 /// due windows from `revisits` and `run.discard` removes the run file.
 ///
-/// Covers: row:RT-46, setting:crawl.continuous, setting:revisit.policy, operation:config.explain, operation:run.discard
+/// Covers: row:RT-46, setting:crawl.continuous.enabled, setting:revisit.policy, operation:config.explain, operation:run.discard
 #[test]
 fn batch_accepts_revisit_policy_marked_inactive_and_spilled_continuous_uses_revisits_table() {
     let env = TestEnv::new();
@@ -347,7 +347,7 @@ fn batch_accepts_revisit_policy_marked_inactive_and_spilled_continuous_uses_revi
                         "run_id": "spilled-cont",
                         "seeds": [seed("https://shop.test/b")],
                         "settings": {
-                            "crawl": { "continuous": true },
+                            "crawl": { "continuous": { "enabled": true } },
                             "run_state": { "memory": { "budget": 0 } },
                         },
                         "labels": every_label(5_000),
@@ -383,7 +383,7 @@ fn batch_accepts_revisit_policy_marked_inactive_and_spilled_continuous_uses_revi
     let setting = &explained["result"]["settings"][0];
     assert_eq!(setting["key"], "revisit.policy");
     assert_eq!(
-        setting["yields_to"]["key"], "crawl.continuous",
+        setting["yields_to"]["key"], "crawl.continuous.enabled",
         "expected revisit.policy to yield to crawl.continuous on batch crawl: {setting}"
     );
     assert_eq!(setting["yields_to"]["value"], false);
@@ -535,7 +535,7 @@ fn conditional_get_304_ends_unchanged_with_zero_parses_and_change_runs_handler()
                         "run_id": "cond-304",
                         "seeds": [seed("https://shop.test/cond")],
                         "settings": {
-                            "crawl": { "continuous": true },
+                            "crawl": { "continuous": { "enabled": true } },
                             "fetch": { "tier": "http" },
                         },
                         "labels": {
@@ -734,7 +734,7 @@ fn revisit_change_check_and_on_unchanged_modes() {
                             { "url": "https://shop.test/run-handler", "label": "run_handler" },
                         ],
                         "settings": {
-                            "crawl": { "continuous": true },
+                            "crawl": { "continuous": { "enabled": true } },
                             "fetch": { "tier": "http" },
                         },
                         "labels": {
@@ -774,7 +774,10 @@ fn revisit_change_check_and_on_unchanged_modes() {
 
     // config.explain marks both inactive on batch crawl.
     for setting in explained["result"]["settings"].as_array().unwrap() {
-        assert_eq!(setting["yields_to"]["key"], "crawl.continuous", "{setting}");
+        assert_eq!(
+            setting["yields_to"]["key"], "crawl.continuous.enabled",
+            "{setting}"
+        );
         assert_eq!(setting["yields_to"]["value"], false, "{setting}");
     }
 
@@ -863,7 +866,7 @@ fn browser_tier_last_served_revisit_uses_signature_and_warns() {
                         "run_id": "browser-sig",
                         "seeds": [seed("https://shop.test/browser")],
                         "settings": {
-                            "crawl": { "continuous": true },
+                            "crawl": { "continuous": { "enabled": true } },
                             "fetch": { "tier": "http" },
                         },
                         "labels": {
@@ -913,7 +916,7 @@ fn browser_tier_last_served_revisit_uses_signature_and_warns() {
                         "run_id": "browser-sig",
                         "seeds": [seed("https://shop.test/browser")],
                         "settings": {
-                            "crawl": { "continuous": true },
+                            "crawl": { "continuous": { "enabled": true } },
                             "fetch": { "tier": "http" },
                         },
                         "labels": {
@@ -1015,7 +1018,7 @@ fn domain_behind_under_politeness_reports_warning_and_respects_delay() {
                         "run_id": "behind-politeness",
                         "seeds": [seed("https://slow.test/a")],
                         "settings": {
-                            "crawl": { "continuous": true },
+                            "crawl": { "continuous": { "enabled": true } },
                             "fetch": { "tier": "http" },
                             "politeness": { "domain": { "delay": 1_000, "concurrency": 1 } },
                         },
@@ -1119,7 +1122,7 @@ fn revisits_never_teach_learned_rules_or_trap_paths() {
                         "run_id": "no-revisit-trap",
                         "seeds": [seed("https://shop.test/items/1")],
                         "settings": {
-                            "crawl": { "continuous": true },
+                            "crawl": { "continuous": { "enabled": true } },
                             "fetch": { "tier": "http" },
                             "politeness": { "domain": { "delay": 0 } },
                         },
@@ -1328,7 +1331,7 @@ fn engine_with_rules(rules: std::sync::Arc<SwitchableRules>) -> goodfetch_engine
 /// change tracking reports the crossing, and records the version, date and
 /// switch in its Run report (ADR 0047, ADR 0139, #1873).
 ///
-/// Covers: setting:clean_up.follow_latest, setting:crawl.continuous
+/// Covers: setting:clean_up.follow_latest, setting:crawl.continuous.enabled
 #[test]
 fn a_continuous_crawl_adopts_new_clean_up_rules_at_its_next_safe_point_and_reports_version_date_and_crossing()
  {
@@ -1355,7 +1358,7 @@ fn a_continuous_crawl_adopts_new_clean_up_rules_at_its_next_safe_point_and_repor
                         "labels": every_label(1_000),
                         "datasets": [{ "name": "pages" }],
                         "seeds": [seed("https://news.test/front")],
-                        "settings": { "crawl": { "continuous": true } },
+                        "settings": { "crawl": { "continuous": { "enabled": true } } },
                     }),
                     &mut handler,
                 )
@@ -1465,7 +1468,7 @@ fn clean_up_follow_latest_false_keeps_rules_pinned_in_a_continuous_crawl() {
                         "datasets": [{ "name": "pages" }],
                         "seeds": [seed("https://news.test/front")],
                         "settings": {
-                            "crawl": { "continuous": true },
+                            "crawl": { "continuous": { "enabled": true } },
                             "clean_up": { "follow_latest": false },
                         },
                     }),
@@ -1649,7 +1652,7 @@ fn revisit_on_error_reschedules_failed_revisit_and_keeps_coverage() {
                         "seeds": [seed("https://shop.test/flaky")],
                         "settings": {
                             "crawl": {
-                                "continuous": true,
+                                "continuous": { "enabled": true },
                                 "retry": { "max": 0 },
                             },
                         },
@@ -1764,7 +1767,7 @@ fn revisit_on_error_reschedules_failed_revisit_and_keeps_coverage() {
         .find(|s| s["key"] == "revisit.on_error")
         .unwrap();
     assert_eq!(
-        on_error_y["yields_to"]["key"], "crawl.continuous",
+        on_error_y["yields_to"]["key"], "crawl.continuous.enabled",
         "{on_error_y}"
     );
     let gone_after_y = yields
@@ -1772,7 +1775,7 @@ fn revisit_on_error_reschedules_failed_revisit_and_keeps_coverage() {
         .find(|s| s["key"] == "revisit.gone_after")
         .unwrap();
     assert_eq!(
-        gone_after_y["yields_to"]["key"], "crawl.continuous",
+        gone_after_y["yields_to"]["key"], "crawl.continuous.enabled",
         "{gone_after_y}"
     );
 
@@ -1877,7 +1880,7 @@ fn revisit_gone_after_ends_dead_url_gone_and_stops_revisiting() {
                     "crawl.start",
                     json!({
                         "run_id": "gone-run",
-                        "settings": { "crawl": { "continuous": true } },
+                        "settings": { "crawl": { "continuous": { "enabled": true } } },
                         "labels": {
                             "fast": {
                                 "settings": {
@@ -2043,7 +2046,7 @@ fn revisit_gone_after_ends_dead_url_gone_and_stops_revisiting() {
 /// `(0, 1]`, and `target_freshness` outside `(0, 1)` with `setting_invalid`
 /// (ADR 0139; issue 1845).
 ///
-/// Covers: setting:revisit.policy, setting:crawl.continuous
+/// Covers: setting:revisit.policy, setting:crawl.continuous.enabled
 #[test]
 fn revisit_policy_defaults_to_adaptive_and_rejects_invalid_settings() {
     let env = TestEnv::new();
@@ -2056,7 +2059,7 @@ fn revisit_policy_defaults_to_adaptive_and_rejects_invalid_settings() {
                     "config.explain",
                     json!({
                         "keys": ["revisit.policy"],
-                        "settings": { "crawl": { "continuous": true } },
+                        "settings": { "crawl": { "continuous": { "enabled": true } } },
                     }),
                     &mut answer_all,
                 )
@@ -2065,7 +2068,7 @@ fn revisit_policy_defaults_to_adaptive_and_rejects_invalid_settings() {
                 json!({
                     "run_id": run_id,
                     "seeds": [seed("https://example.test/fast")],
-                    "settings": { "crawl": { "continuous": true } },
+                    "settings": { "crawl": { "continuous": { "enabled": true } } },
                     "labels": { "page": { "settings": { "revisit": { "policy": policy } } } }
                 })
             };
@@ -2133,7 +2136,7 @@ fn revisit_policy_defaults_to_adaptive_and_rejects_invalid_settings() {
 /// to `min` and list them in the Run report's `revisits_at_min` (ADR 0139;
 /// issue 1845).
 ///
-/// Covers: setting:revisit.policy, setting:crawl.continuous
+/// Covers: setting:revisit.policy, setting:crawl.continuous.enabled
 #[expect(
     clippy::too_many_lines,
     reason = "end-to-end Continuous crawl test exercises adaptive and estimated policies and verifies Run report"
@@ -2191,7 +2194,7 @@ fn adaptive_and_estimated_policies_list_fast_urls_in_run_report() {
                             { "url": "https://example.test/fast", "label": "fast" },
                             { "url": "https://example.test/estimated", "label": "est" },
                         ],
-                        "settings": { "crawl": { "continuous": true } },
+                        "settings": { "crawl": { "continuous": { "enabled": true } } },
                         "labels": {
                             "fast": {
                                 "settings": {
@@ -2329,7 +2332,7 @@ fn site_caching_headers_are_floors_by_default_and_switchable_individually() {
                             "revisit.site_hints.retry_after",
                         ],
                         "settings": {
-                            "crawl": { "continuous": false },
+                            "crawl": { "continuous": { "enabled": false } },
                             "revisit": {
                                 "site_hints": {
                                     "cache_control": false,
@@ -2353,7 +2356,7 @@ fn site_caching_headers_are_floors_by_default_and_switchable_individually() {
                             { "url": "https://ra.test/ra", "label": "on" },
                             { "url": "https://off.test/off", "label": "cc_off" },
                         ],
-                        "settings": { "crawl": { "continuous": true } },
+                        "settings": { "crawl": { "continuous": { "enabled": true } } },
                         "labels": {
                             "on": { "settings": { "revisit": { "policy": { "kind": "every", "interval": 10_000 } } } },
                             "cc_off": { "settings": { "revisit": {
@@ -2376,7 +2379,10 @@ fn site_caching_headers_are_floors_by_default_and_switchable_individually() {
     .0;
 
     for setting in explained_batch["result"]["settings"].as_array().unwrap() {
-        assert_eq!(setting["yields_to"]["key"], "crawl.continuous", "{setting}");
+        assert_eq!(
+            setting["yields_to"]["key"], "crawl.continuous.enabled",
+            "{setting}"
+        );
     }
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
     let map = hits.lock().unwrap();
@@ -2386,5 +2392,229 @@ fn site_caching_headers_are_floors_by_default_and_switchable_individually() {
     assert!(
         map.get("/off").copied().unwrap_or(0) >= 2,
         "expected /off to revisit: {map:?}"
+    );
+}
+
+/// In a Continuous crawl, sitemaps are re-read as standing sources under
+/// `crawl.sitemap.revisit` and `crawl.sitemap.news_revisit`, entries older
+/// than `crawl.continuous.max_entry_age` are skipped, and
+/// `revisit.site_hints.changefreq` / `priority` are off by default and set
+/// the initial revisit interval when on (ADR 0139; issue 1852).
+///
+/// Covers: setting:crawl.sitemap.read_lastmod, setting:crawl.sitemap.revisit, setting:crawl.sitemap.news_revisit, setting:crawl.continuous.max_entry_age, setting:revisit.site_hints.changefreq, setting:revisit.site_hints.priority
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end Continuous crawl test exercises standing news sitemap re-reads, max_entry_age, and changefreq/priority switches"
+)]
+#[test]
+fn continuous_crawl_rereads_sitemaps_as_standing_sources_and_honors_changefreq() {
+    let env = TestEnv::new();
+    let sitemap_reads = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let page_hits = std::sync::Arc::new(std::sync::Mutex::new(std::collections::BTreeMap::<
+        String,
+        usize,
+    >::new()));
+    let reads_ref = std::sync::Arc::clone(&sitemap_reads);
+    let hits_ref = std::sync::Arc::clone(&page_hits);
+
+    let site = std::sync::Arc::new(ScriptedSite {
+        recorded: std::sync::Mutex::new(Vec::new()),
+        respond: Box::new(move |hop| {
+            let path = hop.url.path().to_owned();
+            if path == "/robots.txt" {
+                return (
+                    200,
+                    vec![("content-type".to_owned(), "text/plain".to_owned())],
+                    String::new(),
+                );
+            }
+            if path == "/news.xml" {
+                let n = reads_ref.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                let extra = if n >= 2 {
+                    "<url><loc>https://news.test/second</loc><news:news><news:publication_date>2026-01-05T09:05:00Z</news:publication_date></news:news></url>"
+                } else {
+                    ""
+                };
+                let body = format!(
+                    r#"<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">
+  <url>
+    <loc>https://news.test/first</loc>
+    <changefreq>hourly</changefreq>
+    <priority>0.9</priority>
+    <news:news><news:publication_date>2026-01-05T08:00:00Z</news:publication_date></news:news>
+  </url>
+  <url>
+    <loc>https://news.test/ancient</loc>
+    <news:news><news:publication_date>2020-01-01T00:00:00Z</news:publication_date></news:news>
+  </url>
+  {extra}
+</urlset>"#
+                );
+                return (
+                    200,
+                    vec![("content-type".to_owned(), "application/xml".to_owned())],
+                    body,
+                );
+            }
+            let n = {
+                let mut map = hits_ref.lock().unwrap();
+                let entry = map.entry(path.clone()).or_insert(0);
+                *entry += 1;
+                *entry
+            };
+            (
+                200,
+                vec![("content-type".to_owned(), "text/html".to_owned())],
+                format!("<html><body>{path} v{n}</body></html>"),
+            )
+        }),
+    });
+    let engine = engine_with_site(std::sync::Arc::clone(&site));
+    let mut handler = |_: &Value| Reply::Records(Vec::new());
+
+    let (explained_batch, report) = super::crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let explained_batch = client
+                .call(
+                    "config.explain",
+                    json!({
+                        "keys": [
+                            "crawl.sitemap.revisit",
+                            "crawl.sitemap.news_revisit",
+                            "crawl.continuous.max_entry_age",
+                            "revisit.site_hints.changefreq",
+                            "revisit.site_hints.priority",
+                        ],
+                        "settings": {
+                            "crawl": {
+                                "continuous": {
+                                    "enabled": false,
+                                    "max_entry_age": 60_000
+                                },
+                                "sitemap": {
+                                    "revisit": { "kind": "never" },
+                                    "news_revisit": { "kind": "never" }
+                                }
+                            },
+                            "revisit": {
+                                "site_hints": {
+                                    "changefreq": true,
+                                    "priority": true
+                                }
+                            }
+                        },
+                    }),
+                    &mut handler,
+                )
+                .await;
+            let started = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "sitemap-standing-run",
+                        "seeds": [
+                            {
+                                "sitemap": "https://news.test/news.xml",
+                                "rules": [{ "pattern": "**", "label": "article" }]
+                            }
+                        ],
+                        "settings": {
+                            "crawl": {
+                                "continuous": {
+                                    "enabled": true,
+                                    "max_entry_age": 2_592_000_000_u64
+                                },
+                                "sitemap": {
+                                    "read_lastmod": true,
+                                    "news_revisit": {
+                                        "kind": "adaptive",
+                                        "initial": 10_000,
+                                        "min": 5_000,
+                                        "max": 60_000
+                                    }
+                                }
+                            },
+                            "revisit": {
+                                "site_hints": {
+                                    "changefreq": true,
+                                    "priority": true
+                                }
+                            }
+                        },
+                        "labels": {
+                            "article": {
+                                "settings": {
+                                    "revisit": {
+                                        "policy": {
+                                            "kind": "adaptive",
+                                            "initial": 86_400_000,
+                                            "min": 3_600_000,
+                                            "max": 2_592_000_000_u64
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }),
+                    &mut handler,
+                )
+                .await;
+            assert!(started["result"].is_object(), "start failed: {started}");
+            let _ = progress_matching(
+                client,
+                "sitemap-standing-run",
+                |p| p["idle"] == json!(true),
+                &mut handler,
+            )
+            .await;
+            // Advance past news_revisit's 10s initial interval so the news sitemap is re-read
+            // and discovers `/second`.
+            advance(Duration::from_secs(12)).await;
+            let _ = progress_matching(
+                client,
+                "sitemap-standing-run",
+                |p| p["idle"] == json!(true),
+                &mut handler,
+            )
+            .await;
+            let report = client
+                .call(
+                    "run.finish",
+                    json!({ "run_id": "sitemap-standing-run" }),
+                    &mut handler,
+                )
+                .await;
+            (explained_batch, report)
+        },
+    )
+    .0;
+
+    for setting in explained_batch["result"]["settings"].as_array().unwrap() {
+        assert_eq!(
+            setting["yields_to"]["key"], "crawl.continuous.enabled",
+            "{setting}"
+        );
+    }
+    assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
+    assert!(
+        sitemap_reads.load(std::sync::atomic::Ordering::SeqCst) >= 2,
+        "news sitemap must be re-read as a standing source"
+    );
+    let map = page_hits.lock().unwrap();
+    assert!(
+        map.contains_key("/first"),
+        "fresh entry must be fetched: {map:?}"
+    );
+    assert!(
+        map.contains_key("/second"),
+        "new entry added on second sitemap read must be fetched: {map:?}"
+    );
+    assert!(
+        !map.contains_key("/ancient"),
+        "entry older than max_entry_age must not be admitted: {map:?}"
     );
 }

@@ -796,7 +796,9 @@ impl RunState {
         for (id, _) in &asked {
             if self.revisits.is_active(id) {
                 if let Some((cached, prev)) = self.revisits.begin_lease(id) {
-                    reopened.push(prev);
+                    if let Some(prev) = prev {
+                        reopened.push(prev);
+                    }
                     if let Some(leased) = cached {
                         kept.insert(id.clone(), leased);
                     } else {

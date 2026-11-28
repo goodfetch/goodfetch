@@ -28,17 +28,6 @@ pub mod crawl {
         ],
     );
 
-    /// Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.
-    ///
-    /// `crawl.continuous`.
-    pub const CONTINUOUS: crate::settings::Setting<bool> = crate::settings::Setting::new(
-        "crawl.continuous",
-        &[
-            ::goodfetch_protocol::catalog::SettingScope::Connection,
-            ::goodfetch_protocol::catalog::SettingScope::Run,
-        ],
-    );
-
     /// Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.
     ///
     /// `crawl.domain_keys`.
@@ -218,6 +207,33 @@ pub mod crawl {
         }
     }
 
+    /// The `crawl.continuous.*` settings.
+    pub mod continuous {
+
+        /// Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.
+        ///
+        /// `crawl.continuous.enabled`.
+        pub const ENABLED: crate::settings::Setting<bool> = crate::settings::Setting::new(
+            "crawl.continuous.enabled",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+
+        /// Maximum age of a dated sitemap or syndication entry to admit in a Continuous crawl, in whole milliseconds: 30 days (2,592,000,000 ms, CC-NEWS's rule) by default; `null` turns the bound off. Accepted on a batch crawl, where `config explain` marks it inactive.
+        ///
+        /// `crawl.continuous.max_entry_age`. `None` clears it.
+        pub const MAX_ENTRY_AGE: crate::settings::Setting<Option<::std::time::Duration>> =
+            crate::settings::Setting::new(
+                "crawl.continuous.max_entry_age",
+                &[
+                    ::goodfetch_protocol::catalog::SettingScope::Connection,
+                    ::goodfetch_protocol::catalog::SettingScope::Run,
+                ],
+            );
+    }
+
     /// The `crawl.handler.*` settings.
     pub mod handler {
 
@@ -375,6 +391,47 @@ pub mod crawl {
                 }
             }
         }
+    }
+
+    /// The `crawl.sitemap.*` settings.
+    pub mod sitemap {
+
+        /// Revisit policy for Google News sitemaps in a Continuous crawl: `adaptive` (initial 1 hour, 15 minutes to 24 hours) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+        ///
+        /// `crawl.sitemap.news_revisit`.
+        pub const NEWS_REVISIT: crate::settings::Setting<
+            ::goodfetch_protocol::foxhound::continuous::RevisitPolicy,
+        > = crate::settings::Setting::new(
+            "crawl.sitemap.news_revisit",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+
+        /// Whether sitemap reads read `<lastmod>` and the `news:` extension (`<news:publication_date>`) in any crawl: `true` by default.
+        ///
+        /// `crawl.sitemap.read_lastmod`.
+        pub const READ_LASTMOD: crate::settings::Setting<bool> = crate::settings::Setting::new(
+            "crawl.sitemap.read_lastmod",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+
+        /// Revisit policy for standing sitemaps (other than Google News sitemaps) in a Continuous crawl: `adaptive` (initial 24 hours, 1 hour to 30 days) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+        ///
+        /// `crawl.sitemap.revisit`.
+        pub const REVISIT: crate::settings::Setting<
+            ::goodfetch_protocol::foxhound::continuous::RevisitPolicy,
+        > = crate::settings::Setting::new(
+            "crawl.sitemap.revisit",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
     }
 }
 
@@ -1187,11 +1244,35 @@ pub mod revisit {
             ],
         );
 
+        /// Whether a sitemap entry's `<changefreq>` sets its initial revisit interval in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.
+        ///
+        /// `revisit.site_hints.changefreq`.
+        pub const CHANGEFREQ: crate::settings::Setting<bool> = crate::settings::Setting::new(
+            "revisit.site_hints.changefreq",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+                ::goodfetch_protocol::catalog::SettingScope::Label,
+            ],
+        );
+
         /// Whether `Expires` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
         ///
         /// `revisit.site_hints.expires`.
         pub const EXPIRES: crate::settings::Setting<bool> = crate::settings::Setting::new(
             "revisit.site_hints.expires",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+                ::goodfetch_protocol::catalog::SettingScope::Label,
+            ],
+        );
+
+        /// Whether a sitemap entry's `<priority>` steers its queue priority in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.
+        ///
+        /// `revisit.site_hints.priority`.
+        pub const PRIORITY: crate::settings::Setting<bool> = crate::settings::Setting::new(
+            "revisit.site_hints.priority",
             &[
                 ::goodfetch_protocol::catalog::SettingScope::Connection,
                 ::goodfetch_protocol::catalog::SettingScope::Run,

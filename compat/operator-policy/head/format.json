@@ -223,6 +223,25 @@
           "crawl": {
             "additionalProperties": false,
             "properties": {
+              "continuous": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_entry_age": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Maximum age of a dated sitemap or syndication entry to admit in a Continuous crawl, in whole milliseconds: 30 days (2,592,000,000 ms, CC-NEWS's rule) by default; `null` turns the bound off. Accepted on a batch crawl, where `config explain` marks it inactive."
+                  }
+                },
+                "type": "object"
+              },
               "handler": {
                 "additionalProperties": false,
                 "properties": {
@@ -1639,8 +1658,27 @@
                 "type": "array"
               },
               "continuous": {
-                "description": "Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.",
-                "type": "boolean"
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "description": "Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.",
+                    "type": "boolean"
+                  },
+                  "max_entry_age": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Maximum age of a dated sitemap or syndication entry to admit in a Continuous crawl, in whole milliseconds: 30 days (2,592,000,000 ms, CC-NEWS's rule) by default; `null` turns the bound off. Accepted on a batch crawl, where `config explain` marks it inactive."
+                  }
+                },
+                "type": "object"
               },
               "domain_keys": {
                 "additionalProperties": {
@@ -1866,6 +1904,292 @@
                       "same_domain",
                       "same_origin",
                       "all"
+                    ]
+                  }
+                },
+                "type": "object"
+              },
+              "sitemap": {
+                "additionalProperties": false,
+                "properties": {
+                  "news_revisit": {
+                    "description": "Revisit policy for Google News sitemaps in a Continuous crawl: `adaptive` (initial 1 hour, 15 minutes to 24 hours) by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Never revisit the URL after its first visit, such as articles.",
+                        "properties": {
+                          "kind": {
+                            "const": "never",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "description": "Revisit at a fixed interval, in whole milliseconds (at least 1).",
+                        "properties": {
+                          "interval": {
+                            "arrived_in": "0.1",
+                            "description": "Interval between revisits in milliseconds (at least 1).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "const": "every",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "interval"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "description": "Multiplicative adaptive schedule (Nutch / `StormCrawler`, ADR 0139):\nshrinks by `rate_changed` after a change and grows by `rate_unchanged`\nafter none, clamped to `[min, max]`. Default for pages.",
+                        "properties": {
+                          "initial": {
+                            "arrived_in": "0.1",
+                            "default": 86400000,
+                            "description": "Initial revisit interval in milliseconds (default: 1 day).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "const": "adaptive",
+                            "type": "string"
+                          },
+                          "max": {
+                            "arrived_in": "0.1",
+                            "default": 2592000000,
+                            "description": "Maximum revisit interval in milliseconds (default: 30 days).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "min": {
+                            "arrived_in": "0.1",
+                            "default": 3600000,
+                            "description": "Minimum revisit interval in milliseconds (default: 1 hour).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "rate_changed": {
+                            "arrived_in": "0.1",
+                            "default": 0.5,
+                            "description": "Fractional shrink applied after a changed visit, in `(0, 1]` (default: 0.5).",
+                            "format": "double",
+                            "type": "number"
+                          },
+                          "rate_unchanged": {
+                            "arrived_in": "0.1",
+                            "default": 0.5,
+                            "description": "Fractional growth applied after an unchanged visit, in `(0, 1]` (default: 0.5).",
+                            "format": "double",
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "description": "Change-rate estimator schedule (Cho and Garcia-Molina, ADR 0139):\nestimates change rate from visits and changes starting from a prior of\ntwo intervals of `initial`, and schedules to reach `target_freshness`,\nclamped to `[min, max]`.",
+                        "properties": {
+                          "initial": {
+                            "arrived_in": "0.1",
+                            "default": 86400000,
+                            "description": "Prior interval in milliseconds (default: 1 day).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "const": "estimated",
+                            "type": "string"
+                          },
+                          "max": {
+                            "arrived_in": "0.1",
+                            "default": 2592000000,
+                            "description": "Maximum revisit interval in milliseconds (default: 30 days).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "min": {
+                            "arrived_in": "0.1",
+                            "default": 3600000,
+                            "description": "Minimum revisit interval in milliseconds (default: 1 hour).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "target_freshness": {
+                            "arrived_in": "0.1",
+                            "default": 0.9,
+                            "description": "Target expected freshness, strictly in `(0, 1)` (default: 0.9).",
+                            "format": "double",
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "read_lastmod": {
+                    "description": "Whether sitemap reads read `<lastmod>` and the `news:` extension (`<news:publication_date>`) in any crawl: `true` by default.",
+                    "type": "boolean"
+                  },
+                  "revisit": {
+                    "description": "Revisit policy for standing sitemaps (other than Google News sitemaps) in a Continuous crawl: `adaptive` (initial 24 hours, 1 hour to 30 days) by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Never revisit the URL after its first visit, such as articles.",
+                        "properties": {
+                          "kind": {
+                            "const": "never",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "description": "Revisit at a fixed interval, in whole milliseconds (at least 1).",
+                        "properties": {
+                          "interval": {
+                            "arrived_in": "0.1",
+                            "description": "Interval between revisits in milliseconds (at least 1).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "const": "every",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "interval"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "description": "Multiplicative adaptive schedule (Nutch / `StormCrawler`, ADR 0139):\nshrinks by `rate_changed` after a change and grows by `rate_unchanged`\nafter none, clamped to `[min, max]`. Default for pages.",
+                        "properties": {
+                          "initial": {
+                            "arrived_in": "0.1",
+                            "default": 86400000,
+                            "description": "Initial revisit interval in milliseconds (default: 1 day).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "const": "adaptive",
+                            "type": "string"
+                          },
+                          "max": {
+                            "arrived_in": "0.1",
+                            "default": 2592000000,
+                            "description": "Maximum revisit interval in milliseconds (default: 30 days).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "min": {
+                            "arrived_in": "0.1",
+                            "default": 3600000,
+                            "description": "Minimum revisit interval in milliseconds (default: 1 hour).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "rate_changed": {
+                            "arrived_in": "0.1",
+                            "default": 0.5,
+                            "description": "Fractional shrink applied after a changed visit, in `(0, 1]` (default: 0.5).",
+                            "format": "double",
+                            "type": "number"
+                          },
+                          "rate_unchanged": {
+                            "arrived_in": "0.1",
+                            "default": 0.5,
+                            "description": "Fractional growth applied after an unchanged visit, in `(0, 1]` (default: 0.5).",
+                            "format": "double",
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "description": "Change-rate estimator schedule (Cho and Garcia-Molina, ADR 0139):\nestimates change rate from visits and changes starting from a prior of\ntwo intervals of `initial`, and schedules to reach `target_freshness`,\nclamped to `[min, max]`.",
+                        "properties": {
+                          "initial": {
+                            "arrived_in": "0.1",
+                            "default": 86400000,
+                            "description": "Prior interval in milliseconds (default: 1 day).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "const": "estimated",
+                            "type": "string"
+                          },
+                          "max": {
+                            "arrived_in": "0.1",
+                            "default": 2592000000,
+                            "description": "Maximum revisit interval in milliseconds (default: 30 days).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "min": {
+                            "arrived_in": "0.1",
+                            "default": 3600000,
+                            "description": "Minimum revisit interval in milliseconds (default: 1 hour).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "target_freshness": {
+                            "arrived_in": "0.1",
+                            "default": 0.9,
+                            "description": "Target expected freshness, strictly in `(0, 1)` (default: 0.9).",
+                            "format": "double",
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "type": "object"
+                      }
                     ]
                   }
                 },
@@ -3927,8 +4251,16 @@
                     "description": "Whether `Cache-Control: max-age` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
                     "type": "boolean"
                   },
+                  "changefreq": {
+                    "description": "Whether a sitemap entry's `<changefreq>` sets its initial revisit interval in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.",
+                    "type": "boolean"
+                  },
                   "expires": {
                     "description": "Whether `Expires` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+                    "type": "boolean"
+                  },
+                  "priority": {
+                    "description": "Whether a sitemap entry's `<priority>` steers its queue priority in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.",
                     "type": "boolean"
                   },
                   "retry_after": {
@@ -6871,8 +7203,27 @@
                 "type": "array"
               },
               "continuous": {
-                "description": "Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.",
-                "type": "boolean"
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "description": "Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.",
+                    "type": "boolean"
+                  },
+                  "max_entry_age": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Maximum age of a dated sitemap or syndication entry to admit in a Continuous crawl, in whole milliseconds: 30 days (2,592,000,000 ms, CC-NEWS's rule) by default; `null` turns the bound off. Accepted on a batch crawl, where `config explain` marks it inactive."
+                  }
+                },
+                "type": "object"
               },
               "domain_keys": {
                 "additionalProperties": {
@@ -7098,6 +7449,292 @@
                       "same_domain",
                       "same_origin",
                       "all"
+                    ]
+                  }
+                },
+                "type": "object"
+              },
+              "sitemap": {
+                "additionalProperties": false,
+                "properties": {
+                  "news_revisit": {
+                    "description": "Revisit policy for Google News sitemaps in a Continuous crawl: `adaptive` (initial 1 hour, 15 minutes to 24 hours) by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Never revisit the URL after its first visit, such as articles.",
+                        "properties": {
+                          "kind": {
+                            "const": "never",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "description": "Revisit at a fixed interval, in whole milliseconds (at least 1).",
+                        "properties": {
+                          "interval": {
+                            "arrived_in": "0.1",
+                            "description": "Interval between revisits in milliseconds (at least 1).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "const": "every",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "interval"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "description": "Multiplicative adaptive schedule (Nutch / `StormCrawler`, ADR 0139):\nshrinks by `rate_changed` after a change and grows by `rate_unchanged`\nafter none, clamped to `[min, max]`. Default for pages.",
+                        "properties": {
+                          "initial": {
+                            "arrived_in": "0.1",
+                            "default": 86400000,
+                            "description": "Initial revisit interval in milliseconds (default: 1 day).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "const": "adaptive",
+                            "type": "string"
+                          },
+                          "max": {
+                            "arrived_in": "0.1",
+                            "default": 2592000000,
+                            "description": "Maximum revisit interval in milliseconds (default: 30 days).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "min": {
+                            "arrived_in": "0.1",
+                            "default": 3600000,
+                            "description": "Minimum revisit interval in milliseconds (default: 1 hour).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "rate_changed": {
+                            "arrived_in": "0.1",
+                            "default": 0.5,
+                            "description": "Fractional shrink applied after a changed visit, in `(0, 1]` (default: 0.5).",
+                            "format": "double",
+                            "type": "number"
+                          },
+                          "rate_unchanged": {
+                            "arrived_in": "0.1",
+                            "default": 0.5,
+                            "description": "Fractional growth applied after an unchanged visit, in `(0, 1]` (default: 0.5).",
+                            "format": "double",
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "description": "Change-rate estimator schedule (Cho and Garcia-Molina, ADR 0139):\nestimates change rate from visits and changes starting from a prior of\ntwo intervals of `initial`, and schedules to reach `target_freshness`,\nclamped to `[min, max]`.",
+                        "properties": {
+                          "initial": {
+                            "arrived_in": "0.1",
+                            "default": 86400000,
+                            "description": "Prior interval in milliseconds (default: 1 day).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "const": "estimated",
+                            "type": "string"
+                          },
+                          "max": {
+                            "arrived_in": "0.1",
+                            "default": 2592000000,
+                            "description": "Maximum revisit interval in milliseconds (default: 30 days).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "min": {
+                            "arrived_in": "0.1",
+                            "default": 3600000,
+                            "description": "Minimum revisit interval in milliseconds (default: 1 hour).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "target_freshness": {
+                            "arrived_in": "0.1",
+                            "default": 0.9,
+                            "description": "Target expected freshness, strictly in `(0, 1)` (default: 0.9).",
+                            "format": "double",
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "read_lastmod": {
+                    "description": "Whether sitemap reads read `<lastmod>` and the `news:` extension (`<news:publication_date>`) in any crawl: `true` by default.",
+                    "type": "boolean"
+                  },
+                  "revisit": {
+                    "description": "Revisit policy for standing sitemaps (other than Google News sitemaps) in a Continuous crawl: `adaptive` (initial 24 hours, 1 hour to 30 days) by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Never revisit the URL after its first visit, such as articles.",
+                        "properties": {
+                          "kind": {
+                            "const": "never",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "description": "Revisit at a fixed interval, in whole milliseconds (at least 1).",
+                        "properties": {
+                          "interval": {
+                            "arrived_in": "0.1",
+                            "description": "Interval between revisits in milliseconds (at least 1).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "const": "every",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "interval"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "description": "Multiplicative adaptive schedule (Nutch / `StormCrawler`, ADR 0139):\nshrinks by `rate_changed` after a change and grows by `rate_unchanged`\nafter none, clamped to `[min, max]`. Default for pages.",
+                        "properties": {
+                          "initial": {
+                            "arrived_in": "0.1",
+                            "default": 86400000,
+                            "description": "Initial revisit interval in milliseconds (default: 1 day).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "const": "adaptive",
+                            "type": "string"
+                          },
+                          "max": {
+                            "arrived_in": "0.1",
+                            "default": 2592000000,
+                            "description": "Maximum revisit interval in milliseconds (default: 30 days).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "min": {
+                            "arrived_in": "0.1",
+                            "default": 3600000,
+                            "description": "Minimum revisit interval in milliseconds (default: 1 hour).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "rate_changed": {
+                            "arrived_in": "0.1",
+                            "default": 0.5,
+                            "description": "Fractional shrink applied after a changed visit, in `(0, 1]` (default: 0.5).",
+                            "format": "double",
+                            "type": "number"
+                          },
+                          "rate_unchanged": {
+                            "arrived_in": "0.1",
+                            "default": 0.5,
+                            "description": "Fractional growth applied after an unchanged visit, in `(0, 1]` (default: 0.5).",
+                            "format": "double",
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "description": "Change-rate estimator schedule (Cho and Garcia-Molina, ADR 0139):\nestimates change rate from visits and changes starting from a prior of\ntwo intervals of `initial`, and schedules to reach `target_freshness`,\nclamped to `[min, max]`.",
+                        "properties": {
+                          "initial": {
+                            "arrived_in": "0.1",
+                            "default": 86400000,
+                            "description": "Prior interval in milliseconds (default: 1 day).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "const": "estimated",
+                            "type": "string"
+                          },
+                          "max": {
+                            "arrived_in": "0.1",
+                            "default": 2592000000,
+                            "description": "Maximum revisit interval in milliseconds (default: 30 days).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "min": {
+                            "arrived_in": "0.1",
+                            "default": 3600000,
+                            "description": "Minimum revisit interval in milliseconds (default: 1 hour).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "target_freshness": {
+                            "arrived_in": "0.1",
+                            "default": 0.9,
+                            "description": "Target expected freshness, strictly in `(0, 1)` (default: 0.9).",
+                            "format": "double",
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "type": "object"
+                      }
                     ]
                   }
                 },
@@ -9159,8 +9796,16 @@
                     "description": "Whether `Cache-Control: max-age` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
                     "type": "boolean"
                   },
+                  "changefreq": {
+                    "description": "Whether a sitemap entry's `<changefreq>` sets its initial revisit interval in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.",
+                    "type": "boolean"
+                  },
                   "expires": {
                     "description": "Whether `Expires` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+                    "type": "boolean"
+                  },
+                  "priority": {
+                    "description": "Whether a sitemap entry's `<priority>` steers its queue priority in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.",
                     "type": "boolean"
                   },
                   "retry_after": {

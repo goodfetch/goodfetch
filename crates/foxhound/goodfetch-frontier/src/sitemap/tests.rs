@@ -27,15 +27,25 @@ use goodfetch_protocol::run::Completeness;
 use rusqlite::Connection;
 
 use super::{
-    Document, MAX_BYTES, MAX_ENTRIES, Refusal, Rules, Unreadable, admit_seed, parse, read,
+    ChangeFreq, Document, MAX_BYTES, MAX_ENTRIES, ReadOptions, Refusal, Rules, SitemapDate,
+    SitemapEntry, SitemapIndexEntry, Unreadable, admit_seed, parse, parse_w3c_datetime, read,
     read_file, reports,
 };
 use crate::bounds::{self, Bounds, completeness_reasons};
 use crate::invariants::Invariants;
 use crate::scope::{self, Patterns, Scope, Strategy};
 
-fn locs(locs: &[&str]) -> Vec<String> {
-    locs.iter().map(|loc| (*loc).to_owned()).collect()
+fn entries(locs: &[&str]) -> Document {
+    Document::Entries {
+        entries: locs.iter().map(|loc| SitemapEntry::loc(*loc)).collect(),
+        is_news: false,
+    }
+}
+
+fn index_entries(locs: &[&str]) -> Vec<SitemapIndexEntry> {
+    locs.iter()
+        .map(|loc| SitemapIndexEntry::loc(*loc))
+        .collect()
 }
 
 /// A `urlset`'s `<loc>`s are its entries and a `sitemapindex`'s its
@@ -47,21 +57,33 @@ fn locs(locs: &[&str]) -> Vec<String> {
 #[rstest]
 #[case::a_urlset(
     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n<url><loc>http://shop.test/a</loc><lastmod>2026-01-01</lastmod></url>\n<url><loc>\n  http://shop.test/b\n</loc></url>\n</urlset>\n",
-    Document::Entries(locs(&["http://shop.test/a", "http://shop.test/b"])),
+    Document::Entries {
+        entries: vec![
+            SitemapEntry {
+                loc: "http://shop.test/a".to_owned(),
+                lastmod: parse_w3c_datetime("2026-01-01"),
+                news_publication_date: None,
+                changefreq: None,
+                priority: None,
+            },
+            SitemapEntry::loc("http://shop.test/b"),
+        ],
+        is_news: false,
+    },
 )]
 #[case::an_index(
     "<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\"><sitemap><loc>http://shop.test/1.xml</loc></sitemap><sitemap><loc>/2.xml</loc></sitemap></sitemapindex>",
-    Document::Sitemaps(locs(&["http://shop.test/1.xml", "/2.xml"])),
+    Document::Sitemaps(index_entries(&["http://shop.test/1.xml", "/2.xml"])),
 )]
 #[case::entities_and_cdata(
     "<urlset><url><loc>http://shop.test/?a=1&amp;b=&#50;</loc></url><url><loc><![CDATA[http://shop.test/?c=3&d=4]]></loc></url></urlset>",
-    Document::Entries(locs(&["http://shop.test/?a=1&b=2", "http://shop.test/?c=3&d=4"])),
+    entries(&["http://shop.test/?a=1&b=2", "http://shop.test/?c=3&d=4"]),
 )]
 #[case::a_prefixed_namespace(
     "<s:urlset xmlns:s=\"http://www.sitemaps.org/schemas/sitemap/0.9\"><s:url><s:loc>http://shop.test/a</s:loc></s:url><s:url><image:loc>http://shop.test/a.png</image:loc></s:url></s:urlset>",
-    Document::Entries(locs(&["http://shop.test/a"])),
+    entries(&["http://shop.test/a"]),
 )]
-#[case::an_empty_urlset("<urlset/>", Document::Entries(Vec::new()))]
+#[case::an_empty_urlset("<urlset/>", entries(&[]))]
 fn a_sitemap_is_read_as_its_entries_or_its_sitemaps(#[case] xml: &str, #[case] read: Document) {
     assert_eq!(parse(xml.as_bytes()), Ok(read));
 }
@@ -175,14 +197,8 @@ fn a_gzip_sitemap_reads_as_its_plain_form() {
             read_file(AT, &gzip(plain.as_bytes()), Limits::default()).ok(),
         ),
         (
-            Some(Document::Entries(locs(&[
-                "http://shop.test/0",
-                "http://shop.test/1"
-            ]))),
-            Some(Document::Entries(locs(&[
-                "http://shop.test/0",
-                "http://shop.test/1"
-            ]))),
+            Some(entries(&["http://shop.test/0", "http://shop.test/1"])),
+            Some(entries(&["http://shop.test/0", "http://shop.test/1"])),
         )
     );
 }
@@ -207,7 +223,8 @@ fn a_sitemap_past_fifty_thousand_urls_is_unreadable(#[case] index: bool) {
     );
 
     let listed = match within {
-        Ok(Document::Entries(locs) | Document::Sitemaps(locs)) => locs.len(),
+        Ok(Document::Entries { entries, .. }) => entries.len(),
+        Ok(Document::Sitemaps(locs)) => locs.len(),
         other => panic!("not read: {other:?}"),
     };
     assert_eq!((listed, unreadable(&past)), (50_000, true), "{past:?}");
@@ -238,7 +255,7 @@ fn a_sitemap_past_fifty_megabytes_uncompressed_is_unreadable(#[case] compressed:
 
     assert_eq!(
         (
-            matches!(&within, Ok(Document::Entries(locs)) if locs.len() == 1),
+            matches!(&within, Ok(Document::Entries { entries, .. }) if entries.len() == 1),
             unreadable(&past)
         ),
         (true, true),
@@ -364,7 +381,8 @@ impl Sitemaps {
             &self.invariants,
             &self.policy,
             id,
-            &Document::Sitemaps(locs(nested)),
+            &Document::Sitemaps(index_entries(nested)),
+            ReadOptions::default(),
             &CountedWork::default(),
             |url, _| {
                 added.push(url.to_string());
@@ -542,5 +560,211 @@ fn a_nested_sitemaps_fetch_counts_against_the_crawls_bounds(
             failures,
             vec![(setting.to_owned(), Completeness::Incomplete)]
         )
+    );
+}
+
+/// Sitemaps parse `<lastmod>`, `<news:publication_date>`, `<changefreq>`, and
+/// `<priority>`, and detect Google News sitemaps by namespace or `<news:news>`
+/// elements (ADR 0139; issue 1852).
+///
+/// Covers: setting:crawl.sitemap.read_lastmod
+#[test]
+fn sitemap_parses_lastmod_news_changefreq_and_priority() {
+    let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">
+  <url>
+    <loc>http://shop.test/breaking</loc>
+    <lastmod>2026-11-28T08:00:00Z</lastmod>
+    <changefreq>hourly</changefreq>
+    <priority>0.8</priority>
+    <news:news>
+      <news:publication_date>2026-11-28T09:15:30+01:00</news:publication_date>
+    </news:news>
+  </url>
+  <url>
+    <lastmod>2026-11-20</lastmod>
+    <loc>http://shop.test/date-only</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.3</priority>
+  </url>
+</urlset>"#;
+
+    let Document::Entries { entries, is_news } = parse(xml.as_bytes()).expect("valid news sitemap")
+    else {
+        panic!("expected urlset");
+    };
+    assert!(is_news, "news namespace must mark sitemap as news");
+    assert_eq!(entries.len(), 2);
+
+    let first = &entries[0];
+    assert_eq!(first.loc, "http://shop.test/breaking");
+    assert_eq!(
+        first.lastmod,
+        Some(SitemapDate {
+            ms: parse_w3c_datetime("2026-11-28T08:00:00Z").unwrap().ms,
+            date_only: false,
+        })
+    );
+    // 09:15:30+01:00 == 08:15:30Z
+    assert_eq!(
+        first.news_publication_date,
+        parse_w3c_datetime("2026-11-28T08:15:30Z")
+    );
+    assert_eq!(first.changefreq, Some(ChangeFreq::Hourly));
+    assert_eq!(first.priority, Some(0.8));
+
+    let second = &entries[1];
+    assert_eq!(second.loc, "http://shop.test/date-only");
+    assert_eq!(second.lastmod.map(|d| d.date_only), Some(true));
+    assert_eq!(second.changefreq, Some(ChangeFreq::Weekly));
+    assert_eq!(second.priority, Some(0.3));
+}
+
+/// An entry dated more than `crawl.continuous.max_entry_age` ago is refused
+/// with `max_entry_age` when `crawl.sitemap.read_lastmod` is on, and a
+/// sitemap's `changed` flag triggers on a new entry or an entry updated since
+/// `previous_fetched_at` (ADR 0139; issue 1852).
+///
+/// Covers: setting:crawl.continuous.max_entry_age, setting:crawl.sitemap.read_lastmod
+#[expect(
+    clippy::too_many_lines,
+    reason = "tests max_entry_age filtering, unchanged re-read, and updated-lastmod change detection in one sequence"
+)]
+#[test]
+fn sitemap_read_filters_max_entry_age_and_detects_changes() {
+    let mut sitemaps = Sitemaps::bounded(&Bounds::default());
+    let seed = SitemapSeed {
+        sitemap: "http://shop.test/sitemap.xml".to_owned(),
+        rules: vec![SitemapRule {
+            pattern: "**".to_owned(),
+            label: "article".to_owned(),
+        }],
+    };
+    let id = match admit_seed(
+        &sitemaps.connection,
+        &sitemaps.invariants,
+        &sitemaps.policy,
+        &seed,
+        |url| {
+            sitemaps.added.push(url.to_string());
+            Ok(sitemaps.added.len().to_string())
+        },
+    )
+    .unwrap()
+    {
+        Enqueued::Added { id, .. } => id,
+        other @ Enqueued::NotAdded { .. } => panic!("expected added: {other:?}"),
+    };
+
+    let now_ms = parse_w3c_datetime("2026-11-28T12:00:00Z").unwrap().ms;
+    let day_ms = 86_400_000_u64;
+    let doc = Document::Entries {
+        entries: vec![
+            SitemapEntry {
+                loc: "http://shop.test/fresh".to_owned(),
+                lastmod: Some(SitemapDate {
+                    ms: now_ms - day_ms,
+                    date_only: false,
+                }),
+                news_publication_date: None,
+                changefreq: None,
+                priority: None,
+            },
+            SitemapEntry {
+                loc: "http://shop.test/stale".to_owned(),
+                lastmod: Some(SitemapDate {
+                    ms: now_ms - 31 * day_ms,
+                    date_only: false,
+                }),
+                news_publication_date: None,
+                changefreq: None,
+                priority: None,
+            },
+        ],
+        is_news: false,
+    };
+
+    let first = read(
+        &sitemaps.connection,
+        &sitemaps.invariants,
+        &sitemaps.policy,
+        &id,
+        &doc,
+        ReadOptions {
+            read_lastmod: true,
+            max_entry_age: Some((now_ms, 30 * day_ms)),
+            previous_fetched_at: None,
+        },
+        &CountedWork::default(),
+        |url, _| {
+            sitemaps.added.push(url.to_string());
+            Ok(sitemaps.added.len().to_string())
+        },
+    )
+    .unwrap();
+    assert!(first.changed, "first read added a fresh entry");
+    assert_eq!(sitemaps.added.len(), 2, "only seed + fresh entry admitted");
+    assert_eq!(sitemaps.added[1], "http://shop.test/fresh");
+
+    // Re-reading the exact same sitemap with no new entry and no newer lastmod is unchanged.
+    let second = read(
+        &sitemaps.connection,
+        &sitemaps.invariants,
+        &sitemaps.policy,
+        &id,
+        &doc,
+        ReadOptions {
+            read_lastmod: true,
+            max_entry_age: Some((now_ms + day_ms, 30 * day_ms)),
+            previous_fetched_at: Some(now_ms),
+        },
+        &CountedWork::default(),
+        |url, _| {
+            sitemaps.added.push(url.to_string());
+            Ok(sitemaps.added.len().to_string())
+        },
+    )
+    .unwrap();
+    assert!(
+        !second.changed,
+        "unchanged sitemap must report changed = false"
+    );
+
+    // Updating an existing entry's <lastmod> past previous_fetched_at counts as changed.
+    let updated_doc = Document::Entries {
+        entries: vec![SitemapEntry {
+            loc: "http://shop.test/fresh".to_owned(),
+            lastmod: Some(SitemapDate {
+                ms: now_ms + 60_000,
+                date_only: false,
+            }),
+            news_publication_date: None,
+            changefreq: None,
+            priority: None,
+        }],
+        is_news: false,
+    };
+    let third = read(
+        &sitemaps.connection,
+        &sitemaps.invariants,
+        &sitemaps.policy,
+        &id,
+        &updated_doc,
+        ReadOptions {
+            read_lastmod: true,
+            max_entry_age: Some((now_ms + 120_000, 30 * day_ms)),
+            previous_fetched_at: Some(now_ms),
+        },
+        &CountedWork::default(),
+        |url, _| {
+            sitemaps.added.push(url.to_string());
+            Ok(sitemaps.added.len().to_string())
+        },
+    )
+    .unwrap();
+    assert!(
+        third.changed,
+        "entry updated since previous_fetched_at must report changed = true"
     );
 }

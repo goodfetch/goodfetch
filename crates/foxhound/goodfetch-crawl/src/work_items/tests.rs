@@ -234,6 +234,7 @@ impl Subject {
                             priority,
                             forefront,
                             depth: 0,
+                            initial_interval_ms: None,
                         },
                     )
                 },
@@ -394,15 +395,22 @@ fn sitemap_read() -> SitemapRead {
         let seeded = seeded.with_sitemaps(connection)?;
         let leased = super::lease(connection, std::slice::from_ref(&fetch))?;
         let mut read = Changed::default();
-        let keyed = super::read_sitemap(
+        let (keyed, _outcome) = super::read_sitemap(
             connection,
             &invariants,
             &policy,
             (&fetch, leased[0].lease_epoch),
-            &Document::Entries(vec![
-                "https://shop.test/a".to_owned(),
-                "https://shop.test/b".to_owned(),
-            ]),
+            &Document::Entries {
+                entries: vec![
+                    goodfetch_frontier::sitemap::SitemapEntry::loc("https://shop.test/a"),
+                    goodfetch_frontier::sitemap::SitemapEntry::loc("https://shop.test/b"),
+                ],
+                is_news: false,
+            },
+            (
+                goodfetch_frontier::sitemap::ReadOptions::default(),
+                &super::SitemapHintPolicy::default(),
+            ),
             (&keys, &CountedWork::default(), &mut read),
         )?
         .expect("the fetch's lease holds");
@@ -466,6 +474,7 @@ fn a_sitemap_seeds_admission_and_its_sitemaps_read_answer_what_they_changed() {
                 added: 2,
                 fetches_ended: 1,
                 sitemaps: Some(vec![report(1, 2)]),
+                sources: Some(Vec::new()),
                 ..Changed::default()
             },
         )

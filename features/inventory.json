@@ -9462,7 +9462,17 @@
       ]
     },
     {
-      "id": "setting:crawl.continuous",
+      "id": "setting:crawl.continuous.enabled",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:crawl.continuous.max_entry_age",
       "kind": "setting",
       "area": 3,
       "milestone": null,
@@ -9705,6 +9715,36 @@
       "id": "setting:crawl.scope.strategy",
       "kind": "setting",
       "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:crawl.sitemap.news_revisit",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:crawl.sitemap.read_lastmod",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:crawl.sitemap.revisit",
+      "kind": "setting",
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -11242,7 +11282,27 @@
       ]
     },
     {
+      "id": "setting:revisit.site_hints.changefreq",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:revisit.site_hints.expires",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:revisit.site_hints.priority",
       "kind": "setting",
       "area": 3,
       "milestone": null,

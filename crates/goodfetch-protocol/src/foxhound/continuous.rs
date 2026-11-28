@@ -1,7 +1,10 @@
 //! Continuous crawl and Revisit settings and types (ADR 0139; spec #1836).
 //!
-//! A crawl sets `crawl.continuous` to keep running when its Frontier empties
-//! and revisit each URL according to its Label's `revisit.policy`.
+//! A crawl sets `crawl.continuous.enabled` to keep running when its Frontier
+//! empties and revisit each URL according to its Label's `revisit.policy`.
+//!
+//! Size: one catalog module, flat declarations of the Continuous crawl and
+//! Revisit settings, yielding rules, and policy value shapes.
 
 use schemars::JsonSchema;
 use schemars::generate::SchemaSettings;
@@ -61,6 +64,15 @@ const fn default_target_freshness() -> f64 {
     REVISIT_ESTIMATED_DEFAULT_TARGET_FRESHNESS
 }
 
+/// Default initial interval for `crawl.sitemap.news_revisit`: 1 hour (ADR 0139).
+pub const SITEMAP_NEWS_DEFAULT_INITIAL_MS: u64 = 3_600_000;
+/// Default minimum interval for `crawl.sitemap.news_revisit`: 15 minutes (ADR 0139).
+pub const SITEMAP_NEWS_DEFAULT_MIN_MS: u64 = 900_000;
+/// Default maximum interval for `crawl.sitemap.news_revisit`: 24 hours (ADR 0139).
+pub const SITEMAP_NEWS_DEFAULT_MAX_MS: u64 = 86_400_000;
+/// Default `crawl.continuous.max_entry_age`: 30 days (CC-NEWS's rule, ADR 0139).
+pub const CONTINUOUS_DEFAULT_MAX_ENTRY_AGE_MS: u64 = 2_592_000_000;
+
 fn adaptive_default_policy() -> Value {
     json!({
         "kind": "adaptive",
@@ -70,6 +82,21 @@ fn adaptive_default_policy() -> Value {
         "rate_changed": REVISIT_ADAPTIVE_DEFAULT_RATE_CHANGED,
         "rate_unchanged": REVISIT_ADAPTIVE_DEFAULT_RATE_UNCHANGED,
     })
+}
+
+fn sitemap_news_default_policy() -> Value {
+    json!({
+        "kind": "adaptive",
+        "initial": SITEMAP_NEWS_DEFAULT_INITIAL_MS,
+        "min": SITEMAP_NEWS_DEFAULT_MIN_MS,
+        "max": SITEMAP_NEWS_DEFAULT_MAX_MS,
+        "rate_changed": REVISIT_ADAPTIVE_DEFAULT_RATE_CHANGED,
+        "rate_unchanged": REVISIT_ADAPTIVE_DEFAULT_RATE_UNCHANGED,
+    })
+}
+
+fn default_max_entry_age() -> Value {
+    json!(CONTINUOUS_DEFAULT_MAX_ENTRY_AGE_MS)
 }
 
 fn conditional_signature() -> Value {
@@ -615,9 +642,9 @@ pub const REVISIT_POLICY_SHAPE: ValueShape = ValueShape {
     },
 };
 
-/// `crawl.continuous` (ADR 0139).
+/// `crawl.continuous.enabled` (ADR 0139).
 pub const CRAWL_CONTINUOUS: Setting = Setting {
-    name: "crawl.continuous",
+    name: "crawl.continuous.enabled",
     description: "Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.",
     kind: ValueKind::Boolean,
     default: no,
@@ -904,6 +931,146 @@ pub const REVISIT_SITE_HINTS_RETRY_AFTER_YIELDS_TO_BATCH: Yielding = Yielding {
     reason: "a batch crawl does not revisit URLs",
 };
 
+/// `revisit.site_hints.changefreq` (ADR 0139).
+pub const REVISIT_SITE_HINTS_CHANGEFREQ: Setting = Setting {
+    name: "revisit.site_hints.changefreq",
+    description: "Whether a sitemap entry's `<changefreq>` sets its initial revisit interval in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Boolean,
+    default: no,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `revisit.site_hints.priority` (ADR 0139).
+pub const REVISIT_SITE_HINTS_PRIORITY: Setting = Setting {
+    name: "revisit.site_hints.priority",
+    description: "Whether a sitemap entry's `<priority>` steers its queue priority in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Boolean,
+    default: no,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `revisit.site_hints.changefreq` yields to `crawl.continuous = false`.
+pub const REVISIT_SITE_HINTS_CHANGEFREQ_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &REVISIT_SITE_HINTS_CHANGEFREQ,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl does not revisit URLs",
+};
+
+/// `revisit.site_hints.priority` yields to `crawl.continuous = false`.
+pub const REVISIT_SITE_HINTS_PRIORITY_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &REVISIT_SITE_HINTS_PRIORITY,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl does not revisit URLs",
+};
+
+/// `crawl.sitemap.read_lastmod` (ADR 0139).
+pub const CRAWL_SITEMAP_READ_LASTMOD: Setting = Setting {
+    name: "crawl.sitemap.read_lastmod",
+    description: "Whether sitemap reads read `<lastmod>` and the `news:` extension (`<news:publication_date>`) in any crawl: `true` by default.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.sitemap.news_revisit` (ADR 0139).
+pub const CRAWL_SITEMAP_NEWS_REVISIT: Setting = Setting {
+    name: "crawl.sitemap.news_revisit",
+    description: "Revisit policy for Google News sitemaps in a Continuous crawl: `adaptive` (initial 1 hour, 15 minutes to 24 hours) by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Shape(&REVISIT_POLICY_SHAPE),
+    default: sitemap_news_default_policy,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.sitemap.revisit` (ADR 0139).
+pub const CRAWL_SITEMAP_REVISIT: Setting = Setting {
+    name: "crawl.sitemap.revisit",
+    description: "Revisit policy for standing sitemaps (other than Google News sitemaps) in a Continuous crawl: `adaptive` (initial 24 hours, 1 hour to 30 days) by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Shape(&REVISIT_POLICY_SHAPE),
+    default: adaptive_default_policy,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.continuous.max_entry_age` (ADR 0139).
+pub const CRAWL_CONTINUOUS_MAX_ENTRY_AGE: Setting = Setting {
+    name: "crawl.continuous.max_entry_age",
+    description: "Maximum age of a dated sitemap or syndication entry to admit in a Continuous crawl, in whole milliseconds: 30 days (2,592,000,000 ms, CC-NEWS's rule) by default; `null` turns the bound off. Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Duration,
+    default: default_max_entry_age,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.sitemap.news_revisit` yields to `crawl.continuous = false`.
+pub const CRAWL_SITEMAP_NEWS_REVISIT_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &CRAWL_SITEMAP_NEWS_REVISIT,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl does not revisit sources",
+};
+
+/// `crawl.sitemap.revisit` yields to `crawl.continuous = false`.
+pub const CRAWL_SITEMAP_REVISIT_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &CRAWL_SITEMAP_REVISIT,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl does not revisit sources",
+};
+
+/// `crawl.continuous.max_entry_age` yields to `crawl.continuous = false`.
+pub const CRAWL_CONTINUOUS_MAX_ENTRY_AGE_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &CRAWL_CONTINUOUS_MAX_ENTRY_AGE,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl does not filter standing source entries by age",
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -915,6 +1082,10 @@ pub const ENTRIES: Entries = Entries {
     metrics: &[],
     settings: &[
         CRAWL_CONTINUOUS,
+        CRAWL_CONTINUOUS_MAX_ENTRY_AGE,
+        CRAWL_SITEMAP_READ_LASTMOD,
+        CRAWL_SITEMAP_NEWS_REVISIT,
+        CRAWL_SITEMAP_REVISIT,
         REVISIT_POLICY,
         REVISIT_CHANGE_CHECK,
         REVISIT_ON_UNCHANGED,
@@ -923,6 +1094,8 @@ pub const ENTRIES: Entries = Entries {
         REVISIT_SITE_HINTS_CACHE_CONTROL,
         REVISIT_SITE_HINTS_EXPIRES,
         REVISIT_SITE_HINTS_RETRY_AFTER,
+        REVISIT_SITE_HINTS_CHANGEFREQ,
+        REVISIT_SITE_HINTS_PRIORITY,
         CRAWL_REVISIT_ORDER,
         CRAWL_REVISIT_DOMAIN_SHARE,
     ],

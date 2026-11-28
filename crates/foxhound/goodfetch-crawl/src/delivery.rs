@@ -100,10 +100,13 @@ use goodfetch_frontier::revisit::{self, RevisitRow, SiteHintSwitches, SiteHints,
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
 use goodfetch_protocol::foxhound::continuous::{
-    CRAWL_CONTINUOUS, REVISIT_CHANGE_CHECK, REVISIT_GONE_AFTER, REVISIT_ON_ERROR,
-    REVISIT_ON_UNCHANGED, REVISIT_POLICY, REVISIT_SITE_HINTS_CACHE_CONTROL,
-    REVISIT_SITE_HINTS_EXPIRES, REVISIT_SITE_HINTS_RETRY_AFTER, RevisitChangeCheck,
-    RevisitOnUnchanged, RevisitPolicy,
+    CRAWL_CONTINUOUS, CRAWL_CONTINUOUS_MAX_ENTRY_AGE, CRAWL_SITEMAP_NEWS_REVISIT,
+    CRAWL_SITEMAP_READ_LASTMOD, CRAWL_SITEMAP_REVISIT, REVISIT_ADAPTIVE_DEFAULT_RATE_CHANGED,
+    REVISIT_ADAPTIVE_DEFAULT_RATE_UNCHANGED, REVISIT_CHANGE_CHECK, REVISIT_GONE_AFTER,
+    REVISIT_ON_ERROR, REVISIT_ON_UNCHANGED, REVISIT_POLICY, REVISIT_SITE_HINTS_CACHE_CONTROL,
+    REVISIT_SITE_HINTS_CHANGEFREQ, REVISIT_SITE_HINTS_EXPIRES, REVISIT_SITE_HINTS_PRIORITY,
+    REVISIT_SITE_HINTS_RETRY_AFTER, RevisitChangeCheck, RevisitOnUnchanged, RevisitPolicy,
+    SITEMAP_NEWS_DEFAULT_INITIAL_MS, SITEMAP_NEWS_DEFAULT_MAX_MS, SITEMAP_NEWS_DEFAULT_MIN_MS,
 };
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_CONTENT_TYPES, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_LOST,
@@ -306,14 +309,9 @@ pub(crate) async fn drive(
             settings.resolved().value(&REVISIT_ON_UNCHANGED),
         )
         .unwrap_or_default(),
-        run_gone_after: settings
-            .resolved()
-            .value(&REVISIT_GONE_AFTER)
-            .as_u64()
-            .and_then(|v| u32::try_from(v).ok())
-            .filter(|&v| v >= 1)
-            .unwrap_or(1),
+        run_gone_after: parse_gone_after(settings.resolved()),
         browser_signature_warned: std::sync::OnceLock::new(),
+        sitemap: std::sync::Arc::new(SitemapReadConfig::of(settings.resolved())),
     };
     for (setting, code, message) in SWITCHED_OFF {
         if !settings.resolved().get::<bool>(setting) {
@@ -336,13 +334,13 @@ pub(crate) async fn drive(
     .await;
     let fetching = (&fetching, &handing);
     let choices = choices.sampled_as(sampling(settings.resolved()));
-    deliver(
+    Box::pin(deliver(
         &run,
         &mut servers,
         &mut arrivals,
         (&settings, choices),
         fetching,
-    )
+    ))
     .await;
     crawls.close(run.identity.id()).await;
 }
@@ -457,6 +455,49 @@ struct Read {
     run_revisit_on_error: u64,
     /// Run-level `revisit.site_hints.*` fallback switches for Labels that set none.
     run_site_hints: SiteHintSwitches,
+}
+
+/// Reads `revisit.gone_after` from `resolved`, defaulting to 1.
+fn parse_gone_after(resolved: &Resolved) -> u32 {
+    resolved
+        .value(&REVISIT_GONE_AFTER)
+        .as_u64()
+        .and_then(|v| u32::try_from(v).ok())
+        .filter(|&v| v >= 1)
+        .unwrap_or(1)
+}
+
+/// Run-level sitemap date, standing revisit, and hint settings (ADR 0139).
+struct SitemapReadConfig {
+    read_lastmod: bool,
+    changefreq: bool,
+    priority: bool,
+    revisit: RevisitPolicy,
+    news_revisit: RevisitPolicy,
+    max_entry_age: Option<u64>,
+}
+
+impl SitemapReadConfig {
+    fn of(resolved: &Resolved) -> Self {
+        Self {
+            read_lastmod: resolved.get(&CRAWL_SITEMAP_READ_LASTMOD),
+            changefreq: resolved.get(&REVISIT_SITE_HINTS_CHANGEFREQ),
+            priority: resolved.get(&REVISIT_SITE_HINTS_PRIORITY),
+            revisit: RevisitPolicy::read(resolved.value(&CRAWL_SITEMAP_REVISIT))
+                .unwrap_or_else(|_| RevisitPolicy::default_adaptive()),
+            news_revisit: RevisitPolicy::read(resolved.value(&CRAWL_SITEMAP_NEWS_REVISIT))
+                .unwrap_or(RevisitPolicy::Adaptive {
+                    initial: SITEMAP_NEWS_DEFAULT_INITIAL_MS,
+                    min: SITEMAP_NEWS_DEFAULT_MIN_MS,
+                    max: SITEMAP_NEWS_DEFAULT_MAX_MS,
+                    rate_changed: REVISIT_ADAPTIVE_DEFAULT_RATE_CHANGED,
+                    rate_unchanged: REVISIT_ADAPTIVE_DEFAULT_RATE_UNCHANGED,
+                }),
+            max_entry_age: resolved
+                .get::<Option<Duration>>(&CRAWL_CONTINUOUS_MAX_ENTRY_AGE)
+                .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX)),
+        }
+    }
 }
 
 impl Read {
@@ -991,6 +1032,8 @@ struct Fetching<'a> {
     run_gone_after: u32,
     /// Whether the Run has already emitted [`REVISIT_BROWSER_SIGNATURE`] once.
     browser_signature_warned: std::sync::OnceLock<()>,
+    /// Sitemap date, standing revisit, and hint settings (ADR 0139).
+    sitemap: std::sync::Arc<SitemapReadConfig>,
 }
 
 /// The readers of the untouched page a Run's documents are read by (ADR
@@ -1823,12 +1866,75 @@ async fn settled(
                 .retries_handler_failed(&attempt.leased.crawl_request.label),
         );
         let revisit_row = planned_revisit(run, read, state, fetching, &attempt, now_ms);
-        queued.push(queue_outcome(on, policy, held, attempt, (scored, revisit_row)).await);
+        let source_options = source_read_options(run, read, state, fetching, &attempt, now_ms);
+        queued.push(
+            queue_outcome(
+                on,
+                policy,
+                held,
+                attempt,
+                (scored, revisit_row, source_options),
+            )
+            .await,
+        );
     }
     let stored = state.stored().clone();
     Box::pin(async move {
         let finished = join_all(queued.into_iter().map(|queued| queued.finished(&stored))).await;
         (settlings, finished)
+    })
+}
+
+/// Builds [`attempt_outcome::SourceReadOptions`] for a sitemap or syndication
+/// attempt (ADR 0139).
+fn source_read_options(
+    run: &CrawlRun,
+    read: Read,
+    state: &RunState,
+    fetching: &Fetching<'_>,
+    attempt: &Attempt,
+    now_ms: u64,
+) -> Option<attempt_outcome::SourceReadOptions> {
+    if !matches!(attempt.answer, Answer::SourceRead(_)) {
+        return None;
+    }
+    let previous = if read.continuous {
+        state
+            .revisit_row(&attempt.leased.crawl_request.id)
+            .or(attempt.leased.revisit_row.as_ref())
+            .cloned()
+    } else {
+        None
+    };
+    let cfg = &fetching.sitemap;
+    let max_entry_age = read
+        .continuous
+        .then_some(cfg.max_entry_age)
+        .flatten()
+        .map(|age| (now_ms, age));
+    let sitemap = goodfetch_frontier::sitemap::ReadOptions {
+        read_lastmod: cfg.read_lastmod,
+        max_entry_age,
+        previous_fetched_at: previous.as_ref().and_then(|row| row.last_fetched_at),
+    };
+    let hints = work_items::SitemapHintPolicy {
+        labels: std::sync::Arc::new(fetching.labels.settings.clone()),
+        run_changefreq: cfg.changefreq,
+        run_priority: cfg.priority,
+    };
+    let revisit = read.continuous.then(|| attempt_outcome::SourceRevisitPlan {
+        sitemap_policy: cfg.revisit,
+        news_policy: cfg.news_revisit,
+        now_ms,
+        url: attempt.leased.crawl_request.url.clone(),
+        domain_key: attempt.leased.waiting.key.clone(),
+        previous,
+        let_finish: run.end.is_let_finish(),
+    });
+    Some(attempt_outcome::SourceReadOptions {
+        sitemap,
+        hints,
+        revisit,
     })
 }
 
@@ -1839,31 +1945,37 @@ fn site_hints_for(
     fetching: &Fetching<'_>,
     label: &str,
     meta: Option<&attempt::RevisitMeta>,
+    initial_interval_ms: Option<u64>,
     now_ms: u64,
 ) -> SiteHints {
-    let Some(meta) = meta else {
-        return SiteHints::default();
+    let mut hints = match meta {
+        Some(meta) => {
+            let (cache_control, expires, retry_after) =
+                fetching.labels.settings.revisit_site_hints(
+                    label,
+                    (
+                        read.run_site_hints.cache_control,
+                        read.run_site_hints.expires,
+                        read.run_site_hints.retry_after,
+                    ),
+                );
+            SiteHints::from_headers(
+                meta.cache_control.as_deref(),
+                meta.expires.as_deref(),
+                meta.retry_after.as_deref(),
+                meta.date.as_deref(),
+                SiteHintSwitches {
+                    cache_control,
+                    expires,
+                    retry_after,
+                },
+                now_ms,
+            )
+        }
+        None => SiteHints::default(),
     };
-    let (cache_control, expires, retry_after) = fetching.labels.settings.revisit_site_hints(
-        label,
-        (
-            read.run_site_hints.cache_control,
-            read.run_site_hints.expires,
-            read.run_site_hints.retry_after,
-        ),
-    );
-    SiteHints::from_headers(
-        meta.cache_control.as_deref(),
-        meta.expires.as_deref(),
-        meta.retry_after.as_deref(),
-        meta.date.as_deref(),
-        SiteHintSwitches {
-            cache_control,
-            expires,
-            retry_after,
-        },
-        now_ms,
-    )
+    hints.initial_interval_ms = initial_interval_ms;
+    hints
 }
 
 /// Preserves prior revisit metadata while updating schedule and gone streak
@@ -1939,7 +2051,14 @@ fn planned_unsuccessful_revisit(
                 .labels
                 .settings
                 .revisit_on_error(&request.label, read.run_revisit_on_error);
-            let hints = site_hints_for(read, fetching, &request.label, meta, now_ms);
+            let hints = site_hints_for(
+                read,
+                fetching,
+                &request.label,
+                meta,
+                attempt.leased.initial_interval_ms,
+                now_ms,
+            );
             let next_visit_at = reschedule.then(|| {
                 let policy_due = now_ms.saturating_add(on_error_ms.max(1));
                 hints
@@ -2007,7 +2126,14 @@ fn planned_revisit(
     } else {
         VisitResult::Changed
     };
-    let hints = site_hints_for(read, fetching, &request.label, meta, now_ms);
+    let hints = site_hints_for(
+        read,
+        fetching,
+        &request.label,
+        meta,
+        attempt.leased.initial_interval_ms,
+        now_ms,
+    );
     let scheduled = if run.end.is_let_finish() {
         None
     } else {
@@ -2699,7 +2825,11 @@ async fn queue_outcome(
     policy: CrawlPolicy,
     held: bool,
     attempt: Attempt,
-    (scored, revisit): (Scored, Option<RevisitRow>),
+    (scored, revisit, source_options): (
+        Scored,
+        Option<RevisitRow>,
+        Option<attempt_outcome::SourceReadOptions>,
+    ),
 ) -> QueuedOutcome {
     let Attempt {
         leased,
@@ -2734,7 +2864,11 @@ async fn queue_outcome(
             refused(SkipReason::RobotsTxt)
         }
         Answer::SourceRead(document) => {
-            let ending = file.source_read(AttemptKey::new(work_item, lease_epoch), document);
+            let ending = file.source_read(
+                AttemptKey::new(work_item, lease_epoch),
+                document,
+                source_options.unwrap_or_default(),
+            );
             return queued(on, (leased, lease), (scored, None, ending), false).await;
         }
         Answer::Unchanged => Unsuccessful::Unchanged,
@@ -2776,20 +2910,7 @@ async fn queue_outcome(
         ),
         Answer::Released => Unsuccessful::Released,
         Answer::Failed(failed) => {
-            let failed = *failed;
-            let (why, retryable) = (failed.why().clone(), failed.retryable);
-            let kept = kept_failure(&masks, failed.code, &failed.message, failed.details);
-            match why {
-                // A refusal of the transport runs again as a sample of its
-                // Label, whose comparison may move it off the transport
-                // (#2419).
-                Why::Blocked(_) if transport_refused && policy.may_retry(tries) => {
-                    Unsuccessful::Retried(kept)
-                }
-                Why::Blocked(cause) => Unsuccessful::Blocked(cause),
-                _ if held => Unsuccessful::Failed(kept.with_fix(RETRY_AFTER_FIX)),
-                why => failure(kept, &why, retryable),
-            }
+            unsuccessful_from_failed(&masks, policy, tries, held, transport_refused, *failed)
         }
     };
     let revisit = revisit.zip(unsuccessful_revisit_outcome(&unsuccessful));
@@ -2800,6 +2921,28 @@ async fn queue_outcome(
         ended_at: run.identity.point_in_time(),
     };
     queued(on, (leased, lease), (scored, revisit, ending), commits).await
+}
+
+fn unsuccessful_from_failed(
+    masks: &goodfetch_engine::mask::Masks,
+    policy: CrawlPolicy,
+    tries: u32,
+    held: bool,
+    transport_refused: bool,
+    failed: AttemptFailure,
+) -> Unsuccessful {
+    let (why, retryable) = (failed.why().clone(), failed.retryable);
+    let kept = kept_failure(masks, failed.code, &failed.message, failed.details);
+    match why {
+        // A refusal of the transport runs again as a sample of its
+        // Label, whose comparison may move it off the transport (#2419).
+        Why::Blocked(_) if transport_refused && policy.may_retry(tries) => {
+            Unsuccessful::Retried(kept)
+        }
+        Why::Blocked(cause) => Unsuccessful::Blocked(cause),
+        _ if held => Unsuccessful::Failed(kept.with_fix(RETRY_AFTER_FIX)),
+        why => retried_or_failed(policy, tries, kept, &why, retryable),
+    }
 }
 
 /// The outcome recorded for a revisit row when an attempt settles via
@@ -2939,13 +3082,14 @@ impl QueuedOutcome {
                     tracing::debug!(run_id = %run.identity.id(), work_item = %leased.crawl_request.id, "an attempt past its lease commits nothing");
                 }
             }
-            attempt_outcome::Ended::SitemapRead(read) => {
+            attempt_outcome::Ended::SitemapRead { added, revisit } => {
                 lease.release();
-                match read {
-                    Some(keyed) => finished.keyed = keyed,
-                    None => {
-                        tracing::debug!(run_id = %run.identity.id(), work_item = %leased.crawl_request.id, "a sitemap's fetch past its lease reads nothing");
-                    }
+                if let Some(keyed) = added {
+                    finished.keyed = keyed;
+                    finished.revisit =
+                        revisit.map(|row| (*row, (OutcomeKind::Succeeded, String::new())));
+                } else {
+                    tracing::debug!(run_id = %run.identity.id(), work_item = %leased.crawl_request.id, "a sitemap's fetch past its lease reads nothing");
                 }
             }
         }

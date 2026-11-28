@@ -265,6 +265,9 @@ pub enum NotAddedReason {
     /// A sitemap nested more levels under its sitemap seed than
     /// `crawl.max_sitemap_nesting` (ADR 0093).
     MaxSitemapNesting,
+    /// A dated sitemap or syndication entry older than
+    /// `crawl.continuous.max_entry_age` in a Continuous crawl (ADR 0139).
+    MaxEntryAge,
     /// The first entry of `crawl.path_budgets` whose pattern its URL's path
     /// and query match already counted that entry's `max_requests`.
     PathBudget,

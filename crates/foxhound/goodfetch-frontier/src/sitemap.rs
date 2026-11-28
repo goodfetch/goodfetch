@@ -76,7 +76,8 @@ pub const TABLES: RunStateTables = RunStateTables {
             seed TEXT NOT NULL,
             rules TEXT NOT NULL,
             read INTEGER NOT NULL,
-            nesting INTEGER NOT NULL
+            nesting INTEGER NOT NULL,
+            is_news INTEGER NOT NULL DEFAULT 0
         ) STRICT",
         "CREATE TABLE IF NOT EXISTS sitemap_entries (
             work_item TEXT NOT NULL,
@@ -97,14 +98,182 @@ pub const TABLES: RunStateTables = RunStateTables {
 /// The count of a sitemap's entries that were added, beside the reasons.
 const ADDED: &str = "added";
 
-/// What a sitemap lists.
+/// A date read from a sitemap's `<lastmod>` or `<news:publication_date>`
+/// (ADR 0139).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SitemapDate {
+    /// Milliseconds since the Unix epoch (UTC midnight for date-only values).
+    pub ms: u64,
+    /// `true` when the source carried no time component (`YYYY`, `YYYY-MM`, or
+    /// `YYYY-MM-DD`), so comparisons may treat it by whole UTC day.
+    pub date_only: bool,
+}
+
+/// A sitemap `<changefreq>` hint (sitemaps.org; ADR 0139).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChangeFreq {
+    /// Changes each time accessed.
+    Always,
+    /// Changes hourly.
+    Hourly,
+    /// Changes daily.
+    Daily,
+    /// Changes weekly.
+    Weekly,
+    /// Changes monthly.
+    Monthly,
+    /// Changes yearly.
+    Yearly,
+    /// Archived URL that does not change.
+    Never,
+}
+
+impl ChangeFreq {
+    /// Parses a `<changefreq>` text value (case-insensitive, trimmed).
+    #[must_use]
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "always" => Some(Self::Always),
+            "hourly" => Some(Self::Hourly),
+            "daily" => Some(Self::Daily),
+            "weekly" => Some(Self::Weekly),
+            "monthly" => Some(Self::Monthly),
+            "yearly" => Some(Self::Yearly),
+            "never" => Some(Self::Never),
+            _ => None,
+        }
+    }
+
+    /// The initial revisit interval in milliseconds suggested by this hint
+    /// when `revisit.site_hints.changefreq` is enabled (clamped to `[min, max]`
+    /// by the URL's Revisit policy).
+    #[must_use]
+    pub const fn interval_ms(self) -> u64 {
+        match self {
+            Self::Always => 0,
+            Self::Hourly => 3_600_000,
+            Self::Daily => 86_400_000,
+            Self::Weekly => 604_800_000,
+            Self::Monthly => 2_592_000_000,
+            Self::Yearly => 31_536_000_000,
+            Self::Never => u64::MAX,
+        }
+    }
+}
+
+/// One `<url>` entry in a sitemap `urlset` (ADR 0093, ADR 0139).
+#[derive(Clone, Debug, PartialEq)]
+pub struct SitemapEntry {
+    /// The entry's `<loc>`, as written.
+    pub loc: String,
+    /// The entry's `<lastmod>`, when present and valid W3C Datetime.
+    pub lastmod: Option<SitemapDate>,
+    /// The entry's `<news:publication_date>`, when present and valid W3C Datetime.
+    pub news_publication_date: Option<SitemapDate>,
+    /// The entry's `<changefreq>`, when present and recognized.
+    pub changefreq: Option<ChangeFreq>,
+    /// The entry's `<priority>` (`0.0..=1.0`), when present and valid.
+    pub priority: Option<f32>,
+}
+
+impl SitemapEntry {
+    /// Constructs an entry carrying only its `<loc>` and no dates or hints.
+    #[must_use]
+    pub fn loc(loc: impl Into<String>) -> Self {
+        Self {
+            loc: loc.into(),
+            lastmod: None,
+            news_publication_date: None,
+            changefreq: None,
+            priority: None,
+        }
+    }
+
+    /// The entry's most authoritative date (`news:publication_date` first,
+    /// falling back to `lastmod`).
+    #[must_use]
+    pub const fn effective_date(&self) -> Option<SitemapDate> {
+        match self.news_publication_date {
+            Some(date) => Some(date),
+            None => self.lastmod,
+        }
+    }
+}
+
+/// One `<sitemap>` entry in a `sitemapindex` (or a `Sitemap:` line in
+/// `robots.txt`).
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SitemapIndexEntry {
+    /// The nested sitemap's `<loc>`, as written.
+    pub loc: String,
+    /// The nested sitemap's `<lastmod>`, when present and valid W3C Datetime.
+    pub lastmod: Option<SitemapDate>,
+}
+
+impl SitemapIndexEntry {
+    /// Constructs an index entry carrying only its `<loc>` and no `<lastmod>`.
+    #[must_use]
+    pub fn loc(loc: impl Into<String>) -> Self {
+        Self {
+            loc: loc.into(),
+            lastmod: None,
+        }
+    }
+}
+
+/// What a sitemap lists.
+#[derive(Clone, Debug, PartialEq)]
 pub enum Document {
-    /// A `urlset`'s entries, as written.
-    Entries(Vec<String>),
+    /// A `urlset`'s entries, and whether the file declared or used the Google
+    /// News sitemap extension (`news:`).
+    Entries {
+        /// Parsed `<url>` entries in document order.
+        entries: Vec<SitemapEntry>,
+        /// `true` when the `urlset` declared the sitemap-news namespace or any
+        /// entry contained a `news` element.
+        is_news: bool,
+    },
     /// A sitemap index's sitemaps, or those a robots.txt's `Sitemap:`
     /// lines name, as written.
-    Sitemaps(Vec<String>),
+    Sitemaps(Vec<SitemapIndexEntry>),
+}
+
+/// Options governing how [`read`] handles dates and standing re-reads
+/// (ADR 0139).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReadOptions {
+    /// `crawl.sitemap.read_lastmod` (`true` by default): when `false`,
+    /// `<lastmod>` and `<news:publication_date>` are ignored.
+    pub read_lastmod: bool,
+    /// `(now_ms, max_entry_age_ms)` in a Continuous crawl when
+    /// `crawl.continuous.max_entry_age` is set: entries older than
+    /// `now_ms - max_entry_age_ms` are refused with `max_entry_age`.
+    pub max_entry_age: Option<(u64, u64)>,
+    /// Wall-clock milliseconds of this sitemap's previous read, if this is a
+    /// standing re-read in a Continuous crawl.
+    pub previous_fetched_at: Option<u64>,
+}
+
+impl Default for ReadOptions {
+    fn default() -> Self {
+        Self {
+            read_lastmod: true,
+            max_entry_age: None,
+            previous_fetched_at: None,
+        }
+    }
+}
+
+/// Summary of one [`read`] call, used by Continuous crawls to schedule the
+/// sitemap's next standing re-read (ADR 0139).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ReadOutcome {
+    /// `true` when the read added at least one new entry or nested sitemap, or
+    /// saw at least one entry dated strictly after `previous_fetched_at`.
+    pub changed: bool,
+    /// `true` when this sitemap is a Google News sitemap (now or on an earlier
+    /// read).
+    pub is_news: bool,
 }
 
 /// Why a file is no sitemap the crawl can read.
@@ -194,11 +363,13 @@ pub(crate) fn decode_body<'a>(
 /// file that is read lists at most sitemaps.org's 50,000 URLs. It panics
 /// only on a bug.
 pub fn fuzz_sitemap(data: &[u8]) {
-    if let Ok(Document::Entries(locs) | Document::Sitemaps(locs)) =
-        read_file("http://shop.test/sitemap.xml", data, Limits::default())
-    {
+    if let Ok(doc) = read_file("http://shop.test/sitemap.xml", data, Limits::default()) {
+        let len = match &doc {
+            Document::Entries { entries, .. } => entries.len(),
+            Document::Sitemaps(sitemaps) => sitemaps.len(),
+        };
         assert!(
-            locs.len() <= MAX_ENTRIES,
+            len <= MAX_ENTRIES,
             "a sitemap read lists at most {} URLs",
             grouped(MAX_ENTRIES)
         );
@@ -227,8 +398,8 @@ pub(crate) fn grouped(count: usize) -> String {
     grouped
 }
 
-/// Reads the sitemap `body`: a `urlset`'s entries or a `sitemapindex`'s
-/// sitemaps.
+/// Reads the sitemap `body`: a `urlset`'s entries (with `<lastmod>`, `news:`,
+/// `<changefreq>` and `<priority>`) or a `sitemapindex`'s sitemaps.
 ///
 /// # Errors
 ///
@@ -237,81 +408,36 @@ pub(crate) fn grouped(count: usize) -> String {
 pub fn parse(body: &[u8]) -> Result<Document, Unreadable> {
     let unreadable = |error: &dyn std::fmt::Display| Unreadable(format!("its XML breaks: {error}"));
     let mut reader = Reader::from_reader(body);
-    let mut root: Option<bool> = None;
-    let mut locs = Vec::new();
-    // The `<loc>` being read, and the depth of the open elements.
-    let mut loc: Option<String> = None;
-    // The prefix of the open `<url>` or `<sitemap>`, when one is open.
-    let mut parent: Option<Option<Vec<u8>>> = None;
-    let mut depth = 0_usize;
+    let mut state = SitemapParser::default();
     loop {
         let event = reader.read_event().map_err(|error| unreadable(&error))?;
         match event {
-            Event::Start(element) => {
-                depth += 1;
-                let name = element.local_name();
-                match (depth, name.as_ref()) {
-                    (1, b"urlset") => root = Some(false),
-                    (1, b"sitemapindex") => root = Some(true),
-                    (1, _) => return Err(no_sitemap()),
-                    (2, child) => {
-                        let listed: &[u8] = if root == Some(true) {
-                            b"sitemap"
-                        } else {
-                            b"url"
-                        };
-                        parent = (child == listed).then(|| prefix_of(&element));
-                    }
-                    (3, b"loc") if parent.as_ref() == Some(&prefix_of(&element)) => {
-                        loc = Some(String::new());
-                    }
-                    _ => {}
+            Event::Start(element) => state.on_start(&element)?,
+            Event::Empty(element) => {
+                if let Some(doc) = state.on_empty(&element)? {
+                    return Ok(doc);
                 }
             }
-            Event::Empty(element) if depth == 0 => {
-                return match element.local_name().as_ref() {
-                    b"urlset" => Ok(Document::Entries(Vec::new())),
-                    b"sitemapindex" => Ok(Document::Sitemaps(Vec::new())),
-                    _ => Err(no_sitemap()),
-                };
-            }
-            Event::End(_) => {
-                if depth == 3
-                    && let Some(text) = loc.take()
-                {
-                    if locs.len() == MAX_ENTRIES {
-                        return Err(Unreadable(format!(
-                            "it lists more than sitemaps.org's {} URLs",
-                            grouped(MAX_ENTRIES)
-                        )));
-                    }
-                    locs.push(text.trim().to_owned());
-                }
-                depth = depth.saturating_sub(1);
-            }
+            Event::End(_) => state.on_end()?,
             Event::Text(text) => {
-                if let Some(loc) = loc.as_mut() {
-                    loc.push_str(&text.decode().map_err(|error| unreadable(&error))?);
-                }
+                state.push_text(&text.decode().map_err(|error| unreadable(&error))?);
             }
             Event::CData(data) => {
-                if let Some(loc) = loc.as_mut() {
-                    loc.push_str(&data.decode().map_err(|error| unreadable(&error))?);
-                }
+                state.push_text(&data.decode().map_err(|error| unreadable(&error))?);
             }
             Event::GeneralRef(reference) => {
-                if let Some(loc) = loc.as_mut() {
+                if state.capture.is_some() {
                     if let Some(character) = reference
                         .resolve_char_ref()
                         .map_err(|error| unreadable(&error))?
                     {
-                        loc.push(character);
+                        state.push_char(character);
                     } else {
                         let name = reference.decode().map_err(|error| unreadable(&error))?;
                         let text = resolve_predefined_entity(&name).ok_or_else(|| {
                             Unreadable(format!("it uses the undeclared entity `&{name};`"))
                         })?;
-                        loc.push_str(text);
+                        state.push_text(text);
                     }
                 }
             }
@@ -319,13 +445,422 @@ pub fn parse(body: &[u8]) -> Result<Document, Unreadable> {
             _ => {}
         }
     }
-    if depth > 0 {
-        return Err(Unreadable("its XML ends inside an element".to_owned()));
+    state.finish()
+}
+
+/// Which text field of the open `<url>` or `<sitemap>` element is being read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CaptureField {
+    Loc,
+    Lastmod,
+    ChangeFreq,
+    Priority,
+    NewsPublicationDate,
+}
+
+#[derive(Default)]
+struct PendingEntry {
+    loc: Option<String>,
+    lastmod: Option<SitemapDate>,
+    news_publication_date: Option<SitemapDate>,
+    changefreq: Option<ChangeFreq>,
+    priority: Option<f32>,
+}
+
+#[derive(Default)]
+enum OpenParent {
+    #[default]
+    None,
+    Open(Option<Vec<u8>>),
+}
+
+impl OpenParent {
+    const fn is_open(&self) -> bool {
+        matches!(self, Self::Open(_))
     }
-    match root {
-        Some(false) => Ok(Document::Entries(locs)),
-        Some(true) => Ok(Document::Sitemaps(locs)),
-        None => Err(no_sitemap()),
+
+    fn matches(&self, prefix: Option<&[u8]>) -> bool {
+        matches!(self, Self::Open(open) if open.as_deref() == prefix)
+    }
+
+    fn take(&mut self) -> bool {
+        matches!(std::mem::take(self), Self::Open(_))
+    }
+}
+
+#[derive(Default)]
+struct SitemapParser {
+    /// `Some(false)` for `urlset`, `Some(true)` for `sitemapindex`.
+    root: Option<bool>,
+    is_news: bool,
+    entries: Vec<SitemapEntry>,
+    sitemaps: Vec<SitemapIndexEntry>,
+    /// Prefix of the open `<url>` or `<sitemap>` element.
+    parent: OpenParent,
+    /// Open entry being populated until `</url>` or `</sitemap>`.
+    pending: PendingEntry,
+    /// Whether we are inside a `<news:news>` element at depth 3.
+    in_news: bool,
+    /// Currently captured text field and its buffer.
+    capture: Option<(CaptureField, usize, String)>,
+    depth: usize,
+}
+
+impl SitemapParser {
+    fn on_start(&mut self, element: &BytesStart<'_>) -> Result<(), Unreadable> {
+        self.depth += 1;
+        let name = element.local_name();
+        match (self.depth, name.as_ref()) {
+            (1, b"urlset") => {
+                self.root = Some(false);
+                if declares_news_namespace(element) {
+                    self.is_news = true;
+                }
+            }
+            (1, b"sitemapindex") => self.root = Some(true),
+            (1, _) => return Err(no_sitemap()),
+            (2, child) => {
+                let listed: &[u8] = if self.root == Some(true) {
+                    b"sitemap"
+                } else {
+                    b"url"
+                };
+                if child == listed {
+                    self.parent = OpenParent::Open(prefix_of(element));
+                    self.pending = PendingEntry::default();
+                    self.in_news = false;
+                } else {
+                    self.parent = OpenParent::None;
+                }
+            }
+            (3, tag) if self.parent.is_open() => {
+                let same_prefix = self.parent.matches(
+                    element
+                        .name()
+                        .prefix()
+                        .map(quick_xml::name::Prefix::into_inner),
+                );
+                if same_prefix && tag == b"loc" {
+                    self.capture = Some((CaptureField::Loc, 3, String::new()));
+                } else if same_prefix && tag == b"lastmod" {
+                    self.capture = Some((CaptureField::Lastmod, 3, String::new()));
+                } else if same_prefix && self.root == Some(false) && tag == b"changefreq" {
+                    self.capture = Some((CaptureField::ChangeFreq, 3, String::new()));
+                } else if same_prefix && self.root == Some(false) && tag == b"priority" {
+                    self.capture = Some((CaptureField::Priority, 3, String::new()));
+                } else if self.root == Some(false) && tag == b"news" {
+                    self.is_news = true;
+                    self.in_news = true;
+                }
+            }
+            (4, b"publication_date") if self.in_news => {
+                self.capture = Some((CaptureField::NewsPublicationDate, 4, String::new()));
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn on_empty(&mut self, element: &BytesStart<'_>) -> Result<Option<Document>, Unreadable> {
+        if self.depth == 0 {
+            return match element.local_name().as_ref() {
+                b"urlset" => Ok(Some(Document::Entries {
+                    entries: Vec::new(),
+                    is_news: declares_news_namespace(element),
+                })),
+                b"sitemapindex" => Ok(Some(Document::Sitemaps(Vec::new()))),
+                _ => Err(no_sitemap()),
+            };
+        }
+        if self.depth == 2 && self.root == Some(false) && element.local_name().as_ref() == b"news" {
+            self.is_news = true;
+        }
+        Ok(None)
+    }
+
+    fn on_end(&mut self) -> Result<(), Unreadable> {
+        if let Some((field, at_depth, text)) = self.capture.take() {
+            if self.depth == at_depth {
+                self.apply_field(field, text.trim());
+            } else {
+                self.capture = Some((field, at_depth, text));
+            }
+        }
+        if self.depth == 3 && self.in_news {
+            self.in_news = false;
+        }
+        if self.depth == 2 && self.parent.take() {
+            let pending = std::mem::take(&mut self.pending);
+            if let Some(loc) = pending.loc {
+                let count = if self.root == Some(true) {
+                    self.sitemaps.len()
+                } else {
+                    self.entries.len()
+                };
+                if count == MAX_ENTRIES {
+                    return Err(Unreadable(format!(
+                        "it lists more than sitemaps.org's {} URLs",
+                        grouped(MAX_ENTRIES)
+                    )));
+                }
+                if self.root == Some(true) {
+                    self.sitemaps.push(SitemapIndexEntry {
+                        loc,
+                        lastmod: pending.lastmod,
+                    });
+                } else {
+                    self.entries.push(SitemapEntry {
+                        loc,
+                        lastmod: pending.lastmod,
+                        news_publication_date: pending.news_publication_date,
+                        changefreq: pending.changefreq,
+                        priority: pending.priority,
+                    });
+                }
+            }
+        }
+        self.depth = self.depth.saturating_sub(1);
+        Ok(())
+    }
+
+    fn apply_field(&mut self, field: CaptureField, text: &str) {
+        match field {
+            CaptureField::Loc => {
+                if self.pending.loc.is_none() {
+                    self.pending.loc = Some(text.to_owned());
+                }
+            }
+            CaptureField::Lastmod => {
+                if self.pending.lastmod.is_none() {
+                    self.pending.lastmod = parse_w3c_datetime(text);
+                }
+            }
+            CaptureField::ChangeFreq => {
+                if self.pending.changefreq.is_none() {
+                    self.pending.changefreq = ChangeFreq::parse(text);
+                }
+            }
+            CaptureField::Priority => {
+                if self.pending.priority.is_none() {
+                    self.pending.priority = text
+                        .parse::<f32>()
+                        .ok()
+                        .filter(|p| p.is_finite() && (0.0..=1.0).contains(p));
+                }
+            }
+            CaptureField::NewsPublicationDate => {
+                if self.pending.news_publication_date.is_none() {
+                    self.pending.news_publication_date = parse_w3c_datetime(text);
+                }
+            }
+        }
+    }
+
+    fn push_text(&mut self, s: &str) {
+        if let Some((_, _, buf)) = &mut self.capture {
+            buf.push_str(s);
+        }
+    }
+
+    fn push_char(&mut self, ch: char) {
+        if let Some((_, _, buf)) = &mut self.capture {
+            buf.push(ch);
+        }
+    }
+
+    fn finish(self) -> Result<Document, Unreadable> {
+        if self.depth > 0 {
+            return Err(Unreadable("its XML ends inside an element".to_owned()));
+        }
+        match self.root {
+            Some(false) => Ok(Document::Entries {
+                entries: self.entries,
+                is_news: self.is_news,
+            }),
+            Some(true) => Ok(Document::Sitemaps(self.sitemaps)),
+            None => Err(no_sitemap()),
+        }
+    }
+}
+
+/// Whether `element` declares a Google News sitemap XML namespace
+/// (`http://www.google.com/schemas/sitemap-news/0.9`).
+fn declares_news_namespace(element: &BytesStart<'_>) -> bool {
+    element.attributes().flatten().any(|attr| {
+        let key = attr.key.as_ref();
+        (key == b"xmlns" || key.starts_with(b"xmlns:"))
+            && std::str::from_utf8(attr.value.as_ref())
+                .is_ok_and(|value| value.contains("sitemap-news"))
+    })
+}
+
+/// Parses a W3C Datetime / ISO 8601 date or timestamp (`YYYY`, `YYYY-MM`,
+/// `YYYY-MM-DD`, or `YYYY-MM-DDThh:mm[:ss[.fff]][Z|±hh:mm]`) into a
+/// [`SitemapDate`]. Returns `None` for malformed or pre-1970 values.
+#[must_use]
+pub fn parse_w3c_datetime(raw: &str) -> Option<SitemapDate> {
+    let s = raw.trim();
+    if s.len() < 4 || !s.is_ascii() {
+        return None;
+    }
+    let year: i64 = s.get(0..4)?.parse().ok()?;
+    if s.len() == 4 {
+        let days = days_from_civil(year, 1, 1)?;
+        return Some(SitemapDate {
+            ms: u64::try_from(days).ok()?.checked_mul(86_400_000)?,
+            date_only: true,
+        });
+    }
+    if s.as_bytes().get(4) != Some(&b'-') {
+        return None;
+    }
+    let month: u32 = s.get(5..7)?.parse().ok()?;
+    if !(1..=12).contains(&month) {
+        return None;
+    }
+    if s.len() == 7 {
+        let days = days_from_civil(year, month, 1)?;
+        return Some(SitemapDate {
+            ms: u64::try_from(days).ok()?.checked_mul(86_400_000)?,
+            date_only: true,
+        });
+    }
+    if s.as_bytes().get(7) != Some(&b'-') {
+        return None;
+    }
+    let day: u32 = s.get(8..10)?.parse().ok()?;
+    if day == 0 || day > days_in_month(year, month) {
+        return None;
+    }
+    let days = days_from_civil(year, month, day)?;
+    if s.len() == 10 {
+        return Some(SitemapDate {
+            ms: u64::try_from(days).ok()?.checked_mul(86_400_000)?,
+            date_only: true,
+        });
+    }
+    let sep = *s.as_bytes().get(10)?;
+    if sep != b'T' && sep != b't' && sep != b' ' {
+        return None;
+    }
+    let time_part = s.get(11..)?;
+    let (hour, minute, second, frac_ms, tz_offset_secs) = parse_time_and_tz(time_part)?;
+    let total_secs = days
+        .checked_mul(86_400)?
+        .checked_add(i64::from(hour) * 3_600 + i64::from(minute) * 60 + i64::from(second))?
+        .checked_sub(tz_offset_secs)?;
+    let ms = u64::try_from(total_secs)
+        .ok()?
+        .checked_mul(1_000)?
+        .checked_add(u64::from(frac_ms))?;
+    Some(SitemapDate {
+        ms,
+        date_only: false,
+    })
+}
+
+fn parse_time_and_tz(s: &str) -> Option<(u32, u32, u32, u32, i64)> {
+    let hour: u32 = s.get(0..2)?.parse().ok()?;
+    if s.as_bytes().get(2) != Some(&b':') {
+        return None;
+    }
+    let minute: u32 = s.get(3..5)?.parse().ok()?;
+    if hour > 23 || minute > 59 {
+        return None;
+    }
+    let mut rest = s.get(5..)?;
+    let mut second = 0_u32;
+    let mut frac_ms = 0_u32;
+    if let Some(after_colon) = rest.strip_prefix(':') {
+        second = after_colon.get(0..2)?.parse().ok()?;
+        if second > 60 {
+            return None;
+        }
+        rest = after_colon.get(2..)?;
+        if let Some(after_dot) = rest.strip_prefix('.') {
+            let digits_end = after_dot
+                .bytes()
+                .position(|b| !b.is_ascii_digit())
+                .unwrap_or(after_dot.len());
+            if digits_end == 0 {
+                return None;
+            }
+            let frac_str = &after_dot[..digits_end];
+            frac_ms = parse_millis_fraction(frac_str);
+            rest = &after_dot[digits_end..];
+        }
+    }
+    let tz_offset_secs = parse_tz_offset(rest)?;
+    Some((hour, minute, second.min(59), frac_ms, tz_offset_secs))
+}
+
+fn parse_millis_fraction(digits: &str) -> u32 {
+    let mut ms = 0_u32;
+    let mut scale = 100_u32;
+    for byte in digits.bytes().take(3) {
+        ms += u32::from(byte - b'0') * scale;
+        scale /= 10;
+    }
+    ms
+}
+
+fn parse_tz_offset(rest: &str) -> Option<i64> {
+    if rest.is_empty() || rest == "Z" || rest == "z" {
+        return Some(0);
+    }
+    let sign = match rest.as_bytes().first()? {
+        b'+' => 1_i64,
+        b'-' => -1_i64,
+        _ => return None,
+    };
+    let offset = &rest[1..];
+    let (h_str, m_str) = if let Some((h, m)) = offset.split_once(':') {
+        (h, m)
+    } else if offset.len() == 4 {
+        (&offset[..2], &offset[2..])
+    } else {
+        return None;
+    };
+    if h_str.len() != 2 || m_str.len() != 2 {
+        return None;
+    }
+    let hours: i64 = h_str.parse().ok()?;
+    let mins: i64 = m_str.parse().ok()?;
+    if hours > 23 || mins > 59 {
+        return None;
+    }
+    Some(sign * (hours * 3_600 + mins * 60))
+}
+
+/// Days since 1970-01-01 (Howard Hinnant's civil calendar algorithm).
+fn days_from_civil(year: i64, month: u32, day: u32) -> Option<i64> {
+    let y = year - i64::from(month <= 2);
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400);
+    let m = i64::from(month);
+    let d = i64::from(day);
+    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    (days >= 0).then_some(days)
+}
+
+const fn is_leap_year(year: i64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+const fn days_in_month(year: i64, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if is_leap_year(year) {
+                29
+            } else {
+                28
+            }
+        }
+        _ => 0,
     }
 }
 
@@ -578,12 +1113,19 @@ pub fn is_fetch(connection: &Connection, id: &str) -> rusqlite::Result<bool> {
         .is_some())
 }
 
-/// What a sitemap's read adds: an entry, with its Label, or the fetch of
-/// a sitemap it nests.
+/// What a sitemap's read adds: an entry, with its Label and optional sitemap
+/// hints, or the fetch of a sitemap it nests.
 #[derive(Clone, Copy, Debug)]
 pub enum Adding<'a> {
     /// An entry, a crawl request of this Label with no Payload.
-    Entry(&'a str),
+    Entry {
+        /// The matched Label name.
+        label: &'a str,
+        /// Optional `<changefreq>` hint from the sitemap entry.
+        changefreq: Option<ChangeFreq>,
+        /// Optional `<priority>` hint from the sitemap entry.
+        priority: Option<f32>,
+    },
     /// A nested sitemap's fetch.
     Sitemap,
 }
@@ -592,10 +1134,10 @@ pub enum Adding<'a> {
 /// has the Run prepare as it starts: the sitemap's row, its read, the removal of
 /// its failure and its entries' counts.
 pub(crate) const READ: [&str; 4] = [
-    "SELECT sitemaps.url, sitemaps.seed, sitemaps.rules, sitemaps.nesting, seeds.url
+    "SELECT sitemaps.url, sitemaps.seed, sitemaps.rules, sitemaps.nesting, seeds.url, sitemaps.is_news
      FROM sitemaps JOIN sitemaps AS seeds ON seeds.work_item = sitemaps.seed
      WHERE sitemaps.work_item = ?1",
-    "UPDATE sitemaps SET read = 1 WHERE work_item = ?1",
+    "UPDATE sitemaps SET read = 1, is_news = is_news | ?2 WHERE work_item = ?1",
     "DELETE FROM sitemap_failures WHERE url = ?1",
     "INSERT INTO sitemap_entries (work_item, reason, count) VALUES (?1, ?2, ?3)
      ON CONFLICT DO UPDATE SET count = count + excluded.count",
@@ -611,16 +1153,21 @@ pub(crate) const READ: [&str; 4] = [
 /// # Errors
 ///
 /// When the run file cannot be read or written, or what `add` fails with.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "sitemap read takes connection, invariants, policy, id, document, options, work and adder"
+)]
 pub fn read(
     connection: &Connection,
     invariants: &Invariants,
     policy: &Policy,
     id: &str,
     document: &Document,
+    options: ReadOptions,
     work: &CountedWork,
     mut add: impl FnMut(&Url, Adding<'_>) -> rusqlite::Result<String>,
-) -> rusqlite::Result<()> {
-    let Some((url, seed, given_rules, nesting, seed_url)) = connection
+) -> rusqlite::Result<ReadOutcome> {
+    let Some((url, seed, given_rules, nesting, seed_url, prev_is_news)) = connection
         .prepare_cached(READ[0])
         .and_then(|mut cached| {
             cached.query_row([id], |row| {
@@ -630,12 +1177,13 @@ pub fn read(
                     row.get::<_, String>(2)?,
                     row.get::<_, i64>(3)?,
                     row.get::<_, String>(4)?,
+                    row.get::<_, i64>(5)? != 0,
                 ))
             })
         })
         .optional()?
     else {
-        return Ok(());
+        return Ok(ReadOutcome::default());
     };
     let stored = |url: &str| {
         Url::parse(url).map_err(|error| {
@@ -648,18 +1196,9 @@ pub fn read(
     };
     let base = stored(&url)?;
     let mut counts: BTreeMap<String, u64> = BTreeMap::new();
-    let mut count = |answer: &Enqueued| {
-        let name = match answer {
-            Enqueued::Added { .. } => ADDED.to_owned(),
-            Enqueued::NotAdded { reason, .. } => reason_name(reason),
-        };
-        *counts.entry(name).or_insert(0) += 1;
-    };
-    match document {
+    let mut is_news = prev_is_news;
+    let changed = match document {
         Document::Sitemaps(sitemaps) => {
-            // Only a robots.txt seed's own lines cross-submit a sitemap on
-            // another host; an index names sitemaps on its own host and
-            // on its seed's.
             let seed_url = stored(&seed_url)?;
             let cross_submits = id == seed && is_robots_txt(&base);
             let nested = Nested {
@@ -668,33 +1207,40 @@ pub fn read(
                 level: u64::try_from(nesting).unwrap_or(u64::MAX).saturating_add(1),
                 invariants,
             };
-            for given in sitemaps {
-                let fetch = Fetch {
-                    given,
-                    base: Some(&base),
-                    nested: Some(nested),
-                    rules: &given_rules,
-                };
-                let answer =
-                    admit_fetch(connection, policy, fetch, &mut Admitting::RunFile, |url| {
-                        add(url, Adding::Sitemap)
-                    })?;
-                keep_refused_nesting(connection, &seed, &base, answer)?;
-            }
+            read_nested_sitemaps(
+                connection,
+                policy,
+                &base,
+                &seed,
+                &given_rules,
+                nested,
+                sitemaps,
+                options,
+                &mut add,
+            )?
         }
-        Document::Entries(entries) => {
+        Document::Entries {
+            entries,
+            is_news: doc_is_news,
+        } => {
+            is_news |= *doc_is_news;
             let rules = invariants.sitemap_rules(&given_rules, work)?;
-            for given in entries {
-                let answer = admit_entry(
-                    connection, invariants, policy, &base, given, &rules, &mut add,
-                )?;
-                count(&answer);
-            }
+            read_urlset_entries(
+                connection,
+                invariants,
+                policy,
+                &base,
+                entries,
+                &rules,
+                options,
+                &mut counts,
+                &mut add,
+            )?
         }
-    }
+    };
     connection
         .prepare_cached(READ[1])
-        .and_then(|mut cached| cached.execute([id]))?;
+        .and_then(|mut cached| cached.execute((id, i64::from(is_news))))?;
     // Read at last, after `run.retry_failed` re-admitted it.
     connection
         .prepare_cached(READ[2])
@@ -703,7 +1249,93 @@ pub fn read(
     for (reason, count) in counts {
         insert.execute((id, reason, i64::try_from(count).unwrap_or(i64::MAX)))?;
     }
-    Ok(())
+    Ok(ReadOutcome { changed, is_news })
+}
+
+#[expect(clippy::too_many_arguments, reason = "helper for sitemap index reads")]
+fn read_nested_sitemaps(
+    connection: &Connection,
+    policy: &Policy,
+    base: &Url,
+    seed: &str,
+    given_rules: &str,
+    nested: Nested<'_>,
+    sitemaps: &[SitemapIndexEntry],
+    options: ReadOptions,
+    add: &mut impl FnMut(&Url, Adding<'_>) -> rusqlite::Result<String>,
+) -> rusqlite::Result<bool> {
+    let mut changed = false;
+    for entry in sitemaps {
+        if options.read_lastmod
+            && let Some(prev) = options.previous_fetched_at
+            && let Some(date) = entry.lastmod
+            && date.ms > prev
+        {
+            changed = true;
+        }
+        let fetch = Fetch {
+            given: &entry.loc,
+            base: Some(base),
+            nested: Some(nested),
+            rules: given_rules,
+        };
+        let answer = admit_fetch(connection, policy, fetch, &mut Admitting::RunFile, |url| {
+            add(url, Adding::Sitemap)
+        })?;
+        if matches!(answer, Enqueued::Added { .. }) {
+            changed = true;
+        }
+        keep_refused_nesting(connection, seed, base, answer)?;
+    }
+    Ok(changed)
+}
+
+#[expect(clippy::too_many_arguments, reason = "helper for sitemap urlset reads")]
+fn read_urlset_entries(
+    connection: &Connection,
+    invariants: &Invariants,
+    policy: &Policy,
+    base: &Url,
+    entries: &[SitemapEntry],
+    rules: &Rules,
+    options: ReadOptions,
+    counts: &mut BTreeMap<String, u64>,
+    add: &mut impl FnMut(&Url, Adding<'_>) -> rusqlite::Result<String>,
+) -> rusqlite::Result<bool> {
+    let mut changed = false;
+    let mut count = |answer: &Enqueued| {
+        let name = match answer {
+            Enqueued::Added { .. } => ADDED.to_owned(),
+            Enqueued::NotAdded { reason, .. } => reason_name(reason),
+        };
+        *counts.entry(name).or_insert(0) += 1;
+    };
+    for entry in entries {
+        if options.read_lastmod
+            && let Some(date) = entry.effective_date()
+        {
+            if let Some((now_ms, max_age_ms)) = options.max_entry_age
+                && now_ms.saturating_sub(date.ms) > max_age_ms
+            {
+                count(&Enqueued::NotAdded {
+                    reason: NotAddedReason::MaxEntryAge,
+                    url: entry.loc.clone(),
+                });
+                continue;
+            }
+            if let Some(prev) = options.previous_fetched_at
+                && date.ms > prev
+            {
+                changed = true;
+            }
+        }
+        let answer = admit_entry(connection, invariants, policy, base, entry, rules, add)?;
+        if matches!(answer, Enqueued::Added { .. }) {
+            changed = true;
+        }
+        count(&answer);
+    }
+    Ok(changed)
 }
 
 /// Keeps, as a sitemap the seed `seed` could not read, the sitemap the
@@ -887,14 +1519,14 @@ pub(crate) fn admit_source_entry(
     })
 }
 
-/// Admits the entry `given` of the sitemap at `base` as a crawl request
+/// Admits the entry `entry` of the sitemap at `base` as a crawl request
 /// of its first matching rule's Label, or answers `no_rule`.
 fn admit_entry(
     connection: &Connection,
     invariants: &Invariants,
     policy: &Policy,
     base: &Url,
-    given: &str,
+    entry: &SitemapEntry,
     rules: &Rules,
     add: &mut impl FnMut(&Url, Adding<'_>) -> rusqlite::Result<String>,
 ) -> rusqlite::Result<Enqueued> {
@@ -903,13 +1535,22 @@ fn admit_entry(
         invariants,
         policy,
         base,
-        given,
+        &entry.loc,
         rules,
         Candidate::SitemapEntry {
-            url: given,
+            url: &entry.loc,
             sitemap: base,
         },
-        &mut |url, label| add(url, Adding::Entry(label)),
+        &mut |url, label| {
+            add(
+                url,
+                Adding::Entry {
+                    label,
+                    changefreq: entry.changefreq,
+                    priority: entry.priority,
+                },
+            )
+        },
     )
 }
 

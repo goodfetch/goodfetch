@@ -1,0 +1,45 @@
+{
+  "id": "competitors-browser-smoke",
+  "host_class": { "requested": "local-dev", "allow_downgrade": true },
+  "order_seed": 182,
+  "blocks": 1,
+  "warmup": 0,
+  "iterations": 1,
+  "concurrency": 1,
+  "timeout_ms": 15000,
+  "max_duration_ms": 60000,
+  "max_restarts": 1,
+  "tasks": ["catalog/2"],
+  "adapters": [
+    {
+      "id": "playwright",
+      "command": [
+        "node",
+        "../../adapters/_shared/http-adapter.ts",
+        "--config",
+        "../../adapters/playwright/configuration.json"
+      ],
+      "configuration": "../../adapters/playwright/configuration.json"
+    },
+    {
+      "id": "stagehand-v4",
+      "command": [
+        "node",
+        "../../adapters/_shared/http-adapter.ts",
+        "--config",
+        "../../adapters/stagehand-v4/configuration.json"
+      ],
+      "configuration": "../../adapters/stagehand-v4/configuration.json"
+    },
+    {
+      "id": "agent-browser",
+      "command": [
+        "node",
+        "../../adapters/_shared/http-adapter.ts",
+        "--config",
+        "../../adapters/agent-browser/configuration.json"
+      ],
+      "configuration": "../../adapters/agent-browser/configuration.json"
+    }
+  ]
+}

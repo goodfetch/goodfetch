@@ -1,0 +1,40 @@
+{
+  "id": "competitors-ai-smoke",
+  "host_class": { "requested": "local-dev", "allow_downgrade": true },
+  "order_seed": 183,
+  "blocks": 1,
+  "warmup": 0,
+  "iterations": 1,
+  "concurrency": 1,
+  "timeout_ms": 15000,
+  "max_duration_ms": 60000,
+  "max_restarts": 1,
+  "tasks": ["catalog/2"],
+  "adapters": [
+    {
+      "id": "crawl4ai",
+      "command": ["python3", "../../adapters/crawl4ai/adapter.py"],
+      "configuration": "../../adapters/crawl4ai/configuration.json"
+    },
+    {
+      "id": "browser-use",
+      "command": ["python3", "../../adapters/browser-use/adapter.py"],
+      "configuration": "../../adapters/browser-use/configuration.json"
+    },
+    {
+      "id": "scrapegraphai",
+      "command": ["python3", "../../adapters/scrapegraphai/adapter.py"],
+      "configuration": "../../adapters/scrapegraphai/configuration.json"
+    },
+    {
+      "id": "skyvern",
+      "command": ["python3", "../../adapters/skyvern/adapter.py"],
+      "configuration": "../../adapters/skyvern/configuration.json"
+    },
+    {
+      "id": "changedetection-io",
+      "command": ["python3", "../../adapters/changedetection-io/adapter.py"],
+      "configuration": "../../adapters/changedetection-io/configuration.json"
+    }
+  ]
+}

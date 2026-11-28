@@ -1,0 +1,13 @@
+{
+  "tool": "agent-browser",
+  "language": "typescript",
+  "pinned_version": "agent-browser@0.43.0",
+  "wraps_compare_side": "xtask/compare-collie-arms",
+  "capabilities": ["extract", "act"],
+  "max_concurrency": 4,
+  "defaults": {
+    "filter_list_blocking": false,
+    "consent_prompt_handling": false
+  },
+  "notes": "Vercel agent-browser wrapping xtask/compare-collie-arms pinned side (ADR 0025, issue 182)."
+}

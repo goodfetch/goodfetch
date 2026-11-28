@@ -1,0 +1,13 @@
+{
+  "tool": "crawl4ai",
+  "language": "python",
+  "pinned_version": "crawl4ai==0.6.3",
+  "fake_model_ci": true,
+  "capabilities": ["crawl", "extract"],
+  "max_concurrency": 8,
+  "defaults": {
+    "filter_list_blocking": false,
+    "consent_prompt_handling": false
+  },
+  "notes": "Crawl4AI in documented configuration; runs with fake model in CI (ADR 0025, issue 183)."
+}

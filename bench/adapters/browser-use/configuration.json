@@ -1,0 +1,13 @@
+{
+  "tool": "browser-use",
+  "language": "python",
+  "pinned_version": "browser-use==0.1.48",
+  "fake_model_ci": true,
+  "capabilities": ["extract"],
+  "max_concurrency": 4,
+  "defaults": {
+    "filter_list_blocking": false,
+    "consent_prompt_handling": false
+  },
+  "notes": "Browser Use in documented configuration; runs with fake model in CI (ADR 0025, issue 183)."
+}

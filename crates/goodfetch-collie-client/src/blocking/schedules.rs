@@ -10,13 +10,14 @@ use goodfetch_protocol::schedule::{
 };
 
 use super::{Call, ClientConnection, Schedule};
+use crate::connection::BlockingRuntime;
 
 impl ClientConnection {
     /// The Connection's Schedules, as
     /// [`crate::ClientConnection::schedules`]'s, reached without I/O.
     #[must_use]
     pub fn schedules(&self) -> Schedules {
-        Schedules(self.0.schedules(), self.0.clone())
+        Schedules(self.0.schedules(), self.0.core().runtime())
     }
 }
 
@@ -30,7 +31,7 @@ impl From<crate::Schedule> for Schedule {
 /// A Connection's Schedules, whose calls block: the twin of
 /// [`crate::Schedules`]. Cloning it is cheap.
 #[derive(Clone, Debug)]
-pub struct Schedules(crate::Schedules, crate::ClientConnection);
+pub struct Schedules(crate::Schedules, BlockingRuntime);
 
 impl Schedules {
     /// Records a Schedule in the Schedule store, which the Daemon keeps, and answers its ID, as given or made (`s` and a lowercase ULID), with warnings. Nothing fires yet. A taken ID fails with `schedule_exists`, a trigger that does not parse with `schedule_trigger_invalid`. Its time zone is the Daemon host's when the definition names none. One store transaction: a cancel stops it only before it commits.
@@ -47,7 +48,7 @@ impl Schedules {
             .0
             .create(definition)
             .map(|created| created.map_schedule(Schedule::from));
-        Call::new(call, &self.1)
+        Call::new(call, self.1.clone())
     }
 
     /// Lists every Schedule of the Schedule store, by ID.
@@ -56,7 +57,7 @@ impl Schedules {
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     pub fn list(&self) -> Call<Vec<ScheduleInfo>, ScheduleListParams> {
-        Call::new(self.0.list(), &self.1)
+        Call::new(self.0.list(), self.1.clone())
     }
 
     /// Reads the Schedule of an ID. An ID the store does not hold fails with `schedule_not_found`.
@@ -66,7 +67,7 @@ impl Schedules {
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     pub fn get(&self, id: &ScheduleId) -> Call<Schedule, ScheduleGetParams> {
-        Call::new(self.0.get(id).map(Schedule::from), &self.1)
+        Call::new(self.0.get(id).map(Schedule::from), self.1.clone())
     }
 
     /// Describes a Schedule's trigger in plain words and lists its next
@@ -81,7 +82,7 @@ impl Schedules {
         &self,
         trigger: ScheduleTrigger,
     ) -> Call<SchedulePreview, SchedulePreviewParams> {
-        Call::new(self.0.preview(trigger), &self.1)
+        Call::new(self.0.preview(trigger), self.1.clone())
     }
 }
 

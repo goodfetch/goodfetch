@@ -6,9 +6,9 @@ use crate::catalog::{Setting, SettingScope};
 use crate::entries::MODULES;
 use crate::foxhound::fetch::{FETCH_TIER, FETCH_TIER_RACE};
 use crate::foxhound::settings::POLITENESS_DOMAIN_CONCURRENCY;
-use crate::page::CONTENT_EXTRACTOR;
 use crate::page::access_mode::{BROWSER_ACCESS_MODE, IDENTIFIED_SIGNING_KEY, STEALTH_ITEMS};
 use crate::page::proxy::{PROXY_PROVIDERS, PROXY_SERVER};
+use crate::page::{BROWSER_HEADLESS, CONTENT_EXTRACTOR};
 use crate::settings::{
     FILTER_LISTS_ADS, SESSION_PAGE_CHECK, SESSION_SOURCE, TIMEOUT_NAVIGATION, TIMEOUT_RUN,
 };
@@ -23,6 +23,7 @@ fn every_setting() -> impl Iterator<Item = &'static Setting> {
 #[case::a_clean_up_choice_applies_to_a_session(&FILTER_LISTS_ADS, &[Connection, Run, Session])]
 #[case::the_page_check_applies_to_a_session(&SESSION_PAGE_CHECK, &[Connection, Run, Label, Session])]
 #[case::the_access_mode_is_chosen_as_a_session_opens(&BROWSER_ACCESS_MODE, &[Connection, Run, Session])]
+#[case::headless_is_chosen_as_a_session_opens(&BROWSER_HEADLESS, &[Connection, Run, Session])]
 #[case::an_identity_item_is_chosen_as_a_session_opens(STEALTH_ITEMS[0], &[Connection, Run, Session])]
 #[case::a_signing_key_is_chosen_as_a_session_opens(&IDENTIFIED_SIGNING_KEY, &[Connection, Run, Session])]
 #[case::a_session_proxy_is_chosen_as_it_opens(&PROXY_SERVER, &[Connection, Run, Session])]

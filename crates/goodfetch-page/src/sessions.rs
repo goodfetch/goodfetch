@@ -71,7 +71,7 @@ use goodfetch_engine::run_state::{RunStateError, RunStateTables, SecretColumn, r
 use goodfetch_engine::runs::{self, RunError, RunKeyError};
 use goodfetch_engine::secrets::Purpose;
 use goodfetch_engine::settings::{
-    RunSettings, SettingsError, Values, check_session_source, get_or_default, setting,
+    RunSettings, SettingsError, Values, check_session_source, setting, value_as,
 };
 use goodfetch_engine::tasks::{TaskOwner, TaskStarter};
 use goodfetch_engine::{CALLER, CallContext, CallError, RunIndex, RunOfCall};
@@ -650,7 +650,7 @@ impl Sessions {
             let seat = seat_for(
                 &runs.pool,
                 borrowed.as_ref(),
-                placement(&run, fingerprint.as_ref()),
+                placement(&run, &settings, fingerprint.as_ref()),
                 egress(proxy.as_ref(), relay.as_ref()),
                 emulation,
                 TaskStarter::clone(&owner),
@@ -793,7 +793,7 @@ impl Sessions {
         let seat = match borrowed {
             Some(cdp_url) => pool.borrowed_seat(cdp_url.clone(), TaskStarter::clone(&owner)),
             None => pool.seat(
-                placement(run, fingerprint.as_ref()),
+                placement(run, &default_settings, fingerprint.as_ref()),
                 egress(proxy.as_ref(), relay.as_ref()),
                 emulation.clone(),
                 TaskStarter::clone(&owner),
@@ -1923,7 +1923,7 @@ async fn reopened_session(
         ),
         None => (
             pool.seat(
-                placement(run, fingerprint.as_ref()),
+                placement(run, &settings, fingerprint.as_ref()),
                 egress(proxy.as_ref(), relay.as_ref()),
                 emulation,
                 TaskStarter::clone(&owner),
@@ -2399,18 +2399,25 @@ async fn reopened_identity(
 /// Where a Session of `run` whose pages mask their fingerprint as
 /// `fingerprint` says, if they do, is placed in its Run's browser pool
 /// (ADR 0129), and the window its browser shows them in: a `stealth`
-/// Session's own, and otherwise the one the Run's `browser.headless`
-/// asks for.
-fn placement(run: &BrowserRun, fingerprint: Option<&FingerprintPlan>) -> (Placement, Window) {
-    match fingerprint {
-        Some(fingerprint) => (fingerprint.placement(), fingerprint.window()),
-        None => (
+/// Session's own, and otherwise the one its `browser.headless` (own over
+/// the Run's) asks for.
+fn placement(
+    run: &BrowserRun,
+    own: &Values,
+    fingerprint: Option<&FingerprintPlan>,
+) -> (Placement, Window) {
+    if let Some(fingerprint) = fingerprint {
+        (fingerprint.placement(), fingerprint.window())
+    } else {
+        let settings =
+            SessionSettings::new(own, run.identity.settings().map(RunSettings::resolved));
+        (
             Placement::Shared,
-            Window::of(get_or_default(
-                run.identity.settings().map(RunSettings::resolved),
+            Window::of(value_as(
                 &BROWSER_HEADLESS,
+                settings.scoped(&BROWSER_HEADLESS).0,
             )),
-        ),
+        )
     }
 }
 

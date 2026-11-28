@@ -21,7 +21,7 @@ impl Run {
     /// fails with `invalid_params` before it is sent, as a call on a
     /// closed value does with `closed`. It is never retried.
     pub fn call(&self, operation: &str) -> crate::blocking::RawCall {
-        crate::blocking::RawCall::new(self.inner.call(operation), self.inner.host.connection())
+        crate::blocking::RawCall::new(self.inner.call(operation), self.inner.host.runtime())
     }
 
     /// Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.
@@ -37,7 +37,7 @@ impl Run {
         crate::Answer<::goodfetch_protocol::run::RunReport>,
         ::goodfetch_protocol::run::RunAbortParams,
     > {
-        crate::blocking::Call::new(self.inner.abort(), self.inner.host.connection())
+        crate::blocking::Call::new(self.inner.abort(), self.inner.host.runtime())
     }
 
     /// Writes a Checkpoint of a live Run now, through SQLite's online backup, where the engine keeps the Run's Checkpoints, or where `location` says, a path on the engine's machine that only the catalog's caller gives, an SDK's `checkpoint()` taking none, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
@@ -50,10 +50,15 @@ impl Run {
     pub fn checkpoint(
         &self,
     ) -> crate::blocking::Call<
-        crate::Answer<::goodfetch_protocol::run::Checkpoint>,
+        crate::blocking::Checkpoint,
         ::goodfetch_protocol::checkpoint::RunCheckpointParams,
     > {
-        crate::blocking::Call::new(self.inner.checkpoint(), self.inner.host.connection())
+        crate::blocking::Call::new(
+            self.inner
+                .checkpoint()
+                .map(crate::blocking::Checkpoint::new),
+            self.inner.host.runtime(),
+        )
     }
 
     /// Discards a Run that ended or was interrupted, for good, so that nothing of it is left behind (ADRs 0001, 0002, 0015 and 0036): its wrapped data key is overwritten and its run folder removed, with its run file, page bodies, browser profiles and the Checkpoints written there; in the per-install layout its rows are deleted from the install database with `secure_delete` on, then `wal_checkpoint(TRUNCATE)`, so neither the database nor its `-wal` and `-shm` files hold its bytes. Its Run index row stays, marked `erased`, without its tags or status line. A Profile directory it used in place and a Borrowed browser are the person's own and are never touched (ADR 0056), nor are Checkpoints written elsewhere. A later `run.start` under its Run ID starts a new Run; discarding a Run already discarded changes nothing. A Run this engine runs fails with `run_live`, one whose writer lock another engine holds with `run_in_use`, and a Run ID no Run has with `run_not_found`.
@@ -67,7 +72,7 @@ impl Run {
         &self,
     ) -> crate::blocking::Call<::goodfetch_protocol::run::RunId, ::goodfetch_protocol::run::RunParams>
     {
-        crate::blocking::Call::new(self.inner.discard(), self.inner.host.connection())
+        crate::blocking::Call::new(self.inner.discard(), self.inner.host.runtime())
     }
 
     /// Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. A Run something stopped first answers its report saying `stopped`. A Run that ended `failed` fails the call with the error that failed it, and a write at its end that failed, such as its Plan file's, with that write's error. Cancelling the call, or its `timeout` passing, which fails it with `deadline_exceeded`, ends only the wait.
@@ -83,7 +88,7 @@ impl Run {
         crate::Answer<::goodfetch_protocol::run::RunReport>,
         ::goodfetch_protocol::run::RunFinishParams,
     > {
-        crate::blocking::Call::new(self.inner.finish(), self.inner.host.connection())
+        crate::blocking::Call::new(self.inner.finish(), self.inner.host.runtime())
     }
 
     /// Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint.
@@ -99,7 +104,7 @@ impl Run {
         crate::Answer<::goodfetch_protocol::run::RunReport>,
         ::goodfetch_protocol::checkpoint::RunMigrateParams,
     > {
-        crate::blocking::Call::new(self.inner.migrate(), self.inner.host.connection())
+        crate::blocking::Call::new(self.inner.migrate(), self.inner.host.runtime())
     }
 
     /// Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call.
@@ -114,7 +119,7 @@ impl Run {
     ) -> crate::blocking::Call<Page, ::goodfetch_protocol::page::NewPageParams> {
         crate::blocking::Call::new(
             self.inner.new_page().map(|inner| Page { inner }),
-            self.inner.host.connection(),
+            self.inner.host.runtime(),
         )
     }
 
@@ -130,7 +135,7 @@ impl Run {
     ) -> crate::blocking::Call<Session, ::goodfetch_protocol::page::session::NewSessionParams> {
         crate::blocking::Call::new(
             self.inner.new_session().map(|inner| Session { inner }),
-            self.inner.host.connection(),
+            self.inner.host.runtime(),
         )
     }
 
@@ -147,7 +152,7 @@ impl Run {
         crate::Answer<::goodfetch_protocol::run::RunReport>,
         ::goodfetch_protocol::run::RunParams,
     > {
-        crate::blocking::Call::new(self.inner.pause(), self.inner.host.connection())
+        crate::blocking::Call::new(self.inner.pause(), self.inner.host.runtime())
     }
 
     /// Reads a Run's report: at once for a Run that ended, and at its end for a live one, which the read never ends. A Run another engine works is read through that engine, and one no engine works from its committed state, never taking its writer lock. A Run that has no live writer and has not ended fails with `run_interrupted`, whose `fix` names a start with its Run ID, and a Run ID the Run index does not list with `run_not_found`.
@@ -163,7 +168,7 @@ impl Run {
         crate::Answer<::goodfetch_protocol::run::RunReport>,
         ::goodfetch_protocol::run::RunParams,
     > {
-        crate::blocking::Call::new(self.inner.report(), self.inner.host.connection())
+        crate::blocking::Call::new(self.inner.report(), self.inner.host.runtime())
     }
 
     /// Sets the program's own status line about a live Run, at most 512 characters, which replaces the one before: kept in the Run's state, so a resume keeps it, shown in its Run index row and carried on its progress, `run.progress`. Answers the Run's progress. A Run this engine does not run fails with `run_not_found`.
@@ -182,7 +187,7 @@ impl Run {
     > {
         crate::blocking::Call::new(
             self.inner.set_progress_message(message),
-            self.inner.host.connection(),
+            self.inner.host.runtime(),
         )
     }
 
@@ -199,7 +204,28 @@ impl Run {
         crate::Answer<::goodfetch_protocol::run::RunReport>,
         ::goodfetch_protocol::run::RunStopParams,
     > {
-        crate::blocking::Call::new(self.inner.stop(), self.inner.host.connection())
+        crate::blocking::Call::new(self.inner.stop(), self.inner.host.runtime())
+    }
+
+    /// Reads a Run's trace copy as recorded so far, or null when the Run keeps no trace (ADRs 0102 and 0116). Returns only once the copy is whole, with its size and SHA-256 digest; a write the engine cannot make fails with `file_write_failed`, side `engine`, and leaves no unfinished file. Takes no writer lock, so a view reads a Run no program holds without resuming it. A Run ID the Run index does not list fails with `run_not_found`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn trace(
+        &self,
+    ) -> crate::blocking::Call<
+        Option<crate::blocking::RunTrace>,
+        ::goodfetch_protocol::run::RunParams,
+    > {
+        crate::blocking::Call::new(
+            self.inner
+                .trace()
+                .map(|answered| answered.map(crate::blocking::RunTrace::new)),
+            self.inner.host.runtime(),
+        )
     }
 
     /// Answers what a Run used, as the Usage ledger charged it: its model calls and tokens, browser time, proxy bytes, requests, paid solves and Paid fetches, each Limit that applies to it with what is left of it, and whether it is uncapped. An ended Run answers its report's Usage.
@@ -215,7 +241,7 @@ impl Run {
         crate::Answer<::goodfetch_protocol::run::RunUsage>,
         ::goodfetch_protocol::run::RunParams,
     > {
-        crate::blocking::Call::new(self.inner.usage(), self.inner.host.connection())
+        crate::blocking::Call::new(self.inner.usage(), self.inner.host.runtime())
     }
 
     /// Answers whether the start that opened the Run's handle began the Run, `new`, resumed it, `resumed`, or found it ended, `ended` (ADR 0102). The handle answers it from that start's answer, without a message to the engine.
@@ -246,7 +272,7 @@ impl Session {
     /// fails with `invalid_params` before it is sent, as a call on a
     /// closed value does with `closed`. It is never retried.
     pub fn call(&self, operation: &str) -> crate::blocking::RawCall {
-        crate::blocking::RawCall::new(self.inner.call(operation), self.inner.host.connection())
+        crate::blocking::RawCall::new(self.inner.call(operation), self.inner.host.runtime())
     }
 
     /// Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing.
@@ -259,7 +285,7 @@ impl Session {
     pub fn close(
         &self,
     ) -> crate::blocking::Call<(), ::goodfetch_protocol::page::session::SessionParams> {
-        crate::blocking::Call::new(self.inner.close(), self.inner.host.connection())
+        crate::blocking::Call::new(self.inner.close(), self.inner.host.runtime())
     }
 
     /// Opens a page in the Session, with its cookies and storage, and its own settings. Once the Session is closed, it raises `closed`.
@@ -275,7 +301,7 @@ impl Session {
     {
         crate::blocking::Call::new(
             self.inner.new_page().map(|inner| Page { inner }),
-            self.inner.host.connection(),
+            self.inner.host.runtime(),
         )
     }
 
@@ -292,7 +318,7 @@ impl Session {
         Vec<::goodfetch_protocol::page::PageId>,
         ::goodfetch_protocol::page::session::SessionParams,
     > {
-        crate::blocking::Call::new(self.inner.pages(), self.inner.host.connection())
+        crate::blocking::Call::new(self.inner.pages(), self.inner.host.runtime())
     }
 
     /// Listens to one of the Session's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the Session on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call removes the listener; it answers when the Session closes or its Run ends.
@@ -312,7 +338,7 @@ impl Session {
             self.inner
                 .events(event)
                 .map(<E as crate::events::sealed::SessionEvent>::blocking),
-            self.inner.host.connection(),
+            self.inner.host.runtime(),
         )
     }
 }
@@ -336,7 +362,7 @@ impl Page {
     /// fails with `invalid_params` before it is sent, as a call on a
     /// closed value does with `closed`. It is never retried.
     pub fn call(&self, operation: &str) -> crate::blocking::RawCall {
-        crate::blocking::RawCall::new(self.inner.call(operation), self.inner.host.connection())
+        crate::blocking::RawCall::new(self.inner.call(operation), self.inner.host.runtime())
     }
 
     /// Its `session`, which every answer that opens a `page` names,
@@ -359,7 +385,7 @@ impl Page {
     pub fn close(
         &self,
     ) -> crate::blocking::Call<(), ::goodfetch_protocol::page::session_pages::PageCloseParams> {
-        crate::blocking::Call::new(self.inner.close(), self.inner.host.connection())
+        crate::blocking::Call::new(self.inner.close(), self.inner.host.runtime())
     }
 
     /// Runs a page function in the page's main frame with its one JSON argument, in the main world, where the page's globals are, or in an isolated world the page neither sees nor hooks, and answers its result, awaited, as JSON; a result of `undefined` answers no value. A value outside JSON in the result raises `page_value_invalid` naming its path and kind, and an exception thrown in the page `page_function_failed`. It is no gesture: it runs beside the page's actions. A main-world call is marked in the Session's Provenance.
@@ -376,7 +402,7 @@ impl Page {
         Option<::serde_json::Value>,
         ::goodfetch_protocol::page::functions::EvaluateParams,
     > {
-        crate::blocking::Call::new(self.inner.evaluate(function), self.inner.host.connection())
+        crate::blocking::Call::new(self.inner.evaluate(function), self.inner.host.runtime())
     }
 
     /// Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and, when a format it names is read from the main content (`markdown` of the main content or fit, `html` of the main content, `text`), whether the document has main content. A document with no main content answers those formats empty and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
@@ -393,7 +419,7 @@ impl Page {
         crate::Answer<::goodfetch_protocol::page::PageFormats>,
         ::goodfetch_protocol::page::FormatsParams,
     > {
-        crate::blocking::Call::new(self.inner.formats(formats), self.inner.host.connection())
+        crate::blocking::Call::new(self.inner.formats(formats), self.inner.host.runtime())
     }
 
     /// Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121).
@@ -413,7 +439,7 @@ impl Page {
             self.inner
                 .go_back()
                 .map(|answered| answered.map(crate::blocking::Response::new)),
-            self.inner.host.connection(),
+            self.inner.host.runtime(),
         )
     }
 
@@ -434,7 +460,7 @@ impl Page {
             self.inner
                 .go_forward()
                 .map(|answered| answered.map(crate::blocking::Response::new)),
-            self.inner.host.connection(),
+            self.inner.host.runtime(),
         )
     }
 
@@ -456,7 +482,7 @@ impl Page {
             self.inner
                 .goto(url)
                 .map(|answered| answered.map(crate::blocking::Response::new)),
-            self.inner.host.connection(),
+            self.inner.host.runtime(),
         )
     }
 
@@ -474,7 +500,7 @@ impl Page {
         crate::Answer<::goodfetch_protocol::page::read::PageRead>,
         ::goodfetch_protocol::page::read::PageReadParams,
     > {
-        crate::blocking::Query::new(self.inner.read(fields), self.inner.host.connection())
+        crate::blocking::Query::new(self.inner.read(fields), self.inner.host.runtime())
     }
 
     /// Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
@@ -494,7 +520,7 @@ impl Page {
             self.inner
                 .reload()
                 .map(|answered| answered.map(crate::blocking::Response::new)),
-            self.inner.host.connection(),
+            self.inner.host.runtime(),
         )
     }
 
@@ -514,7 +540,7 @@ impl Page {
     > {
         crate::blocking::Call::new(
             self.inner.request(url).map(crate::blocking::Response::new),
-            self.inner.host.connection(),
+            self.inner.host.runtime(),
         )
     }
 
@@ -534,7 +560,7 @@ impl Page {
     > {
         crate::blocking::Call::new(
             self.inner.wait_for_function(function),
-            self.inner.host.connection(),
+            self.inner.host.runtime(),
         )
     }
 
@@ -551,10 +577,7 @@ impl Page {
         crate::Answer<::goodfetch_protocol::page::waits::Reached>,
         ::goodfetch_protocol::page::waits::WaitForLoadStateParams,
     > {
-        crate::blocking::Call::new(
-            self.inner.wait_for_load_state(),
-            self.inner.host.connection(),
-        )
+        crate::blocking::Call::new(self.inner.wait_for_load_state(), self.inner.host.runtime())
     }
 
     /// Waits, armed when the call arrives, until the page sends a request whose URL matches, and answers it, so a request an action triggers is caught by a waiter sent before the action. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -570,7 +593,7 @@ impl Page {
         crate::Answer<::goodfetch_protocol::page::events::PageRequest>,
         ::goodfetch_protocol::page::waits::WaitForExchangeParams,
     > {
-        crate::blocking::Call::new(self.inner.wait_for_request(), self.inner.host.connection())
+        crate::blocking::Call::new(self.inner.wait_for_request(), self.inner.host.runtime())
     }
 
     /// Waits, armed when the call arrives, until a request of the page whose URL matches has finished, a hop that a redirect ended included, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it but for a redirect's, which has none. A request that fails is not waited for. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -590,7 +613,7 @@ impl Page {
             self.inner
                 .wait_for_request_finished()
                 .map(crate::blocking::Exchange::new),
-            self.inner.host.connection(),
+            self.inner.host.runtime(),
         )
     }
 
@@ -611,7 +634,7 @@ impl Page {
             self.inner
                 .wait_for_response()
                 .map(crate::blocking::Exchange::new),
-            self.inner.host.connection(),
+            self.inner.host.runtime(),
         )
     }
 
@@ -629,7 +652,7 @@ impl Page {
         crate::Answer<::goodfetch_protocol::page::waits::Reached>,
         ::goodfetch_protocol::page::waits::WaitForUrlParams,
     > {
-        crate::blocking::Call::new(self.inner.wait_for_url(url), self.inner.host.connection())
+        crate::blocking::Call::new(self.inner.wait_for_url(url), self.inner.host.runtime())
     }
 
     /// Listens to one of the page's events, armed when the call arrives: the call stays in flight, and the engine sends that event of the page on the call itself, in `$/events` batches naming it, never more than the credits granted it with `$/credit`, its positions counting the call's own events from 1. Only the Connection that armed it gets them, never the engine's shared event stream. Lossless: past 1,024 events unsent, as when its Client grants too few credits, the call raises `page_events_lost` once it sent those. Cancelling the call, as closing its `Subscription` does, removes the listener; it answers when the page closes or its Run ends, once it sent the events it holds. The page's console and uncaught exceptions, its out-of-process frames' included, are read only while a call listens to `console` or `page_error`.
@@ -645,12 +668,12 @@ impl Page {
         &self,
         event: E,
     ) -> crate::blocking::EventIter<E::BlockingData> {
-        let connection = self.inner.host.connection().clone();
+        let runtime = self.inner.host.runtime();
         crate::blocking::EventIter::new(
-            self.inner.events(event).map(move |data| {
-                <E as crate::events::sealed::PageEvent>::blocking(data, &connection)
-            }),
-            self.inner.host.connection(),
+            self.inner
+                .events(event)
+                .map(move |data| <E as crate::events::sealed::PageEvent>::blocking(data, &runtime)),
+            self.inner.host.runtime(),
         )
     }
 
@@ -681,9 +704,11 @@ pub struct WebSocket {
 }
 
 impl WebSocket {
-    /// The blocking twin of `value`, whose events are read on
-    /// `connection`'s runtime.
-    pub(crate) fn new(value: crate::WebSocket, connection: &crate::ClientConnection) -> Self {
+    /// The blocking twin of `value`, whose events are read on `runtime`.
+    pub(crate) fn new(
+        value: crate::WebSocket,
+        runtime: &crate::connection::BlockingRuntime,
+    ) -> Self {
         let crate::WebSocket {
             url,
             web_socket_id,
@@ -692,7 +717,7 @@ impl WebSocket {
         Self {
             url,
             web_socket_id,
-            events: crate::blocking::EventIter::new(events, connection),
+            events: crate::blocking::EventIter::new(events, runtime.clone()),
         }
     }
 
@@ -726,7 +751,7 @@ impl Locator {
     /// fails with `invalid_params` before it is sent, as a call on a
     /// closed value does with `closed`. It is never retried.
     pub fn call(&self, operation: &str) -> crate::blocking::RawCall {
-        crate::blocking::RawCall::new(self.inner.call(operation), self.inner.host.connection())
+        crate::blocking::RawCall::new(self.inner.call(operation), self.inner.host.runtime())
     }
 
     /// Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes. A click that starts a navigation of the page answers once that navigation's document committed or it ended without one, within `timeout.navigation` (ADR 0085).
@@ -742,7 +767,7 @@ impl Locator {
         crate::Answer<::goodfetch_protocol::page::Acted>,
         ::goodfetch_protocol::page::ClickParams,
     > {
-        crate::blocking::Call::new(self.inner.click(), self.inner.host.connection())
+        crate::blocking::Call::new(self.inner.click(), self.inner.host.runtime())
     }
 
     /// Runs a page function, as `page.evaluate` does, with the array of every element the locator matches first, none included, and its one JSON argument second, and answers its result, awaited, as JSON; the elements stay in the page, so a result holding one raises `page_value_invalid`. A selector the page does not parse raises `invalid_params`, and an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance.
@@ -759,10 +784,7 @@ impl Locator {
         Option<::serde_json::Value>,
         ::goodfetch_protocol::page::functions::LocatorEvaluateAllParams,
     > {
-        crate::blocking::Call::new(
-            self.inner.evaluate_all(function),
-            self.inner.host.connection(),
-        )
+        crate::blocking::Call::new(self.inner.evaluate_all(function), self.inner.host.runtime())
     }
 
     /// Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes. An input whose value a person picks rather than types (a date, a time, a month, a week, a local date and time, a colour or a range) has its value set, firing `input` and `change`, and a value it does not take fails with `invalid_params`.
@@ -779,7 +801,7 @@ impl Locator {
         crate::Answer<::goodfetch_protocol::page::Acted>,
         ::goodfetch_protocol::page::FillParams,
     > {
-        crate::blocking::Call::new(self.inner.fill(value), self.inner.host.connection())
+        crate::blocking::Call::new(self.inner.fill(value), self.inner.host.runtime())
     }
 
     /// Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes. A press that starts a navigation of the page answers once that navigation's document committed or it ended without one, within `timeout.navigation` (ADR 0085).
@@ -796,7 +818,7 @@ impl Locator {
         crate::Answer<::goodfetch_protocol::page::Acted>,
         ::goodfetch_protocol::page::PressParams,
     > {
-        crate::blocking::Call::new(self.inner.press(key), self.inner.host.connection())
+        crate::blocking::Call::new(self.inner.press(key), self.inner.host.runtime())
     }
 
     /// Reads a virtualized or infinite list whole: at each step a page function, called with each element the locator matches and its one JSON argument, in the isolated world unless `world` says otherwise, answers the element's `{ key, value }` or `null` to skip it, and each new key's value is kept in first-seen order, a duplicate key keeping its first. Then the last match is scrolled into view, a gesture through the guard, and the step waits up to `step_wait` for an element with a new key. It ends `end_of_list` after `idle_steps` steps in a row without one, or `max_rows` once it kept that many rows, and answers the rows, how it ended and the rows the list declares through `aria-rowcount` or its items' `aria-setsize` (`unknown` for `-1`, `null` for none). Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded` whose `observed` gives the rows kept and the last key; a guard refusal stops it with the guard's code, and an exception thrown in the page raises `page_function_failed`. No other read scrolls.
@@ -815,7 +837,7 @@ impl Locator {
     > {
         crate::blocking::Call::new(
             self.inner.scroll_collect(function),
-            self.inner.host.connection(),
+            self.inner.host.runtime(),
         )
     }
 
@@ -832,7 +854,7 @@ impl Locator {
         crate::Answer<::goodfetch_protocol::page::waits::Reached>,
         ::goodfetch_protocol::page::waits::LocatorWaitForParams,
     > {
-        crate::blocking::Call::new(self.inner.wait_for(), self.inner.host.connection())
+        crate::blocking::Call::new(self.inner.wait_for(), self.inner.host.runtime())
     }
 
     /// Waits until the number of elements the locator matches is within the count, and answers it. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -846,10 +868,7 @@ impl Locator {
         &self,
         count: ::goodfetch_protocol::page::waits::Count,
     ) -> crate::blocking::Call<u64, ::goodfetch_protocol::page::waits::WaitForCountParams> {
-        crate::blocking::Call::new(
-            self.inner.wait_for_count(count),
-            self.inner.host.connection(),
-        )
+        crate::blocking::Call::new(self.inner.wait_for_count(count), self.inner.host.runtime())
     }
 
     /// Waits, checking from when the call arrives, until a page function called with the one element the locator matches first and its one JSON argument second answers a truthy result, and answers that result as JSON, as `page.wait_for_function` does. The locator is resolved again at each check, so a re-render that replaces its element changes nothing, and a check while none or several elements match counts as falsy. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`, and a selector the page does not parse `invalid_params`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -868,7 +887,7 @@ impl Locator {
     > {
         crate::blocking::Call::new(
             self.inner.wait_for_function(function),
-            self.inner.host.connection(),
+            self.inner.host.runtime(),
         )
     }
 }
@@ -892,7 +911,7 @@ impl Schedule {
     /// fails with `invalid_params` before it is sent, as a call on a
     /// closed value does with `closed`. It is never retried.
     pub fn call(&self, operation: &str) -> crate::blocking::RawCall {
-        crate::blocking::RawCall::new(self.inner.call(operation), self.inner.host.connection())
+        crate::blocking::RawCall::new(self.inner.call(operation), self.inner.host.runtime())
     }
 
     /// Deletes the Schedule from its store, so it never fires again, and answers whether it did: false when the store held none of that ID, as after a resent delete. One store transaction: a cancel stops it only before it commits.
@@ -905,7 +924,7 @@ impl Schedule {
     pub fn delete(
         &self,
     ) -> crate::blocking::Call<bool, ::goodfetch_protocol::schedule::ScheduleParams> {
-        crate::blocking::Call::new(self.inner.delete(), self.inner.host.connection())
+        crate::blocking::Call::new(self.inner.delete(), self.inner.host.runtime())
     }
 
     /// Reads the Schedule as its store holds it now. One the store no longer holds fails with `schedule_not_found`.
@@ -921,7 +940,7 @@ impl Schedule {
         crate::Answer<::goodfetch_protocol::schedule::ScheduleInfo>,
         ::goodfetch_protocol::schedule::ScheduleParams,
     > {
-        crate::blocking::Call::new(self.inner.info(), self.inner.host.connection())
+        crate::blocking::Call::new(self.inner.info(), self.inner.host.runtime())
     }
 }
 

@@ -15,10 +15,10 @@ use std::time::Duration;
 use goodfetch_protocol::catalog::SettingScope;
 use goodfetch_protocol::run::{
     CATALOG_RUN_START, CatalogRunStartParams, CatalogTarget, RECIPE_START, RecipeStartParams,
-    Recording, RunId, RunLimit, Tags,
+    Recording, RunId, RunLimit, RunStarted, Tags,
 };
 
-use crate::connection::ClientConnection;
+use crate::connection::{ClientConnection, Core};
 use crate::error::Error;
 use crate::generated::handles::Run;
 use crate::limits::Limits;
@@ -39,7 +39,7 @@ enum Target {
 #[must_use = "a start is sent only when it is awaited"]
 #[derive(Debug)]
 pub struct HandlerlessStart {
-    connection: ClientConnection,
+    core: Core,
     target: Target,
     run_id: Option<String>,
     tags: Tags,
@@ -52,19 +52,19 @@ pub struct HandlerlessStart {
 }
 
 impl HandlerlessStart {
-    /// The start of a Recipe's run on `connection`.
-    pub(crate) fn recipe(connection: ClientConnection, recipe: &str) -> Self {
-        Self::new(connection, Target::Recipe(recipe.to_owned()))
+    /// The start of a Recipe's run on `core`.
+    pub(crate) fn recipe(core: Core, recipe: &str) -> Self {
+        Self::new(core, Target::Recipe(recipe.to_owned()))
     }
 
-    /// The start of a code-free catalog run on `connection`.
-    pub(crate) fn catalog(connection: ClientConnection, target: CatalogTarget) -> Self {
-        Self::new(connection, Target::Catalog(target))
+    /// The start of a code-free catalog run on `core`.
+    pub(crate) fn catalog(core: Core, target: CatalogTarget) -> Self {
+        Self::new(core, Target::Catalog(target))
     }
 
-    fn new(connection: ClientConnection, target: Target) -> Self {
+    fn new(core: Core, target: Target) -> Self {
         Self {
-            connection,
+            core,
             target,
             run_id: None,
             tags: Tags::default(),
@@ -146,45 +146,59 @@ impl IntoFuture for HandlerlessStart {
             .settings
             .within(SettingScope::Run)
             .and_then(|settings| Ok((settings, wire_timeout(self.timeout)?)));
-        let (settings, timeout) = match checked {
-            Ok(checked) => checked,
-            Err(error) => return Box::pin(std::future::ready(Err(error))),
-        };
-        let connection = self.connection;
-        let project = connection.project().cloned();
-        let detached = self.detached;
-        match self.target {
-            Target::Recipe(recipe) => Box::pin(connection.start_held(
-                RECIPE_START.name,
-                RecipeStartParams {
-                    recipe,
-                    run_id: self.run_id,
-                    tags: self.tags,
-                    settings,
-                    project,
-                    limits: self.limits,
-                    recording: self.recording,
-                    timeout,
+        Box::pin(async move {
+            let (settings, timeout) = checked?;
+            let core = self.core;
+            let (recording, recording_bytes) =
+                crate::run::prepare_recording(&core, self.recording).await?;
+            let record_path = crate::run::daemon_record_path(&core, recording.as_ref());
+            let project = core.project().cloned();
+            let detached = self.detached;
+            match self.target {
+                Target::Recipe(recipe) => crate::run::start_on_core(
+                    core,
+                    RECIPE_START.name,
+                    RecipeStartParams {
+                        recipe,
+                        run_id: self.run_id,
+                        tags: self.tags,
+                        settings,
+                        project,
+                        limits: self.limits,
+                        recording,
+                        recording_bytes,
+                        timeout,
+                        detached,
+                    },
                     detached,
-                },
-                detached,
-            )),
-            Target::Catalog(target) => Box::pin(connection.start_held(
-                CATALOG_RUN_START.name,
-                CatalogRunStartParams {
-                    target,
-                    run_id: self.run_id,
-                    tags: self.tags,
-                    settings,
-                    project,
-                    limits: self.limits,
-                    recording: self.recording,
-                    timeout,
+                    record_path,
+                    |started: RunStarted| (started, ()),
+                )
+                .await
+                .map(|(run, ())| run),
+                Target::Catalog(target) => crate::run::start_on_core(
+                    core,
+                    CATALOG_RUN_START.name,
+                    CatalogRunStartParams {
+                        target,
+                        run_id: self.run_id,
+                        tags: self.tags,
+                        settings,
+                        project,
+                        limits: self.limits,
+                        recording,
+                        recording_bytes,
+                        timeout,
+                        detached,
+                    },
                     detached,
-                },
-                detached,
-            )),
-        }
+                    record_path,
+                    |started: RunStarted| (started, ()),
+                )
+                .await
+                .map(|(run, ())| run),
+            }
+        })
     }
 }
 
@@ -201,7 +215,7 @@ impl ClientConnection {
     /// `recipe` is an installed Recipe's name or the path to its manifest.
     pub fn start_recipe(&self, recipe: &str) -> HandlerlessStart {
         crate::markers::warn_operation(RECIPE_START.name);
-        HandlerlessStart::recipe(self.clone(), recipe)
+        HandlerlessStart::recipe(self.core().clone(), recipe)
     }
 
     /// Starts a code-free catalog run, a Run with no handler in the program
@@ -218,7 +232,7 @@ impl ClientConnection {
     /// (`catalog_run.start`), which awaiting sends.
     pub fn start_catalog_run(&self, target: CatalogTarget) -> HandlerlessStart {
         crate::markers::warn_operation(CATALOG_RUN_START.name);
-        HandlerlessStart::catalog(self.clone(), target)
+        HandlerlessStart::catalog(self.core().clone(), target)
     }
 }
 

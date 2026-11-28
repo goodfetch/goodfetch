@@ -14,7 +14,11 @@
 import { readFile, lstat, readdir, stat } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ArtifactUnavailableOfflineError, Collie, EgressRefusedError } from "@goodfetch/collie";
+import {
+  ArtifactUnavailableOfflineError,
+  Collie,
+  ResponseNotRecordedError,
+} from "@goodfetch/collie";
 import { TestEngine } from "@goodfetch/collie/testing";
 import {
   failure,
@@ -310,7 +314,7 @@ describe("a test engine", () => {
           await run.finish();
           await engine.close();
 
-          expect([status, refused]).toEqual([200, expect.any(EgressRefusedError)]);
+          expect([status, refused]).toEqual([200, expect.any(ResponseNotRecordedError)]);
           expect(await tree(cache)).toEqual(before);
         },
       );

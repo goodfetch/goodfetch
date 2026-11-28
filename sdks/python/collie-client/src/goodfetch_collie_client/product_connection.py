@@ -71,6 +71,7 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.generated.models import Product, RunLimit
     from goodfetch_collie_client.goodfetch_error import ErrorClass
     from goodfetch_collie_client.limits import Limits
+    from goodfetch_collie_client.secrets import AsyncSecretResolver
 
 __all__ = ["ProductPackage", "open_engine", "open_over"]
 
@@ -146,6 +147,7 @@ async def open_engine(
     max_listener_queue: int = MAX_LISTENER_QUEUE,
     settings: Mapping[str, object] | None = None,
     project: str | os.PathLike[str] | NotGiven | None = not_given,
+    resolve_secret: AsyncSecretResolver | None = None,
 ) -> ClientConnection:
     """Reaches the engine `engine` chooses for `product`, then `hello` and `limits`.
 
@@ -229,6 +231,7 @@ async def open_engine(
         settings,
         bounds,
         project_file,
+        resolve_secret,
     )
     if isinstance(reach, AttachedReach):
         connection = await _open_attached(
@@ -263,6 +266,7 @@ class _Opening:
     settings: Mapping[str, object] | None
     bounds: ChannelBounds
     project: ProjectFile | None
+    resolve_secret: AsyncSecretResolver | None = None
 
 
 _REFUSALS = frozenset({"not_in_product", "protocol_version_unsupported"})
@@ -411,6 +415,7 @@ async def _open_attached(
         settings=opening.settings,
         bounds=opening.bounds,
         project=opening.project,
+        resolve_secret=opening.resolve_secret,
     )
 
 
@@ -460,6 +465,7 @@ async def _open_daemon(
         reconnect=reconnect,
         project=opening.project,
         worker_target=worker_target,
+        resolve_secret=opening.resolve_secret,
     )
 
 
@@ -543,6 +549,7 @@ async def open_over(
     close_timeout: float = CLOSE_TIMEOUT,
     max_listener_queue: int = MAX_LISTENER_QUEUE,
     settings: Mapping[str, object] | None = None,
+    resolve_secret: AsyncSecretResolver | None = None,
 ) -> ClientConnection:
     """Finishes `hello`, naming `product`, over `transport`.
 
@@ -561,4 +568,5 @@ async def open_over(
         listener_queue=listener_queue,
         settings=settings,
         bounds=bounds,
+        resolve_secret=resolve_secret,
     )

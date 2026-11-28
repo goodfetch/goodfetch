@@ -6,9 +6,10 @@
 //! Connection's (ADR 0083). Its handles are cheap clones of one Run, `Send + Sync +
 //! 'static`, and closing any of them closes it for all.
 
-mod progress;
+pub(crate) mod progress;
 
 use std::future::{Future, IntoFuture};
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,8 +17,9 @@ use std::time::Duration;
 use goodfetch_protocol::catalog::SettingScope;
 use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::run::{
-    RUN_PROGRESS_READ, RUN_START, Recording, RunId, RunProgress, RunReport, RunStartParams,
-    RunStarted, StartedAs, Tags,
+    RECORDING_INVALID, RECORDING_SAVE_AS, RUN_PROGRESS_READ, RUN_START, Recording,
+    RecordingInvalidDetails, RecordingMode, RecordingSaveAsParams, RecordingSaved, RunId,
+    RunProgress, RunReport, RunStartParams, RunStarted, StartedAs, Tags,
 };
 use goodfetch_protocol::settings::{CONFIG_EXPLAIN, ConfigExplainParams, SettingsExplanation};
 use serde::Serialize;
@@ -25,7 +27,7 @@ use serde::de::DeserializeOwned;
 
 use crate::answer::Answer;
 use crate::call::{Call, Query};
-use crate::connection::ClientConnection;
+use crate::connection::{ClientConnection, Core};
 use crate::error::Error;
 use crate::event_stream::EventStream;
 use crate::generated::handles::{Page, Run, Session};
@@ -39,7 +41,7 @@ use crate::settings::{RunTimeout, Settings, wire_timeout};
 #[must_use = "a start is sent only when it is awaited"]
 #[derive(Debug)]
 pub struct Start {
-    connection: ClientConnection,
+    core: Core,
     params: RunStartParams,
     /// The Run's own settings, which its params carry once checked.
     settings: Settings,
@@ -48,11 +50,11 @@ pub struct Start {
 }
 
 impl Start {
-    /// The start of a Run on `connection`, with no Run ID: the engine
+    /// The start of a Run on `core`, with no Run ID: the engine
     /// names it.
-    pub(crate) fn new(connection: ClientConnection) -> Self {
+    pub(crate) fn new(core: Core) -> Self {
         Self {
-            connection,
+            core,
             params: RunStartParams::default(),
             settings: Settings::new(),
             timeout: RunTimeout::Setting,
@@ -187,14 +189,121 @@ impl IntoFuture for Start {
             .settings
             .within(SettingScope::Run)
             .and_then(|settings| Ok((settings, wire_timeout(self.timeout)?)));
-        let started = checked.map(|(settings, timeout)| {
+        Box::pin(async move {
+            let (settings, timeout) = checked?;
+            let (recording, recording_bytes) =
+                prepare_recording(&self.core, self.params.recording.take()).await?;
+            let record_path = daemon_record_path(&self.core, recording.as_ref());
             self.params.settings = settings;
             self.params.timeout = timeout;
-            self.params.project = self.connection.project().cloned();
-            self.connection.start_with(RUN_START.name, self.params)
-        });
-        Box::pin(async move { started?.await })
+            self.params.project = self.core.project().cloned();
+            self.params.recording = recording;
+            self.params.recording_bytes = recording_bytes;
+            start_on_core(
+                self.core,
+                RUN_START.name,
+                self.params,
+                false,
+                record_path,
+                |started: RunStarted| (started, ()),
+            )
+            .await
+            .map(|(run, ())| run)
+        })
     }
+}
+
+/// Returns the local file path to stream on Run end when `recording` is in
+/// `record` mode against a Daemon (`Endpoint::Daemon` / `Endpoint::Exposed`).
+pub(crate) fn daemon_record_path(core: &Core, recording: Option<&Recording>) -> Option<PathBuf> {
+    recording
+        .filter(|recording| recording.mode == RecordingMode::Record && core.is_daemon())
+        .map(|recording| PathBuf::from(&recording.path))
+}
+
+/// Reads a replay recording's bytes on a blocking thread of `core` (ADR 0105),
+/// or produces an empty replay recording on a `TestEngine` when none was named.
+pub(crate) async fn prepare_recording(
+    core: &Core,
+    recording: Option<Recording>,
+) -> Result<(Option<Recording>, Option<String>), Error> {
+    let Some(recording) = recording else {
+        return Ok(if core.default_empty_replay() {
+            (Some(Recording::replay("")), Some(String::new()))
+        } else {
+            (None, None)
+        });
+    };
+    if recording.mode != RecordingMode::Replay {
+        return Ok((Some(recording), None));
+    }
+    let path = recording.path.clone();
+    let encoded = core
+        .run_blocking(move || {
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "runs on the Connection's tracked blocking thread pool, off the Tokio async worker (ADR 0060)"
+            )]
+            let bytes = std::fs::read(&path).map_err(|error| {
+                let reason = error.to_string();
+                let mut details = serde_json::to_value(&RecordingInvalidDetails {
+                    recording: path.clone(),
+                    reason: reason.clone(),
+                })
+                .ok()
+                .and_then(|v| v.as_object().cloned())
+                .unwrap_or_default();
+                details.insert(
+                    "fix".to_owned(),
+                    serde_json::Value::String("Record the file again, or name another.".to_owned()),
+                );
+                Error::of_protocol_details(
+                    &RECORDING_INVALID,
+                    format!("Could not read the Response recording `{path}`: {reason}"),
+                    details,
+                )
+            })?;
+            Ok(data_encoding::BASE64.encode(&bytes))
+        })
+        .await?;
+    Ok((Some(recording), Some(encoded)))
+}
+
+/// Starts a Run on `core` with `opener`, `params`, `detached`, and optional
+/// Daemon `record_path`.
+pub(crate) async fn start_on_core<T, U, F>(
+    core: Core,
+    opener: &'static str,
+    params: impl Serialize + Send + 'static,
+    detached: bool,
+    record_path: Option<PathBuf>,
+    split: F,
+) -> Result<(Run, U), Error>
+where
+    T: serde::de::DeserializeOwned + Send + 'static,
+    U: Send + 'static,
+    F: FnOnce(T) -> (RunStarted, U) + Send + 'static,
+{
+    let log_level = engine_log_level();
+    core.follow_log_level(log_level).await?;
+    let answer: T = core.call(opener, &params).no_timeout().await?;
+    let (started, extra) = split(answer);
+    log_start(&started);
+    let held = HeldRun::new(
+        core,
+        started.run_id.clone(),
+        started.lifecycle,
+        detached,
+        record_path,
+    );
+    Ok((
+        Run {
+            host: Host::run(held),
+            opened: Arc::new(started),
+            sessions: Kept::default(),
+        },
+        extra,
+    ))
 }
 
 impl ClientConnection {
@@ -265,28 +374,8 @@ impl ClientConnection {
         U: Send + 'static,
         F: FnOnce(T) -> (RunStarted, U) + Send + 'static,
     {
-        let log_level = engine_log_level();
-        let connection = self.clone();
-        async move {
-            connection.follow_log_level(log_level).await?;
-            let answer: T = connection.call(opener, &params).no_timeout().await?;
-            let (started, extra) = split(answer);
-            log_start(&started);
-            let held = HeldRun::new(
-                connection,
-                started.run_id.clone(),
-                started.lifecycle,
-                detached,
-            );
-            Ok((
-                Run {
-                    host: Host::run(held),
-                    opened: Arc::new(started),
-                    sessions: Kept::default(),
-                },
-                extra,
-            ))
-        }
+        let core = self.core().clone();
+        start_on_core(core, opener, params, detached, None, split)
     }
 }
 
@@ -342,7 +431,7 @@ impl Run {
     /// and the abort sent.
     pub async fn close(&self) -> Result<(), Error> {
         crate::markers::warn_operation("run.abort");
-        self.host.held_run().close().await
+        self.host.close_run().await
     }
 
     /// Reads a Run's progress: what it does and why it waits. Without
@@ -388,6 +477,39 @@ impl Run {
     pub fn progress(&self) -> EventStream<Answer<RunProgress>> {
         crate::markers::warn_operation(RUN_PROGRESS_READ.name);
         EventStream::from_items(progress::Following::new(self.host.clone()))
+    }
+
+    /// Saves a Run's recorded Response recording as a WARC 1.1 file, whole or
+    /// not at all (ADRs 0105 and 0116). An Attached engine given the program's
+    /// path writes it through a hidden temporary file beside it, synced and
+    /// renamed over it, creating missing folders and replacing a file there;
+    /// any other engine writes nothing on its own machine and sends the file
+    /// in `$/chunk` notifications of at most 64 KiB, one per credit granted
+    /// with `$/credit`, for the SDK to write. A Run that recorded no responses
+    /// raises `recording_invalid`. A path that cannot be written raises
+    /// `path_not_writable`, and full or failing storage `file_write_failed`,
+    /// leaving the path as it was.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn save_recording(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> crate::connection::SaveFile<RecordingSaved> {
+        crate::markers::warn_operation(RECORDING_SAVE_AS.name);
+        let path = path.as_ref();
+        let filename = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned());
+        self.host.save_file(
+            RECORDING_SAVE_AS.name,
+            &RecordingSaveAsParams {
+                run_id: self.host.id().clone(),
+                path: None,
+                filename,
+            },
+            path,
+            "save_recording",
+        )
     }
 
     /// The handle of the Run's page `page_id` in its Session `session_id`,
@@ -502,7 +624,7 @@ impl ClientConnection {
     /// awaiting sends.
     pub fn start(&self) -> Start {
         crate::markers::warn_operation("run.start");
-        Start::new(self.clone())
+        Start::new(self.core().clone())
     }
 
     /// Shows each setting's effective value, the layer that set it and the

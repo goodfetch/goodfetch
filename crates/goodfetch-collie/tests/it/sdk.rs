@@ -40,9 +40,11 @@ mod project_file;
 mod public_items;
 mod raw_call;
 mod refused_by_the_daemon;
+mod response_recordings;
 mod schedules;
 #[cfg(unix)]
 mod scripted;
+mod secrets;
 mod settings;
 mod start;
 mod start_options;

@@ -123,6 +123,14 @@ impl HandlerRequests {
     pub async fn next(&mut self) -> Option<HandlerCall> {
         self.0.recv().await
     }
+
+    /// Polls for the engine's next request.
+    pub(crate) fn poll_recv(
+        &mut self,
+        context: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<HandlerCall>> {
+        self.0.poll_recv(context)
+    }
 }
 
 /// One request the engine sent the program, answered once with

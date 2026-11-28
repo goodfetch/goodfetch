@@ -32,15 +32,34 @@ async def sets_each_scope(collie: AsyncCollie, sync_collie: Collie) -> None:
             "session": {"source": {"kind": "saved_identity", "name": "shop"}},
         }
     )
-    session = await run.new_session(
-        settings={
-            "browser": {"access_mode": "stealth"},
-            "proxy": {"sticky_lifetime": None},
-        }
-    )
+    browser_setup: SessionSettings = {
+        "browser": {
+            "viewport": {"width": 800, "height": 600},
+            "device_scale_factor": 1.5,
+            "locale": "fr-FR",
+            "timezone_id": "Europe/Paris",
+            "color_scheme": "dark",
+            "java_script_enabled": False,
+            "geolocation": {"latitude": 48.8566, "longitude": 2.3522, "accuracy": 10.5},
+            "permissions": ["geolocation"],
+            "headless": True,
+            "block_resources": ["image"],
+            "service_workers": "block",
+        },
+        "network": {
+            "throttle": {
+                "offline": False,
+                "latency": 40,
+                "download_bytes_per_second": 500_000,
+                "upload_bytes_per_second": 250_000,
+            }
+        },
+    }
+    session = await run.new_session(settings=browser_setup)
     await session.new_page(settings={"content": {"extractor": "trafilatura"}})
     await run.new_page(settings={})
     sync_run = sync_collie.start(settings={"browser": {"headless": False}})
+    sync_run.new_session(settings=browser_setup)
     sync_run.new_session(settings={"session": {"page_check": None}})
     connection: Settings = {"timeout": {"run": timedelta(hours=1)}}
     starting: RunSettings = {"content": {"extractor": "dom_smoothie"}}
@@ -58,11 +77,14 @@ def refuses_what_a_scope_cannot_set() -> None:
     c: RunSettings = {"timeout": {"run": SECOND}}  # type: ignore[typeddict-unknown-key]
     d: RunSettings = {"proxy": {"providers": {}}}  # type: ignore[typeddict-unknown-key]
     e: SessionSettings = {"session": {"source": None}}  # type: ignore[typeddict-unknown-key]
+    e_run: SessionSettings = {"timeout": {"navigation": SECOND}}  # type: ignore[typeddict-unknown-key]
     f: PageSettings = {"browser": {"headless": True}}  # type: ignore[typeddict-unknown-key]
+    f_vp: PageSettings = {"browser": {"viewport": {"width": 800, "height": 600}}}  # type: ignore[typeddict-unknown-key]
+    f_th: PageSettings = {"network": {"throttle": {"offline": True}}}  # type: ignore[typeddict-unknown-key]
     g: RunSettings = {"timeout": {"navigation": 30_000}}  # type: ignore[typeddict-item]
     h: RunSettings = {"timeout": {"navigation": None}}  # type: ignore[typeddict-item]
     i: SessionSettings = {"browser": {"access_mode": "hidden"}}  # type: ignore[typeddict-item]
-    del a, b, c, d, e, f, g, h, i
+    del a, b, c, d, e, e_run, f, f_vp, f_th, g, h, i
 
 
 async def each_call_refuses_another_scopes_settings(collie: AsyncCollie) -> None:
@@ -71,7 +93,9 @@ async def each_call_refuses_another_scopes_settings(collie: AsyncCollie) -> None
     session = await run.new_session()
     await collie.start(settings={"timeout": {"run": SECOND}})  # type: ignore[arg-type]
     await run.new_session(settings={"session": {"source": None}})  # type: ignore[arg-type]
+    await run.new_session(settings={"timeout": {"navigation": SECOND}})  # type: ignore[arg-type]
     await session.new_page(settings={"browser": {"headless": True}})  # type: ignore[arg-type]
+    await session.new_page(settings={"browser": {"viewport": None}})  # type: ignore[arg-type]
 
 
 async def refuses_a_key_only_foxhound_carries(collie: AsyncCollie) -> None:

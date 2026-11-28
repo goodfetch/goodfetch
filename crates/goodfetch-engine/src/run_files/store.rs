@@ -16,6 +16,10 @@ const FILES: &str = "files";
 /// its run state names, each named by its SHA-256 (ADR 0116).
 const EXPORTS: &str = "exports";
 
+/// The folder of a Run's trace copies, inside its folder: complete ZIP
+/// snapshots of `trace/`, each named by its SHA-256 (ADRs 0102 and 0116).
+const TRACE_COPIES: &str = "trace-copies";
+
 /// What a kept file is to the program.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FileKind {
@@ -110,6 +114,12 @@ pub(crate) fn file(folder: &Path, sha256: &str) -> Option<PathBuf> {
 /// SHA-256 in lowercase hex.
 pub fn export_file(folder: &Path, run_epoch: u64, sha256: &str) -> Option<PathBuf> {
     is_digest(sha256).then(|| exports_of(folder, run_epoch).join(sha256))
+}
+
+/// The trace copy whose bytes' SHA-256 is `sha256` in the Run folder
+/// `folder`, or `None` when `sha256` is no SHA-256 in lowercase hex.
+pub(crate) fn trace_copy_file(folder: &Path, sha256: &str) -> Option<PathBuf> {
+    is_digest(sha256).then(|| folder.join(TRACE_COPIES).join(sha256))
 }
 
 /// The folder of the Exports written under the run epoch `run_epoch` in
@@ -220,6 +230,17 @@ pub(crate) fn store_export(
     source: &mut dyn Read,
 ) -> io::Result<(String, u64)> {
     stage_in(&exports_of(folder, run_epoch), source)?.placed()
+}
+
+/// Writes what `source` reads as a Run trace copy in `folder`, whole before
+/// its name appears, under `trace-copies/`, and answers its SHA-256 and size.
+///
+/// # Errors
+///
+/// When `source` cannot be read or the file cannot be written; no partial
+/// file is left under its name.
+pub(crate) fn store_trace(folder: &Path, source: &mut dyn Read) -> io::Result<(String, u64)> {
+    stage_in(&folder.join(TRACE_COPIES), source)?.placed()
 }
 
 /// Writes what `source` reads into the folder `files`, through a hidden

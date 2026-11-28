@@ -4,6 +4,9 @@
 //! sub-objects, and its sync twin `<Name>`, which repeats it under the same
 //! member names without `await`.
 //!
+//! Size: emits the paired async and sync handle classes for every Collie
+//! protocol namespace from one catalog traversal.
+//!
 //! - A round trip, a query and a waiter are `async def` methods, plain in
 //!   the twin. A required parameter is positional in the catalog's order,
 //!   but a boolean, which is keyword-only like every optional one. An
@@ -96,6 +99,7 @@ const RAW_CALL_MODULE: &str = "goodfetch_collie_client.raw_call";
 /// The hand-written module of the `Response` a member answering a page's
 /// response returns, which reads its body through the page (ADR 0085).
 const RESPONSE_MODULE: &str = "goodfetch_collie_client.response";
+const RUN_COPIES_MODULE: &str = "goodfetch_collie_client.run_copies";
 
 /// The markers module's function a listener warns of its event's markers
 /// with, read from the events module's registries.
@@ -177,6 +181,7 @@ struct Imports {
     /// answers a page's response, which it wraps in the hand-written
     /// `Response`.
     response: BTreeSet<&'static str>,
+    run_copies: BTreeSet<&'static str>,
 }
 
 impl Imports {
@@ -588,11 +593,23 @@ fn responded(
     returns: String,
     imports: &mut Imports,
 ) -> (Option<String>, String) {
-    if !member.responds {
+    let Some(wrapped) = member.wrapped else {
         return (None, returns);
-    }
-    imports.response.extend(["AsyncResponse", "Response"]);
-    let class = format!("{prefix}Response");
+    };
+    let class = match wrapped {
+        super::super::handles::Wrapped::Response => {
+            imports.response.extend(["AsyncResponse", "Response"]);
+            format!("{prefix}Response")
+        }
+        super::super::handles::Wrapped::Checkpoint => {
+            imports.run_copies.extend(["AsyncCheckpoint", "Checkpoint"]);
+            format!("{prefix}Checkpoint")
+        }
+        super::super::handles::Wrapped::RunTrace => {
+            imports.run_copies.extend(["AsyncRunTrace", "RunTrace"]);
+            format!("{prefix}RunTrace")
+        }
+    };
     let returns = match &member.unwrapped {
         Some(unwrapped) if !unwrapped.required => format!("{class} | None"),
         _ => class.clone(),
@@ -952,6 +969,14 @@ pub(super) fn handles_module(layer: &Layer, handles: &[Handle<'_>]) -> Result<St
     if !imports.response.is_empty() {
         let classes = imports.response.iter().copied().collect::<Vec<_>>();
         let _ = writeln!(text, "from {RESPONSE_MODULE} import {}", classes.join(", "));
+    }
+    if !imports.run_copies.is_empty() {
+        let classes = imports.run_copies.iter().copied().collect::<Vec<_>>();
+        let _ = writeln!(
+            text,
+            "from {RUN_COPIES_MODULE} import {}",
+            classes.join(", ")
+        );
     }
     if !imports.settings.is_empty() {
         let _ = writeln!(

@@ -3703,10 +3703,6 @@ entries = ["page.body"]
 reason = "A Client that cannot read a page body's file streams it through `page.body`; no member streams it yet (issue 1404)."
 
 [[unreached]]
-entries = ["key_value_store.keys"]
-reason = "Issue 1284 adds the Key-value store's `keys` to `RunView`."
-
-[[unreached]]
 entries = ["crawl_request.links"]
 reason = "What `enqueueLinks` sends itself, before `crawl_request.enqueue_links`, when it is given a `LinkPayload` function: the function reads each link it answers, so it has no member of its own."
 
@@ -3750,6 +3746,25 @@ entry = "run.add_seeds"
 words = ["add", "seeds"]
 form = "round_trip"
 
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "SecretRequest"
+entry = "none"
+reason = "What the engine passes to `resolveSecret` for a `caller:<name>` Secret reference (ADR 0092)."
+words = ["secret", "request"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "SecretResolver"
+entry = "none"
+reason = "Answers `caller:<name>` Secret references at the moment of use (ADR 0092)."
+only = "Rust declares `ConnectOptions::resolve_secret()` and reads `secret_requests()` instead of passing a callback."
+words = ["secret", "resolver"]
+form = "type"
+
 [[unreached]]
 entries = ["crawl_request.enqueue_links_by_clicking_elements"]
 reason = "Issue 1087 builds the engine operation; Foxhound's SDK surface adds `enqueueLinksByClickingElements` in area 11."
@@ -3757,3 +3772,342 @@ reason = "Issue 1087 builds the engine operation; Foxhound's SDK surface adds `e
 [[unreached]]
 entries = ["dataset.list", "dataset.page", "dataset.query", "dataset.search", "record.search"]
 reason = "No member reads a Run's Datasets yet."
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Checkpoint"
+entry = "none"
+reason = "A completed Checkpoint of a Run with `saveAs` and `stream` (ADRs 0102 and 0116)."
+words = ["checkpoint"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Checkpoint"
+member = "runId"
+entry = "none"
+reason = "The Run ID the Checkpoint belongs to (ADR 0102)."
+words = ["run", "id"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Checkpoint"
+member = "location"
+entry = "none"
+reason = "The Checkpoint's path on the engine's machine (ADR 0102)."
+words = ["location"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Checkpoint"
+member = "size"
+entry = "none"
+reason = "The Checkpoint's size in bytes (ADR 0102)."
+words = ["size"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Checkpoint"
+member = "digest"
+entry = "none"
+reason = "The Checkpoint's SHA-256 digest (ADR 0102)."
+words = ["digest"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Checkpoint"
+member = "runEpoch"
+entry = "none"
+reason = "The run epoch of the writer that took the Checkpoint (ADR 0003)."
+words = ["run", "epoch"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Checkpoint"
+member = "journalPosition"
+entry = "none"
+reason = "The Run journal position the Checkpoint holds (ADR 0102)."
+words = ["journal", "position"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Checkpoint"
+member = "time"
+entry = "none"
+reason = "When the Checkpoint was taken (ADR 0102)."
+words = ["time"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Checkpoint"
+member = "saveAs"
+entry = "checkpoint.save_as"
+words = ["save", "as"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Checkpoint"
+member = "stream"
+entry = "checkpoint.stream"
+words = ["stream"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Checkpoint"
+member = "constructor"
+entry = "none"
+reason = "`run.checkpoint()` builds a Checkpoint; a program never constructs one."
+only = "Python's and Rust's Checkpoints have no constructor a program calls."
+words = ["checkpoint"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "RunTrace"
+entry = "none"
+reason = "A Run's trace copy with `saveAs` and `stream` (ADRs 0102 and 0116)."
+words = ["run", "trace"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "RunTrace"
+member = "runId"
+entry = "none"
+reason = "The Run ID the trace copy belongs to (ADR 0102)."
+words = ["run", "id"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "RunTrace"
+member = "location"
+entry = "none"
+reason = "The trace copy's path on the engine's machine (ADR 0102)."
+words = ["location"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "RunTrace"
+member = "size"
+entry = "none"
+reason = "The trace copy's size in bytes (ADR 0102)."
+words = ["size"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "RunTrace"
+member = "digest"
+entry = "none"
+reason = "The trace copy's SHA-256 digest (ADR 0102)."
+words = ["digest"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "RunTrace"
+member = "saveAs"
+entry = "trace.save_as"
+words = ["save", "as"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "RunTrace"
+member = "stream"
+entry = "trace.stream"
+words = ["stream"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "RunTrace"
+member = "constructor"
+entry = "none"
+reason = "`run.trace()` and `RunView.trace()` build a RunTrace; a program never constructs one."
+only = "Python's and Rust's RunTraces have no constructor a program calls."
+words = ["run", "trace"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "CheckpointSaveOptions"
+entry = "none"
+reason = "Options of `Checkpoint.saveAs()` (ADR 0116)."
+only = "TypeScript passes call options in an options object."
+words = ["checkpoint", "save", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "CheckpointStreamOptions"
+entry = "none"
+reason = "Options of `Checkpoint.stream()` (ADR 0116)."
+only = "TypeScript passes call options in an options object."
+words = ["checkpoint", "stream", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "RunTraceSaveOptions"
+entry = "none"
+reason = "Options of `RunTrace.saveAs()` (ADR 0116)."
+only = "TypeScript passes call options in an options object."
+words = ["run", "trace", "save", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "RunTraceStreamOptions"
+entry = "none"
+reason = "Options of `RunTrace.stream()` (ADR 0116)."
+only = "TypeScript passes call options in an options object."
+words = ["run", "trace", "stream", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "RunView"
+member = "keyValueStore"
+entry = "none"
+reason = "Read-only view of the Run's Key-value store (ADRs 0102 and 0103)."
+words = ["key", "value", "store"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "RunView"
+member = "progress"
+entry = "run.progress"
+words = ["progress"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "RunView"
+member = "report"
+entry = "run.report"
+words = ["report"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "RunView"
+member = "trace"
+entry = "run.trace"
+words = ["trace"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "KeyValueStore"
+member = "keys"
+entry = "key_value_store.keys"
+words = ["keys"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "KeyValueStoreView"
+entry = "none"
+reason = "Read-only view of a Run's Key-value store on `RunView` (ADRs 0102 and 0103)."
+words = ["key", "value", "store", "view"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "KeyValueStoreView"
+member = "get"
+entry = "key_value_store.get"
+words = ["get"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "KeyValueStoreView"
+member = "getBytes"
+entry = "key_value_store.get_bytes"
+words = ["get", "bytes"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "KeyValueStoreView"
+member = "keys"
+entry = "key_value_store.keys"
+words = ["keys"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "KeyValueStoreView"
+member = "constructor"
+entry = "none"
+reason = "A RunView opens its store view; a program never constructs one."
+only = "Python's and Rust's views have no constructor a program calls."
+words = ["key", "value", "store", "view"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "KeyValueStoreKeysOptions"
+entry = "none"
+reason = "Options of `KeyValueStore.keys()` (ADR 0103)."
+only = "TypeScript passes call options in an options object."
+words = ["key", "value", "store", "keys", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "RunHost"
+member = "connection"
+entry = "none"
+reason = "The Connection the Run runs on, for `saveFile` and chunked streams."
+only = "Internal runtime interface for Product packages."
+words = ["connection"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
+member = "enableEmptyReplayByDefault"
+entry = "none"
+reason = "Marks a TestEngine connection so Runs without `recording` replay an empty one (ADR 0105)."
+only = "Internal runtime helper for Product testing kits."
+words = ["enable", "empty", "replay", "by", "default"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Run"
+member = "saveRecording"
+entry = "recording.save_as"
+words = ["save", "recording"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "RunView"
+member = "saveRecording"
+entry = "recording.save_as"
+words = ["save", "recording"]
+form = "round_trip"

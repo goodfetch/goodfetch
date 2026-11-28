@@ -65,6 +65,15 @@ pub(crate) enum Timeout {
     After(Duration),
 }
 
+/// What runs after a call's reply (or error) arrives, such as streaming a
+/// Daemon Run's Response recording when `run.finish`, `run.stop`, or
+/// `run.abort` ends the Run (ADRs 0105 and 0116).
+pub(crate) type After = Box<
+    dyn FnOnce(Result<Value, Error>) -> Pin<Box<dyn Future<Output = Result<Value, Error>> + Send>>
+        + Send
+        + 'static,
+>;
+
 /// A call that waits for its reply, `T`, with its params, `P`. Nothing is
 /// sent until it is awaited, and dropping the future once a cancellable
 /// call is sent cancels it with `$/cancel`, without waiting (ADR 0080).
@@ -77,6 +86,7 @@ pub struct Call<T, P = Value> {
     /// instead of a timer of the client's (ADR 0080).
     wire: Option<&'static str>,
     read: Read<T>,
+    after: Option<After>,
 }
 
 impl<T: DeserializeOwned, P> Call<T, P> {
@@ -88,6 +98,7 @@ impl<T: DeserializeOwned, P> Call<T, P> {
             timeout: Timeout::Default,
             wire: None,
             read: read(),
+            after: None,
         }
     }
 }
@@ -158,6 +169,12 @@ impl<T, P> Call<T, P> {
         self
     }
 
+    /// Runs `after` asynchronously once the call has been answered or failed.
+    pub(crate) fn on_settled(mut self, after: After) -> Self {
+        self.after = Some(after);
+        self
+    }
+
     /// The call whose reply is `map` of this one's: an opener's handle, or
     /// the one property of a result (issue 2517).
     pub(crate) fn map<U>(self, map: impl FnOnce(T) -> U + Send + 'static) -> Call<U, P>
@@ -170,6 +187,7 @@ impl<T, P> Call<T, P> {
             timeout: self.timeout,
             wire: self.wire,
             read: Box::new(move |value| read(value).map(map)),
+            after: self.after,
         }
     }
 
@@ -188,6 +206,7 @@ impl<T, P> Call<T, P> {
             timeout: self.timeout,
             wire: self.wire,
             read: Box::new(move |value| read(value).and_then(map)),
+            after: self.after,
         }
     }
 }
@@ -202,6 +221,7 @@ impl<T: Send + 'static, P: Serialize + Send + 'static> IntoFuture for Call<T, P>
             timeout,
             wire,
             read,
+            after,
         } = self;
         let deadline = match (timeout, wire) {
             (Timeout::After(after), None) => Some(kept_by_client(after)),
@@ -216,13 +236,17 @@ impl<T: Send + 'static, P: Serialize + Send + 'static> IntoFuture for Call<T, P>
         };
         let trace_context = request.sender.trace_context();
         Box::pin(async move {
-            let reply = request
+            let outcome = request
                 .send(trace_context, deadline, |params| {
                     if wire.is_some() {
                         set_wire_timeout(params, timeout);
                     }
                 })
-                .await?;
+                .await;
+            let reply = match after {
+                Some(hook) => hook(outcome).await?,
+                None => outcome?,
+            };
             read(reply)
         })
     }

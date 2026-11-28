@@ -9849,6 +9849,17 @@
       ]
     },
     {
+      "id": "setting:code_sources",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:connection.max_listener_queue",
       "kind": "setting",
       "area": 11,
@@ -12188,6 +12199,17 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:session.recovery.human_pause",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },

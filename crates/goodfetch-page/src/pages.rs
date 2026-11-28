@@ -107,6 +107,7 @@ use crate::browser_host::{self, RemoteSessions};
 use crate::browser_run::BrowserRun;
 use crate::cdp::launch::Launcher;
 use crate::cdp::{CdpPage, SerializedDocument};
+use crate::code_sources::CodeSources;
 use crate::dialogs::{self, Dialogs};
 use crate::document_request::{DocumentRequest, Unread};
 use crate::extractor;
@@ -232,6 +233,7 @@ pub fn contribution_with(
         pauses: pause::ActivePauses::default(),
         cdp_sessions: cdp_session::CdpSessions::default(),
         lends: lend::ActiveLends::default(),
+        code_sources: CodeSources::default(),
         product: handler_pages,
         blocks,
         remote: Arc::clone(&remote),
@@ -904,12 +906,21 @@ async fn open_default_page(
             CallError::protocol(ProtocolFailure::InternalError, error.to_string())
         });
     }
-    Box::pin(
+    let opened = Box::pin(pages.sessions.new_default_page(
+        &params.run_id,
+        &params.settings,
+        &context,
+    ))
+    .await?;
+    if let Ok(page) = pages.sessions.page(&opened.page_id).await
+        && let Some(settings) = page.run.identity.settings()
+    {
         pages
-            .sessions
-            .new_default_page(&params.run_id, &params.settings, &context),
-    )
-    .await
+            .code_sources
+            .ensure_webhooks(&page.run.identity, settings.resolved())
+            .await;
+    }
+    Ok(opened)
 }
 
 /// Adds the handlers of `run.new_page` and the navigations.
@@ -1398,6 +1409,8 @@ struct Pages {
     cdp_sessions: cdp_session::CdpSessions,
     /// The open lending endpoints (`page.lend`).
     lends: lend::ActiveLends,
+    /// Two-factor authentication `code_sources` state (one-time use & webhooks).
+    code_sources: CodeSources,
     /// The Product's seam that sets what its handlers' pages carry, which
     /// also serves the pages its fetch tiers opened from a document.
     product: Arc<dyn HandlerPages>,
@@ -1583,7 +1596,7 @@ impl Pages {
                 })
                 .await?;
             self.bound_secret(&page, &placeholder)
-                .map(Action::FillSecret)
+                .map(|secret| Action::FillSecret(Box::new(secret)))
         } else {
             Ok(Action::Fill(params.value))
         };
@@ -1609,6 +1622,7 @@ impl Pages {
             (&page.run.identity, &page.run.keys),
             settings.as_ref(),
             placeholder,
+            &self.code_sources,
         )
     }
 
@@ -1630,6 +1644,15 @@ impl Pages {
             .await?;
         tracing::Span::current().record("run_id", page.run.identity.id().as_str());
         let outcome = gesture(&page, operation, &locator, action, spent, context.form()).await?;
+        if let Some(reason) = outcome.needs_human_pause {
+            let pause_params = goodfetch_protocol::page::pause::PagePauseParams {
+                page_id: locator.page_id.clone(),
+                reason: Some(reason),
+                until: None,
+                timeout: None,
+            };
+            self.pause_with_form(pause_params, context.form()).await?;
+        }
         if outcome.password_filled {
             page.page_check.login.note_password_filled();
         }

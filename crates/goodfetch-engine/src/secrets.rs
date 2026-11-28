@@ -919,6 +919,14 @@ impl RunSecrets {
         Ok(value)
     }
 
+    /// Registers a one-time code (such as a `code_source`'s email or SMS code,
+    /// ADR 0092, ticket #734) with the Run's [`Mask`] as [`Reach::OneTimeCode`],
+    /// so it is masked where typed without rewriting unrelated short strings in
+    /// page text or logs.
+    pub fn join_one_time_code(&self, placeholder: &str, value: &SecretString) {
+        self.0.mask.join(placeholder, value, Reach::OneTimeCode);
+    }
+
     /// The value `reference` points to, asked of its provider now for
     /// `purpose`, within `timeout.secret`: a provider that answers it is
     /// busy is asked again, after its `Retry-After` or a wait drawn with

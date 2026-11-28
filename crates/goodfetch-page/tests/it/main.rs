@@ -14,6 +14,7 @@
 mod borrow;
 mod browser_recycle;
 mod cdp_session;
+mod code_sources;
 mod effect_window;
 mod gesture_input;
 mod gesture_navigation;

@@ -19,16 +19,18 @@ use goodfetch_engine::{CallError, named};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::request::{JsonSecret, PageRequestParams, SecretHeader};
 use goodfetch_protocol::secret_reference::SecretReference;
+use goodfetch_protocol::secrets::code_sources::{CODE_SOURCES, CodeSource};
 use goodfetch_protocol::secrets::placeholders::{PlaceholderSource, SECRETS_PLACEHOLDERS};
 use goodfetch_protocol::secrets::{
-    SECRET_INPUT_REFUSED, SecretInputRefusedDetails, SecretInputRefusedReason,
+    SECRET_INPUT_REFUSED, SecretFailure, SecretInputRefusedDetails, SecretInputRefusedReason,
 };
-use goodfetch_protocol::settings::SettingsLayer;
+use goodfetch_protocol::settings::{SESSION_RECOVERY_HUMAN_PAUSE, SettingsLayer};
 use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::Value;
 
 use crate::cdp::driver::PageDriver;
 use crate::cdp::{self, ContinueRequest, RequestHeaders};
+use crate::code_sources::{CodeSourceRequest, CodeSources, code_source_unavailable, kind_name};
 
 /// The Secret placeholders a `page.request` or route override carries, bound.
 pub(crate) struct Placeholders {
@@ -42,12 +44,33 @@ pub(crate) struct Placeholders {
     json: Option<JsonBody>,
 }
 
+/// Outcome of resolving a [`BoundSecret`]: either a value to type into the
+/// field, or a request to raise a Human pause when a `code_source` produced no
+/// code within its window and `session.recovery.human_pause` is enabled.
+pub(crate) enum ResolvedSecret {
+    Value(SecretString),
+    NeedsHumanPause { reason: String },
+}
+
+enum SecretTarget {
+    Reference(Bound),
+    CodeSource {
+        placeholder: String,
+        source_name: String,
+        source: CodeSource,
+        domains: Vec<String>,
+        layer: Option<SettingsLayer>,
+        human_pause: bool,
+        sources: CodeSources,
+    },
+}
+
 /// One Secret placeholder bound for typing into a form field (`locator.fill`,
-/// ADR 0092, ticket #733).
+/// ADR 0092, tickets #733 and #734).
 pub(crate) struct BoundSecret {
     run: RunIdentity,
     secrets: RunSecrets,
-    bound: Bound,
+    target: SecretTarget,
 }
 
 impl BoundSecret {
@@ -56,13 +79,13 @@ impl BoundSecret {
     ///
     /// # Errors
     ///
-    /// `secret_unbound` when no scope binds `placeholder`; `invalid_params`
-    /// when `placeholder` is bound to a code source, which is not yet resolved
-    /// through `fill`.
+    /// `secret_unbound` when no scope binds `placeholder`; `secret_unavailable`
+    /// when `placeholder` names a `code_source` not configured in `code_sources`.
     pub(crate) fn bind(
         (run, keys): (&RunIdentity, &RunKeys),
         settings: Option<&Resolved>,
         placeholder: &str,
+        sources: &CodeSources,
     ) -> Result<Self, CallError> {
         let Some(settings) = settings else {
             return Err(secret_error(&SecretError::Unbound {
@@ -72,25 +95,58 @@ impl BoundSecret {
         };
         let binding =
             secrets::binding(settings, placeholder).map_err(|error| secret_error(&error))?;
-        let reference = match binding.source {
-            PlaceholderSource::Reference { reference, .. } => reference,
-            PlaceholderSource::CodeSource(_) => {
-                return Err(invalid(format!(
-                    "the Secret placeholder `{placeholder}` is bound to a code source, which `locator.fill` does not resolve yet"
-                )));
+        let layer = settings
+            .effective(&SECRETS_PLACEHOLDERS)
+            .map(|effective| effective.layer);
+        let target = match binding.source {
+            PlaceholderSource::Reference { reference, .. } => SecretTarget::Reference(Bound {
+                placeholder: placeholder.to_owned(),
+                reference,
+                domains: binding.domains,
+                layer,
+            }),
+            PlaceholderSource::CodeSource(source_name) => {
+                let raw_source = settings
+                    .value(&CODE_SOURCES)
+                    .as_object()
+                    .and_then(|map| map.get(&source_name))
+                    .ok_or_else(|| {
+                        code_source_unavailable(
+                            placeholder,
+                            &source_name,
+                            "code_source",
+                            SecretFailure::NotConfigured,
+                            format!("configure `code_sources.{source_name}`"),
+                        )
+                    })?;
+                let source = CodeSource::read(raw_source).map_err(|error| {
+                    code_source_unavailable(
+                        placeholder,
+                        &source_name,
+                        "code_source",
+                        SecretFailure::NotConfigured,
+                        format!("fix `code_sources.{source_name}`: {error}"),
+                    )
+                })?;
+                let human_pause = settings
+                    .value(&SESSION_RECOVERY_HUMAN_PAUSE)
+                    .as_bool()
+                    .unwrap_or(true);
+                SecretTarget::CodeSource {
+                    placeholder: placeholder.to_owned(),
+                    source_name,
+                    source,
+                    domains: binding.domains,
+                    layer,
+                    human_pause,
+                    sources: sources.clone(),
+                }
             }
         };
         Ok(Self {
             run: run.clone(),
             secrets: keys.secrets().clone(),
-            bound: Bound {
-                placeholder: placeholder.to_owned(),
-                reference,
-                domains: binding.domains,
-                layer: settings
-                    .effective(&SECRETS_PLACEHOLDERS)
-                    .map(|effective| effective.layer),
-            },
+            target,
         })
     }
 
@@ -102,47 +158,111 @@ impl BoundSecret {
     /// placeholder's bound domains.
     pub(crate) fn admit(&self, page: &PageDriver, frame_url: &str) -> Result<(), CallError> {
         let host = host_of(frame_url);
+        let (placeholder, reference_text, domains) = match &self.target {
+            SecretTarget::Reference(bound) => (
+                bound.placeholder.as_str(),
+                bound.reference.to_string(),
+                bound.domains.as_slice(),
+            ),
+            SecretTarget::CodeSource {
+                placeholder,
+                source_name,
+                domains,
+                ..
+            } => (
+                placeholder.as_str(),
+                format!("code_source:{source_name}"),
+                domains.as_slice(),
+            ),
+        };
         if page.other_code_may_read() {
             return Err(secret_input_refused(
-                self.bound.placeholder.clone(),
-                self.bound.reference.to_string(),
+                placeholder.to_owned(),
+                reference_text,
                 host,
                 SecretInputRefusedReason::OtherCodeMayRead,
             ));
         }
         if is_tls_exception(page, frame_url, &host) {
             return Err(secret_input_refused(
-                self.bound.placeholder.clone(),
-                self.bound.reference.to_string(),
+                placeholder.to_owned(),
+                reference_text,
                 host,
                 SecretInputRefusedReason::InvalidCertificateException,
             ));
         }
-        if !secrets::allowed(&host, &self.bound.domains) {
+        if !secrets::allowed(&host, domains) {
+            let reference = match &self.target {
+                SecretTarget::Reference(bound) => bound.reference.clone(),
+                SecretTarget::CodeSource { source_name, .. } => {
+                    SecretReference::parse(&format!("code_source:{source_name}"))
+                        .expect("invariant: `code_source:<name>` is a valid Secret reference")
+                }
+            };
             return Err(secret_error(&SecretError::DomainNotAllowed {
-                placeholder: self.bound.placeholder.clone(),
-                reference: self.bound.reference.clone(),
+                placeholder: placeholder.to_owned(),
+                reference,
                 domain: host,
-                domains: self.bound.domains.clone(),
+                domains: domains.to_vec(),
             }));
         }
         Ok(())
     }
 
     /// Resolves this placeholder's value for `frame_url`, after [`Self::admit`].
-    pub(crate) async fn resolve(&self, frame_url: &str) -> Result<SecretString, CallError> {
-        let host = host_of(frame_url);
-        let purpose = Purpose {
-            placeholder: &self.bound.placeholder,
-            domain: Some(&host),
-            domains: &self.bound.domains,
-            layer: self.bound.layer,
-            run_id: Some(self.run.id()),
-        };
-        self.secrets
-            .resolve(&self.bound.reference, &purpose)
-            .await
-            .map_err(|error| secret_error(&error))
+    pub(crate) async fn resolve(&self, frame_url: &str) -> Result<ResolvedSecret, CallError> {
+        match &self.target {
+            SecretTarget::Reference(bound) => {
+                let host = host_of(frame_url);
+                let purpose = Purpose {
+                    placeholder: &bound.placeholder,
+                    domain: Some(&host),
+                    domains: &bound.domains,
+                    layer: bound.layer,
+                    run_id: Some(self.run.id()),
+                };
+                self.secrets
+                    .resolve(&bound.reference, &purpose)
+                    .await
+                    .map(ResolvedSecret::Value)
+                    .map_err(|error| secret_error(&error))
+            }
+            SecretTarget::CodeSource {
+                placeholder,
+                source_name,
+                source,
+                layer,
+                human_pause,
+                sources,
+                ..
+            } => {
+                let request = CodeSourceRequest {
+                    placeholder,
+                    source_name,
+                    source,
+                    secrets: &self.secrets,
+                    run: &self.run,
+                    layer: *layer,
+                };
+                if let Some(code) = sources.fetch_code(&request).await? {
+                    return Ok(ResolvedSecret::Value(code));
+                }
+                if *human_pause {
+                    return Ok(ResolvedSecret::NeedsHumanPause {
+                        reason: format!(
+                            "No two-factor code arrived from code source `{source_name}` for `{placeholder}`"
+                        ),
+                    });
+                }
+                Err(code_source_unavailable(
+                    placeholder,
+                    source_name,
+                    kind_name(&source.kind),
+                    SecretFailure::NoCode,
+                    "Check the code source sender, pattern and window, or enable `session.recovery.human_pause` to enter the code manually.",
+                ))
+            }
+        }
     }
 }
 

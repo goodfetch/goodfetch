@@ -1048,6 +1048,21 @@ pub const SESSION_HTTP_CREDENTIALS: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `session.recovery.human_pause` (ADRs 0006 and 0092).
+pub const SESSION_RECOVERY_HUMAN_PAUSE: Setting = Setting {
+    name: "session.recovery.human_pause",
+    description: "Whether Session recovery, a Challenge ladder or a two-factor `code_source` with no arriving code may raise a Human pause to wait for a person (`true` by default). Set `false` for unattended programs so missing codes fail with `secret_unavailable` and unresolved logins or Challenges fail fast without waiting up to `timeout.human_pause`.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `secrets.by_reference` (ADR 0028).
 pub const SECRETS_BY_REFERENCE: Setting = Setting {
     name: "secrets.by_reference",
@@ -1363,6 +1378,7 @@ pub const ENTRIES: Entries = Entries {
         SESSION_SOURCE,
         SESSION_PAGE_CHECK,
         SESSION_HTTP_CREDENTIALS,
+        SESSION_RECOVERY_HUMAN_PAUSE,
         SECRETS_BY_REFERENCE,
         WEBHOOK_SIGNING,
         TIMEOUT_RUN,

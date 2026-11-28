@@ -227,6 +227,132 @@ class ConnectionCleanUpSettings(TypedDict):
     """
 
 
+class CodeSourcesImap(TypedDict):
+    """An IMAP mailbox, reading recent messages over TCP or TLS."""
+
+    host: str
+    """The IMAP server host."""
+
+    mailbox: NotRequired[str]
+    """The mailbox to examine; defaults to `"INBOX"`."""
+
+    password: str
+    """The IMAP password, as a Secret reference."""
+
+    port: NotRequired[int]
+    """The IMAP server port; defaults to 993."""
+
+    tls: NotRequired[bool | None]
+    """Whether to connect over TLS; defaults to `true` except on loopback
+    non-993 ports when unset.
+    """
+
+    type: Literal["imap"]
+
+    username: str
+    """The IMAP username, as a Secret reference."""
+
+
+class CodeSourcesGmail(TypedDict):
+    """Gmail API messages read using OAuth credentials."""
+
+    credentials: str
+    """The Gmail OAuth credentials (bearer token or JSON with
+    `access_token`), as a Secret reference.
+    """
+
+    endpoint: NotRequired[str | None]
+    """Optional Gmail API base URL override; defaults to
+    `https://gmail.googleapis.com`.
+    """
+
+    type: Literal["gmail"]
+
+
+class CodeSourcesMicrosoftGraph(TypedDict):
+    """Microsoft Graph mail API using client-credentials OAuth."""
+
+    authority: NotRequired[str | None]
+    """Optional Entra token authority base URL override; defaults to
+    `https://login.microsoftonline.com`.
+    """
+
+    client_id: str
+    """The application (client) ID, as a Secret reference."""
+
+    client_secret: str
+    """The application client secret, as a Secret reference."""
+
+    endpoint: NotRequired[str | None]
+    """Optional Graph API base URL override; defaults to
+    `https://graph.microsoft.com`.
+    """
+
+    mailbox: str
+    """The mailbox user principal name or ID."""
+
+    tenant: str
+    """The Microsoft Entra tenant ID or domain."""
+
+    type: Literal["microsoft_graph"]
+
+
+class CodeSourcesWebhook(TypedDict):
+    """A local HTTP webhook path receiving posted email or SMS payloads."""
+
+    listen: NotRequired[str | None]
+    """Optional loopback listen address (`host:port`) for the webhook
+    receiver.
+    """
+
+    path: str
+    """The HTTP path (starting with `/`) that accepts posted code payloads."""
+
+    type: Literal["webhook"]
+
+
+class CodeSourcesEndpoint(TypedDict):
+    """A custom HTTP endpoint polled for messages."""
+
+    headers: NotRequired[Mapping[str, str]]
+    """Additional request headers, each value a Secret reference."""
+
+    type: Literal["endpoint"]
+
+    url: str
+    """The HTTP(S) URL to poll."""
+
+
+class CodeSourcesTwilio(TypedDict):
+    """Twilio SMS Messages API."""
+
+    account_sid: str
+    """The Twilio Account SID, as a Secret reference."""
+
+    auth_token: str
+    """The Twilio Auth Token, as a Secret reference."""
+
+    endpoint: NotRequired[str | None]
+    """Optional Twilio API base URL override; defaults to
+    `https://api.twilio.com`.
+    """
+
+    to: str
+    """The destination phone number receiving the SMS."""
+
+    type: Literal["twilio"]
+
+
+CodeSourcesEntry = TypedDict(
+    "CodeSourcesEntry",
+    {
+        "from": NotRequired[str | None],
+        "kind": CodeSourcesImap | CodeSourcesGmail | CodeSourcesMicrosoftGraph | CodeSourcesWebhook | CodeSourcesEndpoint | CodeSourcesTwilio,
+        "pattern": NotRequired[str | None],
+        "window": NotRequired[int],
+    },
+)
+
 class ConnectionConnectionSettings(TypedDict):
     """The `connection` settings of `FoxhoundSettings`."""
 
@@ -1567,6 +1693,16 @@ class ConnectionSessionPoolSettings(TypedDict):
     """
 
 
+class ConnectionSessionRecoverySettings(TypedDict):
+    """The `session.recovery` settings of `FoxhoundSettings`."""
+
+    human_pause: NotRequired[bool]
+    """Whether Session recovery, a Challenge ladder or a two-factor `code_source` with no arriving code may raise a Human pause to wait for a person (`true` by default). Set `false` for unattended programs so missing codes fail with `secret_unavailable` and unresolved logins or Challenges fail fast without waiting up to `timeout.human_pause`.
+
+    `session.recovery.human_pause`.
+    """
+
+
 class SessionSourceSavedIdentity(TypedDict):
     """A Saved identity, by its name."""
 
@@ -1689,6 +1825,8 @@ class ConnectionSessionSettings(TypedDict):
     """
 
     pool: NotRequired[ConnectionSessionPoolSettings]
+
+    recovery: NotRequired[ConnectionSessionRecoverySettings]
 
     source: NotRequired[SessionSourceSavedIdentity | SessionSourceStateFile | SessionSourceCookieHeader | SessionSourceProfileDirectory | SessionSourceInstalledBrowser | SessionSourceRunningBrowser | SessionSourceCDPURL | None]
     """Where a Session's login comes from: exactly one kind of ADR 0056's tagged union, or none for a fresh Session. Set at a Run or a connection, it is the default of the Sessions opened beneath; opening a Session takes its own as the call's `source`, and in that Session's own `settings` it is refused with `setting_not_applicable`. A Recipe never sets or locks it; it may only expose it to its users.
@@ -2118,6 +2256,12 @@ class FoxhoundSettings(TypedDict):
     checkpoint: NotRequired[ConnectionCheckpointSettings]
 
     clean_up: NotRequired[ConnectionCleanUpSettings]
+
+    code_sources: NotRequired[Mapping[str, CodeSourcesEntry]]
+    """Email or SMS two-factor code sources, as `code_sources.<name>`: `{ kind, from?, pattern?, window? }`, where `kind` is one of `imap`, `gmail`, `microsoft_graph`, `webhook`, `endpoint` or `twilio` with every credential a Secret reference, and `window` defaults to 5 minutes (`300000` ms) from the login attempt. Bound to a placeholder via `secrets.placeholders.<name> = { code_source, domains }`. Each matching code is used once; when none arrives, a Human pause is raised unless `session.recovery.human_pause` is `false`, in which case the call fails with `secret_unavailable`. Only configuration, Operator policy and the program's own run layer set `code_sources`: a Recipe or a Client acting for a model receives `setting_locked`.
+
+    `code_sources`.
+    """
 
     connection: NotRequired[ConnectionConnectionSettings]
 
@@ -3532,6 +3676,16 @@ class RunSessionPoolSettings(TypedDict):
     """
 
 
+class RunSessionRecoverySettings(TypedDict):
+    """The `session.recovery` settings of `CrawlSettings`."""
+
+    human_pause: NotRequired[bool]
+    """Whether Session recovery, a Challenge ladder or a two-factor `code_source` with no arriving code may raise a Human pause to wait for a person (`true` by default). Set `false` for unattended programs so missing codes fail with `secret_unavailable` and unresolved logins or Challenges fail fast without waiting up to `timeout.human_pause`.
+
+    `session.recovery.human_pause`.
+    """
+
+
 class RunSessionSettings(TypedDict):
     """The `session` settings of `CrawlSettings`."""
 
@@ -3548,6 +3702,8 @@ class RunSessionSettings(TypedDict):
     """
 
     pool: NotRequired[RunSessionPoolSettings]
+
+    recovery: NotRequired[RunSessionRecoverySettings]
 
     source: NotRequired[SessionSourceSavedIdentity | SessionSourceStateFile | SessionSourceCookieHeader | SessionSourceProfileDirectory | SessionSourceInstalledBrowser | SessionSourceRunningBrowser | SessionSourceCDPURL | None]
     """Where a Session's login comes from: exactly one kind of ADR 0056's tagged union, or none for a fresh Session. Set at a Run or a connection, it is the default of the Sessions opened beneath; opening a Session takes its own as the call's `source`, and in that Session's own `settings` it is refused with `setting_not_applicable`. A Recipe never sets or locks it; it may only expose it to its users.
@@ -3817,6 +3973,12 @@ class CrawlSettings(TypedDict):
 
     clean_up: NotRequired[RunCleanUpSettings]
 
+    code_sources: NotRequired[Mapping[str, CodeSourcesEntry]]
+    """Email or SMS two-factor code sources, as `code_sources.<name>`: `{ kind, from?, pattern?, window? }`, where `kind` is one of `imap`, `gmail`, `microsoft_graph`, `webhook`, `endpoint` or `twilio` with every credential a Secret reference, and `window` defaults to 5 minutes (`300000` ms) from the login attempt. Bound to a placeholder via `secrets.placeholders.<name> = { code_source, domains }`. Each matching code is used once; when none arrives, a Human pause is raised unless `session.recovery.human_pause` is `false`, in which case the call fails with `secret_unavailable`. Only configuration, Operator policy and the program's own run layer set `code_sources`: a Recipe or a Client acting for a model receives `setting_locked`.
+
+    `code_sources`.
+    """
+
     consent: NotRequired[RunConsentSettings]
 
     content: NotRequired[RunContentSettings]
@@ -3958,6 +4120,16 @@ class LabelFetchSettings(TypedDict):
     """
 
 
+class LabelSessionRecoverySettings(TypedDict):
+    """The `session.recovery` settings of `LabelSettings`."""
+
+    human_pause: NotRequired[bool]
+    """Whether Session recovery, a Challenge ladder or a two-factor `code_source` with no arriving code may raise a Human pause to wait for a person (`true` by default). Set `false` for unattended programs so missing codes fail with `secret_unavailable` and unresolved logins or Challenges fail fast without waiting up to `timeout.human_pause`.
+
+    `session.recovery.human_pause`.
+    """
+
+
 class LabelSessionSettings(TypedDict):
     """The `session` settings of `LabelSettings`."""
 
@@ -3972,6 +4144,8 @@ class LabelSessionSettings(TypedDict):
 
     `session.page_check`.
     """
+
+    recovery: NotRequired[LabelSessionRecoverySettings]
 
     source: NotRequired[SessionSourceSavedIdentity | SessionSourceStateFile | SessionSourceCookieHeader | SessionSourceProfileDirectory | SessionSourceInstalledBrowser | SessionSourceRunningBrowser | SessionSourceCDPURL | None]
     """Where a Session's login comes from: exactly one kind of ADR 0056's tagged union, or none for a fresh Session. Set at a Run or a connection, it is the default of the Sessions opened beneath; opening a Session takes its own as the call's `source`, and in that Session's own `settings` it is refused with `setting_not_applicable`. A Recipe never sets or locks it; it may only expose it to its users.

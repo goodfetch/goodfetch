@@ -54,7 +54,7 @@ use crate::hiding::Hidden;
 use crate::human_input::{PageHumanInput, Point, Viewport};
 use crate::page_owner::PageOwner;
 use crate::page_reads::Turn;
-use crate::placeholders::BoundSecret;
+use crate::placeholders::{BoundSecret, ResolvedSecret};
 
 /// The disarm, which says where the gesture landed.
 const DISARM: &str = include_str!("guard/disarm.js");
@@ -79,7 +79,7 @@ pub(crate) enum Action {
     Fill(String),
     /// Replaces its text with a Secret placeholder's value, resolved only
     /// after checking the target frame's origin and browser trust (ADR 0092).
-    FillSecret(BoundSecret),
+    FillSecret(Box<BoundSecret>),
     /// Sends this key press to it.
     Press(KeyPress),
     /// Presses and holds its centre with the left button for this duration.
@@ -212,12 +212,16 @@ enum Landed {
 }
 
 /// What an action completed through the guard observed of its target.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Acted {
     /// Whether `fill` wrote into a password input (`<input type="password">`),
     /// so the Session learns when a later document outside a login path gives
     /// it a login (ADR 0006, ticket #2447).
     pub(crate) password_filled: bool,
+    /// When a `code_source`-bound `fill` received no code within its window and
+    /// `session.recovery.human_pause` is enabled, the reason for the Human
+    /// pause to raise after releasing the guard's turn (ADR 0092, ticket #734).
+    pub(crate) needs_human_pause: Option<String>,
 }
 
 /// Performs `request` on `page`, through the guard, timed by `clock`. The
@@ -449,16 +453,23 @@ async fn perform_focused(
         }
         Action::FillSecret(bound) => {
             bound.admit(page, frame_url)?;
-            let value = bound.resolve(frame_url).await?;
-            perform_fill(
-                page,
-                turn,
-                request,
-                value.expose_secret(),
-                (set_value, password),
-                timing,
-            )
-            .await
+            match bound.resolve(frame_url).await? {
+                ResolvedSecret::Value(value) => {
+                    perform_fill(
+                        page,
+                        turn,
+                        request,
+                        value.expose_secret(),
+                        (set_value, password),
+                        timing,
+                    )
+                    .await
+                }
+                ResolvedSecret::NeedsHumanPause { reason } => Ok(FocusedOutcome::Done(Acted {
+                    password_filled: false,
+                    needs_human_pause: Some(reason),
+                })),
+            }
         }
         Action::Press(events) => {
             request.sent.mark(request.operation).await?;
@@ -501,6 +512,7 @@ async fn perform_fill(
     }
     Ok(FocusedOutcome::Done(Acted {
         password_filled: password,
+        needs_human_pause: None,
     }))
 }
 

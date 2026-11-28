@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[settings]
+code_sources = { "example.test" = { kind = { credentials = "env:GMAIL_TOKEN", endpoint = "https://gmail.googleapis.com", type = "gmail" } } }

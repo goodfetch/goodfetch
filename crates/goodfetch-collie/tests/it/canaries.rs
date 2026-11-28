@@ -85,7 +85,10 @@ fn planting(kind: SecretKind) -> Planting {
         },
         SecretKind::TypedPassword => Planting::Pending { ticket: 655 },
         SecretKind::TotpSeed => Planting::Pending { ticket: 658 },
-        SecretKind::OneTimeCode => Planting::Pending { ticket: 734 },
+        SecretKind::OneTimeCode => Planting::By {
+            file: "canaries.rs",
+            test: "a_one_time_code_from_a_code_source_is_in_no_output",
+        },
         SecretKind::HttpAuthenticationPassword => Planting::Pending { ticket: 657 },
         SecretKind::HeaderValue => Planting::By {
             file: "request_secrets.rs",
@@ -734,5 +737,155 @@ fn a_session_cookie_a_login_sets_is_in_no_output() {
         ),
         (&json!(200), true, Vec::<String>::new()),
         "{sightings:?}\n{replies:?}"
+    );
+}
+
+fn spawn_one_time_code_stand_in(
+    code: &str,
+) -> (
+    std::net::SocketAddr,
+    std::sync::Arc<std::sync::atomic::AtomicBool>,
+    std::thread::JoinHandle<()>,
+) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let payload = json!({
+        "messages": [{
+            "id": "canary-otp-1",
+            "from": "mfa@canaries.test",
+            "body": format!("OTP: {code}"),
+        }]
+    })
+    .to_string();
+    let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let done_srv = std::sync::Arc::clone(&done);
+    let server = std::thread::spawn(move || {
+        while !done_srv.load(std::sync::atomic::Ordering::Relaxed) {
+            if let Ok((mut stream, _)) = listener.accept() {
+                if done_srv.load(std::sync::atomic::Ordering::Relaxed) {
+                    break;
+                }
+                let mut req = [0u8; 4096];
+                let n = stream.read(&mut req).unwrap_or(0);
+                let head = String::from_utf8_lossy(&req[..n]);
+                let (content_type, body) = if head.starts_with("GET /codes") {
+                    ("application/json", payload.as_str())
+                } else {
+                    (
+                        "text/html; charset=utf-8",
+                        "<!doctype html><html><body><form><input id=\"otp\" name=\"otp\" type=\"text\"></form></body></html>",
+                    )
+                };
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(resp.as_bytes());
+            }
+        }
+    });
+    (addr, done, server)
+}
+
+/// A one-time code fetched from a configured `code_source` joins the Run's
+/// `Mask` as `Reach::OneTimeCode` and is typed into a form field on its bound
+/// domain without appearing in any reply, `doctor` output or file of the
+/// test's folder (#734, ADRs 0067 and 0092).
+///
+/// Covers: story:5-85, setting:code_sources, setting:secrets.placeholders
+#[test]
+fn a_one_time_code_from_a_code_source_is_in_no_output() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut canaries = Canaries::new(env.seed());
+    let code = canaries.plant(SecretKind::OneTimeCode).value().to_owned();
+    let (addr, done, server) = spawn_one_time_code_stand_in(&code);
+
+    let login = format!("http://otp.canaries.test:{}/login", addr.port());
+    let mut settings = serde_json::Map::new();
+    settings.insert(
+        "network".to_owned(),
+        json!({ "resolve": { "otp.canaries.test": ["127.0.0.1"] } }),
+    );
+    settings.insert(
+        "code_sources".to_owned(),
+        json!({
+            "inbox": {
+                "kind": {
+                    "type": "endpoint",
+                    "url": format!("http://{addr}/codes"),
+                },
+                "from": "mfa@canaries.test",
+                "pattern": r"OTP: (gfcanary-code-[0-9a-f]{16})",
+                "window": 5_000,
+            }
+        }),
+    );
+    settings.insert(
+        "secrets".to_owned(),
+        json!({
+            "placeholders": {
+                "otp": { "code_source": "inbox", "domains": ["canaries.test"] }
+            }
+        }),
+    );
+    settings.insert(
+        "session".to_owned(),
+        json!({ "recovery": { "human_pause": false } }),
+    );
+    let mut engine = crate::page::started_with(
+        &env,
+        &cache,
+        &proving_ground,
+        "one-time-code",
+        &settings,
+        |_| {},
+    );
+    let page =
+        opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "one-time-code" }))).page_id;
+    let mut replies = vec![
+        engine.ask(3, "page.goto", &json!({ "page_id": page, "url": login })),
+        engine.ask(
+            4,
+            "locator.fill",
+            &json!({
+                "locator": { "page_id": page, "selector": "#otp" },
+                "value": "",
+                "secret": "otp",
+            }),
+        ),
+        engine.ask(5, "run.finish", &json!({ "run_id": "one-time-code" })),
+    ];
+    let (rest, _) = engine.finish();
+    replies.extend(rest);
+    done.store(true, std::sync::atomic::Ordering::Relaxed);
+    let _ = TcpStream::connect(addr);
+    let _ = server.join();
+
+    let doctor = doctor_output(&env, &[]);
+    let replies_bytes = serde_json::to_vec(&replies).unwrap();
+    let searched = paths_but(env.folder(), &chrome_for_testing_files(&cache));
+    let mut outputs = vec![
+        Output::Bytes {
+            name: "replies",
+            bytes: &replies_bytes,
+        },
+        Output::Bytes {
+            name: "doctor",
+            bytes: &doctor,
+        },
+    ];
+    outputs.extend(searched.iter().map(|path| Output::Path(path)));
+    let leaks: Vec<String> = canaries
+        .leaks(&outputs)
+        .unwrap()
+        .into_iter()
+        .map(|hit| format!("{:?} in {}", hit.encoding, hit.output))
+        .collect();
+    assert_eq!(
+        (replies[1].get("result").is_some(), leaks),
+        (true, Vec::<String>::new()),
+        "{replies:?}"
     );
 }

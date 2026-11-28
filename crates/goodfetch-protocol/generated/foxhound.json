@@ -30999,6 +30999,304 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "not_by_recipe_or_model",
+      "clearable": false,
+      "default": {},
+      "deprecated": null,
+      "description": "Email or SMS two-factor code sources, as `code_sources.<name>`: `{ kind, from?, pattern?, window? }`, where `kind` is one of `imap`, `gmail`, `microsoft_graph`, `webhook`, `endpoint` or `twilio` with every credential a Secret reference, and `window` defaults to 5 minutes (`300000` ms) from the login attempt. Bound to a placeholder via `secrets.placeholders.<name> = { code_source, domains }`. Each matching code is used once; when none arrives, a Human pause is raised unless `session.recovery.human_pause` is `false`, in which case the call fails with `secret_unavailable`. Only configuration, Operator policy and the program's own run layer set `code_sources`: a Recipe or a Client acting for a model receives `setting_locked`.",
+      "fixed_for_run": false,
+      "name": "code_sources",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
+      ],
+      "value": {
+        "additionalProperties": {
+          "additionalProperties": false,
+          "description": "One configured email or SMS two-factor code source (`code_sources.<name>`,\nADRs 0006 and 0092).",
+          "properties": {
+            "from": {
+              "arrived_in": "0.1",
+              "description": "Optional sender filter; only messages whose sender matches are read.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "arrived_in": "0.1",
+              "description": "How one-time codes are fetched from this source.",
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "description": "An IMAP mailbox, reading recent messages over TCP or TLS.",
+                  "properties": {
+                    "host": {
+                      "arrived_in": "0.1",
+                      "description": "The IMAP server host.",
+                      "type": "string"
+                    },
+                    "mailbox": {
+                      "arrived_in": "0.1",
+                      "default": "INBOX",
+                      "description": "The mailbox to examine; defaults to `\"INBOX\"`.",
+                      "type": "string"
+                    },
+                    "password": {
+                      "arrived_in": "0.1",
+                      "description": "The IMAP password, as a Secret reference.",
+                      "type": "string"
+                    },
+                    "port": {
+                      "arrived_in": "0.1",
+                      "default": 993,
+                      "description": "The IMAP server port; defaults to 993.",
+                      "format": "uint16",
+                      "maximum": 65535,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "tls": {
+                      "arrived_in": "0.1",
+                      "description": "Whether to connect over TLS; defaults to `true` except on loopback\nnon-993 ports when unset.",
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "type": {
+                      "const": "imap",
+                      "type": "string"
+                    },
+                    "username": {
+                      "arrived_in": "0.1",
+                      "description": "The IMAP username, as a Secret reference.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "host",
+                    "username",
+                    "password"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Gmail API messages read using OAuth credentials.",
+                  "properties": {
+                    "credentials": {
+                      "arrived_in": "0.1",
+                      "description": "The Gmail OAuth credentials (bearer token or JSON with\n`access_token`), as a Secret reference.",
+                      "type": "string"
+                    },
+                    "endpoint": {
+                      "arrived_in": "0.1",
+                      "description": "Optional Gmail API base URL override; defaults to\n`https://gmail.googleapis.com`.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "type": {
+                      "const": "gmail",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "credentials"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Microsoft Graph mail API using client-credentials OAuth.",
+                  "properties": {
+                    "authority": {
+                      "arrived_in": "0.1",
+                      "description": "Optional Entra token authority base URL override; defaults to\n`https://login.microsoftonline.com`.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "client_id": {
+                      "arrived_in": "0.1",
+                      "description": "The application (client) ID, as a Secret reference.",
+                      "type": "string"
+                    },
+                    "client_secret": {
+                      "arrived_in": "0.1",
+                      "description": "The application client secret, as a Secret reference.",
+                      "type": "string"
+                    },
+                    "endpoint": {
+                      "arrived_in": "0.1",
+                      "description": "Optional Graph API base URL override; defaults to\n`https://graph.microsoft.com`.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "mailbox": {
+                      "arrived_in": "0.1",
+                      "description": "The mailbox user principal name or ID.",
+                      "type": "string"
+                    },
+                    "tenant": {
+                      "arrived_in": "0.1",
+                      "description": "The Microsoft Entra tenant ID or domain.",
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "microsoft_graph",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "tenant",
+                    "client_id",
+                    "client_secret",
+                    "mailbox"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "A local HTTP webhook path receiving posted email or SMS payloads.",
+                  "properties": {
+                    "listen": {
+                      "arrived_in": "0.1",
+                      "description": "Optional loopback listen address (`host:port`) for the webhook\nreceiver.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "path": {
+                      "arrived_in": "0.1",
+                      "description": "The HTTP path (starting with `/`) that accepts posted code payloads.",
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "webhook",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "A custom HTTP endpoint polled for messages.",
+                  "properties": {
+                    "headers": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "arrived_in": "0.1",
+                      "description": "Additional request headers, each value a Secret reference.",
+                      "type": "object"
+                    },
+                    "type": {
+                      "const": "endpoint",
+                      "type": "string"
+                    },
+                    "url": {
+                      "arrived_in": "0.1",
+                      "description": "The HTTP(S) URL to poll.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "url"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "Twilio SMS Messages API.",
+                  "properties": {
+                    "account_sid": {
+                      "arrived_in": "0.1",
+                      "description": "The Twilio Account SID, as a Secret reference.",
+                      "type": "string"
+                    },
+                    "auth_token": {
+                      "arrived_in": "0.1",
+                      "description": "The Twilio Auth Token, as a Secret reference.",
+                      "type": "string"
+                    },
+                    "endpoint": {
+                      "arrived_in": "0.1",
+                      "description": "Optional Twilio API base URL override; defaults to\n`https://api.twilio.com`.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "to": {
+                      "arrived_in": "0.1",
+                      "description": "The destination phone number receiving the SMS.",
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "twilio",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "account_sid",
+                    "auth_token",
+                    "to"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "pattern": {
+              "arrived_in": "0.1",
+              "description": "Optional regular expression extracting the one-time code (capture group\n1 if present, else the full match). Defaults to a 4-to-8-digit code.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "window": {
+              "arrived_in": "0.1",
+              "default": 300000,
+              "description": "How long around the login attempt a code is accepted, in whole\nmilliseconds (ADR 0080); defaults to 5 minutes (`300000`).",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        "type": "object"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "connection_alone",
       "clearable": false,
       "default": 1024,
@@ -37538,6 +37836,32 @@
       "value": {
         "minimum": 0,
         "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "deprecated": null,
+      "description": "Whether Session recovery, a Challenge ladder or a two-factor `code_source` with no arriving code may raise a Human pause to wait for a person (`true` by default). Set `false` for unattended programs so missing codes fail with `secret_unavailable` and unresolved logins or Challenges fail fast without waiting up to `timeout.human_pause`.",
+      "fixed_for_run": false,
+      "name": "session.recovery.human_pause",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "label",
+        "session"
+      ],
+      "value": {
+        "type": "boolean"
       },
       "weakening": null,
       "weakens": false

@@ -276,12 +276,21 @@ impl Pages {
         params: PagePauseParams,
         context: CallContext,
     ) -> Result<HumanPauseResult, CallError> {
+        self.pause_with_form(params, context.form()).await
+    }
+
+    /// Waits for a person on `params.page_id` using the caller's [`Form`],
+    /// shared by `page.pause` and `code_source` fallback pauses (#734).
+    pub(super) async fn pause_with_form(
+        &self,
+        params: PagePauseParams,
+        form: Form,
+    ) -> Result<HumanPauseResult, CallError> {
         let compiled_until = params.until.map(CompiledUntil::compile).transpose()?;
         let page = self.sessions.page(&params.page_id).await?;
         tracing::Span::current().record("run_id", page.run.identity.id().as_str());
         let deadline = pause_deadline(&page, params.timeout)?;
         let until_text = compiled_until.as_ref().map(CompiledUntil::description);
-        let form = context.form();
 
         if let Some(reason) = &params.reason {
             tracing::info!(

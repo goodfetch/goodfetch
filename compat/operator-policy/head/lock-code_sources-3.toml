@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[lock]
+code_sources = { "example.test" = { kind = { authority = "https://login.microsoftonline.com", client_id = "env:GRAPH_CLIENT_ID", client_secret = "env:GRAPH_CLIENT_SECRET", endpoint = "https://graph.microsoft.com", mailbox = "codes@example.test", tenant = "example-tenant", type = "microsoft_graph" } } }

@@ -12,6 +12,7 @@ use crate::catalog::{
 };
 use crate::run::RunId;
 
+pub mod code_sources;
 pub mod placeholders;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -525,6 +526,7 @@ pub const ENTRIES: Entries = Entries {
         SECRET_PROVIDERS_AZURE_KV_ENDPOINT,
         SECRET_PROVIDERS_AZURE_KV_AUTHORITY,
         placeholders::SECRETS_PLACEHOLDERS,
+        code_sources::CODE_SOURCES,
     ],
     hook_stages: &[],
     shared_type_values: &[],

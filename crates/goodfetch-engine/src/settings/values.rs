@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 
 use goodfetch_protocol::catalog::{Product, Setting};
 use goodfetch_protocol::entries::others_part;
+use goodfetch_protocol::secrets::code_sources::CODE_SOURCES;
 use goodfetch_protocol::secrets::placeholders::SECRETS_PLACEHOLDERS;
 use goodfetch_protocol::settings::session_source::SessionSource;
 use goodfetch_protocol::settings::{RunOrigin, SESSION_SOURCE, SettingsLayer};
@@ -289,7 +290,7 @@ pub fn check_session_source(
 pub(crate) fn over(setting: &Setting, below: &Value, value: &Value) -> Value {
     match (below, value) {
         (Value::Object(below), Value::Object(nearer))
-            if setting.name == SECRETS_PLACEHOLDERS.name =>
+            if setting.name == SECRETS_PLACEHOLDERS.name || setting.name == CODE_SOURCES.name =>
         {
             let mut bound = below.clone();
             bound.extend(nearer.clone());

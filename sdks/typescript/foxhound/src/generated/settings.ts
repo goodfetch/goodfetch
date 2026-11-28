@@ -172,6 +172,12 @@ export interface FoxhoundSettings {
      */
     readonly version?: string | null;
   };
+  /**
+   * Email or SMS two-factor code sources, as `code_sources.<name>`: `{ kind, from?, pattern?, window? }`, where `kind` is one of `imap`, `gmail`, `microsoft_graph`, `webhook`, `endpoint` or `twilio` with every credential a Secret reference, and `window` defaults to 5 minutes (`300000` ms) from the login attempt. Bound to a placeholder via `secrets.placeholders.<name> = { code_source, domains }`. Each matching code is used once; when none arrives, a Human pause is raised unless `session.recovery.human_pause` is `false`, in which case the call fails with `secret_unavailable`. Only configuration, Operator policy and the program's own run layer set `code_sources`: a Recipe or a Client acting for a model receives `setting_locked`.
+   *
+   * `code_sources`.
+   */
+  readonly codeSources?: { readonly [key: string]: { readonly from?: string | null; readonly kind: { readonly host: string; readonly mailbox?: string; readonly password: string; readonly port?: number; readonly tls?: boolean | null; readonly type: "imap"; readonly username: string } | { readonly credentials: string; readonly endpoint?: string | null; readonly type: "gmail" } | { readonly authority?: string | null; readonly clientId: string; readonly clientSecret: string; readonly endpoint?: string | null; readonly mailbox: string; readonly tenant: string; readonly type: "microsoft_graph" } | { readonly listen?: string | null; readonly path: string; readonly type: "webhook" } | { readonly headers?: { readonly [key: string]: string }; readonly type: "endpoint"; readonly url: string } | { readonly accountSid: string; readonly authToken: string; readonly endpoint?: string | null; readonly to: string; readonly type: "twilio" }; readonly pattern?: string | null; readonly window?: number } };
   readonly connection?: {
     /**
      * The most events the Client holds for one listener that has not taken them yet, a whole number from 1: 1024 by default. Past it the listener loses the events that follow; once it has taken those it held, it is removed and ends with `listener_events_lost` naming how many it lost, and the other listeners go on. The TypeScript Client applies it to its own transport. Set in `connect()`'s own `settings` only.
@@ -1215,6 +1221,14 @@ export interface FoxhoundSettings {
        */
       readonly sessionConcurrency?: number | null;
     };
+    readonly recovery?: {
+      /**
+       * Whether Session recovery, a Challenge ladder or a two-factor `code_source` with no arriving code may raise a Human pause to wait for a person (`true` by default). Set `false` for unattended programs so missing codes fail with `secret_unavailable` and unresolved logins or Challenges fail fast without waiting up to `timeout.human_pause`.
+       *
+       * `session.recovery.human_pause`.
+       */
+      readonly humanPause?: boolean;
+    };
     /**
      * Where a Session's login comes from: exactly one kind of ADR 0056's tagged union, or none for a fresh Session. Set at a Run or a connection, it is the default of the Sessions opened beneath; opening a Session takes its own as the call's `source`, and in that Session's own `settings` it is refused with `setting_not_applicable`. A Recipe never sets or locks it; it may only expose it to its users.
      *
@@ -1628,6 +1642,12 @@ export interface CrawlSettings {
      */
     readonly version?: string | null;
   };
+  /**
+   * Email or SMS two-factor code sources, as `code_sources.<name>`: `{ kind, from?, pattern?, window? }`, where `kind` is one of `imap`, `gmail`, `microsoft_graph`, `webhook`, `endpoint` or `twilio` with every credential a Secret reference, and `window` defaults to 5 minutes (`300000` ms) from the login attempt. Bound to a placeholder via `secrets.placeholders.<name> = { code_source, domains }`. Each matching code is used once; when none arrives, a Human pause is raised unless `session.recovery.human_pause` is `false`, in which case the call fails with `secret_unavailable`. Only configuration, Operator policy and the program's own run layer set `code_sources`: a Recipe or a Client acting for a model receives `setting_locked`.
+   *
+   * `code_sources`.
+   */
+  readonly codeSources?: { readonly [key: string]: { readonly from?: string | null; readonly kind: { readonly host: string; readonly mailbox?: string; readonly password: string; readonly port?: number; readonly tls?: boolean | null; readonly type: "imap"; readonly username: string } | { readonly credentials: string; readonly endpoint?: string | null; readonly type: "gmail" } | { readonly authority?: string | null; readonly clientId: string; readonly clientSecret: string; readonly endpoint?: string | null; readonly mailbox: string; readonly tenant: string; readonly type: "microsoft_graph" } | { readonly listen?: string | null; readonly path: string; readonly type: "webhook" } | { readonly headers?: { readonly [key: string]: string }; readonly type: "endpoint"; readonly url: string } | { readonly accountSid: string; readonly authToken: string; readonly endpoint?: string | null; readonly to: string; readonly type: "twilio" }; readonly pattern?: string | null; readonly window?: number } };
   readonly consent?: {
     /**
      * The registrable domains on which a run accepts a consent wall, a Consent prompt with no refusal that covers the content or offers payment instead, rather than raising `blocked` with `consent_required`; `*` only when written. A prompt that offers a refusal is still refused there. A Recipe or a run only narrows it; it is widened only in an Operator policy, user or project configuration, or by a person's answer.
@@ -2651,6 +2671,14 @@ export interface CrawlSettings {
        */
       readonly sessionConcurrency?: number | null;
     };
+    readonly recovery?: {
+      /**
+       * Whether Session recovery, a Challenge ladder or a two-factor `code_source` with no arriving code may raise a Human pause to wait for a person (`true` by default). Set `false` for unattended programs so missing codes fail with `secret_unavailable` and unresolved logins or Challenges fail fast without waiting up to `timeout.human_pause`.
+       *
+       * `session.recovery.human_pause`.
+       */
+      readonly humanPause?: boolean;
+    };
     /**
      * Where a Session's login comes from: exactly one kind of ADR 0056's tagged union, or none for a fresh Session. Set at a Run or a connection, it is the default of the Sessions opened beneath; opening a Session takes its own as the call's `source`, and in that Session's own `settings` it is refused with `setting_not_applicable`. A Recipe never sets or locks it; it may only expose it to its users.
      *
@@ -2973,6 +3001,14 @@ export interface LabelSettings {
      * `session.page_check`.
      */
     readonly pageCheck?: { readonly expectedPage?: { readonly kind: "glob"; readonly pattern: string } | { readonly kind: "regex"; readonly pattern: string } | { readonly kind: "css"; readonly selector: string } | { readonly kind: "xpath"; readonly selector: string } | { readonly kind: "text"; readonly text: string } | null; readonly loginPage?: { readonly kind: "glob"; readonly pattern: string } | { readonly kind: "regex"; readonly pattern: string } | { readonly kind: "css"; readonly selector: string } | { readonly kind: "xpath"; readonly selector: string } | { readonly kind: "text"; readonly text: string } | null } | null;
+    readonly recovery?: {
+      /**
+       * Whether Session recovery, a Challenge ladder or a two-factor `code_source` with no arriving code may raise a Human pause to wait for a person (`true` by default). Set `false` for unattended programs so missing codes fail with `secret_unavailable` and unresolved logins or Challenges fail fast without waiting up to `timeout.human_pause`.
+       *
+       * `session.recovery.human_pause`.
+       */
+      readonly humanPause?: boolean;
+    };
     /**
      * Where a Session's login comes from: exactly one kind of ADR 0056's tagged union, or none for a fresh Session. Set at a Run or a connection, it is the default of the Sessions opened beneath; opening a Session takes its own as the call's `source`, and in that Session's own `settings` it is refused with `setting_not_applicable`. A Recipe never sets or locks it; it may only expose it to its users.
      *
@@ -3045,6 +3081,7 @@ const SPELLING: Spelling = {
     update: "update",
     version: "version",
   }],
+  codeSources: { setting: "code_sources", value: { values: { fields: { "kind": ["kind", { fields: { "account_sid": "accountSid", "auth_token": "authToken", "client_id": "clientId", "client_secret": "clientSecret" } }] } } } },
   connection: ["connection", {
     maxListenerQueue: "max_listener_queue",
     maxPendingCalls: "max_pending_calls",
@@ -3413,6 +3450,9 @@ const SPELLING: Spelling = {
       maxSize: "max_size",
       maxUses: "max_uses",
       sessionConcurrency: "session_concurrency",
+    }],
+    recovery: ["recovery", {
+      humanPause: "human_pause",
     }],
     source: { setting: "source", value: { fields: { "chromium_profile": "chromiumProfile" } } },
   }],

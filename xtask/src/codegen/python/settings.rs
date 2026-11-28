@@ -572,27 +572,39 @@ impl Module {
             .get("description")
             .and_then(Value::as_str)
             .map_or_else(|| format!("A value of `{owner}`."), str::to_owned);
-        let mut class = format!(
-            "class {owner}(TypedDict):\n{}",
-            docstring("    ", &summary, Stability::Stable, None)
-        );
-        for (name, schema) in properties {
-            ensure!(
-                key(name),
-                "the property `{name}` is a key a `TypedDict` cannot declare"
+        if properties.keys().all(|name| key(name)) {
+            let mut class = format!(
+                "class {owner}(TypedDict):\n{}",
+                docstring("    ", &summary, Stability::Stable, None)
             );
-            let arms = self.arms(schema, &format!("{owner}{}", pascal(name)), setting)?;
-            let mut annotation = self.union(arms);
-            if !required.contains(&name.as_str()) {
-                self.imports.insert(("typing", "NotRequired"));
-                annotation = format!("NotRequired[{annotation}]");
+            for (name, schema) in properties {
+                let arms = self.arms(schema, &format!("{owner}{}", pascal(name)), setting)?;
+                let mut annotation = self.union(arms);
+                if !required.contains(&name.as_str()) {
+                    self.imports.insert(("typing", "NotRequired"));
+                    annotation = format!("NotRequired[{annotation}]");
+                }
+                let _ = write!(class, "\n    {name}: {annotation}\n");
+                if let Some(description) = schema.get("description").and_then(Value::as_str) {
+                    class.push_str(&docstring("    ", description, Stability::Stable, None));
+                }
             }
-            let _ = write!(class, "\n    {name}: {annotation}\n");
-            if let Some(description) = schema.get("description").and_then(Value::as_str) {
-                class.push_str(&docstring("    ", description, Stability::Stable, None));
+            self.define(owner, class)?;
+        } else {
+            // Functional TypedDict form for keys that are Python keywords (e.g. `from`).
+            let mut fields = String::new();
+            for (name, schema) in properties {
+                let arms = self.arms(schema, &format!("{owner}{}", pascal(name)), setting)?;
+                let mut annotation = self.union(arms);
+                if !required.contains(&name.as_str()) {
+                    self.imports.insert(("typing", "NotRequired"));
+                    annotation = format!("NotRequired[{annotation}]");
+                }
+                let _ = writeln!(fields, "        \"{name}\": {annotation},");
             }
+            let def = format!("{owner} = TypedDict(\n    \"{owner}\",\n    {{\n{fields}    }},\n)");
+            self.define(owner, def)?;
         }
-        self.define(owner, class)?;
         Ok(owner.to_owned())
     }
 }

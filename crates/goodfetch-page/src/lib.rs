@@ -20,6 +20,7 @@ mod browser_host;
 mod browser_run;
 mod cdp;
 mod clean_up_versions;
+mod code_sources;
 mod consent;
 mod consent_walls;
 mod dialogs;

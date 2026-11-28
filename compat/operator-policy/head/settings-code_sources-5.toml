@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[settings]
+code_sources = { "example.test" = { kind = { headers = { Authorization = "env:CODES_AUTH" }, type = "endpoint", url = "https://codes.example.test/latest" } } }

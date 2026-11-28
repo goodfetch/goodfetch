@@ -1197,6 +1197,17 @@ number = 5
 kind = "setting"
 prefix = "session.http_credentials"
 
+# Two-factor code sources and Human pause recovery toggle (#734, ADRs 0006, 0092).
+[[area]]
+number = 5
+kind = "setting"
+prefix = "code_sources"
+
+[[area]]
+number = 5
+kind = "setting"
+prefix = "session.recovery.human_pause"
+
 # Profile directory used in place and session.save_identity (#737, ADRs 0056, 0092).
 [[area]]
 number = 5

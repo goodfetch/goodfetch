@@ -18,11 +18,12 @@ use crate::page::emulation::EMULATION_SETTINGS;
 use crate::page::{
     BROWSER_BLOCK_RESOURCES, BROWSER_SERVICE_WORKERS, CONTENT_EXTRACTOR, LIVE_VIEW_HIDING,
 };
+use crate::secrets::code_sources::CODE_SOURCES;
 use crate::secrets::placeholders::SECRETS_PLACEHOLDERS;
 use crate::settings::{
     CONSENT_GPC, FILTER_LISTS_ADS, FILTER_LISTS_ANNOYANCES, FILTER_LISTS_FIRST_PARTY_SCRIPTS,
-    FILTER_LISTS_TRACKERS, SESSION_HTTP_CREDENTIALS, SESSION_PAGE_CHECK, SESSION_SOURCE,
-    TIMEOUT_HOOK, TIMEOUT_RUN,
+    FILTER_LISTS_TRACKERS, SESSION_HTTP_CREDENTIALS, SESSION_PAGE_CHECK,
+    SESSION_RECOVERY_HUMAN_PAUSE, SESSION_SOURCE, TIMEOUT_HOOK, TIMEOUT_RUN,
 };
 
 /// What starts the `proxy.*` keys, which a Session chooses as it opens.
@@ -34,7 +35,7 @@ const PROXY_PREFIX: &str = "proxy.";
 /// whether its sites' service workers run, whether its Live
 /// view hides, its page check (ADR 0121) and its Secret placeholders'
 /// bindings, so that each Session logs in to its own account (ADR 0092).
-const SESSION_SETTINGS: [&Setting; 11] = [
+const SESSION_SETTINGS: [&Setting; 13] = [
     &FILTER_LISTS_ADS,
     &FILTER_LISTS_TRACKERS,
     &FILTER_LISTS_ANNOYANCES,
@@ -45,7 +46,9 @@ const SESSION_SETTINGS: [&Setting; 11] = [
     &LIVE_VIEW_HIDING,
     &SESSION_PAGE_CHECK,
     &SESSION_HTTP_CREDENTIALS,
+    &SESSION_RECOVERY_HUMAN_PAUSE,
     &SECRETS_PLACEHOLDERS,
+    &CODE_SOURCES,
 ];
 
 /// The settings a crawl's Label sets over its Run's for its requests (ADR
@@ -57,7 +60,7 @@ const SESSION_SETTINGS: [&Setting; 11] = [
 /// is refused every other key: the Run's proxy, Politeness and bounds
 /// always, and the rest of ADR 0093's Label settings until this engine
 /// applies them (issue 1472).
-pub const LABEL_SETTINGS: [&Setting; 12] = [
+pub const LABEL_SETTINGS: [&Setting; 13] = [
     &FETCH_TIER,
     &FETCH_HTTP_FROM,
     &FETCH_ENCODING,
@@ -69,6 +72,7 @@ pub const LABEL_SETTINGS: [&Setting; 12] = [
     &TIMEOUT_HOOK,
     &SESSION_PAGE_CHECK,
     &SESSION_HTTP_CREDENTIALS,
+    &SESSION_RECOVERY_HUMAN_PAUSE,
     &SESSION_SOURCE,
 ];
 

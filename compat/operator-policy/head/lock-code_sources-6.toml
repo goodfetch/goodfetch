@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[lock]
+code_sources = { "example.test" = { kind = { account_sid = "env:TWILIO_SID", auth_token = "env:TWILIO_TOKEN", endpoint = "https://api.twilio.com", to = "+15550001111", type = "twilio" } } }

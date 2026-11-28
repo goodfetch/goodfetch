@@ -4111,3 +4111,107 @@ member = "saveRecording"
 entry = "recording.save_as"
 words = ["save", "recording"]
 form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
+member = "openRunWith"
+entry = "none"
+reason = "Opens a Product subclass of `RunView` (such as `CrawlRunView`) with no round trip."
+only = "Internal runtime helper for Product packages."
+words = ["open", "run", "with"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "ensureRunViewOpen"
+entry = "none"
+reason = "Checks that a `RunView` has not been closed before a Product subclass sends a call."
+only = "Internal runtime helper for Product packages."
+words = ["ensure", "run", "view", "open"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Foxhound"
+member = "openCrawlRun"
+entry = "none"
+reason = "Opens a read-only `CrawlRunView` of a crawl Run another program started, by its Run ID, with no round trip and no writer lock (ADRs 0102 and 0103)."
+words = ["open", "crawl", "run"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "CrawlRunView"
+entry = "none"
+reason = "Read-only view of a crawl Run opened by `Foxhound.openCrawlRun()` (ADRs 0102 and 0103)."
+words = ["crawl", "run", "view"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRunView"
+member = "constructor"
+entry = "none"
+reason = "A Connection's `openCrawlRun()` opens a view; a program never constructs one."
+only = "Python's and Rust's views have no constructor a program calls."
+words = ["crawl", "run", "view"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRunView"
+member = "report"
+entry = "run.report"
+words = ["report"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRunView"
+member = "progress"
+entry = "run.progress"
+words = ["progress"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRunView"
+member = "records"
+entry = "run.records"
+words = ["records"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRunView"
+member = "rejectedRecords"
+entry = "run.rejected_records"
+words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRunView"
+member = "export"
+entry = "run.export"
+words = ["export"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRunView"
+member = "outcomes"
+entry = "run.outcomes"
+words = ["outcomes"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRunView"
+member = "failedRequests"
+entry = "run.failed_requests"
+words = ["failed", "requests"]
+form = "round_trip"

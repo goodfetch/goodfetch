@@ -2623,6 +2623,15 @@ product = "foxhound"
 status = "active"
 
 [[story]]
+id = 1068
+title = "As a developer, I want `openCrawlRun(runId)` to give a read-only `CrawlRunView` with `records`, `rejectedRecords`, `export`, `outcomes` and `failedRequests`, typed by the Dataset handles my module declares and ending after the last committed Record when no writer is live (Rust views with the `_after` forms too), so that a reporting program reads a Run it did not start (ADRs 0102, 0103)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
 id = 1069
 title = "As a developer, I want to start a crawl declared as data, a `CrawlDeclaration` whose Labels follow links and extract fields into the Datasets it declares, from the SDKs, the CLI or MCP with no handler, so that a crawl someone reviewed runs as written (ADRs 0099, 0103; G8)."
 milestone = "M2 Client surfaces"
@@ -2742,6 +2751,15 @@ status = "active"
 [[story]]
 id = 1107
 title = "As a Rust developer, I want Settings as typed constants (`crawl::CONTENT_TYPES`, `crawl::KEEP_URL_FRAGMENT`, `settings::plan::FROZEN`), `ErrorCode` constants and one-word names (`AiWorkResult`, `CdpSession`), and `test-util` to build only test values (`Error::fake`, `CrawlRequestOutcome::fake`), so that Rust reads as Rust and no capability is a Cargo feature (ADRs 0087, 0099)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1109
+title = "As a Rust developer, I want `records_after`, `rejected_records_after`, `export` and `failed_requests` on a `CrawlRun` and its view in the same form, so that a Rust reader follows a Run as the other SDKs do (ADRs 0102, 0103)."
 milestone = "M2 Client surfaces"
 journey = false
 not_journey = "part"

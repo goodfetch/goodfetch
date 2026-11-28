@@ -68,6 +68,7 @@ export {
   type RejectedRecordsOptions,
   type RetryFailedOptions,
 } from "./crawl-run.ts";
+export { CrawlRunView } from "./crawl-run-view.ts";
 export {
   Export,
   type ExportOptions,

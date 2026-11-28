@@ -913,6 +913,17 @@ impl CrawlRun {
         ReadRecords::new(self.inner.records(dataset), self.connection.clone())
     }
 
+    /// Reads the committed Records of `dataset` numbered past `after`, as
+    /// [`crate::CrawlRun::records_after`].
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn records_after<I>(&self, dataset: &Dataset<I>, after: u64) -> ReadRecords<I> {
+        ReadRecords::new(
+            self.inner.records_after(dataset, after),
+            self.connection.clone(),
+        )
+    }
+
     /// Reads one Dataset's rejection table from a crawl's committed state:
     /// each Record rejected rather than committed, numbered from 1 in
     /// commit order, with the Record as JSON, the reason, each issue's
@@ -941,6 +952,21 @@ impl CrawlRun {
     pub fn rejected_records<I>(&self, dataset: &Dataset<I>) -> ReadRejectedRecords {
         ReadRejectedRecords::new(
             self.inner.rejected_records(dataset),
+            self.connection.clone(),
+        )
+    }
+
+    /// Reads `dataset`'s rejection table past entry `after`, as
+    /// [`crate::CrawlRun::rejected_records_after`].
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn rejected_records_after<I>(
+        &self,
+        dataset: &Dataset<I>,
+        after: u64,
+    ) -> ReadRejectedRecords {
+        ReadRejectedRecords::new(
+            self.inner.rejected_records_after(dataset, after),
             self.connection.clone(),
         )
     }
@@ -1003,7 +1029,7 @@ pub struct ReadRecords<I> {
 }
 
 impl<I> ReadRecords<I> {
-    fn new(read: crate::ReadRecords<I>, connection: blocking::ClientConnection) -> Self {
+    pub(super) fn new(read: crate::ReadRecords<I>, connection: blocking::ClientConnection) -> Self {
         Self {
             unsent: Some(read),
             sent: None,
@@ -1048,7 +1074,10 @@ pub struct ReadRejectedRecords {
 }
 
 impl ReadRejectedRecords {
-    fn new(read: crate::ReadRejectedRecords, connection: blocking::ClientConnection) -> Self {
+    pub(super) fn new(
+        read: crate::ReadRejectedRecords,
+        connection: blocking::ClientConnection,
+    ) -> Self {
         Self {
             unsent: Some(read),
             sent: None,

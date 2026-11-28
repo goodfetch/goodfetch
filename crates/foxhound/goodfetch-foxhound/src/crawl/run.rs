@@ -379,6 +379,14 @@ impl CrawlRun {
         )
     }
 
+    /// Reads the committed Records of `dataset` numbered past `after`
+    /// (`run.records`, ADR 0103), shorthand for `self.records(dataset).after(after)`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn records_after<I>(&self, dataset: &Dataset<I>, after: u64) -> ReadRecords<I> {
+        self.records(dataset).after(after)
+    }
+
     /// Reads one Dataset's rejection table from a crawl's committed state:
     /// each Record rejected rather than committed, numbered from 1 in
     /// commit order, with the Record as JSON, the reason, each issue's
@@ -418,6 +426,19 @@ impl CrawlRun {
             &dataset.name,
             Reach::Follows,
         )
+    }
+
+    /// Reads `dataset`'s rejection table past entry `after`
+    /// (`run.rejected_records`, ADRs 0103 and 0104), shorthand for
+    /// `self.rejected_records(dataset).after(after)`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn rejected_records_after<I>(
+        &self,
+        dataset: &Dataset<I>,
+        after: u64,
+    ) -> ReadRejectedRecords {
+        self.rejected_records(dataset).after(after)
     }
 
     /// Writes an Export of one Dataset of a crawl's Run: the Records it

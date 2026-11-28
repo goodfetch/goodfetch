@@ -53,6 +53,7 @@ mod seeds;
 mod start;
 #[cfg(test)]
 mod tests;
+mod view;
 
 use context::{Attempt, Ending, retry_requested};
 pub use context::{AttemptRun, CrawlContext, Enqueue, EnqueueLinks, LinkPayload};
@@ -66,6 +67,7 @@ pub use run::{CrawlCall, CrawlRun};
 pub use seeds::{AddSeed, AddSeeds};
 pub(crate) use start::target;
 pub use start::{CrawlTarget, StartCrawl};
+pub use view::CrawlRunView;
 
 /// The source of each crawl's own number, which its Labels and Datasets
 /// carry, so a crawl tells its own from another's.

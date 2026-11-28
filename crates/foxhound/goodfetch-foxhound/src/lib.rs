@@ -54,10 +54,10 @@ pub mod testing;
 
 pub use composition::{composition, composition_with};
 pub use crawl::{
-    AddSeed, AddSeeds, AttemptRun, Crawl, CrawlCall, CrawlContext, CrawlRun, CrawlTarget, Dataset,
-    DatasetDeclaration, DatasetRecord, Enqueue, EnqueueLinks, Export, ExportDataset, Label,
-    LabelDeclaration, LinkPayload, ReadFailedRequests, ReadOutcomes, ReadRecords,
-    ReadRejectedRecords, RetryFailed, Seed, StartCrawl,
+    AddSeed, AddSeeds, AttemptRun, Crawl, CrawlCall, CrawlContext, CrawlRun, CrawlRunView,
+    CrawlTarget, Dataset, DatasetDeclaration, DatasetRecord, Enqueue, EnqueueLinks, Export,
+    ExportDataset, Label, LabelDeclaration, LinkPayload, ReadFailedRequests, ReadOutcomes,
+    ReadRecords, ReadRejectedRecords, RetryFailed, Seed, StartCrawl,
 };
 pub use foxhound::{ConnectOptions, Foxhound, PAID_FETCHES};
 pub use goodfetch_collie::{EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon};

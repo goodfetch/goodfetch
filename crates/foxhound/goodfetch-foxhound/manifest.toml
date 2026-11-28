@@ -2685,6 +2685,339 @@ only = "TypeScript names the Usage kind as the `paidFetches` key of its `Limits`
 words = ["paid", "fetches"]
 form = "constant"
 
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
+member = "open_crawl_run"
+entry = "none"
+reason = "Opens a read-only `CrawlRunView` of a crawl Run another program started, by its Run ID, with no round trip and no writer lock (ADRs 0102 and 0103)."
+words = ["open", "crawl", "run"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Foxhound"
+member = "open_crawl_run"
+entry = "none"
+reason = "Opens a blocking read-only `CrawlRunView` of a crawl Run another program started, by its Run ID, with no round trip and no writer lock (ADRs 0081, 0102 and 0103)."
+only = "TypeScript has no blocking API (ADR 0081)."
+words = ["open", "crawl", "run"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRun"
+member = "records_after"
+entry = "none"
+reason = "Shorthand for `records(dataset).after(after)` (spec 611)."
+only = "TypeScript and Python take `after` as an option on `records`."
+words = ["records", "after"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRun"
+member = "rejected_records_after"
+entry = "none"
+reason = "Shorthand for `rejected_records(dataset).after(after)` (spec 611)."
+only = "TypeScript and Python take `after` as an option on `rejected_records`."
+words = ["rejected", "records", "after"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRun"
+member = "records_after"
+entry = "none"
+reason = "Blocking shorthand for `records(dataset).after(after)` (spec 611)."
+only = "TypeScript has no blocking API (ADR 0081)."
+words = ["records", "after"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRun"
+member = "rejected_records_after"
+entry = "none"
+reason = "Blocking shorthand for `rejected_records(dataset).after(after)` (spec 611)."
+only = "TypeScript has no blocking API (ADR 0081)."
+words = ["rejected", "records", "after"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "CrawlRunView"
+entry = "none"
+reason = "Read-only view of a crawl Run opened by `Foxhound::open_crawl_run` (ADRs 0102 and 0103)."
+words = ["crawl", "run", "view"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRunView"
+member = "id"
+entry = "none"
+reason = "The Run ID the view was opened with, read without a round trip (ADR 0102)."
+only = "TypeScript and Python inherit `id` from `RunView`; Rust delegates it on `CrawlRunView`."
+words = ["id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRunView"
+member = "progress"
+entry = "run.progress"
+words = ["progress"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRunView"
+member = "report"
+entry = "run.report"
+words = ["report"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRunView"
+member = "trace"
+entry = "run.trace"
+only = "TypeScript and Python inherit `trace` from `RunView`; Rust delegates it on `CrawlRunView`."
+words = ["trace"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRunView"
+member = "key_value_store"
+entry = "none"
+reason = "Read-only view of the Run's Key-value store (ADRs 0102 and 0103)."
+only = "TypeScript and Python inherit `key_value_store` from `RunView`; Rust delegates it on `CrawlRunView`."
+words = ["key", "value", "store"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRunView"
+member = "save_recording"
+entry = "recording.save_as"
+only = "TypeScript and Python inherit `save_recording` from `RunView`; Rust delegates it on `CrawlRunView`."
+words = ["save", "recording"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRunView"
+member = "records"
+entry = "run.records"
+words = ["records"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRunView"
+member = "records_after"
+entry = "none"
+reason = "Shorthand for `records(dataset).after(after)` (spec 611)."
+only = "TypeScript and Python take `after` as an option on `records`."
+words = ["records", "after"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRunView"
+member = "rejected_records"
+entry = "run.rejected_records"
+words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRunView"
+member = "rejected_records_after"
+entry = "none"
+reason = "Shorthand for `rejected_records(dataset).after(after)` (spec 611)."
+only = "TypeScript and Python take `after` as an option on `rejected_records`."
+words = ["rejected", "records", "after"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRunView"
+member = "export"
+entry = "run.export"
+words = ["export"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRunView"
+member = "outcomes"
+entry = "run.outcomes"
+words = ["outcomes"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRunView"
+member = "failed_requests"
+entry = "run.failed_requests"
+words = ["failed", "requests"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRunView"
+member = "close"
+entry = "none"
+reason = "Frees only the view (ADR 0102): the Run goes on."
+only = "TypeScript and Python inherit `close` from `RunView`; Rust delegates it on `CrawlRunView`."
+words = ["close"]
+form = "closer"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "CrawlRunView"
+entry = "none"
+reason = "Blocking read-only view of a crawl Run opened by `blocking::Foxhound::open_crawl_run` (ADRs 0081, 0102 and 0103)."
+only = "TypeScript has no blocking API (ADR 0081)."
+words = ["crawl", "run", "view"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRunView"
+member = "id"
+entry = "none"
+reason = "The Run ID the view was opened with, read without a round trip (ADR 0102)."
+only = "TypeScript has no blocking API (ADR 0081)."
+words = ["id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRunView"
+member = "progress"
+entry = "run.progress"
+only = "TypeScript has no blocking API (ADR 0081)."
+words = ["progress"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRunView"
+member = "report"
+entry = "run.report"
+only = "TypeScript has no blocking API (ADR 0081)."
+words = ["report"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRunView"
+member = "trace"
+entry = "run.trace"
+only = "TypeScript has no blocking API (ADR 0081)."
+words = ["trace"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRunView"
+member = "key_value_store"
+entry = "none"
+reason = "Read-only view of the Run's Key-value store (ADRs 0102 and 0103)."
+only = "TypeScript has no blocking API (ADR 0081)."
+words = ["key", "value", "store"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRunView"
+member = "save_recording"
+entry = "recording.save_as"
+only = "TypeScript has no blocking API (ADR 0081)."
+words = ["save", "recording"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRunView"
+member = "records"
+entry = "run.records"
+only = "TypeScript has no blocking API (ADR 0081)."
+words = ["records"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRunView"
+member = "records_after"
+entry = "none"
+reason = "Blocking shorthand for `records(dataset).after(after)` (spec 611)."
+only = "TypeScript has no blocking API (ADR 0081)."
+words = ["records", "after"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRunView"
+member = "rejected_records"
+entry = "run.rejected_records"
+only = "TypeScript has no blocking API (ADR 0081)."
+words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRunView"
+member = "rejected_records_after"
+entry = "none"
+reason = "Blocking shorthand for `rejected_records(dataset).after(after)` (spec 611)."
+only = "TypeScript has no blocking API (ADR 0081)."
+words = ["rejected", "records", "after"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRunView"
+member = "export"
+entry = "run.export"
+only = "TypeScript has no blocking API (ADR 0081)."
+words = ["export"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRunView"
+member = "outcomes"
+entry = "run.outcomes"
+only = "TypeScript has no blocking API (ADR 0081)."
+words = ["outcomes"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRunView"
+member = "failed_requests"
+entry = "run.failed_requests"
+only = "TypeScript has no blocking API (ADR 0081)."
+words = ["failed", "requests"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRunView"
+member = "close"
+entry = "none"
+reason = "Frees only the view (ADR 0102): the Run goes on."
+only = "TypeScript has no blocking API (ADR 0081)."
+words = ["close"]
+form = "closer"
+
 [[unreached]]
 entries = ["sample.crawl"]
 reason = "The engine's sample crawl, which tests and benchmarks call; no Product member serves it."

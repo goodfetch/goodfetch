@@ -404,49 +404,16 @@ export class CrawlRun extends Run {
     options: RecordsOptions,
     reach: Reach,
   ): Sequence<DatasetRecord<O>> {
-    warnEntry(foxhoundOperations, "run.records");
-    ensureRunOpen(this, "run.records");
-    const connection = this.#crawlHost.connection;
-    const calls = this.#crawlHost.calls;
-    const runId = this.id();
-    const params: { run_id: string; dataset: string; after?: number; through?: number } = {
-      run_id: runId,
-      dataset: dataset.name,
-      ...(options.after === undefined ? {} : { after: options.after }),
-    };
-    const send = (opened: Opened, sending: typeof params): Stream =>
-      resumable<number>((sent) => connection.stream("run.records", sending, sent), opened, {
-        read: (method, notification) => {
-          const number = method === "$/record" ? recordNumberOf(notification) : undefined;
-          return number === undefined ? undefined : { count: 1, last: number };
-        },
-        params: (last) => (last === undefined ? sending : { ...sending, after: last }),
-      });
-    return new Sequence({
-      open: (opened) =>
-        reach === "follows"
-          ? send(opened, params)
-          : // The last Record committed now, which `dataset.page` answers
-            // as its `through` even for a page of one Record.
-            sentAfter(
-              async () => {
-                const page = await calls.call(
-                  "dataset.page",
-                  { runId, dataset: dataset.name, columns: [], limit: 1 },
-                  { signal: opened.signal },
-                );
-                return page.through;
-              },
-              (through) => send(opened, { ...params, through }),
-            ),
-      itemOf: (method, notification) => {
-        const record = recordOf(method, notification);
-        return record === undefined ? undefined : readRecord(dataset, record);
+    return readCrawlRecords(
+      this.#crawlHost,
+      this.id(),
+      (operation) => {
+        ensureRunOpen(this, operation);
       },
-      credits: RECORD_CREDITS,
-      regrant: RECORD_REGRANT,
-      signal: options.signal,
-    });
+      dataset,
+      options,
+      reach,
+    );
   }
 
   /**
@@ -517,23 +484,15 @@ export class CrawlRun extends Run {
     dataset: Dataset<I, O>,
     options: ExportOptions,
   ): Promise<Export> {
-    warnEntry(foxhoundOperations, "run.export");
-    ensureRunOpen(this, "run.export");
-    const settings = settingsOnWire(options.settings);
-    const project = this.#crawlHost.connection.project();
-    const params: RunExportParams = {
-      runId: this.id(),
-      dataset: dataset.name,
-      format: options.format,
-      ...(options.compression === undefined ? {} : { compression: options.compression }),
-      ...(options.wall === undefined ? {} : { wall: options.wall }),
-      ...(settings === undefined ? {} : { settings }),
-      ...(project === undefined ? {} : { project }),
-    };
-    const descriptor = await this.#crawlHost.calls.call("run.export", params, {
-      signal: options.signal,
-    });
-    return makeExport(this.#crawlHost.connection, descriptor);
+    return exportCrawlDataset(
+      this.#crawlHost,
+      this.id(),
+      (operation) => {
+        ensureRunOpen(this, operation);
+      },
+      dataset,
+      options,
+    );
   }
 
   /**
@@ -553,47 +512,14 @@ export class CrawlRun extends Run {
    * @experimental
    */
   outcomes(options: OutcomesOptions = {}): Sequence<CrawlRequestOutcome> {
-    warnEntry(foxhoundOperations, "run.outcomes");
-    ensureRunOpen(this, "run.outcomes");
-    const calls = this.#crawlHost.calls;
-    const runId = this.id();
-    const kinds = options.kinds === undefined ? undefined : [...options.kinds];
-    const labels =
-      options.labels === undefined
-        ? undefined
-        : options.labels.map((label) => (typeof label === "string" ? label : label.name));
-    const codes = options.codes === undefined ? undefined : [...options.codes];
-    let take: (() => CrawlRequestOutcome | undefined) | undefined;
-    return new Sequence({
-      open: (opened) => {
-        const reading = paged<CrawlRequestOutcomes, CrawlRequestOutcome>(
-          {
-            read: async (read, signal) => {
-              ensureRunOpen(this, "run.outcomes");
-              const after: OutcomesAfter | undefined = read ?? options.after;
-              const params: RunOutcomesParams = {
-                runId,
-                ...(kinds === undefined ? {} : { kinds }),
-                ...(labels === undefined ? {} : { labels }),
-                ...(codes === undefined ? {} : { codes }),
-                ...(after === undefined ? {} : { after }),
-              };
-              return calls.call("run.outcomes", params, { signal });
-            },
-            position: (page) => page.next,
-            last: (page) => page.ended,
-            items: (page) => page.outcomes,
-          },
-          opened,
-        );
-        take = reading.take;
-        return reading.stream;
+    return readCrawlOutcomes(
+      this.#crawlHost,
+      this.id(),
+      (operation) => {
+        ensureRunOpen(this, operation);
       },
-      itemOf: (method) => (method === FOLLOWED_VALUE ? take?.() : undefined),
-      credits: REJECTED_CREDITS,
-      regrant: REJECTED_REGRANT,
-      signal: options.signal,
-    });
+      options,
+    );
   }
 
   /**
@@ -607,14 +533,14 @@ export class CrawlRun extends Run {
   async failedRequests(
     options: FailedRequestsOptions = {},
   ): Promise<readonly CrawlRequestOutcome[]> {
-    warnEntry(foxhoundOperations, "run.failed_requests");
-    ensureRunOpen(this, "run.failed_requests");
-    const result = await this.#crawlHost.calls.call(
-      "run.failed_requests",
-      { runId: this.id(), blocked: options.blocked === true },
-      { signal: options.signal },
+    return readCrawlFailedRequests(
+      this.#crawlHost,
+      this.id(),
+      (operation) => {
+        ensureRunOpen(this, operation);
+      },
+      options,
     );
-    return result.requests;
   }
 
   /**
@@ -662,54 +588,16 @@ export class CrawlRun extends Run {
     options: RejectedRecordsOptions,
     reach: Reach,
   ): Sequence<RejectedRecord> {
-    warnEntry(foxhoundOperations, "run.rejected_records");
-    ensureRunOpen(this, "run.rejected_records");
-    const calls = this.#crawlHost.calls;
-    const runId = this.id();
-    let take: (() => RejectedRecord | undefined) | undefined;
-    return new Sequence({
-      open: (opened) => {
-        // The entries rejected now, numbered without gaps, so the count
-        // `dataset.list` answers is the last one's number.
-        let bound: Promise<number> | undefined;
-        const through = async (signal: AbortSignal | undefined): Promise<number | undefined> => {
-          if (reach === "follows") return undefined;
-          bound ??= calls
-            .call("dataset.list", { runId }, { signal })
-            .then(
-              (list) =>
-                list.datasets.find((summary) => summary.name === dataset.name)?.rejected ?? 0,
-            );
-          return bound;
-        };
-        const reading = paged<RejectedRecords, RejectedRecord>(
-          {
-            read: async (read, signal) => {
-              ensureRunOpen(this, "run.rejected_records");
-              const after = read ?? options.after;
-              const last = await through(signal);
-              const params = {
-                runId,
-                dataset: dataset.name,
-                ...(after === undefined ? {} : { after }),
-                ...(last === undefined ? {} : { through: last }),
-              };
-              return calls.call("run.rejected_records", params, { signal });
-            },
-            position: (page) => page.next,
-            last: (page) => page.ended,
-            items: (page) => page.records,
-          },
-          opened,
-        );
-        take = reading.take;
-        return reading.stream;
+    return readCrawlRejectedRecords(
+      this.#crawlHost,
+      this.id(),
+      (operation) => {
+        ensureRunOpen(this, operation);
       },
-      itemOf: (method) => (method === FOLLOWED_VALUE ? take?.() : undefined),
-      credits: REJECTED_CREDITS,
-      regrant: REJECTED_REGRANT,
-      signal: options.signal,
-    });
+      dataset,
+      options,
+      reach,
+    );
   }
 
   /**
@@ -1067,7 +955,7 @@ const CRAWL_TYPES = { ...collieWire.types, ...foxhoundWire.types };
  * the fields only a crawl's carry as sent, so these are read again as
  * Foxhound's types.
  */
-function crawlRunHost(host: RunHost): RunHost {
+export function crawlRunHost(host: RunHost): RunHost {
   const calls = host.calls;
   const crawlCalls: Caller<CollieOperationTypes> = {
     call: async (operation, params, options) => {
@@ -1176,4 +1064,203 @@ function handlerFailed(label: string, thrown: unknown): HandlerFailedError {
       },
     },
   );
+}
+
+/** @internal Shared `run.records` reader for `CrawlRun` and `CrawlRunView`. */
+export function readCrawlRecords<I extends object, O>(
+  crawlHost: CrawlHost,
+  runId: string,
+  ensureOpen: (operation: string) => void,
+  dataset: Dataset<I, O>,
+  options: RecordsOptions,
+  reach: Reach,
+): Sequence<DatasetRecord<O>> {
+  warnEntry(foxhoundOperations, "run.records");
+  ensureOpen("run.records");
+  const connection = crawlHost.connection;
+  const calls = crawlHost.calls;
+  const params: { run_id: string; dataset: string; after?: number; through?: number } = {
+    run_id: runId,
+    dataset: dataset.name,
+    ...(options.after === undefined ? {} : { after: options.after }),
+  };
+  const send = (opened: Opened, sending: typeof params): Stream =>
+    resumable<number>((sent) => connection.stream("run.records", sending, sent), opened, {
+      read: (method, notification) => {
+        const number = method === "$/record" ? recordNumberOf(notification) : undefined;
+        return number === undefined ? undefined : { count: 1, last: number };
+      },
+      params: (last) => (last === undefined ? sending : { ...sending, after: last }),
+    });
+  return new Sequence({
+    open: (opened) =>
+      reach === "follows"
+        ? send(opened, params)
+        : sentAfter(
+            async () => {
+              const page = await calls.call(
+                "dataset.page",
+                { runId, dataset: dataset.name, columns: [], limit: 1 },
+                { signal: opened.signal },
+              );
+              return page.through;
+            },
+            (through) => send(opened, { ...params, through }),
+          ),
+    itemOf: (method, notification) => {
+      const record = recordOf(method, notification);
+      return record === undefined ? undefined : readRecord(dataset, record);
+    },
+    credits: RECORD_CREDITS,
+    regrant: RECORD_REGRANT,
+    signal: options.signal,
+  });
+}
+
+/** @internal Shared `run.rejected_records` reader for `CrawlRun` and `CrawlRunView`. */
+export function readCrawlRejectedRecords<I extends object, O>(
+  crawlHost: CrawlHost,
+  runId: string,
+  ensureOpen: (operation: string) => void,
+  dataset: Dataset<I, O>,
+  options: RejectedRecordsOptions,
+  reach: Reach,
+): Sequence<RejectedRecord> {
+  warnEntry(foxhoundOperations, "run.rejected_records");
+  ensureOpen("run.rejected_records");
+  const calls = crawlHost.calls;
+  let take: (() => RejectedRecord | undefined) | undefined;
+  return new Sequence({
+    open: (opened) => {
+      let bound: Promise<number> | undefined;
+      const through = async (signal: AbortSignal | undefined): Promise<number | undefined> => {
+        if (reach === "follows") return undefined;
+        bound ??= calls
+          .call("dataset.list", { runId }, { signal })
+          .then(
+            (list) => list.datasets.find((summary) => summary.name === dataset.name)?.rejected ?? 0,
+          );
+        return bound;
+      };
+      const reading = paged<RejectedRecords, RejectedRecord>(
+        {
+          read: async (read, signal) => {
+            ensureOpen("run.rejected_records");
+            const after = read ?? options.after;
+            const last = await through(signal);
+            const params = {
+              runId,
+              dataset: dataset.name,
+              ...(after === undefined ? {} : { after }),
+              ...(last === undefined ? {} : { through: last }),
+            };
+            return calls.call("run.rejected_records", params, { signal });
+          },
+          position: (page) => page.next,
+          last: (page) => page.ended,
+          items: (page) => page.records,
+        },
+        opened,
+      );
+      take = reading.take;
+      return reading.stream;
+    },
+    itemOf: (method) => (method === FOLLOWED_VALUE ? take?.() : undefined),
+    credits: REJECTED_CREDITS,
+    regrant: REJECTED_REGRANT,
+    signal: options.signal,
+  });
+}
+
+/** @internal Shared `run.export` helper for `CrawlRun` and `CrawlRunView`. */
+export async function exportCrawlDataset<I extends object, O>(
+  crawlHost: CrawlHost,
+  runId: string,
+  ensureOpen: (operation: string) => void,
+  dataset: Dataset<I, O>,
+  options: ExportOptions,
+): Promise<Export> {
+  warnEntry(foxhoundOperations, "run.export");
+  ensureOpen("run.export");
+  const settings = settingsOnWire(options.settings);
+  const project = crawlHost.connection.project();
+  const params: RunExportParams = {
+    runId,
+    dataset: dataset.name,
+    format: options.format,
+    ...(options.compression === undefined ? {} : { compression: options.compression }),
+    ...(options.wall === undefined ? {} : { wall: options.wall }),
+    ...(settings === undefined ? {} : { settings }),
+    ...(project === undefined ? {} : { project }),
+  };
+  const descriptor = await crawlHost.calls.call("run.export", params, {
+    signal: options.signal,
+  });
+  return makeExport(crawlHost.connection, descriptor);
+}
+
+/** @internal Shared `run.outcomes` reader for `CrawlRun` and `CrawlRunView`. */
+export function readCrawlOutcomes(
+  crawlHost: CrawlHost,
+  runId: string,
+  ensureOpen: (operation: string) => void,
+  options: OutcomesOptions,
+): Sequence<CrawlRequestOutcome> {
+  warnEntry(foxhoundOperations, "run.outcomes");
+  ensureOpen("run.outcomes");
+  const calls = crawlHost.calls;
+  const kinds = options.kinds === undefined ? undefined : [...options.kinds];
+  const labels =
+    options.labels === undefined
+      ? undefined
+      : options.labels.map((label) => (typeof label === "string" ? label : label.name));
+  const codes = options.codes === undefined ? undefined : [...options.codes];
+  let take: (() => CrawlRequestOutcome | undefined) | undefined;
+  return new Sequence({
+    open: (opened) => {
+      const reading = paged<CrawlRequestOutcomes, CrawlRequestOutcome>(
+        {
+          read: async (read, signal) => {
+            ensureOpen("run.outcomes");
+            const after: OutcomesAfter | undefined = read ?? options.after;
+            const params: RunOutcomesParams = {
+              runId,
+              ...(kinds === undefined ? {} : { kinds }),
+              ...(labels === undefined ? {} : { labels }),
+              ...(codes === undefined ? {} : { codes }),
+              ...(after === undefined ? {} : { after }),
+            };
+            return calls.call("run.outcomes", params, { signal });
+          },
+          position: (page) => page.next,
+          last: (page) => page.ended,
+          items: (page) => page.outcomes,
+        },
+        opened,
+      );
+      take = reading.take;
+      return reading.stream;
+    },
+    itemOf: (method) => (method === FOLLOWED_VALUE ? take?.() : undefined),
+    credits: REJECTED_CREDITS,
+    regrant: REJECTED_REGRANT,
+    signal: options.signal,
+  });
+}
+
+/** @internal Shared `run.failed_requests` reader for `CrawlRun` and `CrawlRunView`. */
+export async function readCrawlFailedRequests(
+  crawlHost: CrawlHost,
+  runId: string,
+  ensureOpen: (operation: string) => void,
+  options: FailedRequestsOptions,
+): Promise<readonly CrawlRequestOutcome[]> {
+  warnEntry(foxhoundOperations, "run.failed_requests");
+  ensureOpen("run.failed_requests");
+  const result = await crawlHost.calls.call(
+    "run.failed_requests",
+    { runId, blocked: options.blocked === true },
+    { signal: options.signal },
+  );
+  return result.requests;
 }

@@ -2,14 +2,16 @@
 // 0095; spec #608, issue 1409).
 //
 // Validates:
-// 1. Package name is `goodfetch-collie` with zero Foxhound dependencies.
-// 2. Every action and trigger declared in `integration.toml` has a matching
-//    per-operation implementation in `goodfetchColliePiece`.
+// 1. Package name is `goodfetch-collie`, declares `@activepieces/pieces-framework`
+//    in peerDependencies, and has zero Foxhound dependencies.
+// 2. `goodfetchColliePiece` is a real `@activepieces/pieces-framework` `Piece`
+//    instance whose metadata, actions, and triggers match `integration.toml`.
 // 3. Every action and trigger carries non-empty `name`, `displayName`,
-//    `description`, `auth`, and `props`.
+//    `description`, and `props`.
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { Piece } from "@activepieces/pieces-framework";
 import { goodfetchColliePiece } from "../src/index.ts";
 
 export interface ActivepiecesLintViolation {
@@ -53,6 +55,14 @@ export function lintActivepiecesPiece(packageDir: string): ActivepiecesLintResul
     });
   }
 
+  const peerDeps = pkg["peerDependencies"];
+  if (!isRecord(peerDeps) || typeof peerDeps["@activepieces/pieces-framework"] !== "string") {
+    violations.push({
+      rule: "activepieces/framework-peer-dependency",
+      message: 'package.json must declare "@activepieces/pieces-framework" in peerDependencies.',
+    });
+  }
+
   const deps = pkg["dependencies"];
   if (isRecord(deps)) {
     for (const dep of Object.keys(deps)) {
@@ -65,10 +75,19 @@ export function lintActivepiecesPiece(packageDir: string): ActivepiecesLintResul
     }
   }
 
-  if (goodfetchColliePiece.name !== "goodfetch-collie") {
+  if (!(goodfetchColliePiece instanceof Piece)) {
     violations.push({
-      rule: "activepieces/piece-export-name",
-      message: `Piece export name must be goodfetch-collie, got ${goodfetchColliePiece.name}.`,
+      rule: "activepieces/piece-framework-instance",
+      message:
+        "goodfetchColliePiece must be created via @activepieces/pieces-framework createPiece().",
+    });
+  }
+
+  const metadata = goodfetchColliePiece.metadata();
+  if (metadata.displayName.trim().length === 0 || metadata.logoUrl.trim().length === 0) {
+    violations.push({
+      rule: "activepieces/piece-metadata",
+      message: "Piece metadata must include non-empty displayName and logoUrl.",
     });
   }
 
@@ -78,27 +97,24 @@ export function lintActivepiecesPiece(packageDir: string): ActivepiecesLintResul
     "get-run-report",
     "get-run-progress",
   ];
-  const actualActions = goodfetchColliePiece.actions.map((a) => a.name);
+  const actionsMap = goodfetchColliePiece.actions();
   for (const name of expectedActions) {
-    if (!actualActions.includes(name)) {
+    const action = actionsMap[name];
+    if (action === undefined) {
       violations.push({
         rule: "activepieces/missing-action",
         message: `Missing action ${name} on goodfetch-collie piece.`,
       });
-    }
-  }
-
-  for (const action of goodfetchColliePiece.actions) {
-    if (action.displayName.trim().length === 0 || action.description.trim().length === 0) {
+    } else if (action.displayName.trim().length === 0 || action.description.trim().length === 0) {
       violations.push({
         rule: "activepieces/action-metadata",
-        message: `Action ${action.name} must have non-empty displayName and description.`,
+        message: `Action ${name} must have non-empty displayName and description.`,
       });
     }
   }
 
-  const actualTriggers = goodfetchColliePiece.triggers.map((t) => t.name);
-  if (!actualTriggers.includes("notification")) {
+  const triggersMap = goodfetchColliePiece.triggers();
+  if (triggersMap["notification"] === undefined) {
     violations.push({
       rule: "activepieces/missing-trigger",
       message: "Missing trigger notification on goodfetch-collie piece.",

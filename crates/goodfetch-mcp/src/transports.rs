@@ -12,7 +12,8 @@ use crate::server::McpServer;
 pub use http::{
     BoundHttpServer, DEFAULT_HTTP_BIND, HttpAuth, HttpAuthorities, HttpOAuthFetcher,
     HttpRefusalRecorder, HttpServerConfig, HttpTls, HttpTlsAcceptor, MCP_HTTP_PATH, REFUSAL_TARGET,
-    StaticTlsAcceptor, bearer_token, new_launch_token, query_carries_token, same_token,
+    SharedRefusalRecorder, SharedTlsAcceptor, StaticTlsAcceptor, bearer_token, new_launch_token,
+    query_carries_token, same_token,
 };
 
 /// Errors serving the MCP server over a transport.

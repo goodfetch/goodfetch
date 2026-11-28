@@ -24,7 +24,7 @@ use rmcp::service::{RequestContext, RoleServer};
 use tokio::sync::{OnceCell, mpsc};
 use tokio_util::task::TaskTracker;
 
-use crate::engine::{EngineConnector, EngineLink, ProgressUpdate};
+use crate::engine::{EngineLink, ProgressUpdate, SharedEngineConnector};
 use crate::profiles::ResolvedProfile;
 use crate::projection::{error_tool_result, success_tool_result};
 use crate::resources::ResourceStore;
@@ -49,7 +49,7 @@ pub struct ServerOptions {
 enum SessionEngine {
     Connected(EngineLink),
     Lazy {
-        connector: Arc<dyn EngineConnector>,
+        connector: SharedEngineConnector,
         link: OnceCell<EngineLink>,
     },
 }
@@ -98,7 +98,7 @@ impl McpServer {
     /// per-session Limits and cancellation isolated across concurrent
     /// Streamable HTTP sessions (ADRs 0041, 0070).
     #[must_use]
-    pub fn with_connector(options: ServerOptions, connector: Arc<dyn EngineConnector>) -> Self {
+    pub fn with_connector(options: ServerOptions, connector: SharedEngineConnector) -> Self {
         Self {
             options: Arc::new(options),
             session: Arc::new(SessionState {

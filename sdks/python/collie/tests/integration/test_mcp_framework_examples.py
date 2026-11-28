@@ -2,19 +2,20 @@
 
 Verifies `docs/mcp-frameworks.md` names Collie's install line, names the
 `browser` MCP profile, and provides valid model-free examples for the OpenAI
-Agents SDK, Pydantic AI, CrewAI, Google ADK, LlamaIndex, and Strands. Runs the
-extracted MCP stdio invocation against the real `goodfetch-collie` binary
-(connect, list tools, call one) without any model.
+Agents SDK, Pydantic AI, CrewAI, Google ADK, LlamaIndex, and Strands. Executes
+each extracted framework example directly against the real `goodfetch-collie`
+binary (connect, list tools, call `run_start`) without any model key.
 """
 
 from __future__ import annotations
 
 import ast
-import json
+import os
 import re
 import subprocess
+import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 from goodfetch_test_support import Tool
@@ -24,10 +25,12 @@ if TYPE_CHECKING:
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
 DOC_PAGE = REPO_ROOT / "docs" / "mcp-frameworks.md"
+GOOGLE_ADK_DIR = Path(__file__).resolve().parent / "google-adk"
+MCP_FRAMEWORKS_DIR = Path(__file__).resolve().parent / "mcp-frameworks"
 
 EXPECTED_FRAMEWORKS: tuple[tuple[str, str], ...] = (
     ("OpenAI Agents SDK", "MCPServerStdio"),
-    ("Pydantic AI", "MCPServerStdio"),
+    ("Pydantic AI", "MCPToolset"),
     ("CrewAI", "MCPServerAdapter"),
     ("Google ADK", "MCPToolset"),
     ("LlamaIndex", "BasicMCPClient"),
@@ -52,36 +55,6 @@ def _extract_framework_examples() -> dict[str, str]:
     return examples
 
 
-def _rpc_request(
-    proc: subprocess.Popen[str],
-    request_id: int,
-    method: str,
-    params: dict[str, Any],
-) -> dict[str, Any]:
-    assert proc.stdin is not None
-    assert proc.stdout is not None
-    payload = {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
-    proc.stdin.write(json.dumps(payload) + "\n")
-    proc.stdin.flush()
-    while True:
-        line = proc.stdout.readline()
-        assert line, "MCP server closed stdout before replying"
-        message: dict[str, Any] = json.loads(line)
-        if message.get("id") == request_id:
-            return message
-
-
-def _rpc_notify(
-    proc: subprocess.Popen[str],
-    method: str,
-    params: dict[str, Any],
-) -> None:
-    assert proc.stdin is not None
-    payload = {"jsonrpc": "2.0", "method": method, "params": params}
-    proc.stdin.write(json.dumps(payload) + "\n")
-    proc.stdin.flush()
-
-
 @pytest.mark.covers("story:11-247")
 def test_mcp_frameworks_doc_page_has_profile_install_line_and_all_six_examples() -> (
     None
@@ -98,7 +71,6 @@ def test_mcp_frameworks_doc_page_has_profile_install_line_and_all_six_examples()
     for framework, client_symbol in EXPECTED_FRAMEWORKS:
         assert framework in examples, f"missing example section for {framework}"
         code = examples[framework]
-        # Every extracted example parses as valid Python without any model key.
         ast.parse(code, filename=f"{DOC_PAGE.name}:{framework}")
         assert client_symbol in code, f"{framework} must use {client_symbol}"
         assert '"mcp"' in code and '"--profile"' in code and '"browser"' in code
@@ -108,68 +80,69 @@ def test_mcp_frameworks_doc_page_has_profile_install_line_and_all_six_examples()
 
 
 @pytest.mark.covers("story:11-247")
-def test_mcp_framework_examples_run_model_free_against_real_collie_mcp(
+@pytest.mark.parametrize(
+    ("framework", "_client_symbol"),
+    EXPECTED_FRAMEWORKS,
+    ids=[name.lower().replace(" ", "_") for name, _ in EXPECTED_FRAMEWORKS],
+)
+def test_mcp_framework_example_runs_model_free_against_real_collie_mcp(
+    framework: str,
+    _client_symbol: str,
     test_env: TestEnv,
+    tmp_path: Path,
 ) -> None:
-    """Connects, lists tools, and calls a tool on `goodfetch-collie mcp`."""
+    """Executes the extracted docs example for `framework` on `goodfetch-collie`."""
     examples = _extract_framework_examples()
+    code = examples[framework]
     collie_bin = test_env.tools.path(Tool.COLLIE)
 
-    # Every one of the six examples launches `goodfetch-collie mcp --profile browser`.
-    for framework, _ in EXPECTED_FRAMEWORKS:
-        assert '["mcp", "--profile", "browser"]' in examples[framework]
+    script_path = tmp_path / f"example_{framework.lower().replace(' ', '_')}.py"
+    script_path.write_text(code, encoding="utf-8")
 
-    proc = subprocess.Popen(
-        [str(collie_bin), "mcp", "--profile", "browser"],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        env=dict(test_env.env),
+    env = {
+        **dict(test_env.env),
+        "PATH": os.environ.get("PATH", ""),
+        "GOODFETCH_COLLIE_BIN": str(collie_bin),
+        # Ensure zero model API keys exist in the child environment.
+        "OPENAI_API_KEY": "",
+        "ANTHROPIC_API_KEY": "",
+        "GOOGLE_API_KEY": "",
+    }
+    env.pop("OPENAI_API_KEY", None)
+    env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("GOOGLE_API_KEY", None)
+
+    env_dir = GOOGLE_ADK_DIR if framework == "Google ADK" else MCP_FRAMEWORKS_DIR
+    env_python = (
+        env_dir
+        / ".venv"
+        / ("Scripts" if sys.platform == "win32" else "bin")
+        / ("python.exe" if sys.platform == "win32" else "python")
     )
-    try:
-        init_resp = _rpc_request(
-            proc,
-            1,
-            "initialize",
-            {
-                "protocolVersion": "2025-11-25",
-                "capabilities": {},
-                "clientInfo": {"name": "mcp-framework-doc-test", "version": "0.1.0"},
-            },
-        )
-        assert "result" in init_resp, init_resp
-        _rpc_notify(proc, "notifications/initialized", {})
+    cmd = (
+        [str(env_python), str(script_path)]
+        if env_python.is_file()
+        else [
+            "uv",
+            "run",
+            "--frozen",
+            "--offline",
+            "--directory",
+            str(env_dir),
+            "python",
+            str(script_path),
+        ]
+    )
 
-        tools_resp = _rpc_request(proc, 2, "tools/list", {})
-        tools: list[dict[str, Any]] = tools_resp["result"]["tools"]
-        names = {tool["name"] for tool in tools}
-        assert "run_start" in names
-        assert "run_finish" in names
-        assert "page_lend" not in names
-        assert "model_set_price" not in names
-
-        start_resp = _rpc_request(
-            proc,
-            3,
-            "tools/call",
-            {"name": "run_start", "arguments": {}},
-        )
-        assert "result" in start_resp, start_resp
-        assert not start_resp["result"].get("isError", False), start_resp
-        structured = start_resp["result"].get("structuredContent", {})
-        run_id = structured.get("run_id")
-        assert isinstance(run_id, str) and run_id
-
-        finish_resp = _rpc_request(
-            proc,
-            4,
-            "tools/call",
-            {"name": "run_finish", "arguments": {"run_id": run_id}},
-        )
-        assert "result" in finish_resp, finish_resp
-        assert not finish_resp["result"].get("isError", False), finish_resp
-    finally:
-        if proc.stdin is not None:
-            proc.stdin.close()
-        proc.wait(timeout=15)
+    result = subprocess.run(
+        cmd,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=90,
+        check=False,
+    )
+    assert result.returncode == 0, (
+        f"{framework} example failed (exit {result.returncode}):\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )

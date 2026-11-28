@@ -1,12 +1,24 @@
-// Shared Activepieces client and error wrapper over
-// `@goodfetch/collie-integrations-core` (ADRs 0027, 0070, 0090, 0095; spec
-// #608, issue 1409).
+// Shared Activepieces client, auth definition, and error wrapper over
+// `@goodfetch/collie-integrations-core` using `@activepieces/pieces-framework`
+// (ADRs 0027, 0070, 0090, 0095; spec #608, issue 1409).
+import {
+  PieceAuth,
+  Property,
+  type CustomAuthProperty,
+  type SecretTextProperty,
+  type ShortTextProperty,
+} from "@activepieces/pieces-framework";
 import {
   IntegrationHttpClient,
   IntegrationToolError,
   mapCatalogError,
 } from "@goodfetch/collie-integrations-core";
-import type { ActivepiecesCollieAuth, PieceAuthDefinition } from "../ap-types.ts";
+
+export interface ActivepiecesCollieAuth {
+  readonly baseUrl: string;
+  readonly token: string;
+  readonly protocolVersion?: string | undefined;
+}
 
 export class ActivepiecesCollieError extends Error {
   readonly code: string;
@@ -73,10 +85,39 @@ export function mapCatalogErrorToActivepieces(entry: {
   });
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Extracts `ActivepiecesCollieAuth` from either Activepieces' runtime
+ * `AppConnectionValue<CUSTOM_AUTH, ...>` (`{ props: { ... } }`) or direct
+ * `validate({ auth })` props (`{ baseUrl, token, protocolVersion }`).
+ */
+export function extractCollieAuth(raw: unknown): ActivepiecesCollieAuth {
+  const source = isRecord(raw) && isRecord(raw["props"]) ? raw["props"] : raw;
+  if (!isRecord(source)) {
+    throw new ActivepiecesCollieError({
+      code: "invalid_credentials",
+      group: "program",
+      fix: "Configure Base URL and Bearer Token in your Goodfetch Collie connection.",
+      message: "Goodfetch Collie connection auth is missing.",
+    });
+  }
+  const baseUrl = typeof source["baseUrl"] === "string" ? source["baseUrl"] : "";
+  const token = typeof source["token"] === "string" ? source["token"] : "";
+  const protocolVersion =
+    typeof source["protocolVersion"] === "string" && source["protocolVersion"].trim().length > 0
+      ? source["protocolVersion"].trim()
+      : undefined;
+  return { baseUrl, token, protocolVersion };
+}
+
 export function createCollieClient(
-  auth: ActivepiecesCollieAuth,
+  rawAuth: unknown,
   fetchImpl?: typeof fetch,
 ): IntegrationHttpClient {
+  const auth = extractCollieAuth(rawAuth);
   const baseUrl = auth.baseUrl.trim();
   if (baseUrl.length === 0) {
     throw new ActivepiecesCollieError({
@@ -119,7 +160,7 @@ export function parseOptionalObject(
       });
     }
   }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+  if (!isRecord(parsed)) {
     throw new ActivepiecesCollieError({
       code: "invalid_json_parameter",
       group: "program",
@@ -134,42 +175,78 @@ export function parseOptionalObject(
   return out;
 }
 
-export const goodfetchCollieAuth: PieceAuthDefinition<ActivepiecesCollieAuth> = {
-  type: "CUSTOM_AUTH",
-  displayName: "Goodfetch Collie Connection",
-  description: "Connect to a Collie Daemon HTTP JSON-RPC listener using its Bearer token.",
-  required: true,
-  props: {
-    baseUrl: {
-      displayName: "Base URL",
-      description:
-        "Base URL of the Collie Daemon HTTP listener (for example http://127.0.0.1:7801).",
-      type: "SHORT_TEXT",
-      required: true,
-      defaultValue: "http://127.0.0.1:7801",
-    },
-    token: {
-      displayName: "Bearer Token",
-      description: "Bearer token configured on the Collie Daemon HTTP listener.",
-      type: "SECRET_TEXT",
-      required: true,
-    },
-    protocolVersion: {
-      displayName: "Protocol Version",
-      description: "Optional Goodfetch protocol version header (defaults to 0.1).",
-      type: "SHORT_TEXT",
-      required: false,
-      defaultValue: "0.1",
-    },
-  },
-  async validate({ auth }) {
-    try {
-      const client = createCollieClient(auth);
-      await client.call("daemon.status", {});
-      return { valid: true };
-    } catch (error) {
-      const apError = toActivepiecesError(error);
-      return { valid: false, error: apError.message };
+export function parseOptionalStringArray(value: unknown, fieldName: string): string[] | undefined {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  let parsed: unknown = value;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      return undefined;
     }
-  },
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new ActivepiecesCollieError({
+        code: "invalid_json_parameter",
+        group: "program",
+        fix: `Provide a valid JSON array of strings for ${fieldName}.`,
+        message: `Invalid JSON in ${fieldName}: ${detail}`,
+      });
+    }
+  }
+  if (!Array.isArray(parsed) || !parsed.every((item): item is string => typeof item === "string")) {
+    throw new ActivepiecesCollieError({
+      code: "invalid_json_parameter",
+      group: "program",
+      fix: `Provide a JSON array of strings for ${fieldName}.`,
+      message: `${fieldName} must be a JSON array of strings.`,
+    });
+  }
+  return [...parsed];
+}
+
+export type GoodfetchCollieAuthProps = {
+  baseUrl: ShortTextProperty<true>;
+  token: SecretTextProperty<true>;
+  protocolVersion: ShortTextProperty<false>;
 };
+
+export const goodfetchCollieAuth: CustomAuthProperty<GoodfetchCollieAuthProps> =
+  PieceAuth.CustomAuth({
+    displayName: "Goodfetch Collie Connection",
+    description: "Connect to a Collie Daemon HTTP JSON-RPC listener using its Bearer token.",
+    required: true,
+    props: {
+      baseUrl: Property.ShortText({
+        displayName: "Base URL",
+        description:
+          "Base URL of the Collie Daemon HTTP listener (for example http://127.0.0.1:7801).",
+        required: true,
+        defaultValue: "http://127.0.0.1:7801",
+      }),
+      token: PieceAuth.SecretText({
+        displayName: "Bearer Token",
+        description: "Bearer token configured on the Collie Daemon HTTP listener.",
+        required: true,
+      }),
+      protocolVersion: Property.ShortText({
+        displayName: "Protocol Version",
+        description: "Optional Goodfetch protocol version header (defaults to 0.1).",
+        required: false,
+        defaultValue: "0.1",
+      }),
+    },
+    async validate({ auth }) {
+      try {
+        const client = createCollieClient(auth);
+        await client.call("daemon.status", {});
+        return { valid: true };
+      } catch (error) {
+        const apError = toActivepiecesError(error);
+        return { valid: false, error: apError.message };
+      }
+    },
+  });

@@ -5,6 +5,11 @@
     "limit": "25 kB"
   },
   {
+    "name": "collie-langchain",
+    "path": "adapters/collie/langchain/src/index.ts",
+    "limit": "25 kB"
+  },
+  {
     "name": "collie-mastra",
     "path": "adapters/collie/mastra/src/index.ts",
     "limit": "25 kB"

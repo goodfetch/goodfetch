@@ -4,15 +4,25 @@ import type {
   IAuthenticateGeneric,
   ICredentialTestRequest,
   ICredentialType,
+  Icon,
   INodeProperties,
-} from "../n8n-types.ts";
-import { COLLIE_FORM, COLLIE_PRODUCT, DEFAULT_PROTOCOL_VERSION, RPC_PATH } from "../rpc.ts";
+} from "n8n-workflow";
+import {
+  COLLIE_FORM,
+  COLLIE_PRODUCT,
+  DEFAULT_PROTOCOL_VERSION,
+  RPC_PATH,
+} from "../nodes/GoodfetchCollie/rpc.ts";
 
 export class GoodfetchCollieApi implements ICredentialType {
   readonly name = "goodfetchCollieApi";
   readonly displayName = "Goodfetch Collie API";
+  readonly icon: Icon = {
+    light: "file:goodfetchCollie.svg",
+    dark: "file:goodfetchCollie.dark.svg",
+  };
   readonly documentationUrl = "https://docs.goodfetch.dev/integrations/n8n";
-  readonly properties: readonly INodeProperties[] = [
+  readonly properties: INodeProperties[] = [
     {
       displayName: "Base URL",
       name: "baseUrl",
@@ -20,7 +30,7 @@ export class GoodfetchCollieApi implements ICredentialType {
       default: "http://127.0.0.1:7801",
       required: true,
       placeholder: "http://127.0.0.1:7801",
-      description: "Base URL of the Collie Daemon HTTP JSON-RPC listener.",
+      description: "Base URL of the Collie Daemon HTTP JSON-RPC listener",
     },
     {
       displayName: "Bearer Token",
@@ -29,14 +39,14 @@ export class GoodfetchCollieApi implements ICredentialType {
       typeOptions: { password: true },
       default: "",
       required: true,
-      description: "Bearer token configured on the Collie Daemon HTTP listener.",
+      description: "Bearer token configured on the Collie Daemon HTTP listener",
     },
     {
       displayName: "Protocol Version",
       name: "protocolVersion",
       type: "string",
       default: DEFAULT_PROTOCOL_VERSION,
-      description: "Goodfetch protocol minor version sent in the Goodfetch-Protocol header.",
+      description: "Goodfetch protocol minor version sent in the Goodfetch-Protocol header",
     },
   ];
 

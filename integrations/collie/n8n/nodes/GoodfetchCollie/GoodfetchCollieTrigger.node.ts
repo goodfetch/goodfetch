@@ -3,23 +3,25 @@
 //
 // Subscribes via `notification.subscribe`, unsubscribes via
 // `notification.unsubscribe`, verifies Standard Webhooks HMAC-SHA256 signatures
-// using Web Crypto (zero runtime deps), and deduplicates deliveries by
-// `event_id` so each Notification event fires the workflow at most once.
-import type {
-  IDataObject,
-  IHookFunctions,
-  INodeType,
-  INodeTypeDescription,
-  IWebhookFunctions,
-  IWebhookResponseData,
-} from "../../n8n-types.ts";
+// using Web Crypto (`crypto.subtle`, fail-closed when secret is absent), and
+// deduplicates deliveries by `event_id` so each Notification fires at most once.
+import {
+  NodeConnectionTypes,
+  type IDataObject,
+  type IHookFunctions,
+  type INodeType,
+  type INodeTypeDescription,
+  type IWebhookFunctions,
+  type IWebhookResponseData,
+} from "n8n-workflow";
 import {
   callCollieRpc,
+  createCollieNodeError,
   isRecord,
-  N8nCollieError,
   parseCredentials,
+  readStringParam,
   verifyStandardWebhookSignature,
-} from "../../rpc.ts";
+} from "./rpc.ts";
 
 const SEEN_EVENT_IDS_CAP = 1024;
 
@@ -40,14 +42,19 @@ export class GoodfetchCollieTrigger implements INodeType {
   readonly description: INodeTypeDescription = {
     displayName: "Goodfetch Collie Trigger",
     name: "goodfetchCollieTrigger",
+    icon: {
+      light: "file:goodfetchCollie.svg",
+      dark: "file:goodfetchCollie.dark.svg",
+    },
     group: ["trigger"],
     version: 1,
-    description: "Trigger an n8n workflow when a Collie Run emits a selected Notification event.",
+    subtitle: '={{$parameter["channel"]}}',
+    description: "Trigger an n8n workflow when a Collie Run emits a selected Notification event",
     defaults: {
       name: "Goodfetch Collie Trigger",
     },
     inputs: [],
-    outputs: ["main"],
+    outputs: [NodeConnectionTypes.Main],
     credentials: [
       {
         name: "goodfetchCollieApi",
@@ -69,7 +76,7 @@ export class GoodfetchCollieTrigger implements INodeType {
         type: "string",
         default: "n8n-collie-trigger",
         required: true,
-        description: "Stable Notification subscription channel identifier on the Collie Daemon.",
+        description: "Stable Notification subscription channel identifier on the Collie Daemon",
       },
       {
         displayName: "Events",
@@ -77,14 +84,14 @@ export class GoodfetchCollieTrigger implements INodeType {
         type: "multiOptions",
         default: ["run_finished", "run_failed"],
         options: [
-          { name: "Run Started", value: "run_started" },
-          { name: "Run Finished", value: "run_finished" },
-          { name: "Run Failed", value: "run_failed" },
-          { name: "Run Stopped by Limit", value: "run_stopped_by_limit" },
           { name: "Approval Requested", value: "approval_requested" },
           { name: "Human Pause Waiting", value: "human_pause_waiting" },
+          { name: "Run Failed", value: "run_failed" },
+          { name: "Run Finished", value: "run_finished" },
+          { name: "Run Started", value: "run_started" },
+          { name: "Run Stopped by Limit", value: "run_stopped_by_limit" },
         ],
-        description: "Notification events that fire this trigger.",
+        description: "Notification events that fire this trigger",
       },
     ],
   };
@@ -105,7 +112,7 @@ export class GoodfetchCollieTrigger implements INodeType {
         const node = this.getNode();
         const webhookUrl = this.getNodeWebhookUrl("default");
         if (webhookUrl === undefined || webhookUrl.length === 0) {
-          throw new N8nCollieError(
+          throw createCollieNodeError(
             {
               code: "webhook_url_missing",
               group: "program",
@@ -115,7 +122,10 @@ export class GoodfetchCollieTrigger implements INodeType {
             node,
           );
         }
-        const channel = String(this.getNodeParameter("channel", "n8n-collie-trigger")).trim();
+        const channel = readStringParam(
+          this.getNodeParameter("channel", "n8n-collie-trigger"),
+          "n8n-collie-trigger",
+        ).trim();
         const events = readStringArray(this.getNodeParameter("events", []));
         const rawCredentials = await this.getCredentials("goodfetchCollieApi");
         const credentials = parseCredentials(rawCredentials, node);
@@ -136,6 +146,20 @@ export class GoodfetchCollieTrigger implements INodeType {
         staticData["channel"] = typeof result["channel"] === "string" ? result["channel"] : channel;
         if (typeof result["secret"] === "string" && result["secret"].length > 0) {
           staticData["webhookSecret"] = result["secret"];
+        } else if (
+          typeof staticData["webhookSecret"] !== "string" ||
+          staticData["webhookSecret"].length === 0
+        ) {
+          throw createCollieNodeError(
+            {
+              code: "webhook_secret_missing",
+              group: "program",
+              fix: "Unsubscribe and re-create the Notification channel so the Collie Daemon issues a fresh signing secret.",
+              message:
+                "Collie Daemon reported an existing subscription without a signing secret, and no secret is stored locally.",
+            },
+            node,
+          );
         }
         return true;
       },
@@ -146,7 +170,10 @@ export class GoodfetchCollieTrigger implements INodeType {
         const channel =
           typeof staticData["channel"] === "string" && staticData["channel"].length > 0
             ? staticData["channel"]
-            : String(this.getNodeParameter("channel", "n8n-collie-trigger")).trim();
+            : readStringParam(
+                this.getNodeParameter("channel", "n8n-collie-trigger"),
+                "n8n-collie-trigger",
+              ).trim();
         const rawCredentials = await this.getCredentials("goodfetchCollieApi");
         const credentials = parseCredentials(rawCredentials, node);
 
@@ -166,30 +193,33 @@ export class GoodfetchCollieTrigger implements INodeType {
   };
 
   async webhook(this: IWebhookFunctions): Promise<IWebhookResponseData> {
-    const req = this.getRequestObject();
+    const req = this.getRequestObject() as { readonly rawBody?: Uint8Array | string | undefined };
     const body = this.getBodyData();
-    const headers = this.getHeaderData();
+    const headers = this.getHeaderData() as Record<string, string | string[] | undefined>;
     const staticData = this.getWorkflowStaticData("node");
     const secret =
       typeof staticData["webhookSecret"] === "string" ? staticData["webhookSecret"] : undefined;
 
-    if (secret !== undefined && secret.length > 0) {
-      let rawBody: string;
-      if (typeof req.rawBody === "string") {
-        rawBody = req.rawBody;
-      } else if (req.rawBody instanceof Uint8Array) {
-        rawBody = new TextDecoder().decode(req.rawBody);
-      } else {
-        rawBody = JSON.stringify(body);
-      }
-      const valid = await verifyStandardWebhookSignature({
-        rawBody,
-        headers,
-        secret,
-      });
-      if (!valid) {
-        return {};
-      }
+    // Fail closed whenever no signing secret is stored (S2).
+    if (secret === undefined || secret.length === 0) {
+      return {};
+    }
+
+    let rawBody: string;
+    if (typeof req.rawBody === "string") {
+      rawBody = req.rawBody;
+    } else if (req.rawBody instanceof Uint8Array) {
+      rawBody = new TextDecoder().decode(req.rawBody);
+    } else {
+      rawBody = JSON.stringify(body);
+    }
+    const valid = await verifyStandardWebhookSignature({
+      rawBody,
+      headers,
+      secret,
+    });
+    if (!valid) {
+      return {};
     }
 
     const data = isRecord(body["data"]) ? body["data"] : undefined;
@@ -216,10 +246,7 @@ export class GoodfetchCollieTrigger implements INodeType {
       staticData["seenEventIds"] = seen;
     }
 
-    const items =
-      this.helpers.returnJsonArray !== undefined
-        ? this.helpers.returnJsonArray([body])
-        : [{ json: body }];
+    const items = this.helpers.returnJsonArray([body]);
     return {
       workflowData: [items],
     };

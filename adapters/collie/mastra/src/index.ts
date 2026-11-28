@@ -1,13 +1,14 @@
 // `@goodfetch/collie-mastra` (ADRs 0011, 0070, 0095 and 0099; spec #608):
 // projects Collie's MCP tool profiles onto Mastra `createTool()` definitions.
 // Loads no AI provider or Playwright on import (ADR 0071).
+import { isGoodfetchError, type Connection, type RawParams } from "@goodfetch/collie";
 import {
-  isGoodfetchError,
-  type Connection,
-  type GoodfetchError,
-  type JSONValue,
-  type RawParams,
-} from "@goodfetch/collie";
+  toRawParams,
+  toToolError,
+  type CollieToolError,
+  type CollieToolOutput,
+  type CollieToolsOptions,
+} from "@goodfetch/collie-adapter-shared";
 import {
   collieMcpTools,
   type McpProfile,
@@ -16,102 +17,10 @@ import {
 import { createTool, type Tool } from "@mastra/core/tools";
 
 export type { McpOperationClass, McpProfile } from "@goodfetch/collie-client/mcp-tools";
-
-/** Options for {@link collieTools}. */
-export interface CollieToolsOptions {
-  /** Which Collie MCP tool profile to project; defaults to `"browser"`. */
-  readonly profile?: McpProfile | undefined;
-}
-
-/** Structured Goodfetch Error returned as a tool error to the model. */
-export interface CollieToolError {
-  readonly code: string;
-  readonly group: string;
-  readonly retryable: boolean;
-  readonly message: string;
-  readonly operation?: string | undefined;
-  readonly fix?: string | undefined;
-  readonly target?: string | undefined;
-  readonly url?: string | undefined;
-  readonly observed?: string | undefined;
-  readonly limit?: JSONValue | undefined;
-  readonly details?: Readonly<Record<string, JSONValue>> | undefined;
-}
-
-/** Discriminated tool execution outcome returned to Mastra. */
-export type CollieToolOutput =
-  | { readonly ok: true; readonly result: JSONValue }
-  | { readonly ok: false; readonly error: CollieToolError };
+export type { CollieToolError, CollieToolOutput, CollieToolsOptions };
 
 /** Map of MCP tool names to executable Mastra tools. */
 export type CollieToolSet = Record<string, Tool<RawParams>>;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function toJsonValue(value: unknown): JSONValue {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => toJsonValue(item));
-  }
-  if (typeof value === "object") {
-    const out: Record<string, JSONValue> = {};
-    for (const [key, entry] of Object.entries(value)) {
-      if (entry !== undefined) {
-        out[key] = toJsonValue(entry);
-      }
-    }
-    return out;
-  }
-  return typeof value === "bigint" ? value.toString() : "";
-}
-
-function toRawParams(input: unknown): RawParams {
-  if (!isRecord(input)) {
-    return {};
-  }
-  const out: Record<string, JSONValue> = {};
-  for (const [key, entry] of Object.entries(input)) {
-    if (entry !== undefined) {
-      out[key] = toJsonValue(entry);
-    }
-  }
-  return out;
-}
-
-function toToolError(error: GoodfetchError, fallbackOperation: string): CollieToolError {
-  const detailEntries = Object.entries(error.details);
-  let details: Record<string, JSONValue> | undefined;
-  if (detailEntries.length > 0) {
-    details = {};
-    for (const [key, entry] of detailEntries) {
-      if (entry !== undefined) {
-        details[key] = toJsonValue(entry);
-      }
-    }
-  }
-  return {
-    code: error.code,
-    group: error.group,
-    retryable: error.retryable,
-    message: error.message,
-    operation: error.operation ?? fallbackOperation,
-    ...(error.fix === undefined ? {} : { fix: error.fix }),
-    ...(error.target === undefined ? {} : { target: error.target }),
-    ...(error.url === undefined ? {} : { url: error.url }),
-    ...(error.observed === undefined ? {} : { observed: error.observed }),
-    ...(error.limit === undefined ? {} : { limit: toJsonValue(error.limit) }),
-    ...(details === undefined ? {} : { details }),
-  };
-}
 
 function standardJsonSchema(schema: Readonly<Record<string, unknown>>) {
   const copy = (): Record<string, unknown> => ({ ...schema });

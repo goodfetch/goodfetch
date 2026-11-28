@@ -1213,3 +1213,75 @@ fn get_events_sends_filtered_resync_on_stale_position_and_lossless_overflow() {
     assert_eq!(overflow_runs.len(), 1, "{overflow:#?}");
     assert_eq!(overflow_runs[0]["run_id"], "run-resync");
 }
+
+/// An Integration reaching the Daemon over the HTTP listener supplies
+/// run-layer settings from its form (`RunOrigin::Form`, ADR 0083; issue 1403).
+///
+/// Covers: story:11-257
+#[test]
+fn http_listener_runs_report_form_origin_in_explained_settings() {
+    let test_engine = engine_with(Product::Collie, None);
+    let (options, http_dialer) = with_http_listener();
+    let (_, explained) = served(
+        &test_engine,
+        &TestEnv::new(),
+        options,
+        |_socket_dialer| async move {
+            let (status, _, start_body) = send_http(
+                &http_dialer,
+                valid_rpc_request(&json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "run.start",
+                    "params": {
+                        "run_id": "run-form-origin",
+                        "settings": { "timeout": { "navigation": 45000 } }
+                    }
+                })),
+            )
+            .await;
+            assert_eq!(status, 200, "run.start failed: {start_body}");
+            assert!(
+                start_body.get("result").is_some(),
+                "expected run.start result, got {start_body}"
+            );
+            let (explain_status, _, explain_body) = send_http(
+                &http_dialer,
+                valid_rpc_request(&json!({
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "config.explain",
+                    "params": {
+                        "run_id": "run-form-origin",
+                        "keys": ["timeout.navigation"]
+                    }
+                })),
+            )
+            .await;
+            assert_eq!(explain_status, 200, "config.explain failed: {explain_body}");
+            let (finish_status, _, finish_body) = send_http(
+                &http_dialer,
+                valid_rpc_request(&json!({
+                    "jsonrpc": "2.0",
+                    "id": 3,
+                    "method": "run.finish",
+                    "params": { "run_id": "run-form-origin" }
+                })),
+            )
+            .await;
+            assert_eq!(finish_status, 200, "run.finish failed: {finish_body}");
+            drop(http_dialer);
+            explain_body
+        },
+    );
+
+    let settings = explained["result"]["settings"]
+        .as_array()
+        .unwrap_or_else(|| panic!("config.explain must carry settings, got {explained}"));
+    let timeout_nav = settings
+        .iter()
+        .find(|entry| entry["key"] == "timeout.navigation")
+        .unwrap_or_else(|| panic!("timeout.navigation entry missing in {explained}"));
+    assert_eq!(timeout_nav["layer"], "run");
+    assert_eq!(timeout_nav["origin"], "form");
+}

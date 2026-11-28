@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 data-encoding.workspace = true
+getrandom.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-protocol.workspace = true
 hyper.workspace = true

@@ -11,9 +11,9 @@
 //   inconclusive per ADR 0064).
 // - When published, checks verified-node metadata (`keywords`, `n8n.strict`,
 //   zero runtime `dependencies`) and exits 1 on any violation.
+import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { lintN8nPackage } from "../../integrations/collie/n8n/scripts/n8n-node-lint.ts";
 
 export const INCONCLUSIVE_EXIT = 75;
 export const N8N_PACKAGE_NAME = "@goodfetch/n8n-nodes-collie";
@@ -58,11 +58,25 @@ export async function runN8nScanner(
   const repoRoot = resolve(fileURLToPath(new URL("../..", import.meta.url)));
   const packageDir = options.packageDir ?? resolve(repoRoot, "integrations/collie/n8n");
 
-  const localResult = lintN8nPackage(packageDir);
-  if (!localResult.ok) {
-    const details = localResult.violations
-      .map((v) => `[${v.rule}] ${v.file}: ${v.message}`)
-      .join("\n");
+  try {
+    // `eslint-plugin-n8n-nodes-base` switches into its own internal test-fixture
+    // mode when `NODE_ENV=test` (set by Vitest). Strip `NODE_ENV` so real rule
+    // checks run identically from tests and from the shell.
+    const lintEnv: NodeJS.ProcessEnv = { ...process.env };
+    delete lintEnv["NODE_ENV"];
+    execFileSync("pnpm", ["--dir", packageDir, "run", "lint"], {
+      stdio: "pipe",
+      encoding: "utf8",
+      timeout: 60_000,
+      env: lintEnv,
+    });
+  } catch (error) {
+    const details =
+      error !== null && typeof error === "object" && "stdout" in error && "stderr" in error
+        ? `${String(error.stdout)}\n${String(error.stderr)}`.trim()
+        : error instanceof Error
+          ? error.message
+          : String(error);
     return {
       exitCode: 1,
       report: `n8n-scanner: local verified-node lint failed:\n${details}`,

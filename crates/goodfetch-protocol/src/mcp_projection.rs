@@ -481,6 +481,7 @@ fn in_run_profile(operation: &Operation) -> bool {
         namespace,
         "run" | "runs" | "recipe" | "catalog_run" | "schedule" | "usage"
     ) && name != "run.new_session"
+        && name != "run.new_page"
         && name != "run.research"
 }
 

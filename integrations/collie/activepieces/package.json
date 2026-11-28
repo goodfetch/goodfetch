@@ -21,10 +21,14 @@
     "@goodfetch/collie-integrations-core": "workspace:*"
   },
   "devDependencies": {
+    "@activepieces/pieces-framework": "0.32.0",
     "@goodfetch/test-support": "workspace:*",
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "@activepieces/pieces-framework": "^0.32.0"
   },
   "engines": {
     "node": ">=24.0.0"

@@ -45,7 +45,7 @@
 # run passed on this tree, separated by spaces (#3384).
 set -euo pipefail
 
-part=${1:?usage: ci/release/cell.sh build|tools|size|rust|lazyfs|typescript|python|rss}
+part=${1:?usage: ci/release/cell.sh build|tools|size|rust|lazyfs|typescript|python|adapters-fetch|adapters|rss}
 cell=${CELL:?the job sets CELL}
 target=${TARGET:?the job sets TARGET}
 shard=${SHARD:-1/1}
@@ -311,6 +311,44 @@ case "$part" in
     done
     exit "$status"
     ;;
+  adapters-fetch)
+    # Prepare the offline wheelhouse for `goodfetch-collie-langchain`'s
+    # lowest-direct peer-range check before ADR 0043's deny (ADR 0070;
+    # issue 1382).
+    wheelhouse="$root/target/release-suite/adapter-wheelhouse"
+    rm -rf "$wheelhouse"
+    mkdir -p "$wheelhouse"
+    for pkg in sdks/python/collie-client sdks/python/collie adapters/collie/langchain; do
+      uv build --wheel --no-build-isolation --out-dir "$wheelhouse" "$pkg"
+    done
+    req_file="$wheelhouse/lowest-direct.txt"
+    uv pip compile --resolution lowest-direct --no-deps --quiet -o "$req_file" \
+      adapters/collie/langchain/pyproject.toml
+    # Resolve full transitive closure pinning the lowest direct langchain-core.
+    uv pip compile --resolution lowest-direct --quiet -o "$wheelhouse/locked.txt" \
+      adapters/collie/langchain/pyproject.toml
+    grep -v -E '^(goodfetch-collie|goodfetch-collie-client|goodfetch-collie-langchain|-e |file:)' \
+      "$wheelhouse/locked.txt" >"$wheelhouse/external.txt"
+    uv run --frozen python -m pip download --quiet --only-binary=:all: \
+      --dest "$wheelhouse" -r "$wheelhouse/external.txt"
+    rm -f "$req_file" "$wheelhouse/locked.txt" "$wheelhouse/external.txt"
+    ;;
+  adapters)
+    # Adapter peer-range matrix (ADR 0070; issue 1382): highest peer versions,
+    # pinned lowest-version TS packages, and Python uv `--resolution lowest-direct`.
+    status=0
+    pnpm exec vitest run \
+      adapters/collie/peer-ranges.test.ts \
+      adapters/collie/ai-sdk/tests/lowest-version/peer-range.test.ts \
+      adapters/collie/langchain/tests/lowest-version/peer-range.test.ts \
+      adapters/collie/mastra/tests/lowest-version/peer-range.test.ts \
+      --outputFile.junit="target/junit/vitest-adapters-peer-ranges.xml" || status=$?
+    GOODFETCH_ADAPTER_WHEELHOUSE="$root/target/release-suite/adapter-wheelhouse" \
+      uv run --frozen pytest \
+      adapters/collie/langchain/tests/unit/test_peer_range.py \
+      --junitxml="target/junit/pytest-adapters-peer-ranges.xml" || status=$?
+    exit "$status"
+    ;;
   rss)
     rm -f "$rss_peaks"
     cargo run --quiet --locked --bin xtask -- rss measure --tools "$rss_tools" --out "$rss_peaks"
@@ -319,7 +357,7 @@ case "$part" in
     cargo run --quiet --locked --bin xtask -- rss check --peaks "$rss_peaks" ${summary[@]+"${summary[@]}"}
     ;;
   *)
-    echo "error: the part is build, tools, size, rust, lazyfs, typescript, python or rss, not $part" >&2
+    echo "error: the part is build, tools, size, rust, lazyfs, typescript, python, adapters-fetch, adapters or rss, not $part" >&2
     exit 2
     ;;
 esac

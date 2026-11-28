@@ -107,6 +107,10 @@ export interface ActivepiecesStartOptions {
    * bridge into the `--network=none` container on the same loopback port.
    */
   readonly daemonHttp?: string | undefined;
+  /** Optional host paths mounted read-only into the Activepieces container. */
+  readonly readOnlyMounts?:
+    | ReadonlyArray<{ readonly hostPath: string; readonly containerPath: string }>
+    | undefined;
   /** Container image reference; defaults to `ci/integrations/images.toml`'s `[activepieces]`. */
   readonly image?: string | undefined;
   /** Container engine; auto-detected when absent. */
@@ -812,6 +816,9 @@ export async function startActivepieces(
       const daemonPort = parseLoopbackPort(options.daemonHttp);
       daemonBridge = await startUnixToTcpBridge(join(folder, "daemon.sock"), daemonPort);
       args.push("-e", `DAEMON_PORT=${daemonPort}`, "-e", "DAEMON_SOCK=/tmp/bridge/daemon.sock");
+    }
+    for (const mount of options.readOnlyMounts ?? []) {
+      args.push("-v", `${mount.hostPath}:${mount.containerPath}:ro`);
     }
     args.push(
       "--entrypoint",

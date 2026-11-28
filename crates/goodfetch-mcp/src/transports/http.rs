@@ -38,7 +38,7 @@ use tokio_util::task::TaskTracker;
 use url::Url;
 
 use super::TransportError;
-use crate::engine::EngineConnector;
+use crate::engine::SharedEngineConnector;
 use crate::oauth::{OAuthMetadataFetcher, OAuthResourceServer};
 use crate::server::{McpServer, ServerOptions};
 
@@ -258,11 +258,53 @@ pub trait HttpRefusalRecorder: Send + Sync + 'static {
     fn record(&self, reason: RefusalReason) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 }
 
+/// Newtype hiding dynamic dispatch for an [`HttpRefusalRecorder`] (STYLE.md).
+#[derive(Clone)]
+pub struct SharedRefusalRecorder(Arc<dyn HttpRefusalRecorder>);
+
+impl SharedRefusalRecorder {
+    /// Wraps `recorder` in a cheaply cloneable [`SharedRefusalRecorder`].
+    #[must_use]
+    pub fn new(recorder: impl HttpRefusalRecorder) -> Self {
+        Self(Arc::new(recorder))
+    }
+
+    /// Records one refusal for `reason`.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future cancels recording this refusal.
+    pub async fn record(&self, reason: RefusalReason) {
+        self.0.record(reason).await;
+    }
+}
+
 /// Supplies the current [`TlsAcceptor`] for each incoming TLS connection so
 /// certificate renewals from `daemon.tls.*` take effect without restarting.
 pub trait HttpTlsAcceptor: Send + Sync + 'static {
     /// Returns the active [`TlsAcceptor`].
     fn acceptor(&self) -> Pin<Box<dyn Future<Output = TlsAcceptor> + Send + '_>>;
+}
+
+/// Newtype hiding dynamic dispatch for an [`HttpTlsAcceptor`] (STYLE.md).
+#[derive(Clone)]
+pub struct SharedTlsAcceptor(Arc<dyn HttpTlsAcceptor>);
+
+impl SharedTlsAcceptor {
+    /// Wraps `acceptor` in a cheaply cloneable [`SharedTlsAcceptor`].
+    #[must_use]
+    pub fn new(acceptor: impl HttpTlsAcceptor) -> Self {
+        Self(Arc::new(acceptor))
+    }
+
+    /// Returns the active [`TlsAcceptor`].
+    ///
+    /// # Cancel safety
+    ///
+    /// Safe to cancel; reading the current acceptor has no side effects.
+    pub async fn acceptor(&self) -> TlsAcceptor {
+        self.0.acceptor().await
+    }
 }
 
 /// Static [`TlsAcceptor`] wrapper implementing [`HttpTlsAcceptor`].
@@ -285,7 +327,7 @@ pub enum HttpTls {
     /// Terminated directly by the MCP server (`daemon.tls.cert_file` and
     /// `daemon.tls.key_file`). Non-TLS TCP connections are closed and recorded
     /// as `tls_required`.
-    Direct(Arc<dyn HttpTlsAcceptor>),
+    Direct(SharedTlsAcceptor),
     /// Terminated upstream (`daemon.tls.upstream`) with trusted proxy ranges
     /// (`daemon.trusted_proxies`).
     Upstream(Vec<TrustedProxy>),
@@ -322,7 +364,7 @@ pub struct HttpServerConfig {
     /// TLS termination mode (`daemon.tls.*`).
     pub tls: HttpTls,
     /// Optional Audit log refusal recorder.
-    pub refusals: Option<Arc<dyn HttpRefusalRecorder>>,
+    pub refusals: Option<SharedRefusalRecorder>,
     /// Cancellation token that gracefully shuts the listener down.
     pub cancellation: CancellationToken,
 }
@@ -344,7 +386,7 @@ struct HttpServingState {
     authorities: HttpAuthorities,
     auth: HttpAuth,
     tls: HttpTls,
-    refusals: Option<Arc<dyn HttpRefusalRecorder>>,
+    refusals: Option<SharedRefusalRecorder>,
     cancellation: CancellationToken,
     mcp_service: StreamableHttpService<McpServer, LocalSessionManager>,
 }
@@ -359,7 +401,7 @@ impl BoundHttpServer {
     pub async fn bind(
         config: HttpServerConfig,
         options: ServerOptions,
-        connector: Arc<dyn EngineConnector>,
+        connector: SharedEngineConnector,
     ) -> Result<Self, TransportError> {
         #[expect(
             clippy::disallowed_types,
@@ -392,7 +434,7 @@ impl BoundHttpServer {
             move || {
                 Ok(McpServer::with_connector(
                     options.clone(),
-                    Arc::clone(&connector),
+                    connector.clone(),
                 ))
             },
             session_manager,
@@ -769,7 +811,7 @@ impl HttpOAuthFetcher {
             .await
             .map_err(|err| format!("connect {host}:{port}: {err}"))?;
 
-        let response = if use_tls {
+        let (status, collected) = if use_tls {
             let server_name = ServerName::try_from(host.clone())
                 .map_err(|err| format!("invalid TLS server name `{host}`: {err}"))?;
             let connector = TlsConnector::from(Arc::clone(&self.tls));
@@ -777,19 +819,14 @@ impl HttpOAuthFetcher {
                 .connect(server_name, tcp)
                 .await
                 .map_err(|err| format!("TLS handshake with {host}:{port}: {err}"))?;
-            send_http1_get(tls_stream, &host_header, &path_and_query).await?
+            fetch_http1_body(tls_stream, &host_header, &path_and_query, raw_url).await?
         } else {
-            send_http1_get(tcp, &host_header, &path_and_query).await?
+            fetch_http1_body(tcp, &host_header, &path_and_query, raw_url).await?
         };
 
-        if response.status() != StatusCode::OK {
-            return Err(format!("HTTP {} from `{raw_url}`", response.status()));
+        if status != StatusCode::OK {
+            return Err(format!("HTTP {status} from `{raw_url}`"));
         }
-        let collected = Limited::new(response.into_body(), MAX_OAUTH_METADATA_BYTES)
-            .collect()
-            .await
-            .map_err(|err| format!("reading body from `{raw_url}`: {err}"))?
-            .to_bytes();
         serde_json::from_slice(&collected)
             .map_err(|err| format!("parsing JSON from `{raw_url}`: {err}"))
     }
@@ -808,11 +845,12 @@ impl OAuthMetadataFetcher for HttpOAuthFetcher {
     }
 }
 
-async fn send_http1_get<S>(
+async fn fetch_http1_body<S>(
     stream: S,
     host_header: &str,
     path_and_query: &str,
-) -> Result<Response<Incoming>, String>
+    raw_url: &str,
+) -> Result<(StatusCode, Bytes), String>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
@@ -827,11 +865,32 @@ where
         .header(header::CONNECTION, "close")
         .body(Full::new(Bytes::new()))
         .map_err(|err| format!("building GET request: {err}"))?;
-    let (res, conn_res) = tokio::join!(sender.send_request(request), conn);
-    if let Err(err) = conn_res {
-        tracing::debug!(%err, "OAuth discovery HTTP connection closed");
-    }
-    res.map_err(|err| format!("HTTP GET failed: {err}"))
+    let fetch = async {
+        let response = sender
+            .send_request(request)
+            .await
+            .map_err(|err| format!("HTTP GET failed: {err}"))?;
+        let status = response.status();
+        let body = Limited::new(response.into_body(), MAX_OAUTH_METADATA_BYTES)
+            .collect()
+            .await
+            .map_err(|err| format!("reading body from `{raw_url}`: {err}"))?
+            .to_bytes();
+        Ok((status, body))
+    };
+    let mut conn = std::pin::pin!(conn);
+    let mut fetch = std::pin::pin!(fetch);
+    let mut conn_done = false;
+    std::future::poll_fn(|cx| {
+        if !conn_done && let std::task::Poll::Ready(conn_res) = conn.as_mut().poll(cx) {
+            conn_done = true;
+            if let Err(err) = conn_res {
+                tracing::debug!(%err, "OAuth discovery HTTP connection closed");
+            }
+        }
+        fetch.as_mut().poll(cx)
+    })
+    .await
 }
 
 fn format_endpoint_url(scheme: &str, addr: SocketAddr) -> String {

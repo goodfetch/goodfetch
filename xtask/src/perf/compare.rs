@@ -74,6 +74,7 @@ pub(crate) fn limit(measured: &Measured) -> Limit {
         | Figure::TotalAllocations
         | Figure::TotalBytes
         | Figure::GlobalMaximumBytes
+        | Figure::WireBytes
         | Figure::ResidentMemory => Increase::Percent(budget::INCREASE_PERCENT),
     };
     Limit {

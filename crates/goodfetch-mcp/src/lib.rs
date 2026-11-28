@@ -7,10 +7,8 @@
 //! No module in this crate names a Foxhound type (ADR 0087); Foxhound's
 //! executable composes this crate with its own Product and profiles.
 
-pub mod code_mode_tool;
 pub mod engine;
 pub mod oauth;
-pub mod observations;
 pub mod profiles;
 pub mod projection;
 pub mod resources;

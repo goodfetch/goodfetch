@@ -6,31 +6,31 @@ expression: "serde_json::to_string_pretty(&Value::Object(workload_sizes)).unwrap
   "aria_snapshot_ai_first": {
     "content_blocks": 1,
     "is_error": false,
-    "wire_bytes": 398
+    "wire_bytes": 374
   },
   "aria_snapshot_ai_second": {
     "content_blocks": 1,
     "is_error": false,
-    "wire_bytes": 380
+    "wire_bytes": 356
   },
   "code_mode_run": {
     "content_blocks": 1,
     "is_error": false,
-    "wire_bytes": 312
+    "wire_bytes": 288
   },
   "page_goto": {
     "content_blocks": 1,
     "is_error": false,
-    "wire_bytes": 270
+    "wire_bytes": 246
   },
   "run_start": {
     "content_blocks": 1,
     "is_error": false,
-    "wire_bytes": 274
+    "wire_bytes": 294
   },
   "success_check_evaluate": {
     "content_blocks": 1,
     "is_error": false,
-    "wire_bytes": 262
+    "wire_bytes": 238
   }
 }

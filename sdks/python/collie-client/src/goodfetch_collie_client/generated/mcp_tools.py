@@ -852,7 +852,6 @@ COLLIE_MCP_PROFILES: dict[McpProfile, tuple[str, ...]] = {
         "run_finish",
         "run_list",
         "run_migrate",
-        "run_new_page",
         "run_pause",
         "run_progress",
         "run_report",

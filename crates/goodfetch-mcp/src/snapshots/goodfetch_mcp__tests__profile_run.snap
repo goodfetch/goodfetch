@@ -137,21 +137,6 @@ expression: "serde_json::to_string_pretty(&snapshot_value).unwrap()"
     },
     {
       "annotations": {
-        "destructiveHint": true,
-        "idempotentHint": false,
-        "openWorldHint": false,
-        "readOnlyHint": false
-      },
-      "description": "Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call.",
-      "input_schema_keys": [
-        "run_id",
-        "settings"
-      ],
-      "name": "run_new_page",
-      "operation": "run.new_page"
-    },
-    {
-      "annotations": {
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false,
@@ -369,5 +354,5 @@ expression: "serde_json::to_string_pretty(&snapshot_value).unwrap()"
       "operation": "usage.set"
     }
   ],
-  "tools_list_bytes": 73415
+  "tools_list_bytes": 71448
 }

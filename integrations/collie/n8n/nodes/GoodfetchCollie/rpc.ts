@@ -2,10 +2,15 @@
 // Webhooks verifier for `@goodfetch/n8n-nodes-collie` (ADRs 0027, 0056, 0070,
 // 0090, 0095; spec #608, issue 1405).
 //
-// Obeys n8n verified-node rules: zero runtime dependencies, zero `process.env`
-// or filesystem access, and zero Node built-in module imports (uses Web Crypto
-// for HMAC-SHA256 webhook verification and `this.helpers.httpRequest` for HTTP).
-import type { IDataObject, INodeDescriptor, INodeHelpers } from "./n8n-types.ts";
+// Obeys n8n verified-node rules: zero runtime dependencies (uses only peer
+// `n8n-workflow`), zero `process.env` or filesystem access, and Web Crypto
+// (`crypto.subtle`) for HMAC-SHA256 webhook verification.
+import {
+  NodeOperationError,
+  type IDataObject,
+  type IHttpRequestOptions,
+  type INode,
+} from "n8n-workflow";
 
 export const COLLIE_PRODUCT = "collie" as const;
 export const COLLIE_FORM = "catalog" as const;
@@ -61,30 +66,57 @@ export interface N8nCollieErrorInfo {
   readonly details?: IDataObject | undefined;
 }
 
-export class N8nCollieError extends Error {
+export interface N8nCollieErrorMetadata {
   readonly code: string;
   readonly group: CollieErrorGroup;
   readonly fix: string;
   readonly httpCode: string | undefined;
-  readonly description: string;
-  readonly node: INodeDescriptor | undefined;
   readonly details: IDataObject | undefined;
+}
 
-  constructor(info: N8nCollieErrorInfo, node?: INodeDescriptor) {
-    super(`[${info.code}] (${info.group}) ${info.message} Fix: ${info.fix}`);
-    this.name = "NodeOperationError";
-    this.code = info.code;
-    this.group = info.group;
-    this.fix = info.fix;
-    this.httpCode = info.httpStatus === undefined ? undefined : String(info.httpStatus);
-    this.description = `code=${info.code} group=${info.group} fix=${info.fix}`;
-    this.node = node;
-    this.details = info.details;
-  }
+export interface CollieHttpHelper {
+  httpRequest(options: IHttpRequestOptions): Promise<unknown>;
+}
+
+const FALLBACK_NODE: INode = {
+  id: "goodfetch-collie",
+  name: "Goodfetch Collie",
+  type: "goodfetchCollie",
+  typeVersion: 1,
+  position: [0, 0],
+  parameters: {},
+};
+
+const ERROR_METADATA = new WeakMap<Error, N8nCollieErrorMetadata>();
+
+export function readCollieErrorMetadata(error: unknown): N8nCollieErrorMetadata | undefined {
+  return error instanceof Error ? ERROR_METADATA.get(error) : undefined;
+}
+
+export function createCollieNodeError(info: N8nCollieErrorInfo, node?: INode): NodeOperationError {
+  const err = new NodeOperationError(
+    node ?? FALLBACK_NODE,
+    `[${info.code}] (${info.group}) ${info.message} Fix: ${info.fix}`,
+    {
+      description: `code=${info.code} group=${info.group} fix=${info.fix}`,
+    },
+  );
+  ERROR_METADATA.set(err, {
+    code: info.code,
+    group: info.group,
+    fix: info.fix,
+    httpCode: info.httpStatus === undefined ? undefined : String(info.httpStatus),
+    details: info.details,
+  });
+  return err;
 }
 
 export function isRecord(value: unknown): value is IDataObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function readStringParam(raw: unknown, fallback = ""): string {
+  return typeof raw === "string" ? raw : fallback;
 }
 
 export function normalizeGroup(raw: unknown): CollieErrorGroup {
@@ -130,14 +162,14 @@ export function mapCatalogErrorToN8n(
     readonly group: string;
     readonly description?: string | undefined;
   },
-  node?: INodeDescriptor,
-): N8nCollieError {
+  node?: INode,
+): NodeOperationError {
   const group = normalizeGroup(entry.group);
   const message =
     entry.description !== undefined && entry.description.trim().length > 0
       ? entry.description.trim()
       : entry.code;
-  return new N8nCollieError(
+  return createCollieNodeError(
     {
       code: entry.code,
       group,
@@ -148,7 +180,7 @@ export function mapCatalogErrorToN8n(
   );
 }
 
-export function parseCredentials(raw: IDataObject, node?: INodeDescriptor): CollieCredentials {
+export function parseCredentials(raw: IDataObject, node?: INode): CollieCredentials {
   const rawBaseUrl = typeof raw["baseUrl"] === "string" ? raw["baseUrl"].trim() : "";
   const rawToken = typeof raw["token"] === "string" ? raw["token"] : "";
   const rawProtocol =
@@ -157,7 +189,7 @@ export function parseCredentials(raw: IDataObject, node?: INodeDescriptor): Coll
       : DEFAULT_PROTOCOL_VERSION;
 
   if (rawBaseUrl.length === 0) {
-    throw new N8nCollieError(
+    throw createCollieNodeError(
       {
         code: "invalid_credentials",
         group: "program",
@@ -177,7 +209,7 @@ export function parseCredentials(raw: IDataObject, node?: INodeDescriptor): Coll
 export function parseJsonObjectParam(
   raw: unknown,
   fieldName: string,
-  node?: INodeDescriptor,
+  node?: INode,
 ): IDataObject | undefined {
   if (raw === undefined || raw === null || raw === "") {
     return undefined;
@@ -192,7 +224,7 @@ export function parseJsonObjectParam(
       parsed = JSON.parse(trimmed);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      throw new N8nCollieError(
+      throw createCollieNodeError(
         {
           code: "invalid_json_parameter",
           group: "program",
@@ -204,7 +236,7 @@ export function parseJsonObjectParam(
     }
   }
   if (!isRecord(parsed)) {
-    throw new N8nCollieError(
+    throw createCollieNodeError(
       {
         code: "invalid_json_parameter",
         group: "program",
@@ -217,11 +249,54 @@ export function parseJsonObjectParam(
   return parsed;
 }
 
+export function parseJsonStringArrayParam(
+  raw: unknown,
+  fieldName: string,
+  node?: INode,
+): string[] | undefined {
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  let parsed: unknown = raw;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) {
+      return undefined;
+    }
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw createCollieNodeError(
+        {
+          code: "invalid_json_parameter",
+          group: "program",
+          fix: `Provide a valid JSON array of strings for ${fieldName}.`,
+          message: `Invalid JSON in ${fieldName}: ${detail}`,
+        },
+        node,
+      );
+    }
+  }
+  if (!Array.isArray(parsed) || !parsed.every((item): item is string => typeof item === "string")) {
+    throw createCollieNodeError(
+      {
+        code: "invalid_json_parameter",
+        group: "program",
+        fix: `Provide a JSON array of strings for ${fieldName}.`,
+        message: `${fieldName} must be a JSON array of strings.`,
+      },
+      node,
+    );
+  }
+  return [...parsed];
+}
+
 export function parseRpcErrorResponse(
   body: unknown,
   httpStatus: number,
-  node?: INodeDescriptor,
-): N8nCollieError {
+  node?: INode,
+): NodeOperationError {
   let parsedBody: unknown = body;
   if (typeof body === "string" && body.trim().length > 0) {
     try {
@@ -259,7 +334,7 @@ export function parseRpcErrorResponse(
         ? data["fix"]
         : fixForCollieError(rawCode, group, message);
     const details = isRecord(data?.["details"]) ? data["details"] : data;
-    return new N8nCollieError(
+    return createCollieNodeError(
       {
         code: rawCode,
         group,
@@ -276,7 +351,7 @@ export function parseRpcErrorResponse(
   const group: CollieErrorGroup =
     httpStatus === 401 || httpStatus === 403 ? "refused" : "unavailable";
   const message = `Collie Daemon HTTP listener returned status ${httpStatus}`;
-  return new N8nCollieError(
+  return createCollieNodeError(
     {
       code,
       group,
@@ -289,11 +364,11 @@ export function parseRpcErrorResponse(
 }
 
 export async function callCollieRpc(options: {
-  readonly helpers: INodeHelpers;
+  readonly helpers: CollieHttpHelper;
   readonly credentials: CollieCredentials;
   readonly method: string;
   readonly params: IDataObject;
-  readonly node?: INodeDescriptor;
+  readonly node?: INode | undefined;
 }): Promise<IDataObject> {
   const rpcUrl = options.credentials.baseUrl.endsWith(RPC_PATH)
     ? options.credentials.baseUrl
@@ -323,7 +398,7 @@ export async function callCollieRpc(options: {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new N8nCollieError(
+    throw createCollieNodeError(
       {
         code: "daemon_unreachable",
         group: "unavailable",
@@ -353,7 +428,7 @@ export async function callCollieRpc(options: {
   }
 
   if (!isRecord(body) || !isRecord(body["result"])) {
-    throw new N8nCollieError(
+    throw createCollieNodeError(
       {
         code: "engine_output_invalid",
         group: "internal",
@@ -420,8 +495,8 @@ export async function verifyStandardWebhookSignature(options: {
   readonly rawBody: string;
   readonly headers: Record<string, string | string[] | undefined>;
   readonly secret: string;
-  readonly nowSeconds?: number;
-  readonly toleranceSeconds?: number;
+  readonly nowSeconds?: number | undefined;
+  readonly toleranceSeconds?: number | undefined;
 }): Promise<boolean> {
   const webhookId = readHeader(options.headers, "webhook-id");
   const webhookTimestamp = readHeader(options.headers, "webhook-timestamp");
@@ -452,14 +527,14 @@ export async function verifyStandardWebhookSignature(options: {
 
   const encoder = new TextEncoder();
   const signedPayload = encoder.encode(`${webhookId}.${webhookTimestamp}.${options.rawBody}`);
-  const cryptoKey = await globalThis.crypto.subtle.importKey(
+  const cryptoKey = await crypto.subtle.importKey(
     "raw",
     keyBytes,
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
   );
-  const signatureBuffer = await globalThis.crypto.subtle.sign("HMAC", cryptoKey, signedPayload);
+  const signatureBuffer = await crypto.subtle.sign("HMAC", cryptoKey, signedPayload);
   const expected = encodeBase64Bytes(new Uint8Array(signatureBuffer));
 
   const candidates = webhookSignature.trim().split(/\s+/);

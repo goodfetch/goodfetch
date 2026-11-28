@@ -1,38 +1,42 @@
 // Unit tests for `@goodfetch/n8n-nodes-collie` (ADRs 0027, 0070, 0072, 0090,
-// 0095; spec #608, issue 1405): strict `n8n-node lint` verified-node rules,
-// complete Collie catalog Error code mapping, refused token and protocol
-// version errors, trigger webhook signature verification + single-fire dedup,
-// and the `n8n-scanner` Live check.
+// 0095; spec #608, issue 1405): official strict `n8n-node lint`, complete
+// Collie catalog Error code mapping, P10 `RecipeStartParams` alignment,
+// refused token and protocol version errors, S2 fail-closed webhook trigger
+// verification + idempotent re-subscribe + single-fire dedup, and `n8n-scanner`.
+import { execFileSync } from "node:child_process";
 import { createHmac } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, test } from "vitest";
-import { runN8nScanner, validatePublishedManifest } from "../../../../ci/live/n8n-scanner.ts";
-import { lintN8nPackage } from "../scripts/n8n-node-lint.ts";
 import {
   GoodfetchCollie,
   GoodfetchCollieApi,
   GoodfetchCollieTrigger,
   mapCatalogErrorToN8n,
-  N8nCollieError,
+  readCollieErrorMetadata,
+} from "@goodfetch/n8n-nodes-collie";
+import {
+  NodeOperationError,
   type IDataObject,
   type IExecuteFunctions,
   type IHookFunctions,
   type IHttpRequestOptions,
-  type INodeDescriptor,
+  type INode,
   type IWebhookFunctions,
-} from "./index.ts";
+} from "n8n-workflow";
+import { describe, expect, test } from "vitest";
+import { runN8nScanner, validatePublishedManifest } from "../../../../ci/live/n8n-scanner.ts";
 
-const PACKAGE_ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const REPO_ROOT = resolve(PACKAGE_ROOT, "../../..");
+const REPO_ROOT = resolve(fileURLToPath(new URL("../../../..", import.meta.url)));
+const N8N_PACKAGE_ROOT = join(REPO_ROOT, "integrations", "collie", "n8n");
 
-const TEST_NODE: INodeDescriptor = {
+const TEST_NODE: INode = {
   id: "collie-1",
   name: "Goodfetch Collie",
   type: "CUSTOM.goodfetchCollie",
   typeVersion: 1,
+  position: [0, 0],
+  parameters: {},
 };
 
 function readJson(path: string): Record<string, unknown> {
@@ -58,12 +62,24 @@ function signStandardWebhookV1(
   return `v1,${digest}`;
 }
 
+function expectRecord(value: unknown, label: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new TypeError(`expected object for ${label}`);
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value)) {
+    out[k] = v;
+  }
+  return out;
+}
+
 function makeExecuteContext(options: {
   readonly params: Record<string, unknown>;
-  readonly credentials?: IDataObject;
+  readonly credentials?: IDataObject | undefined;
   readonly httpRequest: (req: IHttpRequestOptions) => Promise<unknown>;
-  readonly continueOnFail?: boolean;
+  readonly continueOnFail?: boolean | undefined;
 }): IExecuteFunctions {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- partial n8n IExecuteFunctions test harness.
   return {
     getInputData: () => [{ json: {} }],
     getNodeParameter: (name: string, _index: number, fallbackValue?: unknown) =>
@@ -79,22 +95,30 @@ function makeExecuteContext(options: {
     helpers: {
       httpRequest: options.httpRequest,
     },
-  };
+  } as unknown as IExecuteFunctions;
 }
 
 describe("@goodfetch/n8n-nodes-collie", () => {
   test(
-    "passes strict n8n-node lint verified-node rules (zero runtime deps, no process.env/fs/builtins)",
+    "passes official strict n8n-node lint (zero runtime deps, verified-node cloud rules)",
     { tags: ["story:11-249"] },
     () => {
-      const result = lintN8nPackage(PACKAGE_ROOT);
-      expect(result.violations).toEqual([]);
-      expect(result.ok).toBe(true);
+      // `eslint-plugin-n8n-nodes-base` mocks filenames when `NODE_ENV=test` (Vitest).
+      const lintEnv: NodeJS.ProcessEnv = { ...process.env };
+      delete lintEnv["NODE_ENV"];
+      execFileSync("pnpm", ["--dir", N8N_PACKAGE_ROOT, "run", "lint"], {
+        stdio: "pipe",
+        timeout: 60_000,
+        env: lintEnv,
+      });
+
+      const pkg = readJson(join(N8N_PACKAGE_ROOT, "package.json"));
+      expect(pkg["dependencies"]).toBeUndefined();
 
       const creds = new GoodfetchCollieApi();
       expect(creds.name).toBe("goodfetchCollieApi");
-      expect(creds.authenticate?.properties.headers?.["Goodfetch-Product"]).toBe("collie");
-      expect(creds.authenticate?.properties.headers?.["Goodfetch-Form"]).toBe("catalog");
+      expect(creds.authenticate.properties.headers?.["Goodfetch-Product"]).toBe("collie");
+      expect(creds.authenticate.properties.headers?.["Goodfetch-Form"]).toBe("catalog");
 
       const node = new GoodfetchCollie();
       expect(node.description.name).toBe("goodfetchCollie");
@@ -106,41 +130,7 @@ describe("@goodfetch/n8n-nodes-collie", () => {
   );
 
   test(
-    "n8n-node lint rejects runtime dependencies and process.env or fs access",
-    { tags: ["story:11-249"] },
-    () => {
-      const dir = mkdtempSync(join(tmpdir(), "goodfetch-n8n-lint-bad-"));
-      try {
-        mkdirSync(join(dir, "src"), { recursive: true });
-        writeFileSync(
-          join(dir, "package.json"),
-          JSON.stringify({
-            name: "@goodfetch/n8n-nodes-bad",
-            keywords: ["n8n-community-node-package"],
-            dependencies: { axios: "^1.0.0" },
-            n8n: { n8nNodesApiVersion: 1, strict: true, nodes: ["a"], credentials: ["b"] },
-          }),
-          "utf8",
-        );
-        writeFileSync(
-          join(dir, "src", "bad.ts"),
-          'import fs from "node:fs";\nexport const x = process.env.SECRET ?? fs;\n',
-          "utf8",
-        );
-        const result = lintN8nPackage(dir);
-        expect(result.ok).toBe(false);
-        const rules = result.violations.map((v) => v.rule);
-        expect(rules).toContain("n8n-nodes-base/verified-node-no-runtime-dependencies");
-        expect(rules).toContain("n8n-nodes-base/no-process-env");
-        expect(rules).toContain("n8n-nodes-base/no-node-builtins");
-      } finally {
-        rmSync(dir, { recursive: true, force: true });
-      }
-    },
-  );
-
-  test(
-    "maps every Error code in Collie's catalog to an n8n error with code, group, and fix",
+    "maps every Error code in Collie's catalog to a NodeOperationError with code, group, and fix",
     { tags: ["story:11-249"] },
     () => {
       const catalog = readJson(
@@ -171,17 +161,17 @@ describe("@goodfetch/n8n-nodes-collie", () => {
           },
           TEST_NODE,
         );
-        expect(mapped).toBeInstanceOf(N8nCollieError);
-        expect(mapped.name).toBe("NodeOperationError");
-        expect(mapped.code).toBe(name);
-        expect(mapped.group).toBe(group);
-        expect(mapped.fix.length).toBeGreaterThan(0);
+        expect(mapped).toBeInstanceOf(NodeOperationError);
+        const meta = readCollieErrorMetadata(mapped);
+        expect(meta?.code).toBe(name);
+        expect(meta?.group).toBe(group);
+        expect((meta?.fix ?? "").length).toBeGreaterThan(0);
       }
     },
   );
 
   test(
-    "executes all four actions and surfaces refused token and hello version errors with code, group, and fix",
+    "executes all four actions without sending unknown recipe.start fields and surfaces refused errors with fix",
     {
       tags: [
         "story:11-249",
@@ -193,7 +183,10 @@ describe("@goodfetch/n8n-nodes-collie", () => {
     },
     async () => {
       const node = new GoodfetchCollie();
-      const seenMethods: string[] = [];
+      const seenRequests: Array<{
+        readonly method: string;
+        readonly params: Record<string, unknown>;
+      }> = [];
 
       const okCtx = (params: Record<string, unknown>) =>
         makeExecuteContext({
@@ -202,8 +195,9 @@ describe("@goodfetch/n8n-nodes-collie", () => {
             expect(req.headers?.["Goodfetch-Product"]).toBe("collie");
             expect(req.headers?.["Goodfetch-Form"]).toBe("catalog");
             expect(req.headers?.["Authorization"]).toBe("Bearer test-token-0000");
-            const method = String(req.body?.["method"]);
-            seenMethods.push(method);
+            const body = expectRecord(req.body, "request body");
+            const method = typeof body["method"] === "string" ? body["method"] : "";
+            seenRequests.push({ method, params: expectRecord(body["params"], "request params") });
             return {
               statusCode: 200,
               body: { jsonrpc: "2.0", id: 1, result: { ok: true, method } },
@@ -211,22 +205,38 @@ describe("@goodfetch/n8n-nodes-collie", () => {
           },
         });
 
-      const r1 = await node.execute.call(okCtx({ operation: "startRecipe", recipe: "checkout" }));
+      const r1 = await node.execute.call(
+        okCtx({
+          operation: "startRecipe",
+          recipe: "checkout",
+          additionalFields: {
+            tags: '["env:test"]',
+            settings: '{"timeout":{"navigation":15000}}',
+          },
+        }),
+      );
       const r2 = await node.execute.call(
         okCtx({
           operation: "startCatalogRun",
-          catalogTarget: '{"kind":"url","url":"https://example.com"}',
+          catalogTarget: '{"kind":"extract","url":"https://example.com","schema":{}}',
         }),
       );
       const r3 = await node.execute.call(okCtx({ operation: "getRunReport", runId: "r_1" }));
       const r4 = await node.execute.call(okCtx({ operation: "getRunProgress", runId: "r_1" }));
 
-      expect(seenMethods).toEqual([
+      expect(seenRequests.map((r) => r.method)).toEqual([
         "recipe.start",
         "catalog_run.start",
         "run.report",
         "run.progress",
       ]);
+      // P10: `recipe.start` must match `RecipeStartParams` (no unknown `params` field).
+      expect(seenRequests[0]?.params["params"]).toBeUndefined();
+      expect(seenRequests[0]?.params["recipe"]).toBe("checkout");
+      expect(seenRequests[0]?.params["detached"]).toBe(true);
+      expect(seenRequests[0]?.params["tags"]).toEqual(["env:test"]);
+      expect(seenRequests[0]?.params["settings"]).toEqual({ timeout: { navigation: 15000 } });
+
       expect(r1[0]?.[0]?.json["method"]).toBe("recipe.start");
       expect(r2[0]?.[0]?.json["method"]).toBe("catalog_run.start");
       expect(r3[0]?.[0]?.json["method"]).toBe("run.report");
@@ -251,12 +261,11 @@ describe("@goodfetch/n8n-nodes-collie", () => {
       } catch (error) {
         tokenErr = error;
       }
-      if (!(tokenErr instanceof N8nCollieError)) {
-        throw new Error(`expected N8nCollieError, got ${String(tokenErr)}`);
-      }
-      expect(tokenErr.code).toBe("unauthorized");
-      expect(tokenErr.group).toBe("refused");
-      expect(tokenErr.fix.length).toBeGreaterThan(0);
+      expect(tokenErr).toBeInstanceOf(NodeOperationError);
+      const tokenMeta = readCollieErrorMetadata(tokenErr);
+      expect(tokenMeta?.code).toBe("unauthorized");
+      expect(tokenMeta?.group).toBe("refused");
+      expect((tokenMeta?.fix ?? "").length).toBeGreaterThan(0);
 
       const badVersionCtx = makeExecuteContext({
         params: { operation: "getRunProgress", runId: "r_1" },
@@ -284,25 +293,26 @@ describe("@goodfetch/n8n-nodes-collie", () => {
       } catch (error) {
         versionErr = error;
       }
-      if (!(versionErr instanceof N8nCollieError)) {
-        throw new Error(`expected N8nCollieError, got ${String(versionErr)}`);
-      }
-      expect(versionErr.code).toBe("protocol_version_unsupported");
-      expect(versionErr.group).toBe("program");
-      expect(versionErr.fix.length).toBeGreaterThan(0);
+      expect(versionErr).toBeInstanceOf(NodeOperationError);
+      const versionMeta = readCollieErrorMetadata(versionErr);
+      expect(versionMeta?.code).toBe("protocol_version_unsupported");
+      expect(versionMeta?.group).toBe("program");
+      expect((versionMeta?.fix ?? "").length).toBeGreaterThan(0);
     },
   );
 
   test(
-    "trigger subscribes, verifies Standard Webhooks signature via Web Crypto, fires once per event_id, and unsubscribes",
+    "trigger fails closed without stored secret, preserves secret on idempotent re-subscribe, verifies HMAC, and deduplicates",
     { tags: ["story:11-249", "integration:n8n/notification"] },
     async () => {
       const trigger = new GoodfetchCollieTrigger();
       const staticData: IDataObject = {};
       const fakeSecret = `whsec_${Buffer.alloc(32, 0x42).toString("base64")}`;
       const rpcCalls: string[] = [];
+      let subscribeCount = 0;
 
-      const hookCtx: IHookFunctions = {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- partial n8n IHookFunctions test harness.
+      const hookCtx = {
         getNodeWebhookUrl: () => "https://hooks.example.com/n8n-trigger",
         getNodeParameter: (name: string, fallbackValue?: unknown) =>
           name === "channel" ? "n8n-ch-1" : name === "events" ? ["run_finished"] : fallbackValue,
@@ -314,16 +324,21 @@ describe("@goodfetch/n8n-nodes-collie", () => {
         getWorkflowStaticData: () => staticData,
         getNode: () => TEST_NODE,
         helpers: {
-          httpRequest: async (req) => {
-            const method = String(req.body?.["method"]);
+          httpRequest: async (req: IHttpRequestOptions) => {
+            const body = expectRecord(req.body, "hook request body");
+            const method = typeof body["method"] === "string" ? body["method"] : "";
             rpcCalls.push(method);
             if (method === "notification.subscribe") {
+              subscribeCount += 1;
               return {
                 statusCode: 200,
                 body: {
                   jsonrpc: "2.0",
                   id: 1,
-                  result: { channel: "n8n-ch-1", created: true, secret: fakeSecret },
+                  result:
+                    subscribeCount === 1
+                      ? { channel: "n8n-ch-1", created: true, secret: fakeSecret }
+                      : { channel: "n8n-ch-1", created: false },
                 },
               };
             }
@@ -333,12 +348,7 @@ describe("@goodfetch/n8n-nodes-collie", () => {
             };
           },
         },
-      };
-
-      expect(await trigger.webhookMethods.default.checkExists.call(hookCtx)).toBe(false);
-      expect(await trigger.webhookMethods.default.create.call(hookCtx)).toBe(true);
-      expect(await trigger.webhookMethods.default.checkExists.call(hookCtx)).toBe(true);
-      expect(staticData["webhookSecret"]).toBe(fakeSecret);
+      } as unknown as IHookFunctions;
 
       const now = Math.floor(Date.now() / 1000);
       const eventId = "evt_01JN8NTRIGGER0000000000001";
@@ -358,31 +368,52 @@ describe("@goodfetch/n8n-nodes-collie", () => {
       const rawBody = JSON.stringify(payload);
       const validSig = signStandardWebhookV1(fakeSecret, eventId, now, rawBody);
 
-      const makeWebhookCtx = (sig: string): IWebhookFunctions => ({
-        getRequestObject: () => ({
-          rawBody,
-          body: payload,
-          headers: {
+      const makeWebhookCtx = (
+        sig: string,
+        dataStore: IDataObject = staticData,
+      ): IWebhookFunctions =>
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- partial n8n IWebhookFunctions test harness.
+        ({
+          getRequestObject: () => ({
+            rawBody,
+            body: payload,
+            headers: {
+              "webhook-id": eventId,
+              "webhook-timestamp": String(now),
+              "webhook-signature": sig,
+            },
+          }),
+          getBodyData: () => payload,
+          getHeaderData: () => ({
             "webhook-id": eventId,
             "webhook-timestamp": String(now),
             "webhook-signature": sig,
+          }),
+          getNodeParameter: (name: string, fallbackValue?: unknown) =>
+            name === "events" ? ["run_finished"] : fallbackValue,
+          getWorkflowStaticData: () => dataStore,
+          getNode: () => TEST_NODE,
+          helpers: {
+            httpRequest: async () => ({}),
+            returnJsonArray: (items: IDataObject[]) => items.map((json) => ({ json })),
           },
-        }),
-        getBodyData: () => payload,
-        getHeaderData: () => ({
-          "webhook-id": eventId,
-          "webhook-timestamp": String(now),
-          "webhook-signature": sig,
-        }),
-        getNodeParameter: (name: string, fallbackValue?: unknown) =>
-          name === "events" ? ["run_finished"] : fallbackValue,
-        getWorkflowStaticData: () => staticData,
-        getNode: () => TEST_NODE,
-        helpers: {
-          httpRequest: async () => ({}),
-          returnJsonArray: (items) => items.map((json) => ({ json })),
-        },
-      });
+        }) as unknown as IWebhookFunctions;
+
+      // S2: missing stored secret MUST fail closed (reject delivery).
+      const emptyStatic: IDataObject = {};
+      const rejectedMissingSecret = await trigger.webhook.call(
+        makeWebhookCtx(validSig, emptyStatic),
+      );
+      expect(rejectedMissingSecret.workflowData).toBeUndefined();
+
+      expect(await trigger.webhookMethods.default.checkExists.call(hookCtx)).toBe(false);
+      expect(await trigger.webhookMethods.default.create.call(hookCtx)).toBe(true);
+      expect(await trigger.webhookMethods.default.checkExists.call(hookCtx)).toBe(true);
+      expect(staticData["webhookSecret"]).toBe(fakeSecret);
+
+      // Idempotent re-subscribe (`created: false`, no secret) preserves stored secret.
+      expect(await trigger.webhookMethods.default.create.call(hookCtx)).toBe(true);
+      expect(staticData["webhookSecret"]).toBe(fakeSecret);
 
       // Invalid signature is rejected (fires 0 times).
       const badRes = await trigger.webhook.call(makeWebhookCtx("v1,AAAA"));
@@ -398,19 +429,23 @@ describe("@goodfetch/n8n-nodes-collie", () => {
 
       expect(await trigger.webhookMethods.default.delete.call(hookCtx)).toBe(true);
       expect(await trigger.webhookMethods.default.checkExists.call(hookCtx)).toBe(false);
-      expect(rpcCalls).toEqual(["notification.subscribe", "notification.unsubscribe"]);
+      expect(rpcCalls).toEqual([
+        "notification.subscribe",
+        "notification.subscribe",
+        "notification.unsubscribe",
+      ]);
     },
   );
 
   test(
-    "n8n-scanner Live check passes locally, handles pre-publish 404, and flags runtime deps on published manifest",
+    "n8n-scanner Live check passes locally using real n8n-node lint and flags runtime deps",
     { tags: ["story:11-249"] },
     async () => {
-      const localOutcome = await runN8nScanner({ localOnly: true, packageDir: PACKAGE_ROOT });
+      const localOutcome = await runN8nScanner({ localOnly: true, packageDir: N8N_PACKAGE_ROOT });
       expect(localOutcome.exitCode).toBe(0);
 
       const prePublish = await runN8nScanner({
-        packageDir: PACKAGE_ROOT,
+        packageDir: N8N_PACKAGE_ROOT,
         fetchImpl: async () => new Response("Not Found", { status: 404 }),
       });
       expect(prePublish.exitCode).toBe(0);

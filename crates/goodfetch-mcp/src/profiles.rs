@@ -60,10 +60,4 @@ impl ResolvedProfile {
     pub fn get(&self, name: &str) -> Option<&ProjectedTool> {
         self.index.get(name).map(|&idx| &self.tools[idx])
     }
-
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn projected_tools(&self) -> &[ProjectedTool] {
-        &self.tools
-    }
 }

@@ -53,21 +53,24 @@ if __name__ == "__main__":
 ## Pydantic AI
 
 ```python
-"""Connect Pydantic AI's MCPServerStdio to `goodfetch-collie mcp` without a model."""
+"""Connect Pydantic AI's MCPToolset to `goodfetch-collie mcp` without a model."""
 
 import asyncio
 import os
 
-from pydantic_ai.mcp import MCPServerStdio
+from fastmcp.client.transports import StdioTransport
+from pydantic_ai.mcp import MCPToolset
 
 
 async def main() -> None:
     executable = os.environ.get("GOODFETCH_COLLIE_BIN", "goodfetch-collie")
-    server = MCPServerStdio(executable, args=["mcp", "--profile", "browser"])
-    async with server:
-        tools = await server.list_tools()
+    toolset = MCPToolset(
+        StdioTransport(command=executable, args=["mcp", "--profile", "browser"])
+    )
+    async with toolset:
+        tools = await toolset.list_tools()
         assert any(tool.name == "run_start" for tool in tools)
-        started = await server.direct_call_tool("run_start", {})
+        started = await toolset.direct_call_tool("run_start", {})
         assert started is not None
 
 

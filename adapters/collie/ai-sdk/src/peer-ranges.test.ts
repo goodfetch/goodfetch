@@ -92,7 +92,7 @@ describe("Collie adapter peer ranges and adapters-latest Live check", () => {
           `${entry.packageName} must have tests/lowest-version/package.json`,
         ).toBe(true);
         const lowestPkg = readJson(lowestPkgPath);
-        const deps = lowestPkg["dependencies"];
+        const deps = lowestPkg["devDependencies"] ?? lowestPkg["dependencies"];
         const bounds = parseDeclaredRange(entry.range, "npm");
         const pinned =
           typeof deps === "object" && deps !== null && !Array.isArray(deps)

@@ -210,9 +210,49 @@ pub trait OAuthMetadataFetcher: Send + Sync + 'static {
     ) -> Pin<Box<dyn Future<Output = Result<serde_json::Value, String>> + Send + '_>>;
 }
 
+/// Newtype hiding dynamic dispatch for an [`OAuthMetadataFetcher`] (STYLE.md).
+#[derive(Clone)]
+pub struct SharedOAuthMetadataFetcher(Arc<dyn OAuthMetadataFetcher>);
+
+impl SharedOAuthMetadataFetcher {
+    /// Wraps `fetcher` in a cheaply cloneable [`SharedOAuthMetadataFetcher`].
+    #[must_use]
+    pub fn new(fetcher: impl OAuthMetadataFetcher) -> Self {
+        Self(Arc::new(fetcher))
+    }
+
+    /// Fetches and parses JSON from `url` via the wrapped fetcher.
+    ///
+    /// # Errors
+    ///
+    /// Returns a human-readable description if fetching or JSON parsing fails.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future cancels the in-flight HTTP request.
+    pub async fn fetch_json(&self, url: String) -> Result<serde_json::Value, String> {
+        self.0.fetch_json(url).await
+    }
+}
+
 /// Time source returning Unix epoch seconds (avoids calling `SystemTime::now`
-/// directly, ADR 0059).
-pub type EpochSecondsClock = Arc<dyn Fn() -> u64 + Send + Sync>;
+/// directly, ADR 0059; newtype hiding `Arc<dyn Fn>` per STYLE.md).
+#[derive(Clone)]
+pub struct EpochSecondsClock(Arc<dyn Fn() -> u64 + Send + Sync>);
+
+impl EpochSecondsClock {
+    /// Wraps a closure returning Unix epoch seconds.
+    #[must_use]
+    pub fn new(now: impl Fn() -> u64 + Send + Sync + 'static) -> Self {
+        Self(Arc::new(now))
+    }
+
+    /// Returns the current Unix epoch timestamp in seconds.
+    #[must_use]
+    pub fn now(&self) -> u64 {
+        (self.0)()
+    }
+}
 
 /// Verified claims extracted from an accepted OAuth 2.1 JWT access token.
 /// Never carries the raw bearer token string.
@@ -277,7 +317,7 @@ impl TokenRejection {
 pub struct OAuthResourceServer {
     config: OAuthConfig,
     metadata_json: Bytes,
-    fetcher: Arc<dyn OAuthMetadataFetcher>,
+    fetcher: SharedOAuthMetadataFetcher,
     now: EpochSecondsClock,
     cache: RwLock<Option<CachedJwks>>,
     refresh_lock: Mutex<()>,
@@ -304,7 +344,7 @@ impl OAuthResourceServer {
     #[must_use]
     pub fn new(
         config: OAuthConfig,
-        fetcher: Arc<dyn OAuthMetadataFetcher>,
+        fetcher: SharedOAuthMetadataFetcher,
         now: EpochSecondsClock,
     ) -> Self {
         let metadata = config.protected_resource_metadata();
@@ -376,7 +416,7 @@ impl OAuthResourceServer {
         {
             return Err(TokenRejection::AudienceMismatch);
         }
-        let now = (self.now)();
+        let now = self.now.now();
         let exp = parsed.claims.exp.ok_or(TokenRejection::Expired)?;
         if now >= exp {
             return Err(TokenRejection::Expired);

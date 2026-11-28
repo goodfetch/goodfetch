@@ -739,13 +739,6 @@ exports[`@goodfetch/collie-langchain > snapshots the converted LangChain tools p
       "readOnly": false,
     },
     {
-      "description": "Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; \`page.session()\` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call.",
-      "hasObjectSchema": true,
-      "name": "run_new_page",
-      "operationClass": "effect",
-      "readOnly": false,
-    },
-    {
       "description": "Pauses a live Run: checkpoints it, then stops it at its next safe point, \`stopped\` with the stop reason \`pause\` and resumable by its Run ID with \`run.resume\`, after a restart too. Answers its Run report, which names the Checkpoint.",
       "hasObjectSchema": true,
       "name": "run_pause",

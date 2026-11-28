@@ -19,6 +19,9 @@ pub(crate) enum Figure {
     GlobalMaximumBytes,
     /// A size-limit entry's size, brotli-compressed.
     Brotli,
+    /// A protocol payload's wire byte count (MCP `tools/list` and tool results,
+    /// ADRs 0065 and 0071; issue 1360).
+    WireBytes,
     /// A resident-memory peak, which only the drift check reads.
     ResidentMemory,
 }
@@ -45,6 +48,7 @@ impl Figure {
             Self::TotalBytes => "total-bytes",
             Self::GlobalMaximumBytes => "global-maximum-bytes",
             Self::Brotli => "brotli",
+            Self::WireBytes => "wire-bytes",
             Self::ResidentMemory => "resident-memory",
         }
     }

@@ -238,14 +238,14 @@ export function parseRpcError(body: unknown, httpStatus: number): IntegrationToo
 export interface IntegrationClientOptions {
   readonly baseUrl: string;
   readonly token: string;
-  readonly protocolVersion?: string;
-  readonly fetchImpl?: typeof fetch;
+  readonly protocolVersion?: string | undefined;
+  readonly fetchImpl?: typeof fetch | undefined;
 }
 
 export interface SubscribeNotificationResult {
   readonly channel: string;
   readonly created: boolean;
-  readonly secret?: string;
+  readonly secret?: string | undefined;
 }
 
 export interface UnsubscribeNotificationResult {
@@ -332,32 +332,52 @@ export class IntegrationHttpClient {
 
   async startRecipe(params: {
     readonly recipe: string;
-    readonly params?: Record<string, unknown>;
-    readonly settings?: Record<string, unknown>;
+    readonly runId?: string | undefined;
+    readonly tags?: readonly string[] | undefined;
+    readonly settings?: Readonly<Record<string, unknown>> | undefined;
+    readonly timeout?: number | null | undefined;
   }): Promise<Record<string, unknown>> {
     const payload: Record<string, unknown> = {
       recipe: params.recipe,
       detached: true,
     };
-    if (params.params !== undefined) {
-      payload["params"] = params.params;
+    if (params.runId !== undefined) {
+      payload["run_id"] = params.runId;
+    }
+    if (params.tags !== undefined) {
+      payload["tags"] = params.tags;
     }
     if (params.settings !== undefined) {
       payload["settings"] = params.settings;
+    }
+    if (params.timeout !== undefined) {
+      payload["timeout"] = params.timeout;
     }
     return this.call("recipe.start", payload);
   }
 
   async startCatalogRun(params: {
-    readonly target: Record<string, unknown>;
-    readonly settings?: Record<string, unknown>;
+    readonly target: Readonly<Record<string, unknown>>;
+    readonly runId?: string | undefined;
+    readonly tags?: readonly string[] | undefined;
+    readonly settings?: Readonly<Record<string, unknown>> | undefined;
+    readonly timeout?: number | null | undefined;
   }): Promise<Record<string, unknown>> {
     const payload: Record<string, unknown> = {
       target: params.target,
       detached: true,
     };
+    if (params.runId !== undefined) {
+      payload["run_id"] = params.runId;
+    }
+    if (params.tags !== undefined) {
+      payload["tags"] = params.tags;
+    }
     if (params.settings !== undefined) {
       payload["settings"] = params.settings;
+    }
+    if (params.timeout !== undefined) {
+      payload["timeout"] = params.timeout;
     }
     return this.call("catalog_run.start", payload);
   }
@@ -373,7 +393,7 @@ export class IntegrationHttpClient {
   async subscribeNotification(params: {
     readonly channel: string;
     readonly url: string;
-    readonly events?: readonly string[];
+    readonly events?: readonly string[] | undefined;
   }): Promise<SubscribeNotificationResult> {
     const payload: Record<string, unknown> = {
       channel: params.channel,

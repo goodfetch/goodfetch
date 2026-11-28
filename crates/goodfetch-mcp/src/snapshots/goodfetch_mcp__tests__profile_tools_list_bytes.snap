@@ -21,8 +21,8 @@ expression: "serde_json::to_string_pretty(&Value::Object(profile_sizes)).unwrap(
       "tools_list_bytes": 150229
     },
     "run": {
-      "tool_count": 23,
-      "tools_list_bytes": 73415
+      "tool_count": 22,
+      "tools_list_bytes": 71448
     }
   },
   "foxhound": {
@@ -43,8 +43,8 @@ expression: "serde_json::to_string_pretty(&Value::Object(profile_sizes)).unwrap(
       "tools_list_bytes": 239458
     },
     "run": {
-      "tool_count": 23,
-      "tools_list_bytes": 73415
+      "tool_count": 22,
+      "tools_list_bytes": 71448
     }
   }
 }

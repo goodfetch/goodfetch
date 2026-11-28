@@ -3644,6 +3644,7 @@ version = "0.0.0"
 dependencies = [
  "data-encoding",
  "futures-util",
+ "getrandom 0.3.4",
  "goodfetch-dev-workspace-hack",
  "goodfetch-engine",
  "goodfetch-protocol",

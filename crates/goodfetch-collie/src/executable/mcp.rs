@@ -23,14 +23,18 @@ use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_engine::tls::ServingCertificate;
 use goodfetch_engine::transport::{self, InMemoryDialer, Network};
 use goodfetch_engine::{Dependencies, Engine};
-use goodfetch_mcp::engine::{EngineConnector, EngineLink, EngineLinkConfig, EngineLinkError};
-use goodfetch_mcp::oauth::{EpochSecondsClock, OAuthConfig, OAuthResourceServer};
+use goodfetch_mcp::engine::{
+    EngineConnector, EngineLink, EngineLinkConfig, EngineLinkError, SharedEngineConnector,
+};
+use goodfetch_mcp::oauth::{
+    EpochSecondsClock, OAuthConfig, OAuthResourceServer, SharedOAuthMetadataFetcher,
+};
 use goodfetch_mcp::profiles::{ProfileName, ResolvedProfile};
 use goodfetch_mcp::resources::{EmbeddedDoc, EmbeddedSkillFile, ResourceStore};
 use goodfetch_mcp::server::{McpServer, ServerOptions};
 use goodfetch_mcp::transports::{
     self, BoundHttpServer, DEFAULT_HTTP_BIND, HttpAuth, HttpOAuthFetcher, HttpRefusalRecorder,
-    HttpServerConfig, HttpTls, HttpTlsAcceptor,
+    HttpServerConfig, HttpTls, HttpTlsAcceptor, SharedRefusalRecorder, SharedTlsAcceptor,
 };
 use goodfetch_protocol::audit::{Actor, Listener, RefusalReason, TLS_TERMINATED_UPSTREAM};
 use goodfetch_protocol::catalog::{Product, Setting};
@@ -52,14 +56,26 @@ use crate::runtime::{self, Threads};
 
 /// Product documentation pages embedded into the executable and served as
 /// `goodfetch://docs/<page>` resources (ADRs 0070, 0097; issue 1371).
+/// Filtered at runtime by YAML `products:` frontmatter and `{/* products: */}`
+/// blocks so each Product serves every page that applies to it and none that
+/// belongs exclusively to the other Product.
 const EMBEDDED_DOC_PAGES: &[(&str, &str)] = &[
     ("cache.md", include_str!("../../../../docs/cache.md")),
+    ("index.md", include_str!("../../../../docs/index.md")),
     ("install.md", include_str!("../../../../docs/install.md")),
+    (
+        "mcp-frameworks.md",
+        include_str!("../../../../docs/mcp-frameworks.md"),
+    ),
     (
         "operations.md",
         include_str!("../../../../docs/operations.md"),
     ),
     ("recipes.md", include_str!("../../../../docs/recipes.md")),
+    (
+        "release-notes-template.md",
+        include_str!("../../../../docs/release-notes-template.md"),
+    ),
     ("runs.md", include_str!("../../../../docs/runs.md")),
     (
         "start-a-project.md",
@@ -71,15 +87,87 @@ const EMBEDDED_DOC_PAGES: &[(&str, &str)] = &[
     ),
 ];
 
-fn embedded_docs(product: Product) -> Vec<EmbeddedDoc> {
+/// Renders a source doc page for `product`: returns `None` when the YAML
+/// frontmatter `products:` list excludes `product`, and strips `{/* products: ... */}`
+/// blocks meant for another Product (matching `xtask/src/docs_samples/render.rs`).
+fn render_doc_for_product(raw: &str, product: Product) -> Option<String> {
+    let slug = match product {
+        Product::Collie => "collie",
+        Product::Foxhound => "foxhound",
+    };
+    let mut lines = raw.lines();
+    let mut out = Vec::new();
+    if lines.next() == Some("---") {
+        out.push("---");
+        let mut frontmatter = Vec::new();
+        for line in lines.by_ref() {
+            if line == "---" {
+                break;
+            }
+            if let Some(rest) = line.strip_prefix("products:") {
+                let trimmed = rest.trim().trim_start_matches('[').trim_end_matches(']');
+                let listed: Vec<&str> = trimmed
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if !listed.is_empty() && !listed.contains(&slug) {
+                    return None;
+                }
+            }
+            frontmatter.push(line);
+        }
+        out.extend(frontmatter);
+        out.push("---");
+    } else {
+        lines = raw.lines();
+    }
+
+    let mut include_block = true;
+    for line in lines {
+        let trimmed = line.trim();
+        if let Some(inner) = trimmed
+            .strip_prefix("{/*")
+            .and_then(|s| s.strip_suffix("*/}"))
+            .map(str::trim)
+        {
+            if let Some(products_spec) = inner.strip_prefix("products:") {
+                let listed: Vec<&str> = products_spec
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                include_block = listed.contains(&slug);
+                continue;
+            }
+            if inner == "end products" {
+                include_block = true;
+                continue;
+            }
+        }
+        if include_block {
+            out.push(line);
+        }
+    }
+
     let executable = product.executable_name();
     let product_name = product.name();
+    let mut rendered = out.join("\n");
+    if raw.ends_with('\n') {
+        rendered.push('\n');
+    }
+    Some(
+        rendered
+            .replace("{{executable}}", executable)
+            .replace("{{product}}", product_name),
+    )
+}
+
+fn embedded_docs(product: Product) -> Vec<EmbeddedDoc> {
     EMBEDDED_DOC_PAGES
         .iter()
-        .map(|&(page, raw)| {
-            let markdown = raw
-                .replace("{{executable}}", executable)
-                .replace("{{product}}", product_name);
+        .filter_map(|&(page, raw)| {
+            let markdown = render_doc_for_product(raw, product)?;
             let title = markdown
                 .lines()
                 .find_map(|line| line.strip_prefix("# "))
@@ -87,11 +175,11 @@ fn embedded_docs(product: Product) -> Vec<EmbeddedDoc> {
                 .filter(|t| !t.is_empty())
                 .unwrap_or(page)
                 .to_owned();
-            EmbeddedDoc {
+            Some(EmbeddedDoc {
                 page: page.to_owned(),
                 title,
                 markdown,
-            }
+            })
         })
         .collect()
 }
@@ -520,14 +608,14 @@ fn build_http_auth(
     clock: goodfetch_engine::clock::Clock,
 ) -> Result<(HttpAuth, Option<String>), String> {
     if let Some(oauth_config) = oauth_config {
-        let now: EpochSecondsClock = Arc::new(move || {
+        let now = EpochSecondsClock::new(move || {
             clock
                 .wall()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs()
         });
-        let fetcher = Arc::new(HttpOAuthFetcher::new(&[]));
+        let fetcher = SharedOAuthMetadataFetcher::new(HttpOAuthFetcher::new(&[]));
         let oauth = Arc::new(OAuthResourceServer::new(oauth_config, fetcher, now));
         return Ok((HttpAuth::OAuth(oauth), None));
     }
@@ -548,10 +636,12 @@ async fn activate_http_tls(
 ) -> HttpTls {
     match termination {
         Termination::Plain => HttpTls::Plain,
-        Termination::Tls(certificate) => HttpTls::Direct(Arc::new(ServingCertificateAcceptor {
-            certificate,
-            owner: Arc::new(audit_owner.child()),
-        })),
+        Termination::Tls(certificate) => {
+            HttpTls::Direct(SharedTlsAcceptor::new(ServingCertificateAcceptor {
+                certificate,
+                owner: Arc::new(audit_owner.child()),
+            }))
+        }
         Termination::Upstream(proxies) => {
             let trusted: Vec<String> = proxies.iter().map(ToString::to_string).collect();
             let origin = Origin {
@@ -657,15 +747,14 @@ fn run_http(
             dependencies.clock,
             Arc::new(audit_owner.child()),
         );
-        let refusal_recorder: Arc<dyn HttpRefusalRecorder> =
-            Arc::new(AuditRefusalRecorder { refusals });
+        let refusal_recorder = SharedRefusalRecorder::new(AuditRefusalRecorder { refusals });
         let tls =
             activate_http_tls(termination, bind, &audit, dependencies.clock, &audit_owner).await;
 
         let shutdown = CancellationToken::new();
         let signal_ct = shutdown.clone();
         audit_owner.spawn(async move {
-            wait_for_shutdown_signal().await;
+            wait_for_shutdown_signal(signal_ct.clone()).await;
             signal_ct.cancel();
         });
 
@@ -732,10 +821,10 @@ async fn serve_http_on_daemon(
     server_options: ServerOptions,
     product: Product,
     product_version: ProductVersion,
-    refusal_recorder: Arc<dyn HttpRefusalRecorder>,
+    refusal_recorder: SharedRefusalRecorder,
     shutdown: CancellationToken,
 ) -> Result<(), String> {
-    let connector: Arc<dyn EngineConnector> = Arc::new(DaemonConnector {
+    let connector = SharedEngineConnector::new(DaemonConnector {
         endpoint,
         config: EngineLinkConfig {
             product,
@@ -778,7 +867,7 @@ async fn serve_http_in_process(
     dependencies: Dependencies,
     product: Product,
     product_version: ProductVersion,
-    refusal_recorder: Arc<dyn HttpRefusalRecorder>,
+    refusal_recorder: SharedRefusalRecorder,
     shutdown: CancellationToken,
 ) -> Result<(), String> {
     let internal_token = transports::new_launch_token()
@@ -788,7 +877,7 @@ async fn serve_http_in_process(
         .listen_at(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
         .await
         .map_err(|err| format!("in-process engine listener failed: {err}"))?;
-    let connector: Arc<dyn EngineConnector> = Arc::new(InMemoryConnector {
+    let connector = SharedEngineConnector::new(InMemoryConnector {
         dialer,
         config: EngineLinkConfig {
             product,
@@ -847,7 +936,7 @@ async fn serve_http_in_process(
     http_res.map_err(|err| err.to_string())
 }
 
-async fn wait_for_shutdown_signal() {
+async fn wait_for_shutdown_signal(shutdown: CancellationToken) {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{SignalKind, signal};
@@ -856,17 +945,24 @@ async fn wait_for_shutdown_signal() {
         match sigterm.as_mut() {
             Some(term) => {
                 tokio::select! {
+                    () = shutdown.cancelled() => {}
                     _ = ctrl_c => {}
                     _ = term.recv() => {}
                 }
             }
             None => {
-                let _ = ctrl_c.await;
+                tokio::select! {
+                    () = shutdown.cancelled() => {}
+                    _ = ctrl_c => {}
+                }
             }
         }
     }
     #[cfg(not(unix))]
     {
-        let _ = tokio::signal::ctrl_c().await;
+        tokio::select! {
+            () = shutdown.cancelled() => {}
+            _ = tokio::signal::ctrl_c() => {}
+        }
     }
 }

@@ -6,20 +6,22 @@
 //! links) and `warning`s to active MCP `progressToken`s.
 
 use std::collections::BTreeMap;
-use std::fmt::Write as _;
+use std::fmt::{self, Write as _};
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{
-    CANCEL, CancelParams, Form, HELLO, HelloParams, HelloResult, ProductVersion, Surface,
+    CANCEL, CONNECTION_LOST, CancelParams, Form, HELLO, HelloParams, HelloResult, ProductVersion,
+    Surface,
 };
 use goodfetch_protocol::events::{
     CREDIT, CreditParams, EVENTS, EVENTS_SUBSCRIBE, EventBatch, EventsSubscribeParams,
 };
 use goodfetch_protocol::jsonrpc::{
-    ErrorData, ErrorObject, META, Message, Notification, ProtocolFailure, Request, RequestId,
-    RequestMeta, TraceContext, Version,
+    ErrorData, ErrorObject, META, Message, Notification, Request, RequestId, RequestMeta,
+    TraceContext, Version,
 };
 use goodfetch_protocol::log::{LOG, LogEvent, LogLevel};
 use goodfetch_protocol::needs_you::NEEDS_YOU_CHANGED;
@@ -49,7 +51,7 @@ pub struct ProgressUpdate {
 }
 
 /// Configuration for opening an [`EngineLink`].
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct EngineLinkConfig {
     /// The Product this MCP server announces in `hello`.
     pub product: Product,
@@ -59,6 +61,18 @@ pub struct EngineLinkConfig {
     pub token: Option<String>,
     /// Optional base URL for Human pause links (credentials are always stripped).
     pub live_view_base_url: Option<String>,
+}
+
+impl fmt::Debug for EngineLinkConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("EngineLinkConfig")
+            .field("product", &self.product)
+            .field("product_version", &self.product_version)
+            .field("token", &self.token.as_ref().map(|_| "[redacted]"))
+            .field("live_view_base_url", &self.live_view_base_url)
+            .finish()
+    }
 }
 
 /// Errors opening or shutting down an [`EngineLink`].
@@ -81,6 +95,31 @@ pub trait EngineConnector: Send + Sync + 'static {
     fn connect(
         &self,
     ) -> Pin<Box<dyn Future<Output = Result<EngineLink, EngineLinkError>> + Send + '_>>;
+}
+
+/// Newtype hiding dynamic dispatch for an [`EngineConnector`] (STYLE.md).
+#[derive(Clone)]
+pub struct SharedEngineConnector(Arc<dyn EngineConnector>);
+
+impl SharedEngineConnector {
+    /// Wraps `connector` in a cheaply cloneable [`SharedEngineConnector`].
+    #[must_use]
+    pub fn new(connector: impl EngineConnector) -> Self {
+        Self(Arc::new(connector))
+    }
+
+    /// Opens a fresh engine Connection through the wrapped connector.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineLinkError`] when the transport or `hello` handshake fails.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future cancels the in-flight connect attempt.
+    pub async fn connect(&self) -> Result<EngineLink, EngineLinkError> {
+        self.0.connect().await
+    }
 }
 
 /// An active handle to a Goodfetch engine JSON-RPC Connection.
@@ -638,11 +677,11 @@ async fn write_json_line<W: AsyncWrite + Unpin, T: serde::Serialize>(
 
 fn connection_closed_error(message: &str) -> ErrorObject {
     ErrorObject {
-        code: ProtocolFailure::InternalError.code(),
+        code: CONNECTION_LOST.group.json_rpc_class(),
         message: message.to_owned(),
         data: ErrorData {
-            code: "connection_lost".to_owned(),
-            retryable: true,
+            code: CONNECTION_LOST.name.to_owned(),
+            retryable: CONNECTION_LOST.retryable,
             details: json!({
                 "fix": "Reconnect to the engine or restart the Daemon, then retry the tool call."
             })

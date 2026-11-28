@@ -2,6 +2,7 @@
 # workspace of its own and is not part of this one.
 packages:
   - sdks/typescript/*
+  - adapters/shared
   - adapters/*/*
   - adapters/*/*/tests/lowest-version
   - integrations/*/*
@@ -69,6 +70,12 @@ allowBuilds:
   esbuild: false
   # Docusaurus's core-js (website/) only prints a funding notice.
   core-js: false
+  # Transitive optional/dev dependencies of `@n8n/node-cli` (lint-only) and
+  # `@activepieces/pieces-framework`: no native install script runs.
+  cpu-features: false
+  eslint-plugin-n8n-nodes-base: false
+  isolated-vm: false
+  ssh2: false
 
 # Fixes to dependencies, each upstreamable; remove one once a release has it.
 # The local search (website/src/search.ts) builds a section's index with the

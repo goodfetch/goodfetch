@@ -45,6 +45,8 @@ done
 # as users of it would.
 export UV_PYTHON=${pythons[0]}
 echo "UV_PYTHON=$UV_PYTHON" >>"$environment"
+uv sync --frozen --quiet --directory sdks/python/collie/tests/integration/mcp-frameworks
+uv sync --frozen --quiet --directory sdks/python/collie/tests/integration/google-adk
 just fetch
 # The browsers of the locked Playwright: the Release suite runs every
 # Playwright test on Chromium, Firefox and WebKit (TESTING.md, Browsers), and

@@ -16,11 +16,11 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use std::io::Write as _;
+use std::io::{BufRead as _, BufReader, Write as _};
 use std::process::Stdio;
 use std::time::Duration;
 
-use goodfetch_test_support::{StrictStdout, TestEnv};
+use goodfetch_test_support::{StrictStdout, TestEnv, Tool};
 use rmcp::ServiceExt as _;
 use rmcp::model::CallToolRequestParams;
 use rmcp::transport::TokioChildProcess;
@@ -1130,4 +1130,494 @@ fn mcp_http_remote_tls_oauth_validates_tokens_and_never_passes_through_to_script
             "OAuth bearer token segment leaked to Scripted engine: {recorded}"
         );
     }
+}
+
+/// Covers: story:11-234
+#[test]
+fn mcp_embeds_every_collie_docs_page_including_index_and_mcp_frameworks() {
+    let env = TestEnv::new();
+
+    let mut cmd = std::process::Command::new(COLLIE);
+    cmd.env_clear()
+        .envs(env.env_os())
+        .args(["mcp", "--attached", "--profile", "code"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let child = env.spawn(&mut cmd).unwrap();
+    let mut stdin = child.child().stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.child().stdout.take().unwrap());
+
+    let send = |stdin: &mut std::process::ChildStdin,
+                stdout: &mut BufReader<std::process::ChildStdout>,
+                req: Value|
+     -> Value {
+        let mut line = serde_json::to_vec(&req).unwrap();
+        line.push(b'\n');
+        stdin.write_all(&line).unwrap();
+        stdin.flush().unwrap();
+        let mut resp = String::new();
+        assert!(stdout.read_line(&mut resp).unwrap() > 0);
+        serde_json::from_str(resp.trim()).unwrap()
+    };
+
+    let init = send(
+        &mut stdin,
+        &mut stdout,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": { "name": "docs-coverage-test", "version": "1.0.0" }
+            }
+        }),
+    );
+    assert!(init.get("result").is_some());
+    let notif = json!({ "jsonrpc": "2.0", "method": "notifications/initialized" });
+    stdin
+        .write_all(format!("{}\n", serde_json::to_string(&notif).unwrap()).as_bytes())
+        .unwrap();
+    stdin.flush().unwrap();
+
+    let list = send(
+        &mut stdin,
+        &mut stdout,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "resources/list",
+            "params": {}
+        }),
+    );
+    let uris: std::collections::BTreeSet<String> = list["result"]["resources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["uri"].as_str().unwrap().to_owned())
+        .collect();
+
+    assert!(
+        uris.contains("goodfetch://docs/index.md"),
+        "index.md must be served: {uris:?}"
+    );
+    assert!(
+        uris.contains("goodfetch://docs/mcp-frameworks.md"),
+        "mcp-frameworks.md must be served: {uris:?}"
+    );
+    assert!(
+        !uris.contains("goodfetch://docs/throughput.md"),
+        "Foxhound-only throughput.md must not be served by Collie: {uris:?}"
+    );
+
+    // Every Collie-applicable docs/*.md file on disk must be embedded.
+    let docs_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("docs");
+    for entry in std::fs::read_dir(&docs_dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|e| e.to_str()) != Some("md") {
+            continue;
+        }
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let is_foxhound_only = raw
+            .lines()
+            .take(10)
+            .any(|line| line.trim() == "products: [foxhound]");
+        let name = path.file_name().unwrap().to_str().unwrap();
+        let expected_uri = format!("goodfetch://docs/{name}");
+        if is_foxhound_only {
+            assert!(
+                !uris.contains(&expected_uri),
+                "{expected_uri} is Foxhound-only"
+            );
+        } else {
+            assert!(
+                uris.contains(&expected_uri),
+                "missing Collie doc page {expected_uri} in MCP resources: {uris:?}"
+            );
+        }
+    }
+
+    // Verify index.md renders only Collie blocks, not Foxhound-only blocks.
+    let index_read = send(
+        &mut stdin,
+        &mut stdout,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "resources/read",
+            "params": { "uri": "goodfetch://docs/index.md" }
+        }),
+    );
+    let index_text = index_read["result"]["contents"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(index_text.contains("Goodfetch Collie drives a browser"));
+    assert!(!index_text.contains("Goodfetch Foxhound crawls sites"));
+
+    drop(stdin);
+    let _ = child.child().wait();
+}
+
+/// Regression test for S4: `mcp --http <occupied-addr>` fails to bind and
+/// exits promptly without hanging on `wait_for_shutdown_signal()` / `audit_owner.stop()`.
+///
+/// Covers: story:11-220
+#[test]
+fn mcp_http_bind_error_exits_promptly_without_hanging() {
+    let env = TestEnv::new();
+    #[expect(
+        clippy::disallowed_types,
+        reason = "test holds a loopback TCP socket to trigger an immediate bind failure in mcp --http"
+    )]
+    let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = occupied.local_addr().unwrap();
+
+    let mut cmd = std::process::Command::new(COLLIE);
+    cmd.env_clear()
+        .envs(env.env_os())
+        .args(["mcp", "--attached", "--http", &addr.to_string()])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let child = env.spawn(&mut cmd).unwrap();
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let status = loop {
+        if let Some(status) = child.child().try_wait().unwrap() {
+            break status;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "mcp --http hung on early bind error instead of exiting cleanly"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert!(
+        !status.success(),
+        "mcp --http on an already-occupied port must exit non-zero"
+    );
+    drop(occupied);
+}
+
+/// Real `goodfetch-scripted-engine` binary cancel & progress test (#1359, P14):
+/// proves `notifications/cancelled` sends `$/cancel` to the Scripted engine and
+/// a `progressToken` receives `run.progress` and `warning` notifications.
+///
+/// Covers: story:11-222, story:11-229
+#[test]
+fn mcp_stdio_forwards_progress_warnings_and_cancel_against_scripted_engine_binary() {
+    let env = TestEnv::new();
+    let script_path = env.folder().join("mcp-cancel-progress.json");
+    let record_path = env.folder().join("mcp-cancel-progress.record.jsonl");
+    let token = "scripted-cancel-progress-token";
+
+    let script = json!({
+        "description": "Emits progress and warning events for an in-flight call, then receives $/cancel and returns call_cancelled",
+        "steps": [
+            {
+                "expect": {
+                    "method": "hello",
+                    "params": {
+                        "protocol_version": "0.1",
+                        "surface": "mcp",
+                        "form": "tool",
+                        "needs": "collie",
+                        "product_version": env!("CARGO_PKG_VERSION"),
+                        "token": token,
+                        "log_level": "warn"
+                    }
+                }
+            },
+            {
+                "reply": {
+                    "result": {
+                        "protocol_version": "0.1",
+                        "product": "collie",
+                        "product_version": env!("CARGO_PKG_VERSION"),
+                        "engine_instance": "01scriptedcancelprogress000",
+                        "max_calls_in_flight": 16,
+                        "timeouts": []
+                    }
+                }
+            },
+            {
+                "expect": {
+                    "method": "events.subscribe",
+                    "params": {}
+                }
+            },
+            {
+                "expect": {
+                    "method": "$/credit",
+                    "params": {
+                        "id": 2,
+                        "credits": 16
+                    }
+                }
+            },
+            {
+                "expect": {
+                    "method": "run.finish",
+                    "params": {
+                        "run_id": "run-cancel-progress"
+                    }
+                }
+            },
+            {
+                "send": {
+                    "notification": {
+                        "method": "$/events",
+                        "params": {
+                            "id": 2,
+                            "events": [
+                                {
+                                    "position": 1,
+                                    "event": "run.progress",
+                                    "data": {
+                                        "run_id": "run-cancel-progress",
+                                        "position": 1,
+                                        "at": "2026-11-28T00:00:00Z",
+                                        "lifecycle": "running",
+                                        "writer": "live",
+                                        "epoch": 1,
+                                        "pauses": [],
+                                        "message": "halfway there",
+                                        "last": false
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            {
+                "expect": {
+                    "method": "$/credit",
+                    "params": {
+                        "id": 2,
+                        "credits": 1
+                    }
+                }
+            },
+            {
+                "send": {
+                    "notification": {
+                        "method": "warning",
+                        "params": {
+                            "run_id": "run-cancel-progress",
+                            "message": "slow upstream site"
+                        }
+                    }
+                }
+            },
+            {
+                "expect": {
+                    "method": "$/cancel",
+                    "params": {
+                        "id": 3
+                    }
+                }
+            },
+            {
+                "reply": {
+                    "error": {
+                        "code": -32002,
+                        "message": "call cancelled by client",
+                        "data": {
+                            "code": "call_cancelled",
+                            "retryable": false,
+                            "fix": "Retry the operation if you still need its result."
+                        }
+                    }
+                }
+            }
+        ]
+    });
+    std::fs::write(&script_path, serde_json::to_vec_pretty(&script).unwrap()).unwrap();
+
+    let scripted_bin = goodfetch_test_support::tools()
+        .unwrap()
+        .path(Tool::ScriptedEngine)
+        .unwrap()
+        .to_path_buf();
+    let mut scripted_cmd = std::process::Command::new(scripted_bin);
+    scripted_cmd
+        .env_clear()
+        .envs(env.env_os())
+        .args([
+            "--script",
+            script_path.to_str().unwrap(),
+            "--mode",
+            "socket",
+            "--record",
+            record_path.to_str().unwrap(),
+            "--token",
+            token,
+            "--product-version",
+            env!("CARGO_PKG_VERSION"),
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let scripted_proc = env.spawn(&mut scripted_cmd).unwrap();
+    let mut scripted_stdout = BufReader::new(scripted_proc.child().stdout.take().unwrap());
+    let mut ready_line = String::new();
+    assert!(
+        scripted_stdout.read_line(&mut ready_line).unwrap() > 0,
+        "scripted engine must announce readiness"
+    );
+
+    let mut mcp_cmd = std::process::Command::new(COLLIE);
+    mcp_cmd
+        .env_clear()
+        .envs(env.env_os())
+        .args(["mcp", "--daemon"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mcp_proc = env.spawn(&mut mcp_cmd).unwrap();
+    let mut stdin = mcp_proc.child().stdin.take().unwrap();
+    let mcp_stdout_pipe = mcp_proc.child().stdout.take().unwrap();
+    let mut mcp_stderr_pipe = mcp_proc.child().stderr.take().unwrap();
+    let mut scripted_stderr_pipe = scripted_proc.child().stderr.take().unwrap();
+
+    let (line_tx, line_rx) = std::sync::mpsc::channel::<Result<String, String>>();
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(mcp_stdout_pipe);
+        loop {
+            let mut line = String::new();
+            match reader.read_line(&mut line) {
+                Ok(0) => {
+                    let _ = line_tx.send(Err("EOF".to_owned()));
+                    break;
+                }
+                Ok(_) => {
+                    if line_tx.send(Ok(line)).is_err() {
+                        break;
+                    }
+                }
+                Err(err) => {
+                    let _ = line_tx.send(Err(err.to_string()));
+                    break;
+                }
+            }
+        }
+    });
+
+    let write_msg = |stdin: &mut std::process::ChildStdin, value: &Value| {
+        let mut bytes = serde_json::to_vec(value).unwrap();
+        bytes.push(b'\n');
+        stdin.write_all(&bytes).unwrap();
+        stdin.flush().unwrap();
+    };
+    let read_msg = |rx: &std::sync::mpsc::Receiver<Result<String, String>>,
+                    scripted_stderr: &mut std::process::ChildStderr,
+                    mcp_stderr: &mut std::process::ChildStderr|
+     -> Value {
+        match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(Ok(line)) => serde_json::from_str(line.trim()).unwrap(),
+            other => {
+                use std::io::Read as _;
+                let _ = scripted_proc.child().kill();
+                let _ = mcp_proc.child().kill();
+                let mut s_err = String::new();
+                let mut m_err = String::new();
+                let _ = scripted_stderr.read_to_string(&mut s_err);
+                let _ = mcp_stderr.read_to_string(&mut m_err);
+                let rec = std::fs::read_to_string(&record_path).unwrap_or_default();
+                panic!(
+                    "MCP stdout read failed ({other:?})\nscripted stderr:\n{s_err}\nmcp stderr:\n{m_err}\nrecord:\n{rec}"
+                );
+            }
+        }
+    };
+
+    write_msg(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": { "name": "scripted-cancel-test", "version": "1.0.0" }
+            }
+        }),
+    );
+    let init = read_msg(&line_rx, &mut scripted_stderr_pipe, &mut mcp_stderr_pipe);
+    assert!(init.get("result").is_some());
+    write_msg(
+        &mut stdin,
+        &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+    );
+
+    write_msg(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "run_finish",
+                "arguments": { "run_id": "run-cancel-progress" },
+                "_meta": { "progressToken": "prog-1" }
+            }
+        }),
+    );
+
+    // Wait for both progress notifications (run.progress + warning).
+    let mut saw_progress = false;
+    let mut saw_warning = false;
+    for _ in 0..8 {
+        let msg = read_msg(&line_rx, &mut scripted_stderr_pipe, &mut mcp_stderr_pipe);
+        if msg.get("method").and_then(Value::as_str) == Some("notifications/progress") {
+            let text = msg["params"]["message"].as_str().unwrap_or_default();
+            if text.contains("halfway there") {
+                saw_progress = true;
+            }
+            if text.contains("slow upstream site") {
+                saw_warning = true;
+            }
+            if saw_progress && saw_warning {
+                break;
+            }
+        }
+    }
+    assert!(
+        saw_progress,
+        "MCP client must receive run.progress notification"
+    );
+    assert!(saw_warning, "MCP client must receive warning notification");
+
+    // Cancel the in-flight MCP tool call -> must forward `$/cancel` to Scripted engine.
+    write_msg(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/cancelled",
+            "params": { "requestId": 2, "reason": "user cancelled" }
+        }),
+    );
+
+    // Drain any final response or close cleanly.
+    drop(stdin);
+    let _ = mcp_proc.child().wait();
+    let scripted_status = scripted_proc.child().wait().unwrap();
+    assert!(
+        scripted_status.success(),
+        "scripted engine must observe $/cancel and exit 0: {scripted_status}"
+    );
+    let recorded = std::fs::read_to_string(&record_path).unwrap();
+    assert!(
+        recorded.contains("\"$/cancel\""),
+        "Scripted engine record must contain $/cancel: {recorded}"
+    );
 }

@@ -73,7 +73,7 @@ use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
 use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure, RequestId, TraceContext};
 use goodfetch_protocol::live_view::ENABLED as LIVE_VIEW_ENABLED;
-use goodfetch_protocol::settings::{RunOrigin, SettingLimit};
+use goodfetch_protocol::settings::SettingLimit;
 use serde_json::{Map, Value};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::sync::{mpsc, oneshot};
@@ -1442,7 +1442,7 @@ impl Session<'_> {
                 project: None,
                 recipe: None,
                 settings: own.clone(),
-                origin: Some(RunOrigin::Settings),
+                origin: Some(crate::run::run_origin(surface)),
                 registered: registered.clone(),
                 acting_for_model: surface.acts_for_model(),
                 exposed: self.connection.exposed,

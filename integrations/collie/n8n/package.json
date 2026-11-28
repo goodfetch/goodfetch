@@ -9,23 +9,34 @@
     "goodfetch",
     "n8n-community-node-package"
   ],
-  "license": "Apache-2.0",
+  "homepage": "https://docs.goodfetch.dev/integrations/n8n",
+  "license": "MIT",
+  "author": {
+    "name": "Goodfetch",
+    "email": "opensource@goodfetch.dev"
+  },
   "files": [
     "dist"
   ],
   "type": "module",
   "main": "dist/index.js",
+  "exports": {
+    ".": "./index.ts"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "lint": "node scripts/n8n-node-lint.ts",
-    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json"
+    "build": "tsc -p tsconfig.build.json && cp credentials/*.svg dist/credentials/ && cp nodes/GoodfetchCollie/*.svg dist/nodes/GoodfetchCollie/ && node -e \"require('node:fs').writeFileSync('dist/package.json','{\\\"type\\\":\\\"commonjs\\\"}\\n')\"",
+    "lint": "n8n-node lint",
+    "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
-    "@goodfetch/collie-integrations-core": "workspace:*",
-    "@goodfetch/test-support": "workspace:*",
+    "@n8n/node-cli": "0.58.8",
     "@types/node": "catalog:",
-    "typescript": "catalog:",
-    "vitest": "catalog:"
+    "n8n-workflow": "2.49.6",
+    "typescript": "5.9.3",
+    "zod": "^3.25.0"
+  },
+  "peerDependencies": {
+    "n8n-workflow": "*"
   },
   "engines": {
     "node": ">=24.0.0"

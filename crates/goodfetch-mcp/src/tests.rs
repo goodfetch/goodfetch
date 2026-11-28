@@ -726,14 +726,15 @@ fn clean_link_strips_credentials_query_and_fragment() {
 fn first_profile_tools_list_is_a_snapshot() {
     let profile = ResolvedProfile::for_product(Product::Collie, ProfileName::Browser);
     let summary: Vec<Value> = profile
-        .projected_tools()
-        .iter()
-        .map(|projected| {
+        .list_tools()
+        .into_iter()
+        .map(|tool| {
+            let projected = profile.get(tool.name.as_ref()).expect("listed tool exists");
             json!({
-                "name": projected.tool.name,
+                "name": tool.name,
                 "operation": projected.operation,
-                "annotations": projected.tool.annotations,
-                "input_schema_type": projected.tool.input_schema.get("type"),
+                "annotations": tool.annotations,
+                "input_schema_type": tool.input_schema.get("type"),
             })
         })
         .collect();
@@ -996,7 +997,7 @@ fn deprecated_fixture_entry_sets_prefix_and_schema_flag() {
 /// Covers: story:11-185, story:11-232
 #[test]
 fn per_profile_tools_list_bytes_and_named_workload_results_are_snapshots() {
-    use crate::projection::{success_tool_result, tool_result_wire_bytes, tools_list_wire_bytes};
+    use crate::projection::tools_list_wire_bytes;
 
     let mut profile_sizes = Map::new();
     for (product_label, product) in [("collie", Product::Collie), ("foxhound", Product::Foxhound)] {
@@ -1021,79 +1022,253 @@ fn per_profile_tools_list_bytes_and_named_workload_results_are_snapshots() {
         serde_json::to_string_pretty(&Value::Object(profile_sizes)).unwrap()
     );
 
-    // Named workloads from issue #1360: run_start, page_goto, ariaSnapshot in
-    // `ai` mode (first and second), success_check_evaluate, code_mode_run.
-    let workloads: [(&str, Value); 6] = [
-        (
-            "run_start",
-            json!({
-                "run_id": "run_01J00000000000000000000001",
-                "status": "running",
-                "product": "collie"
-            }),
-        ),
-        (
-            "page_goto",
-            json!({
-                "url": "https://shop.test/products/1",
-                "status": 200,
-                "title": "Product 1 — Shop"
-            }),
-        ),
-        (
-            "aria_snapshot_ai_first",
-            json!({
-                "mode": "ai",
-                "generation": 1,
-                "incremental": false,
-                "tree": "- main:\n  - heading \"Product 1\" [ref=e1]\n  - button \"Add to cart\" [ref=e2]"
-            }),
-        ),
-        (
-            "aria_snapshot_ai_second",
-            json!({
-                "mode": "ai",
-                "generation": 2,
-                "incremental": true,
-                "diff": "@@ e2 @@\n- button \"Add to cart\" [ref=e2]\n+ button \"Added\" [ref=e2]"
-            }),
-        ),
-        (
-            "success_check_evaluate",
-            json!({
-                "passed": true,
-                "checks": [
-                    { "name": "cart_count", "passed": true, "observed": 1 }
-                ]
-            }),
-        ),
-        (
-            "code_mode_run",
-            json!({
-                "ok": true,
-                "value": { "title": "Product 1 — Shop", "price": 1999 },
-                "logs": ["navigated to /products/1"]
-            }),
-        ),
-    ];
-
-    let mut workload_sizes = Map::new();
-    for (name, payload) in workloads {
-        let result = success_tool_result(payload);
-        workload_sizes.insert(
-            name.to_owned(),
-            json!({
-                "wire_bytes": tool_result_wire_bytes(&result),
-                "is_error": result.is_error,
-                "content_blocks": result.content.len(),
-            }),
-        );
-    }
+    // Named workloads from issue #1360 exercised end-to-end through `McpServer`
+    // over in-memory `rmcp` so `tool_result_wire_bytes` measures real MCP tool
+    // call responses rather than isolated JSON literals.
+    let workload_sizes = measure_named_mcp_workloads();
 
     insta::assert_snapshot!(
         "workload_tool_result_bytes",
         serde_json::to_string_pretty(&Value::Object(workload_sizes)).unwrap()
     );
+}
+
+static OP_ARIA_SNAPSHOT: goodfetch_protocol::catalog::Operation =
+    goodfetch_protocol::catalog::Operation {
+        name: "page.aria_snapshot",
+        description: "Returns the page's ARIA snapshot.",
+        class: goodfetch_protocol::catalog::OperationClass::Read,
+        kind: goodfetch_protocol::catalog::OperationKind::Query,
+        reach: goodfetch_protocol::catalog::Reach::AllSurfaces,
+        params: empty_schema,
+        result: empty_schema,
+        events: &[],
+        cancellable: true,
+        input: None,
+        bound: None,
+        stability: goodfetch_protocol::catalog::Stability::Stable,
+        deprecated: None,
+        arrived_in: goodfetch_protocol::catalog::ProtocolVersion { major: 0, minor: 1 },
+    };
+
+static OP_SUCCESS_CHECK: goodfetch_protocol::catalog::Operation =
+    goodfetch_protocol::catalog::Operation {
+        name: "success_check.evaluate",
+        description: "Evaluates success checks for a Run.",
+        class: goodfetch_protocol::catalog::OperationClass::Read,
+        kind: goodfetch_protocol::catalog::OperationKind::Query,
+        reach: goodfetch_protocol::catalog::Reach::AllSurfaces,
+        params: empty_schema,
+        result: empty_schema,
+        events: &[],
+        cancellable: true,
+        input: None,
+        bound: None,
+        stability: goodfetch_protocol::catalog::Stability::Stable,
+        deprecated: None,
+        arrived_in: goodfetch_protocol::catalog::ProtocolVersion { major: 0, minor: 1 },
+    };
+
+static OP_CODE_MODE: goodfetch_protocol::catalog::Operation =
+    goodfetch_protocol::catalog::Operation {
+        name: "code_mode.run",
+        description: "Executes a sandboxed Code mode program.",
+        class: goodfetch_protocol::catalog::OperationClass::Effect,
+        kind: goodfetch_protocol::catalog::OperationKind::RoundTrip,
+        reach: goodfetch_protocol::catalog::Reach::AllSurfaces,
+        params: empty_schema,
+        result: empty_schema,
+        events: &[],
+        cancellable: true,
+        input: None,
+        bound: None,
+        stability: goodfetch_protocol::catalog::Stability::Stable,
+        deprecated: None,
+        arrived_in: goodfetch_protocol::catalog::ProtocolVersion { major: 0, minor: 1 },
+    };
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end fixture executing all 6 named MCP workloads from issue #1360"
+)]
+fn measure_named_mcp_workloads() -> serde_json::Map<String, Value> {
+    use crate::projection::tool_result_wire_bytes;
+    use goodfetch_protocol::run::{Lifecycle, RunId, RunStarted, StartedAs};
+    let run_started_payload = serde_json::to_value(RunStarted {
+        run_id: RunId::parse("run-01j00000000000000000000001").unwrap(),
+        started_as: StartedAs::New,
+        lifecycle: Lifecycle::Running,
+        needs: Product::Collie,
+    })
+    .unwrap();
+
+    let mut ops = crate::profiles::profile_operations(Product::Collie, ProfileName::Browser);
+    ops.push(&OP_ARIA_SNAPSHOT);
+    ops.push(&OP_SUCCESS_CHECK);
+    ops.push(&OP_CODE_MODE);
+    let profile = ResolvedProfile::from_operations("workload-measure".to_owned(), ops);
+
+    test_runtime().block_on(async {
+        let run_started_for_engine = run_started_payload.clone();
+        let (client, _recorder, tasks) = start_in_memory_with_profile(
+            Product::Collie,
+            profile,
+            None,
+            move |stream| async move {
+                let (read, mut writer) = tokio::io::split(stream);
+                let mut reader = BufReader::new(read);
+                let mut line = String::new();
+                let mut aria_calls: u32 = 0;
+                while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
+                    let msg: Message = serde_json::from_str(line.trim()).unwrap();
+                    line.clear();
+                    if let Message::Request(req) = msg {
+                        match req.method.as_str() {
+                            "hello" => write_line(&mut writer, &hello_ok(&req.id)).await,
+                            "events.subscribe" => {
+                                write_line(
+                                    &mut writer,
+                                    &json!({"jsonrpc": "2.0", "id": req.id, "result": {}}),
+                                )
+                                .await;
+                            }
+                            "run.start" => {
+                                write_line(
+                                    &mut writer,
+                                    &json!({"jsonrpc": "2.0", "id": req.id, "result": run_started_for_engine}),
+                                )
+                                .await;
+                            }
+                            "page.goto" => {
+                                write_line(
+                                    &mut writer,
+                                    &json!({
+                                        "jsonrpc": "2.0",
+                                        "id": req.id,
+                                        "result": {
+                                            "url": "https://shop.test/products/1",
+                                            "status": 200,
+                                            "title": "Product 1 — Shop"
+                                        }
+                                    }),
+                                )
+                                .await;
+                            }
+                            "page.aria_snapshot" => {
+                                aria_calls += 1;
+                                let result = if aria_calls == 1 {
+                                    json!({
+                                        "mode": "ai",
+                                        "generation": 1,
+                                        "incremental": false,
+                                        "tree": "- main:\n  - heading \"Product 1\" [ref=e1]\n  - button \"Add to cart\" [ref=e2]"
+                                    })
+                                } else {
+                                    json!({
+                                        "mode": "ai",
+                                        "generation": 2,
+                                        "incremental": true,
+                                        "diff": "@@ e2 @@\n- button \"Add to cart\" [ref=e2]\n+ button \"Added\" [ref=e2]"
+                                    })
+                                };
+                                write_line(
+                                    &mut writer,
+                                    &json!({"jsonrpc": "2.0", "id": req.id, "result": result}),
+                                )
+                                .await;
+                            }
+                            "success_check.evaluate" => {
+                                write_line(
+                                    &mut writer,
+                                    &json!({
+                                        "jsonrpc": "2.0",
+                                        "id": req.id,
+                                        "result": {
+                                            "passed": true,
+                                            "checks": [
+                                                { "name": "cart_count", "passed": true, "observed": 1 }
+                                            ]
+                                        }
+                                    }),
+                                )
+                                .await;
+                            }
+                            "code_mode.run" => {
+                                write_line(
+                                    &mut writer,
+                                    &json!({
+                                        "jsonrpc": "2.0",
+                                        "id": req.id,
+                                        "result": {
+                                            "ok": true,
+                                            "value": { "title": "Product 1 — Shop", "price": 1999 },
+                                            "logs": ["navigated to /products/1"]
+                                        }
+                                    }),
+                                )
+                                .await;
+                            }
+                            other => panic!("unexpected method `{other}`"),
+                        }
+                    }
+                }
+            },
+        )
+        .await;
+
+        let calls: [(&str, &str, Value); 6] = [
+            ("run_start", "run_start", json!({})),
+            (
+                "page_goto",
+                "page_goto",
+                json!({ "page": "page-1", "url": "https://shop.test/products/1" }),
+            ),
+            (
+                "aria_snapshot_ai_first",
+                "page_aria_snapshot",
+                json!({ "page": "page-1", "mode": "ai" }),
+            ),
+            (
+                "aria_snapshot_ai_second",
+                "page_aria_snapshot",
+                json!({ "page": "page-1", "mode": "ai" }),
+            ),
+            (
+                "success_check_evaluate",
+                "success_check_evaluate",
+                json!({ "run_id": "run-01j00000000000000000000001" }),
+            ),
+            (
+                "code_mode_run",
+                "code_mode_run",
+                json!({ "program": "return { title: 'Product 1' };" }),
+            ),
+        ];
+
+        let mut sizes = Map::new();
+        for (label, tool_name, args) in calls {
+            let result = client
+                .call_tool(
+                    CallToolRequestParams::new(tool_name)
+                        .with_arguments(args.as_object().cloned().unwrap_or_default()),
+                )
+                .await
+                .unwrap_or_else(|err| panic!("workload `{label}` failed: {err}"));
+            sizes.insert(
+                label.to_owned(),
+                json!({
+                    "wire_bytes": tool_result_wire_bytes(&result),
+                    "is_error": result.is_error,
+                    "content_blocks": result.content.len(),
+                }),
+            );
+        }
+
+        let _ = client.cancel().await;
+        tasks.close();
+        tasks.wait().await;
+        sizes
+    })
 }
 
 /// Covers: story:11-223, story:11-224, story:11-225, mcp-profile:browser, mcp-profile:agent, mcp-profile:run, mcp-profile:code, mcp-profile:full
@@ -1112,16 +1287,19 @@ fn every_profile_projection_is_a_snapshot_and_identical_in_foxhound() {
         let snapshot_value = json!({
             "profile": profile_name.as_str(),
             "tools_list_bytes": collie_bytes,
-            "tools": collie.projected_tools().iter().map(|p| json!({
-                "name": p.tool.name,
-                "operation": p.operation,
-                "description": p.tool.description,
-                "annotations": p.tool.annotations,
-                "input_schema_keys": p.tool.input_schema.get("properties")
-                    .and_then(Value::as_object)
-                    .map(|m| m.keys().cloned().collect::<Vec<_>>())
-                    .unwrap_or_default(),
-            })).collect::<Vec<_>>(),
+            "tools": collie_tools.iter().map(|tool| {
+                let p = collie.get(tool.name.as_ref()).expect("listed tool exists");
+                json!({
+                    "name": tool.name,
+                    "operation": p.operation,
+                    "description": tool.description,
+                    "annotations": tool.annotations,
+                    "input_schema_keys": tool.input_schema.get("properties")
+                        .and_then(Value::as_object)
+                        .map(|m| m.keys().cloned().collect::<Vec<_>>())
+                        .unwrap_or_default(),
+                })
+            }).collect::<Vec<_>>(),
         });
         insta::assert_snapshot!(
             format!("profile_{}", profile_name.as_str()),
@@ -1205,7 +1383,10 @@ fn no_kept_off_or_foxhound_operation_appears_and_classes_match_catalog() {
     for product in [Product::Collie, Product::Foxhound] {
         for profile_name in ProfileName::ALL {
             let resolved = ResolvedProfile::for_product(product, profile_name);
-            for projected in resolved.projected_tools() {
+            for tool in resolved.list_tools() {
+                let projected = resolved
+                    .get(tool.name.as_ref())
+                    .expect("listed tool exists");
                 let op = all_ops.get(projected.operation).unwrap_or_else(|| {
                     panic!("unknown catalog operation `{}`", projected.operation)
                 });
@@ -1573,7 +1754,7 @@ fn streamable_http_refuses_missing_wrong_query_token_and_foreign_host_or_origin(
 
         let refusals = Arc::new(RecordingRefusals::default());
         let cancellation = CancellationToken::new();
-        let connector = Arc::new(ScriptedSessionConnector {
+        let connector = crate::engine::SharedEngineConnector::new(ScriptedSessionConnector {
             tasks: tasks.clone(),
             next_session: Arc::new(std::sync::atomic::AtomicUsize::new(1)),
             per_session_limit: 10,
@@ -1592,7 +1773,9 @@ fn streamable_http_refuses_missing_wrong_query_token_and_foreign_host_or_origin(
                 bind: transports::DEFAULT_HTTP_BIND.parse().unwrap(),
                 auth: transports::HttpAuth::LaunchToken(SecretString::from(token.clone())),
                 tls: transports::HttpTls::Plain,
-                refusals: Some(Arc::<RecordingRefusals>::clone(&refusals)),
+                refusals: Some(transports::SharedRefusalRecorder::new(RecordingRefusals {
+                    reasons: Arc::clone(&refusals.reasons),
+                })),
                 cancellation: cancellation.clone(),
             },
             options,
@@ -1744,7 +1927,7 @@ fn streamable_http_two_concurrent_sessions_keep_independent_limits_and_cancellat
         let cancellation = CancellationToken::new();
         let cancelled_sessions = Arc::new(Mutex::new(Vec::new()));
         let release_held = Arc::new(tokio::sync::Notify::new());
-        let connector = Arc::new(ScriptedSessionConnector {
+        let connector = crate::engine::SharedEngineConnector::new(ScriptedSessionConnector {
             tasks: tasks.clone(),
             next_session: Arc::new(std::sync::atomic::AtomicUsize::new(1)),
             per_session_limit: 1,
@@ -2230,23 +2413,24 @@ fn remote_mcp_tls_and_oauth_enforces_metadata_audience_issuer_exp_and_no_passthr
         .with_no_client_auth()
         .with_single_cert(vec![cert_der.clone()], key_der)
         .unwrap();
-        let tls_acceptor = Arc::new(transports::StaticTlsAcceptor(
+        let tls_acceptor = transports::SharedTlsAcceptor::new(transports::StaticTlsAcceptor(
             tokio_rustls::TlsAcceptor::from(Arc::new(server_tls)),
         ));
 
         let fixed_now: u64 = 1_800_000_000;
         let audience = "https://mcp.remote.test/mcp";
         let oauth_config = OAuthConfig::new(&stub.issuer, audience).unwrap();
-        let fetcher = Arc::new(transports::HttpOAuthFetcher::new(&[]));
+        let fetcher =
+            crate::oauth::SharedOAuthMetadataFetcher::new(transports::HttpOAuthFetcher::new(&[]));
         let oauth = Arc::new(OAuthResourceServer::new(
             oauth_config,
             fetcher,
-            Arc::new(move || fixed_now),
+            crate::oauth::EpochSecondsClock::new(move || fixed_now),
         ));
 
         let refusals = Arc::new(RecordingRefusals::default());
         let recorded_wire = Arc::new(Mutex::new(Vec::new()));
-        let connector = Arc::new(RecordingEngineConnector {
+        let connector = crate::engine::SharedEngineConnector::new(RecordingEngineConnector {
             tasks: tasks.clone(),
             recorded_wire: Arc::clone(&recorded_wire),
         });
@@ -2262,7 +2446,9 @@ fn remote_mcp_tls_and_oauth_enforces_metadata_audience_issuer_exp_and_no_passthr
                 bind: "0.0.0.0:0".parse().unwrap(),
                 auth: transports::HttpAuth::OAuth(Arc::clone(&oauth)),
                 tls: transports::HttpTls::Direct(tls_acceptor),
-                refusals: Some(Arc::<RecordingRefusals>::clone(&refusals)),
+                refusals: Some(transports::SharedRefusalRecorder::new(RecordingRefusals {
+                    reasons: Arc::clone(&refusals.reasons),
+                })),
                 cancellation: cancellation.clone(),
             },
             options,
@@ -2482,4 +2668,409 @@ fn remote_mcp_tls_and_oauth_enforces_metadata_audience_issuer_exp_and_no_passthr
         tasks.close();
         tasks.wait().await;
     });
+}
+
+/// Regression test for S5: `EngineLinkConfig`'s `Debug` redacts `token`.
+#[test]
+fn engine_link_config_debug_redacts_token() {
+    let secret = "gf_super_secret_daemon_token_canary_987654321";
+    let config = EngineLinkConfig {
+        product: Product::Collie,
+        product_version: ProductVersion::parse("0.1.0").unwrap(),
+        token: Some(secret.to_owned()),
+        live_view_base_url: Some("http://127.0.0.1:7601".to_owned()),
+    };
+    let rendered = format!("{config:?}");
+    assert!(
+        !rendered.contains(secret),
+        "EngineLinkConfig Debug leaked secret token: {rendered}"
+    );
+    assert!(
+        rendered.contains("[redacted]"),
+        "EngineLinkConfig Debug should show redaction marker: {rendered}"
+    );
+}
+
+/// Regression test for S8: `connection_lost` maps to `ErrorGroup::Unavailable` (`-32006`),
+/// not `InternalError` (`-32603`).
+#[test]
+fn dropped_engine_connection_returns_unavailable_connection_lost_code() {
+    use goodfetch_protocol::catalog::ErrorGroup;
+
+    let rt = test_runtime();
+    rt.block_on(async {
+        let (client, _recorder, tasks) = start_in_memory(None, |stream| async move {
+            let (read, mut writer) = tokio::io::split(stream);
+            let mut reader = BufReader::new(read);
+            let mut line = String::new();
+            while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
+                let msg: Message = serde_json::from_str(line.trim()).unwrap();
+                line.clear();
+                if let Message::Request(req) = msg {
+                    match req.method.as_str() {
+                        "hello" => write_line(&mut writer, &hello_ok(&req.id)).await,
+                        "events.subscribe" => {
+                            write_line(
+                                &mut writer,
+                                &json!({"jsonrpc": "2.0", "id": req.id, "result": {}}),
+                            )
+                            .await;
+                        }
+                        "run.start" => {
+                            // Drop connection abruptly while call is in flight.
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        })
+        .await;
+
+        let result = client
+            .call_tool(CallToolRequestParams::new("run_start").with_arguments(Map::new()))
+            .await
+            .expect("tool error returns CallToolResult");
+        assert_eq!(result.is_error, Some(true));
+        let structured = result
+            .structured_content
+            .as_ref()
+            .expect("structuredContent");
+        assert_eq!(structured["code"], "connection_lost");
+        assert_eq!(structured["group"], ErrorGroup::Unavailable.as_str());
+        assert_eq!(structured["retryable"], true);
+
+        let _ = client.cancel().await;
+        tasks.close();
+        tasks.wait().await;
+    });
+}
+
+/// Regression test for S3: `HttpOAuthFetcher` reads >32 KiB multi-chunk HTTP/1.1
+/// responses without deadlocking `conn` against `into_body().collect()`.
+#[test]
+fn http_oauth_fetcher_reads_large_chunked_jwks_without_deadlock() {
+    use crate::oauth::OAuthMetadataFetcher as _;
+
+    let rt = test_runtime();
+    rt.block_on(async {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // Build a ~40 KiB JSON JWKS payload split across multiple HTTP/1.1 chunks.
+        let mut keys = Vec::new();
+        for i in 0..80 {
+            keys.push(json!({
+                "kty": "OKP",
+                "crv": "Ed25519",
+                "kid": format!("large-key-{i:03}"),
+                "x": "A".repeat(440),
+            }));
+        }
+        let body = serde_json::to_vec(&json!({ "keys": keys })).unwrap();
+        assert!(body.len() > 32 * 1024, "payload must exceed 32 KiB: {}", body.len());
+
+        let tasks = TaskTracker::new();
+        tasks.spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 2048];
+            let _ = tokio::io::AsyncReadExt::read(&mut socket, &mut buf).await;
+            let header = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n";
+            socket.write_all(header.as_bytes()).await.unwrap();
+            for chunk in body.chunks(2048) {
+                let prefix = format!("{:x}\r\n", chunk.len());
+                socket.write_all(prefix.as_bytes()).await.unwrap();
+                socket.write_all(chunk).await.unwrap();
+                socket.write_all(b"\r\n").await.unwrap();
+                socket.flush().await.unwrap();
+            }
+            socket.write_all(b"0\r\n\r\n").await.unwrap();
+            socket.flush().await.unwrap();
+        });
+
+        let fetcher = transports::HttpOAuthFetcher::new(&[]);
+        let jwks_doc = tokio::time::timeout(
+            Duration::from_secs(5),
+            fetcher.fetch_json(format!("http://{addr}/jwks.json")),
+        )
+        .await
+        .expect("large chunked JWKS fetch must not deadlock")
+        .expect("large chunked JWKS fetch must succeed");
+        assert_eq!(jwks_doc["keys"].as_array().unwrap().len(), 80);
+        tasks.close();
+        tasks.wait().await;
+    });
+}
+
+struct StaticJwksFetcher {
+    issuer: String,
+    jwks: Value,
+}
+
+impl crate::oauth::OAuthMetadataFetcher for StaticJwksFetcher {
+    fn fetch_json(
+        &self,
+        url: String,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, String>> + Send + '_>>
+    {
+        Box::pin(async move {
+            if url.contains("jwks") {
+                Ok(self.jwks.clone())
+            } else {
+                Ok(json!({
+                    "issuer": self.issuer,
+                    "jwks_uri": format!("{}/jwks.json", self.issuer),
+                }))
+            }
+        })
+    }
+}
+
+fn sign_rs256_jwt(pkcs1_b64: &str, kid: &str, claims: &Value) -> String {
+    use data_encoding::{BASE64, BASE64URL_NOPAD};
+    use rustls::SignatureScheme;
+    use rustls::pki_types::PrivateKeyDer;
+
+    let der = BASE64.decode(pkcs1_b64.as_bytes()).unwrap();
+    let provider = rustls::crypto::ring::default_provider();
+    let key = provider
+        .key_provider
+        .load_private_key(PrivateKeyDer::Pkcs1(der.into()))
+        .unwrap();
+    let signer = key
+        .choose_scheme(&[SignatureScheme::RSA_PKCS1_SHA256])
+        .expect("RS256 signer");
+    let header = BASE64URL_NOPAD.encode(
+        serde_json::to_vec(&json!({ "alg": "RS256", "typ": "JWT", "kid": kid }))
+            .unwrap()
+            .as_slice(),
+    );
+    let payload = BASE64URL_NOPAD.encode(serde_json::to_vec(claims).unwrap().as_slice());
+    let signing_input = format!("{header}.{payload}");
+    let sig = signer.sign(signing_input.as_bytes()).unwrap();
+    format!("{signing_input}.{}", BASE64URL_NOPAD.encode(&sig))
+}
+
+/// Coverage for S12: `verify_rs256` and `encode_rsa_public_key_der` with real
+/// RSA-2048 keys (valid token, wrong signature, tampered payload, wrong key/kid).
+#[test]
+fn oauth_verifies_rs256_and_rejects_tampered_or_wrong_key() {
+    use crate::oauth::{
+        EpochSecondsClock, OAuthConfig, OAuthResourceServer, SharedOAuthMetadataFetcher,
+        TokenRejection,
+    };
+    use data_encoding::BASE64URL_NOPAD;
+
+    const RSA_K1_PKCS8_B64: &str = "MIIEowIBAAKCAQEAkre1N8y5cpV2303DY7heCvsRoTcSxMD1HXNljS7MD3LFV8l0UN24t/poMYLBo66iO77c/jgnN7LBSmi4F+nObG/lMQa5z4LdthPOpWnmSP18uHfNO9FhI0iis/5w4sMD5L+db1lu9NHJlxcD/MC25h4dQleRRaW6nKW5n3kYl/kTFXVTGj9g9UQBXqX2O3iPfApHT7hetoy0TUo/zeml3cw39qj4UnPjkZ1u3oL+R3hrj60m1v9Hg4anhmMvibSs67C6y0jJBrpjm70i3ckGMbLWFhrs+/+xrLQ738KMIvWcJ0ngG3gkxOM2/8nlxgap8qV5Rpkhjdurs6JOVFA9QwIDAQABAoIBAB7a2JcMDGIPEclDathxYQGxLFN5qA5NwB658nze/xYunlbobHhHML4sQLZM19lK9B5ZdNNXztOVWbYC0NhimMFQRORrFC+SR3svrjE2VLI78PtAYp52WZXYhDMTSv09Yve73mmY5s9AwULvmayRgMVjRub5UHlTsauY5LEnf+cRrn7r5tbUstidcvsS93JQMz1CIuf/Sw4LisGticSxkqa4luWperTcUBFec2Se8M/llka3Ff+FYEFsrjj1PqIO9EHoGz19HzXAxJUBk0vyxny8qrraFiT6/6r6b6cD/1641jWclGiUbTxnrhPIqsApraiw8fxfDVp1qwNMPAs8g00CgYEAyeIlolJu5olaN8bCBW5tBOq2BxnjByK61Mpo9+0Hzyy9gqcdmKL6qbCh69JXMCPjbTMUf5Yv1g1Id+soQ4+twnerEWCG9hZV5mxSPmU3hCUAYxeXGJ+W9UBixdmstOMbNVgmAZLEKMfIx0Cp7Cz1nLAcDieTIkQj36zPwpnKkfUCgYEAugvqykwZhK2RXOMNXGMkH5SjPCF45Z4xFqnaR35NWXVYkRFQSDqmdw8jowM2TQqeu4tecAVDdlnCrG6nCn0Tgzqvk5mJ/GrvzvZygvcAjjcsb7cqT5Tc7Ld3wj6FPf+N7ryWnIvAlySMHIZzQuxMnRB8iK0gD+JEow/Ma1OJN1cCgYB7KAalW3xkDu6GkC3UemTvVu/srRIeTEWFgmU+uc7FyBlkFuarMuGPmz1sS0j9CSe4eizLGKfeAQRwg3hwnrn1pGMrmqM6hK2qf/I8NisD5j6yNLXsQ48n1jtrTztYriLvC/NDinE4H4iQZRZECblb+ONkjyfnA4KO9TFZGdDF8QKBgQCWCghXD1pBEw05IO9kg5vdUCz40HHElHg4M9ESeTx+GdHMZG8fYRVgzTfLPkrrhNYQn8wQgV4vsyH5l99k6Qv0eD6ixV9vzvoJKd2d2v96sepHSit4NLCawzd00qD4KAHZ+ANqypYODm5kjtWjshfzTxlvzFcgGDWMX7BXGe5+TwKBgFCM83YaC9Z/Pif+2QGBFqiDPcIUS/rG/Fn6WF1Fvv9091MVSi83FO0pqSmHyNhbZf+IixvnQyjIiFs29r/0LniNDi4tk1kEjHoWfxlAT/Vv/u/zIxuJUcExTPcR4NxNhaHPwluev5ZglUHes18odjqmjiU68Sx25rzwNJy8xWkb";
+    const RSA_K1_N: &str = "kre1N8y5cpV2303DY7heCvsRoTcSxMD1HXNljS7MD3LFV8l0UN24t_poMYLBo66iO77c_jgnN7LBSmi4F-nObG_lMQa5z4LdthPOpWnmSP18uHfNO9FhI0iis_5w4sMD5L-db1lu9NHJlxcD_MC25h4dQleRRaW6nKW5n3kYl_kTFXVTGj9g9UQBXqX2O3iPfApHT7hetoy0TUo_zeml3cw39qj4UnPjkZ1u3oL-R3hrj60m1v9Hg4anhmMvibSs67C6y0jJBrpjm70i3ckGMbLWFhrs-_-xrLQ738KMIvWcJ0ngG3gkxOM2_8nlxgap8qV5Rpkhjdurs6JOVFA9Qw";
+    const RSA_K1_E: &str = "AQAB";
+    const RSA_K2_PKCS8_B64: &str = "MIIEowIBAAKCAQEA1OBc45zsAF8uHgnpiY1oNyEpENMnzztC83CB+s7HVXLY+mRnqzbONbRBAs2ig7AXnzgGCekws0IclzNkwtM7Uu6PsC3ds2zemEe2mvdrvLRgfr/VBBV/acIEilhiQZiCjwhNBQ5mMUEy7xGLBGO7AyFH+YX1jHxnzndrsVh78qHCr1sKW/s1OohoFvvjdyVxLsUOe8D3FBtvEsOJdjajSKGQb/gqaR1mYEGJDbfFYXGRI+sZbj0x6PjXFiaMQzmFVgj9qbtrEG955P04ZY2XXFFhkcQ5L2/+mmGY2jIcl94f0RzRg6Dnz9CpeP799n68mWm2RC0gQBCvg0PjqETPfQIDAQABAoIBAAng6IaafVwuDoyPzrHWqU+nnwl8FwSXni2AWtPJ/TeSpw2Fk8b++dZFqV+pLcG5LftyRNt4Yg1rg7qjhKlC1qWsUugs1LUzF+hOqaNq2GnPIAw5uDeijMFaYs4NuG+NVX+wNazGpIjkGuo7sO0Q+Lh2NqoWZJTyn/mVkp6N+eCCOgJfJU9wPALhaxh9d+McuU+NQcwuJNP4fqbZsZg18im7eLp81gw2wmqcE6/nlbAcCYtv6/Qf2vNtYkwsmfRFw2zpX86OAHgYzLn31H3rVa7US6jRTwJTBDR4PnScB25IlGMEyTNCvcaCf3nWRy+DLhfazD0FZ9booGfvhkG8NrkCgYEA8R1OFbwQQvyrekw8i2njisw9gp45w5q+zx0igLVoyfE+dU4hNijqIM2L9eIOzo17+APsxR8R32zpiFHq4Y7D+HcObk4Z4ovtcPpVfy8hWDd5e394W5Cn8rRabotIffFYq+tqajoOQfd49OQhRF6kZ9O28nLTzlTCtAYGh8LGW9kCgYEA4gTE8uRZWOJuzsfmr3uU52SQpmg2fyjcyxzY04/fmYVgwJq7XMsFyOYF3/DG8a1IWePU4cNTuGXZ69V6AmJ+4IxVuaQqJhYsO3valxRN2b1/iTdF94kFElFw1VhSDr8Zi8C6p8MgtnLd10afz8qJvq8Fpjlg0sl9Y5aqqo7bvkUCgYEAzsNamrjTGR6jzhRiNwtu3S+X79LPpjWlOua5F7Z5TfNapC2DvXYIkGizhP99wxMBJAX5nHCwWvCCsyvMR/CtjPxLm7vN5sAntaJ2fsJjzcqEmqsNAzhhTXfrtLAsUhQM/iC6+K0gXOFjEF4xSPf/9ClR0Uc26tE0xjwEjZcxksECgYBjlOxdhCSll+Zwbv0BtjZuGQ3uc54HOq7FQul5lTtUPcLaOZJxmPXshQRznXdaBhoJmOszqUbayO1SDhWatWDneI1QpLb5Xu2QK8qspAKE/AwUHelS3ekBICbRqP9GhgYwX/MddUiVelipv/ErsTYtcJnRmhhB5wq69Sguy5Cf7QKBgGEtup9HaIETss8DObfRZtyCy9o8PAu8J68GccPzRP5jlHNEs6yJ6l9W4SIwIOaU7uaqL6vNRDNF6Q0AXPSAxoySQtYtt/IewiEVJvubllHO0P1DggJO3JcrE5HNwwkSN5PpCEaQ8vQeU1DoJq5wao9krzwT9+ZZ49e88FnEzP7N";
+    let sign_rs256 = sign_rs256_jwt;
+
+    let issuer = "https://rs256.issuer.test";
+    let audience = "https://mcp.remote.test/mcp";
+    let fixed_now: u64 = 1_800_000_000;
+    let config = OAuthConfig::new(issuer, audience).unwrap();
+    let fetcher = SharedOAuthMetadataFetcher::new(StaticJwksFetcher {
+        issuer: issuer.to_owned(),
+        jwks: json!({
+            "keys": [{
+                "kty": "RSA",
+                "kid": "rsa-key-1",
+                "alg": "RS256",
+                "use": "sig",
+                "n": RSA_K1_N,
+                "e": RSA_K1_E,
+            }]
+        }),
+    });
+    let server =
+        OAuthResourceServer::new(config, fetcher, EpochSecondsClock::new(move || fixed_now));
+
+    let claims = json!({
+        "iss": issuer,
+        "aud": audience,
+        "exp": fixed_now + 600,
+        "sub": "rsa-user"
+    });
+    let valid_token = sign_rs256(RSA_K1_PKCS8_B64, "rsa-key-1", &claims);
+
+    test_runtime().block_on(async {
+        // 1. Valid RS256 token passes.
+        let verified = server
+            .verify_bearer(&valid_token)
+            .await
+            .expect("valid RS256 token must verify");
+        assert_eq!(verified.subject.as_deref(), Some("rsa-user"));
+
+        // 2. Tampered payload fails signature verification.
+        let parts: Vec<&str> = valid_token.split('.').collect();
+        let tampered_payload = BASE64URL_NOPAD.encode(
+            serde_json::to_vec(&json!({
+                "iss": issuer,
+                "aud": audience,
+                "exp": fixed_now + 600,
+                "sub": "attacker"
+            }))
+            .unwrap()
+            .as_slice(),
+        );
+        let tampered = format!("{}.{tampered_payload}.{}", parts[0], parts[2]);
+        assert_eq!(
+            server.verify_bearer(&tampered).await,
+            Err(TokenRejection::InvalidSignature)
+        );
+
+        // 3. Corrupted signature fails.
+        let mut sig_bytes = BASE64URL_NOPAD.decode(parts[2].as_bytes()).unwrap();
+        sig_bytes[0] ^= 0xff;
+        let wrong_sig = format!(
+            "{}.{}.{}",
+            parts[0],
+            parts[1],
+            BASE64URL_NOPAD.encode(&sig_bytes)
+        );
+        assert_eq!(
+            server.verify_bearer(&wrong_sig).await,
+            Err(TokenRejection::InvalidSignature)
+        );
+
+        // 4. Token signed by a different RSA key (same kid) fails.
+        let wrong_key = sign_rs256(RSA_K2_PKCS8_B64, "rsa-key-1", &claims);
+        assert_eq!(
+            server.verify_bearer(&wrong_key).await,
+            Err(TokenRejection::InvalidSignature)
+        );
+
+        // 5. Token with an unknown kid fails.
+        let unknown_kid = sign_rs256(RSA_K1_PKCS8_B64, "unknown-kid", &claims);
+        assert_eq!(
+            server.verify_bearer(&unknown_kid).await,
+            Err(TokenRejection::InvalidSignature)
+        );
+    });
+}
+
+/// Coverage for P14: `HttpTls::Upstream` / `trusts_proxy` / `with_trusted_forwarded`
+/// admits `X-Forwarded-Proto: https` + `X-Forwarded-Host` from a trusted proxy
+/// and refuses untrusted peers or plain `X-Forwarded-Proto: http`.
+#[test]
+fn streamable_http_upstream_tls_honors_trusted_proxy_headers_and_refuses_untrusted() {
+    use goodfetch_protocol::daemon::TrustedProxy;
+    use secrecy::SecretString;
+    use tokio_util::sync::CancellationToken;
+
+    let rt = test_runtime();
+    rt.block_on(async {
+        let tasks = TaskTracker::new();
+        let token = transports::new_launch_token().expect("OS random token");
+        let cancellation = CancellationToken::new();
+        let connector = crate::engine::SharedEngineConnector::new(ScriptedSessionConnector {
+            tasks: tasks.clone(),
+            next_session: Arc::new(std::sync::atomic::AtomicUsize::new(1)),
+            per_session_limit: 5,
+            hold_method: None,
+            cancelled_sessions: Arc::new(Mutex::new(Vec::new())),
+            release_held: Arc::new(tokio::sync::Notify::new()),
+        });
+        let options = ServerOptions {
+            product: Product::Collie,
+            version: "0.1.0".to_owned(),
+            profile: ResolvedProfile::for_product(Product::Collie, ProfileName::Browser),
+            resources: crate::resources::ResourceStore::default(),
+        };
+
+        // 1. Server trusting loopback (127.0.0.1/32) as its upstream TLS-terminating proxy.
+        let trusted_proxy = TrustedProxy::parse("127.0.0.1/32").unwrap();
+        let bound_trusted = transports::BoundHttpServer::bind(
+            transports::HttpServerConfig {
+                bind: "127.0.0.1:0".parse().unwrap(),
+                auth: transports::HttpAuth::LaunchToken(SecretString::from(token.clone())),
+                tls: transports::HttpTls::Upstream(vec![trusted_proxy]),
+                refusals: None,
+                cancellation: cancellation.clone(),
+            },
+            options.clone(),
+            connector.clone(),
+        )
+        .await
+        .expect("bind upstream TLS MCP server (trusted)");
+        let trusted_url = bound_trusted.url().to_owned();
+        tasks.spawn(async move {
+            let _ = bound_trusted.serve().await;
+        });
+
+        // 2. Server trusting only 10.0.0.1/32 (so our 127.0.0.1 peer is NOT trusted).
+        let other_proxy = TrustedProxy::parse("10.0.0.1/32").unwrap();
+        let bound_untrusted = transports::BoundHttpServer::bind(
+            transports::HttpServerConfig {
+                bind: "127.0.0.1:0".parse().unwrap(),
+                auth: transports::HttpAuth::LaunchToken(SecretString::from(token.clone())),
+                tls: transports::HttpTls::Upstream(vec![other_proxy]),
+                refusals: None,
+                cancellation: cancellation.clone(),
+            },
+            options,
+            connector,
+        )
+        .await
+        .expect("bind upstream TLS MCP server (untrusted)");
+        let untrusted_url = bound_untrusted.url().to_owned();
+        tasks.spawn(async move {
+            let _ = bound_untrusted.serve().await;
+        });
+
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let http = reqwest::Client::new();
+
+        assert_eq!(
+            post_forwarded_mcp_init(&http, &trusted_url, &token, "https").await,
+            200,
+            "trusted upstream proxy forwarded Host/Origin must be admitted"
+        );
+        assert_eq!(
+            post_forwarded_mcp_init(&http, &trusted_url, &token, "http").await,
+            403,
+            "X-Forwarded-Proto: http must not admit forwarded Host"
+        );
+        assert_eq!(
+            post_forwarded_mcp_init(&http, &untrusted_url, &token, "https").await,
+            403,
+            "untrusted peer must not have forwarded headers trusted"
+        );
+
+        cancellation.cancel();
+        tasks.close();
+        tasks.wait().await;
+    });
+}
+
+async fn post_forwarded_mcp_init(
+    http: &reqwest::Client,
+    url: &str,
+    token: &str,
+    forwarded_proto: &str,
+) -> reqwest::StatusCode {
+    let init_body = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": { "name": "upstream-proxy-test", "version": "1.0.0" }
+        }
+    });
+    http.post(url)
+        .header("Host", "mcp.edge.example")
+        .header("Origin", "https://mcp.edge.example")
+        .header("X-Forwarded-Proto", forwarded_proto)
+        .header("X-Forwarded-Host", "mcp.edge.example")
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Accept", "application/json, text/event-stream")
+        .json(&init_body)
+        .send()
+        .await
+        .unwrap()
+        .status()
 }

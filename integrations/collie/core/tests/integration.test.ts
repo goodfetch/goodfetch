@@ -1,8 +1,13 @@
 // Integration tests for `@goodfetch/collie-integrations-core` (ADRs 0027,
 // 0056, 0070, 0095; spec #608, issue 1403): drives the shared generated
-// Integration layer over the real Collie Daemon's HTTP JSON-RPC listener
-// (`goodfetch-test-env --daemon=collie --http-listener`).
-import { test } from "@goodfetch/test-support";
+// Integration layer over both the real Collie Daemon HTTP JSON-RPC listener
+// (`goodfetch-test-env --daemon=collie --http-listener`) and
+// `goodfetch-scripted-engine --mode http` for Error codes the Proving ground
+// cannot cause.
+import { spawn } from "node:child_process";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { test, toolPath } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
 import { IntegrationHttpClient, IntegrationToolError } from "../src/index.ts";
 
@@ -22,6 +27,89 @@ async function expectToolError(promise: Promise<unknown>): Promise<IntegrationTo
   return caught;
 }
 
+async function startScriptedHttpEngine(options: {
+  readonly executable: string;
+  readonly scriptPath: string;
+  readonly token: string;
+  readonly env: Readonly<Record<string, string>>;
+}): Promise<{
+  readonly baseUrl: string;
+  readonly token: string;
+  readonly waitExit: () => Promise<number | null>;
+  readonly kill: () => void;
+}> {
+  const child = spawn(
+    options.executable,
+    ["--script", options.scriptPath, "--mode", "http", "--token", options.token],
+    {
+      env: { ...options.env },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  let stderr = "";
+  child.stderr.on("data", (chunk: string) => {
+    stderr += chunk;
+  });
+
+  const announced = await new Promise<{ readonly address: string; readonly token: string }>(
+    (resolveReady, rejectReady) => {
+      let buf = "";
+      const onData = (chunk: string): void => {
+        buf += chunk;
+        const nl = buf.indexOf("\n");
+        if (nl !== -1) {
+          child.stdout.off("data", onData);
+          try {
+            const parsed: unknown = JSON.parse(buf.slice(0, nl));
+            if (
+              typeof parsed !== "object" ||
+              parsed === null ||
+              Array.isArray(parsed) ||
+              typeof Reflect.get(parsed, "address") !== "string" ||
+              typeof Reflect.get(parsed, "token") !== "string"
+            ) {
+              rejectReady(
+                new TypeError(`unexpected scripted engine announcement: ${buf.slice(0, nl)}`),
+              );
+              return;
+            }
+            resolveReady({
+              address: String(Reflect.get(parsed, "address")),
+              token: String(Reflect.get(parsed, "token")),
+            });
+          } catch (err) {
+            rejectReady(err);
+          }
+        }
+      };
+      child.stdout.on("data", onData);
+      child.once("exit", (code) => {
+        rejectReady(
+          new Error(`goodfetch-scripted-engine exited (${String(code)}) before ready: ${stderr}`),
+        );
+      });
+    },
+  );
+
+  return {
+    baseUrl: `http://${announced.address}`,
+    token: announced.token,
+    waitExit: () =>
+      new Promise<number | null>((resolveExit) => {
+        if (child.exitCode !== null) {
+          resolveExit(child.exitCode);
+          return;
+        }
+        child.once("exit", (code) => resolveExit(code));
+      }),
+    kill: () => {
+      child.kill("SIGKILL");
+    },
+  };
+}
+
 describe("@goodfetch/collie-integrations-core against a real Collie Daemon HTTP listener", () => {
   test.override("withDaemon", true);
   test.override("withHttpListener", true);
@@ -38,7 +126,7 @@ describe("@goodfetch/collie-integrations-core against a real Collie Daemon HTTP 
         "operation:notification.unsubscribe",
       ],
     },
-    async ({ daemon }) => {
+    async ({ daemon, testEnv }) => {
       if (daemon.http === undefined || daemon.http_token === undefined) {
         throw new Error("expected Daemon HTTP listener URL and token from goodfetch-test-env");
       }
@@ -48,20 +136,53 @@ describe("@goodfetch/collie-integrations-core against a real Collie Daemon HTTP 
         token: daemon.http_token,
       });
 
-      // 1. Start a Run and read its report and progress over HTTP.
-      const started = await client.call("run.start", {});
+      // 1. Start a Run with a run-layer setting over HTTP -> origin is `form` (P9)
+      //    and read its progress and report.
+      const started = await client.call("run.start", {
+        settings: { timeout: { navigation: 45_000 } },
+      });
       const runId = started["run_id"];
       if (typeof runId !== "string" || runId.length === 0) {
         throw new Error(`expected run_id string from run.start, got ${JSON.stringify(started)}`);
       }
+      const explained = await client.call("config.explain", {
+        run_id: runId,
+        keys: ["timeout.navigation"],
+      });
+      const explainedSettings = explained["settings"];
+      expect(Array.isArray(explainedSettings)).toBe(true);
+      const navEntry: unknown = Array.isArray(explainedSettings)
+        ? explainedSettings.find(
+            (e) =>
+              typeof e === "object" && e !== null && Reflect.get(e, "key") === "timeout.navigation",
+          )
+        : undefined;
+      expect(
+        typeof navEntry === "object" && navEntry !== null
+          ? Reflect.get(navEntry, "layer")
+          : undefined,
+      ).toBe("run");
+      expect(
+        typeof navEntry === "object" && navEntry !== null
+          ? Reflect.get(navEntry, "origin")
+          : undefined,
+      ).toBe("form");
+
       const progress = await client.getRunProgress(runId);
       expect(progress["run_id"]).toBe(runId);
       await client.call("run.finish", { run_id: runId });
       const report = await client.getRunReport(runId);
       expect(report["run_id"]).toBe(runId);
 
-      // 2. Detached recipe.start and catalog_run.start reach the Daemon over HTTP with form catalog.
-      const recipeErr = await expectToolError(client.startRecipe({ recipe: "nonexistent-recipe" }));
+      // 2. P10: Detached recipe.start with tags & settings parses cleanly into
+      //    `RecipeStartParams` (returns `run_target_unbuilt`, NEVER `invalid_params`).
+      const recipeErr = await expectToolError(
+        client.startRecipe({
+          recipe: "nonexistent-recipe",
+          tags: ["source:integration-core"],
+          settings: { timeout: { navigation: 15_000 } },
+        }),
+      );
       expect(recipeErr.code).toBe("run_target_unbuilt");
       expect(recipeErr.group).toBe("unavailable");
 
@@ -113,7 +234,9 @@ describe("@goodfetch/collie-integrations-core against a real Collie Daemon HTTP 
       expect(versionErr.code).toBe("protocol_version_unsupported");
 
       // 5. Client acting for a model (ADR 0056 / ADR 0092):
-      //    loopback cdp_url -> cdp_url_not_allowed, Secret binding -> setting_locked.
+      //    loopback cdp_url -> cdp_url_not_allowed,
+      //    model-only locked key (`proxy.kind`, `authority=not_by_model`) -> setting_locked,
+      //    Secret binding (`secrets.placeholders`) -> setting_locked.
       const actingRun = await client.call("run.start", {});
       const actingRunId = actingRun["run_id"];
       if (typeof actingRunId !== "string" || actingRunId.length === 0) {
@@ -141,6 +264,18 @@ describe("@goodfetch/collie-integrations-core against a real Collie Daemon HTTP 
       expect(exclusiveBorrowErr.group).toBe("refused");
       await client.call("run.finish", { run_id: actingRunId });
 
+      // P13: model-locked key (`proxy.kind` has Authority::NotByModel) returns `setting_locked`.
+      const modelLockErr = await expectToolError(
+        client.call("run.start", {
+          settings: {
+            proxy: { kind: "mobile" },
+          },
+        }),
+      );
+      expect(modelLockErr.code).toBe("setting_locked");
+      expect(modelLockErr.group).toBe("refused");
+
+      // Secret binding (`secrets.placeholders`) also returns `setting_locked`.
       const secretLockErr = await expectToolError(
         client.call("run.start", {
           settings: {
@@ -152,6 +287,112 @@ describe("@goodfetch/collie-integrations-core against a real Collie Daemon HTTP 
       );
       expect(secretLockErr.code).toBe("setting_locked");
       expect(secretLockErr.group).toBe("refused");
+
+      // 6. P13: Scripted engine as a Daemon with an HTTP listener (`--mode http`)
+      //    returns Error codes the Proving ground cannot cause (`model_unavailable`,
+      //    `budget_exceeded`), surfaced with code, group, and fix.
+      const scriptedBin = toolPath(testEnv.tools, "scripted_engine");
+      const modelScriptPath = join(testEnv.folder, "integration-core-scripted-model.json");
+      writeFileSync(
+        modelScriptPath,
+        JSON.stringify({
+          description: "Returns model_unavailable over HTTP listener",
+          steps: [
+            {
+              expect: {
+                method: "recipe.start",
+                params: { recipe: "scripted-model-err", detached: true },
+              },
+            },
+            {
+              reply: {
+                error: {
+                  code: -32004,
+                  message: "upstream model provider returned 503",
+                  data: {
+                    code: "model_unavailable",
+                    group: "model",
+                    fix: "Switch to another configured model or retry later.",
+                  },
+                },
+              },
+            },
+          ],
+        }),
+        "utf8",
+      );
+
+      const scriptedModel = await startScriptedHttpEngine({
+        executable: scriptedBin,
+        scriptPath: modelScriptPath,
+        token: "scripted-http-token-1",
+        env: testEnv.env,
+      });
+      try {
+        const scriptedClient = new IntegrationHttpClient({
+          baseUrl: scriptedModel.baseUrl,
+          token: scriptedModel.token,
+        });
+        const modelErr = await expectToolError(
+          scriptedClient.startRecipe({ recipe: "scripted-model-err" }),
+        );
+        expect(modelErr.code).toBe("model_unavailable");
+        expect(modelErr.group).toBe("model");
+        expect(modelErr.fix).toContain("model");
+      } finally {
+        scriptedModel.kill();
+        await scriptedModel.waitExit();
+      }
+
+      const budgetScriptPath = join(testEnv.folder, "integration-core-scripted-budget.json");
+      writeFileSync(
+        budgetScriptPath,
+        JSON.stringify({
+          description: "Returns budget_exceeded over HTTP listener",
+          steps: [
+            {
+              expect: {
+                method: "run.progress",
+                params: { run_id: "r_budget" },
+              },
+            },
+            {
+              reply: {
+                error: {
+                  code: -32002,
+                  message: "run currency limit reached",
+                  data: {
+                    code: "budget_exceeded",
+                    group: "refused",
+                    fix: "Raise the Run budget in Operator policy or start a smaller Run.",
+                  },
+                },
+              },
+            },
+          ],
+        }),
+        "utf8",
+      );
+
+      const scriptedBudget = await startScriptedHttpEngine({
+        executable: scriptedBin,
+        scriptPath: budgetScriptPath,
+        token: "scripted-http-token-2",
+        env: testEnv.env,
+      });
+      try {
+        const scriptedClient = new IntegrationHttpClient({
+          baseUrl: scriptedBudget.baseUrl,
+          token: scriptedBudget.token,
+        });
+        const budgetErr = await expectToolError(scriptedClient.getRunProgress("r_budget"));
+        expect(budgetErr.code).toBe("budget_exceeded");
+        expect(budgetErr.group).toBe("refused");
+        expect(budgetErr.fix).toContain("budget");
+      } finally {
+        scriptedBudget.kill();
+        await scriptedBudget.waitExit();
+      }
     },
   );
 });

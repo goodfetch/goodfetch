@@ -4,7 +4,7 @@
   "private": true,
   "description": "Lowest-version peer cell for @goodfetch/collie-ai-sdk (ADR 0070; issues 424 and 1378).",
   "type": "module",
-  "dependencies": {
+  "devDependencies": {
     "@goodfetch/collie-ai-sdk": "workspace:*",
     "ai": "7.0.0"
   },

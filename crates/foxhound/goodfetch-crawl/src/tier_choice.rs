@@ -113,6 +113,9 @@ pub(crate) enum AttemptPlan {
     /// A sitemap's fetch, on the Run's HTTP tier: it takes no tier choice
     /// and runs no handler.
     Sitemap,
+    /// A syndication feed's fetch, on the Run's HTTP tier: it takes no tier
+    /// choice and runs no handler (ADR 0139).
+    Syndication,
     /// On this tier, forced or learned.
     On(TierChoice),
     /// On `discovered_api`, its calls replayed as the Label's plan says,
@@ -138,7 +141,7 @@ impl AttemptPlan {
     /// takes a Session of its own beside it.
     pub(crate) fn sends_from(&self, from: SendsFrom) -> SendsFrom {
         match self {
-            Self::Sitemap => SendsFrom::Transport,
+            Self::Sitemap | Self::Syndication => SendsFrom::Transport,
             Self::On(
                 choice @ TierChoice {
                     forced: Some(_), ..

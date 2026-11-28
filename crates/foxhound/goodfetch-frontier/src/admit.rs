@@ -123,6 +123,15 @@ pub enum Candidate<'a> {
         /// The URL of the sitemap that lists it.
         sitemap: &'a Url,
     },
+    /// An entry of an RSS or Atom feed a syndication seed read: a `GET` with
+    /// no body, at depth 0, relative to its feed's URL or absolute, measured
+    /// against the scope and never widening it (ADR 0139).
+    SyndicationEntry {
+        /// Its URL, as the feed wrote it.
+        url: &'a str,
+        /// The URL of the feed that lists it.
+        feed: &'a Url,
+    },
 }
 
 /// A link's method: `GET`, with no body and no declared key.
@@ -671,9 +680,10 @@ impl<'a> Read<'a> {
                 Some(narrowing),
                 depth,
             ),
-            Candidate::SitemapEntry { url, sitemap } => (
+            Candidate::SitemapEntry { url, sitemap: base }
+            | Candidate::SyndicationEntry { url, feed: base } => (
                 url,
-                parse(url, Some(sitemap)),
+                parse(url, Some(base)),
                 None,
                 Declared {
                     method: &LINK,

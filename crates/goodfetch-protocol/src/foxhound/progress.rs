@@ -15,7 +15,7 @@ use crate::governor::{AllowanceSource, GovernorLevel};
 use crate::run::RunProgress;
 use crate::settings::{SettingLimit, SettingsLayer};
 
-use super::report::{CountOf, SitemapReport};
+use super::report::{CountOf, SitemapReport, SourceReport};
 
 /// A crawl's parts of `run.progress`, the operation's answer and the
 /// event's payload for a crawl, which Foxhound's SDKs type as
@@ -86,6 +86,10 @@ pub struct CrawlRunProgress {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub sitemaps: Option<Vec<SitemapReport>>,
+    /// Each syndication source's reads, failures and entry counts (ADR 0139).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub sources: Option<Vec<SourceReport>>,
     /// Whether `crawl.keep_alive` or `crawl.continuous` holds it `running`
     /// with an empty Frontier and nothing in flight, until new work or a due
     /// revisit arrives.

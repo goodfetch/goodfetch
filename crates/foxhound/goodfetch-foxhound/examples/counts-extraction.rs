@@ -429,7 +429,7 @@ fn crawl_on(cell: &Cell, planted: Option<&str>, metrics: Metrics) -> CountedWork
         pages: pages(),
         plant: planted.map(|name| plant(name, &work)),
     });
-    let (records, _) = drive(
+    let (records, _, _, _) = drive(
         site,
         &cell.crawl_start(),
         Driven {

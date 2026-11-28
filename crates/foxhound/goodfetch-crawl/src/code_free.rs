@@ -463,7 +463,7 @@ fn sitemap_seeds<'a>(
         .into_iter()
         .filter_map(|seed| match seed {
             Seed::Request(request) => Url::parse(&request.url).ok(),
-            Seed::Sitemap(_) => None,
+            Seed::Sitemap(_) | Seed::Syndication(_) => None,
         })
         .filter(|url| matches!(url.scheme(), "http" | "https"))
         .map(|mut url| {

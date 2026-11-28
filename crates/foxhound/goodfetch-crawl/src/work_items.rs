@@ -36,10 +36,10 @@ use goodfetch_engine::run_state::{BatchRows, BatchWriter, RunStateTables, run_ro
 use goodfetch_frontier::payload::{self, Payload};
 use goodfetch_frontier::trap_links::{self, Mark};
 use goodfetch_frontier::{
-    Candidate, Declared, Entering, Keyed, LANE_FIRST_VISIT, LANE_SOURCE, Url, sitemap,
+    Candidate, Declared, Entering, Keyed, LANE_FIRST_VISIT, LANE_SOURCE, Url, sitemap, syndication,
 };
 use goodfetch_protocol::foxhound::block::BlockCause;
-use goodfetch_protocol::foxhound::crawl::{CrawlRequest, Seed, SitemapSeed};
+use goodfetch_protocol::foxhound::crawl::{CrawlRequest, Seed, SitemapSeed, SyndicationSeed};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpBody, HttpMethod, NotAddedReason};
 use goodfetch_protocol::foxhound::outcomes::{
     AttemptError, CrawlRequestOutcome, DatasetRecords, Ending, NotAddedAtCommit, NothingCommitted,
@@ -48,7 +48,7 @@ use goodfetch_protocol::foxhound::outcomes::{
 use goodfetch_protocol::foxhound::provenance::{
     CertificateExceptionMark, EncodingProvenance, RecordProvenance, RobotsTxtMark, TierProvenance,
 };
-use goodfetch_protocol::foxhound::report::SitemapReport;
+use goodfetch_protocol::foxhound::report::{SitemapReport, SourceReport};
 use goodfetch_protocol::hook::{
     HEADER_FORBIDDEN, HeaderForbiddenDetails, is_forbidden_request_header,
 };
@@ -150,6 +150,15 @@ const ENDED: &str = "UPDATE work_items SET status = ?1, error_code = NULL WHERE 
 /// before it (ADR 0140, `F3.prepares.sitemap`).
 pub(crate) const SITEMAP_READ: [&str; 2] = [STILL_LEASED, ENDED];
 
+/// Which source kind a non-handler work item fetches (ADRs 0093 and 0139).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SourceKind {
+    /// A sitemap or robots.txt fetch.
+    Sitemap,
+    /// An RSS or Atom syndication feed fetch.
+    Syndication,
+}
+
 /// A work item leased to one attempt.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Leased {
@@ -166,8 +175,9 @@ pub(crate) struct Leased {
     pub(crate) lease_epoch: u64,
     /// Its domain key and priority, under which it waits again on a retry.
     pub(crate) waiting: Waiting,
-    /// Whether it is a sitemap's fetch, which runs no handler (ADR 0093).
-    pub(crate) sitemap: bool,
+    /// Which source kind this work item fetches when it runs no handler
+    /// (ADRs 0093 and 0139).
+    pub(crate) source: Option<SourceKind>,
     /// Whether it was added through a link its served document's markup
     /// hides, a suspected trap, which a browser tier never follows (ADR
     /// 0035); a link a person reveals in a menu, a tab or a disclosure
@@ -185,6 +195,12 @@ pub(crate) struct Leased {
 }
 
 impl Leased {
+    /// Whether this work item is a non-handler source fetch (sitemap or
+    /// syndication feed).
+    pub(crate) const fn is_source(&self) -> bool {
+        self.source.is_some()
+    }
+
     /// The same work item as its next lease takes it, once this attempt
     /// left it pending for a retry: one attempt and one try further, under
     /// the next lease epoch.
@@ -542,6 +558,20 @@ pub(crate) fn check_seed(
                 payload: None,
             })
         }
+        Seed::Syndication(syndication) => {
+            invariants
+                .frontier()
+                .know_sitemap_rules(&syndication.rules)
+                .map_err(CallError::from)?;
+            syndication
+                .rules
+                .iter()
+                .try_for_each(|rule| payloads.check(&rule.label, None, work))?;
+            Ok(CheckedSeed {
+                seed,
+                payload: None,
+            })
+        }
     }
 }
 
@@ -581,6 +611,45 @@ pub(crate) fn read_sitemap(
     Ok(Some(changed.adds(&mut positions)))
 }
 
+/// Reads `document`, what the syndication feed fetch `id` holding its lease
+/// under `lease_epoch` gave, admitting its entries in one links batch within
+/// `invariants` and `policy` (ADR 0139, ADR 0140 F3), and ends the fetch with
+/// no outcome.
+pub(crate) fn read_syndication(
+    connection: &Connection,
+    invariants: &goodfetch_frontier::Invariants,
+    policy: &Policy,
+    (id, lease_epoch): (&str, u64),
+    document: &syndication::FeedDocument,
+    (keys, work, changed): (&Keys, &CountedWork, &mut Changed),
+) -> rusqlite::Result<Option<Vec<Waiting>>> {
+    if !still_leased(connection, AttemptKey::new(id, lease_epoch))? {
+        return Ok(None);
+    }
+    let mut positions = Positions::keying(connection, keys.clone())?;
+    syndication::read(
+        connection,
+        invariants,
+        policy,
+        id,
+        document,
+        work,
+        |url, label| {
+            add(
+                connection,
+                &mut positions,
+                url,
+                from_sitemap(sitemap::Adding::Entry(label)),
+            )
+        },
+    )?;
+    connection
+        .prepare_cached(ENDED)
+        .and_then(|mut cached| cached.execute((SUCCEEDED, id)))?;
+    changed.fetches_ended += 1;
+    Ok(Some(changed.adds(&mut positions)))
+}
+
 /// Admits each seed through the Frontier within the Run's `invariants` and
 /// under its domain policy `policy`, as a pending work item at depth 0 when
 /// added, carrying the Payload its check serialized, at its position from
@@ -609,6 +678,25 @@ pub(crate) fn admit_seeds(
                     if matches!(answer, Enqueued::Added { .. }) {
                         positions.decide(|| {
                             Decided::Sitemap(Box::new((
+                                invariants.shared_frontier(),
+                                policy.clone(),
+                                seed.clone(),
+                            )))
+                        });
+                    }
+                    return Ok(answer);
+                }
+                Seed::Syndication(seed) => {
+                    let answer = admit_syndication_seed(
+                        connection,
+                        positions,
+                        invariants.frontier(),
+                        policy,
+                        seed,
+                    )?;
+                    if matches!(answer, Enqueued::Added { .. }) {
+                        positions.decide(|| {
+                            Decided::Syndication(Box::new((
                                 invariants.shared_frontier(),
                                 policy.clone(),
                                 seed.clone(),
@@ -672,6 +760,38 @@ fn admit_sitemap_seed(
     positions.admitting = admitting;
     if matches!(answer, Ok(Enqueued::Added { .. })) {
         positions.sitemap_seed = true;
+    }
+    answer
+}
+
+/// Admits the syndication seed `seed` through the Frontier within `invariants`
+/// and `policy`: its feed's fetch, added at its position from `positions`.
+fn admit_syndication_seed(
+    connection: &Connection,
+    positions: &mut Positions,
+    invariants: &goodfetch_frontier::Invariants,
+    policy: &Policy,
+    seed: &SyndicationSeed,
+) -> rusqlite::Result<Enqueued> {
+    let mut admitting = std::mem::take(&mut positions.admitting);
+    let answer = syndication::admit_seed_in(
+        connection,
+        invariants,
+        policy,
+        seed,
+        &mut admitting,
+        |url| {
+            add(
+                connection,
+                positions,
+                url,
+                from_sitemap(sitemap::Adding::Sitemap),
+            )
+        },
+    );
+    positions.admitting = admitting;
+    if matches!(answer, Ok(Enqueued::Added { .. })) {
+        positions.syndication_seed = true;
     }
     answer
 }
@@ -875,6 +995,9 @@ pub(crate) enum Decided {
     /// A sitemap seed it answered `added`, with the Frontier's invariants
     /// and the domain policy it was admitted under.
     Sitemap(Box<(Arc<goodfetch_frontier::Invariants>, Policy, SitemapSeed)>),
+    /// A syndication seed it answered `added`, with the Frontier's invariants
+    /// and the domain policy it was admitted under.
+    Syndication(Box<(Arc<goodfetch_frontier::Invariants>, Policy, SyndicationSeed)>),
     /// A request the visited set holds that a link of the attempt's page
     /// reached again, seen as `revealable` says (ADR 0035).
     SeenAgain(Box<(Arc<goodfetch_frontier::Invariants>, Keyed, bool)>),
@@ -949,6 +1072,10 @@ impl Decided {
                 let (invariants, policy, seed) = &**seed;
                 admit_sitemap_seed(connection, positions, invariants, policy, seed).map(drop)
             }
+            Self::Syndication(seed) => {
+                let (invariants, policy, seed) = &**seed;
+                admit_syndication_seed(connection, positions, invariants, policy, seed).map(drop)
+            }
             Self::SeenAgain(seen) => {
                 let (invariants, keyed, revealable) = &**seen;
                 trap_links::seen_again(connection, invariants.unwritten(), keyed, *revealable)
@@ -986,6 +1113,8 @@ pub(crate) struct Positions {
     added: u64,
     /// Whether a sitemap seed is among them.
     sitemap_seed: bool,
+    /// Whether a syndication seed is among them.
+    syndication_seed: bool,
 }
 
 impl Positions {
@@ -1010,6 +1139,7 @@ impl Positions {
             decided: None,
             added: 0,
             sitemap_seed: false,
+            syndication_seed: false,
         })
     }
 
@@ -1548,7 +1678,7 @@ fn leased_rows(
                         forefront: row.get(8)?,
                         lane: LANE_FIRST_VISIT,
                     },
-                    sitemap: false,
+                    source: None,
                     trap_link_suspected: false,
                     is_revisit: false,
                     revisit_previous: goodfetch_frontier::revisit::PreviousState::default(),
@@ -1558,8 +1688,14 @@ fn leased_rows(
             .optional()?;
         if let Some(mut row) = row {
             row.crawl_request.payload = payload::of_request(connection, &row.crawl_request.id)?;
-            row.sitemap = sitemap::is_fetch(connection, &row.crawl_request.id)?;
-            if row.sitemap {
+            row.source = if sitemap::is_fetch(connection, &row.crawl_request.id)? {
+                Some(SourceKind::Sitemap)
+            } else if syndication::is_fetch(connection, &row.crawl_request.id)? {
+                Some(SourceKind::Syndication)
+            } else {
+                None
+            };
+            if row.is_source() {
                 row.waiting.lane = LANE_SOURCE;
             }
             row.trap_link_suspected = trap_links::suspected(connection, &row.crawl_request.id)?
@@ -1936,6 +2072,10 @@ fn write_outcome(write: &mut EndWrite<'_>, id: &str, ending: Ending) -> rusqlite
         changed.fetches_ended += 1;
         return sitemap::ended(connection, id, &ending);
     }
+    if syndication::is_fetch(connection, id)? {
+        changed.fetches_ended += 1;
+        return syndication::ended(connection, id, &ending);
+    }
     let (url, label, depth, attempts): (String, String, u32, u32) = connection
         .prepare_cached("SELECT url, label, depth, attempts FROM work_items WHERE id = ?1")
         .and_then(|mut cached| {
@@ -2028,9 +2168,14 @@ pub(crate) struct Changed {
     pub(crate) fetches_reopened: u64,
     /// Whether it added a sitemap seed.
     pub(crate) sitemap_seed: bool,
+    /// Whether it added a syndication seed.
+    pub(crate) syndication_seed: bool,
     /// Each sitemap seed's report after it, when it changed them
     /// ([`Changed::with_sitemaps`]).
     pub(crate) sitemaps: Option<Vec<SitemapReport>>,
+    /// Each syndication source's report after it, when it changed them
+    /// ([`Changed::with_sitemaps`]).
+    pub(crate) sources: Option<Vec<SourceReport>>,
 }
 
 impl Changed {
@@ -2039,6 +2184,7 @@ impl Changed {
     pub(crate) fn adds(&mut self, positions: &mut Positions) -> Vec<Waiting> {
         self.added += std::mem::take(&mut positions.added);
         self.sitemap_seed |= std::mem::take(&mut positions.sitemap_seed);
+        self.syndication_seed |= std::mem::take(&mut positions.syndication_seed);
         positions.keyed()
     }
 
@@ -2051,8 +2197,12 @@ impl Changed {
         self.reopened.extend(other.reopened);
         self.fetches_reopened += other.fetches_reopened;
         self.sitemap_seed |= other.sitemap_seed;
+        self.syndication_seed |= other.syndication_seed;
         if other.sitemaps.is_some() {
             self.sitemaps = other.sitemaps;
+        }
+        if other.sources.is_some() {
+            self.sources = other.sources;
         }
     }
 
@@ -2061,9 +2211,9 @@ impl Changed {
         *self == Self::default()
     }
 
-    /// The same, with each sitemap seed's report as `connection`'s
-    /// transaction holds them once the job is done, when the job changed
-    /// them: it added a sitemap seed, or ended a sitemap's fetch.
+    /// The same, with each sitemap seed's and syndication source's report as
+    /// `connection`'s transaction holds them once the job is done, when the
+    /// job changed them.
     ///
     /// # Errors
     ///
@@ -2071,6 +2221,9 @@ impl Changed {
     pub(crate) fn with_sitemaps(mut self, connection: &Connection) -> rusqlite::Result<Self> {
         if self.sitemap_seed || self.fetches_ended > 0 {
             self.sitemaps = Some(sitemap::reports(connection)?);
+        }
+        if self.syndication_seed || self.fetches_ended > 0 {
+            self.sources = Some(syndication::reports(connection)?);
         }
         Ok(self)
     }

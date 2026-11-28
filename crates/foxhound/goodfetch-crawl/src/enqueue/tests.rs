@@ -43,6 +43,7 @@ fn leased() -> (Connection, u64) {
         .chain(goodfetch_frontier::payload::TABLES.statements)
         .chain(crate::invariants::fixture::PAGE_DECLARED.statements)
         .chain(goodfetch_frontier::sitemap::TABLES.statements)
+        .chain(goodfetch_frontier::syndication::TABLES.statements)
         .chain(goodfetch_frontier::trap_links::TABLES.statements)
     {
         connection.execute(statement, []).unwrap();

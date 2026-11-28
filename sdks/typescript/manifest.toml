@@ -278,6 +278,16 @@ form = "read"
 
 [[member]]
 package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "syndication"
+entry = "none"
+reason = "Builds a syndication seed (RSS 2.0, RSS 1.0 or Atom 1.0), one of the seeds `crawl.start` carries, whose rules give each entry the Label of the first that matches it (ADRs 0093 and 0139), with no round trip."
+only = "Rust builds a syndication seed with `Seed::syndication` (ADR 0099)."
+words = ["syndication"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
 receiver = "CrawlContext"
 member = "request"
 entry = "none"

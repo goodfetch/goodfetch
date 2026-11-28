@@ -104,7 +104,7 @@ use goodfetch_fetch_tier::{
     RobotsTxtCopies, RunHandOver, SitePreferences, Stop, TierChoice, Unfollowed, infer_plan,
     light_browser_unsent, tier_provenance, tier_serves,
 };
-use goodfetch_frontier::{DomainKeys, sitemap};
+use goodfetch_frontier::DomainKeys;
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, CancelledBy};
 use goodfetch_protocol::effect::EffectAttempt;
@@ -206,9 +206,9 @@ pub(super) enum Answer {
     /// The same of a redirect hop on another domain key than the request's:
     /// counted alike, but it says nothing of the request's own domain.
     HopsRobotsTxtUnreachable(String),
-    /// A sitemap's fetch read what its sitemap lists (ADR 0093): no
-    /// handler ran.
-    SitemapRead(sitemap::Document),
+    /// A sitemap or syndication feed's fetch read its entries (ADRs 0093 and
+    /// 0139): no handler ran.
+    SourceRead(crate::attempt_outcome::SourceDocument),
     /// A Continuous crawl revisit found the page unchanged (304 or matching
     /// Page signature) under `revisit.on_unchanged: skip`: no handler ran and
     /// no Record was pushed (ADR 0139).
@@ -413,7 +413,7 @@ impl Tiering {
     /// The tier the attempt starts on, if any.
     pub(super) fn tier(&self) -> Option<FetchTier> {
         match &self.plan {
-            AttemptPlan::Sitemap => None,
+            AttemptPlan::Sitemap | AttemptPlan::Syndication => None,
             AttemptPlan::On(choice) => Some(choice.tier),
             AttemptPlan::Replayed(_) => Some(FetchTier::DiscoveredApi),
             AttemptPlan::Sample(_) | AttemptPlan::Race(_) => Some(FetchTier::Http),
@@ -721,6 +721,8 @@ pub(super) async fn attempt(
             let answer = match (&tiering.plan, &tiering.http) {
                 (AttemptPlan::Sitemap, Some(http)) => on.sitemap(http).await,
                 (AttemptPlan::Sitemap, None) => without_http_tier("sitemap"),
+                (AttemptPlan::Syndication, Some(http)) => on.syndication(http).await,
+                (AttemptPlan::Syndication, None) => without_http_tier("syndication"),
                 (AttemptPlan::On(choice), _) if choice.tier == FetchTier::Browser => {
                     on.browser(&tiering.tiers, choice, Chosen::AsChosen).await
                 }
@@ -2326,7 +2328,7 @@ pub(super) fn effect(answer: &Answer) -> Effect {
         | Answer::Refused(_)
         | Answer::RobotsTxtUnreachable(_)
         | Answer::HopsRobotsTxtUnreachable(_)
-        | Answer::SitemapRead(_)
+        | Answer::SourceRead(_)
         | Answer::LeaseEnded
         | Answer::ClientGone
         | Answer::Released => Effect::Neutral,

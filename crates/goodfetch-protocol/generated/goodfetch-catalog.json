@@ -3726,6 +3726,17 @@
             "null"
           ]
         },
+        "sources": {
+          "arrived_in": "0.1",
+          "description": "Each syndication source's reads, failures and entry counts (ADR 0139).",
+          "items": {
+            "$ref": "#/$defs/SourceReport"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "stop_reason": {
           "anyOf": [
             {
@@ -3951,6 +3962,17 @@
           "description": "Each sitemap seed's sitemaps, as its progress gives them.",
           "items": {
             "$ref": "#/$defs/SitemapReport"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "sources": {
+          "arrived_in": "0.1",
+          "description": "Each syndication source's reads, failures and entry counts (ADR 0139).",
+          "items": {
+            "$ref": "#/$defs/SourceReport"
           },
           "type": [
             "array",
@@ -19348,9 +19370,13 @@
         {
           "$ref": "#/$defs/SitemapSeed",
           "description": "The entries of a sitemap, or of the sitemaps a site's robots.txt\nnames."
+        },
+        {
+          "$ref": "#/$defs/SyndicationSeed",
+          "description": "The entries of an RSS 2.0, RSS 1.0 or Atom 1.0 syndication feed\n(ADR 0139)."
         }
       ],
-      "description": "What a crawl starts from (ADR 0093): a request, or a sitemap seed, which\nseeds the entries of a site's sitemaps."
+      "description": "What a crawl starts from (ADR 0093): a request, a sitemap seed, or a\nsyndication seed, which seeds the entries of an RSS or Atom feed."
     },
     "SeedAttempt": {
       "additionalProperties": false,
@@ -20895,6 +20921,110 @@
         }
       ]
     },
+    "SourceFailure": {
+      "description": "Why a syndication source could not be read (ADRs 0102 and 0139).",
+      "properties": {
+        "code": {
+          "arrived_in": "0.1",
+          "description": "Why, as a name: its fetch's Error code (`response_unavailable`,\n`response_not_ok` for a status or an unreadable feed,\n`response_limit_exceeded`), its skip reason (`robots_txt`), or its\nBlock cause.",
+          "type": "string"
+        },
+        "message": {
+          "arrived_in": "0.1",
+          "description": "Why, in words.",
+          "type": "string"
+        },
+        "status": {
+          "arrived_in": "0.1",
+          "description": "The HTTP status the site answered, when one answered.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "Its URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "SourceReport": {
+      "description": "A syndication source's reads, failures and entry counts (ADRs 0102 and\n0139): entries are counted rather than listed, since a feed can hold up to\n50,000.",
+      "properties": {
+        "added": {
+          "arrived_in": "0.1",
+          "description": "How many of its entries were added.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "failed": {
+          "arrived_in": "0.1",
+          "description": "How many times reading the feed failed.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceFailure"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The latest failure when the feed could not be read, if any."
+        },
+        "not_added": {
+          "arrived_in": "0.1",
+          "description": "How many of its entries were not added.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "not_added_by_reason": {
+          "arrived_in": "0.1",
+          "description": "Those not added, by the reason the Frontier gave, `no_rule` for an\nentry no rule matched, sorted by name.",
+          "items": {
+            "$ref": "#/$defs/CountOf"
+          },
+          "type": "array"
+        },
+        "read": {
+          "arrived_in": "0.1",
+          "description": "How many times the feed was read.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL of the syndication feed.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "read",
+        "failed",
+        "added",
+        "not_added",
+        "not_added_by_reason"
+      ],
+      "type": "object"
+    },
     "StagingFullDetails": {
       "description": "What `staging_full` names: the setting that bounds an attempt's staged\nadmissions, and its value.",
       "properties": {
@@ -21367,6 +21497,30 @@
           "type": "string"
         }
       ]
+    },
+    "SyndicationSeed": {
+      "additionalProperties": false,
+      "description": "A syndication feed seed (ADRs 0093, 0119 and 0139): `syndication` names an\nRSS 2.0, RSS 1.0 or Atom 1.0 feed. The engine reads it once the Run is\nrunning, through the domain policy, Politeness and robots.txt, running no\nhandler; each entry's link is checked as an enqueue is, at depth 0, with\nthe Label of the first rule whose pattern matches its URL and no Payload,\nand one no rule matches is not added, with `no_rule`, while one outside the\nscope is not added, with `out_of_scope`. The seed widens the crawl's scope\nby the host of the URL it names. In a batch crawl it is read once.",
+      "properties": {
+        "rules": {
+          "arrived_in": "0.1",
+          "description": "The rules that give each entry its Label, in order: the first whose\npattern matches the entry's URL wins.",
+          "items": {
+            "$ref": "#/$defs/SitemapRule"
+          },
+          "type": "array"
+        },
+        "syndication": {
+          "arrived_in": "0.1",
+          "description": "The URL of the RSS 2.0, RSS 1.0 or Atom 1.0 feed.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "syndication",
+        "rules"
+      ],
+      "type": "object"
     },
     "SystemInfo": {
       "description": "What the governor read and decided at one sample: the payload of\n`engine.system_info`.",

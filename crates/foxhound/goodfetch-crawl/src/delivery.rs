@@ -1307,7 +1307,9 @@ async fn lease_to_servers(
                 reader.as_ref(),
                 conditional_revisit,
             );
-            let fetches = tiering.tier().or(leased.sitemap.then_some(FetchTier::Http));
+            let fetches = tiering
+                .tier()
+                .or(leased.is_source().then_some(FetchTier::Http));
             pooled.fetching.in_flight.lock().await.began(
                 run,
                 in_flight_request(&leased, fetches, run.identity.point_in_time()),
@@ -1362,7 +1364,7 @@ async fn plan_revisit_for_lease(
     leased: &Leased,
     tiering: Tiering,
 ) -> (Tiering, Option<ConditionalRevisit>) {
-    if !fetching.continuous || leased.sitemap {
+    if !fetching.continuous || leased.is_source() {
         return (tiering, None);
     }
     let label = leased.crawl_request.label.as_str();
@@ -1769,7 +1771,7 @@ fn planned_revisit(
     attempt: &Attempt,
     now_ms: u64,
 ) -> Option<RevisitRow> {
-    if !read.continuous || attempt.leased.sitemap {
+    if !read.continuous || attempt.leased.is_source() {
         return None;
     }
     let is_unchanged = match &attempt.answer {
@@ -2520,8 +2522,8 @@ async fn queue_outcome(
         Answer::RobotsTxtUnreachable(_) | Answer::HopsRobotsTxtUnreachable(_) => {
             refused(SkipReason::RobotsTxt)
         }
-        Answer::SitemapRead(document) => {
-            let ending = file.sitemap_read(AttemptKey::new(work_item, lease_epoch), document);
+        Answer::SourceRead(document) => {
+            let ending = file.source_read(AttemptKey::new(work_item, lease_epoch), document);
             return queued(on, (leased, lease), (scored, None, ending), false).await;
         }
         Answer::Unchanged => Unsuccessful::Unchanged,

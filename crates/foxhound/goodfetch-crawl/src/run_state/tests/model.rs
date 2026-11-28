@@ -127,7 +127,7 @@ const POLICY: CrawlPolicy = CrawlPolicy {
 const KEYED_AT_ONCE: usize = 2;
 
 /// The tables of a crawl's run file.
-const TABLES: [RunStateTables; 13] = [
+const TABLES: [RunStateTables; 14] = [
     work_items::TABLES,
     crate::labels::TABLES,
     crate::tier_choice::TABLES,
@@ -140,6 +140,7 @@ const TABLES: [RunStateTables; 13] = [
     goodfetch_frontier::payload::TABLES,
     crate::invariants::fixture::PAGE_DECLARED,
     goodfetch_frontier::sitemap::TABLES,
+    goodfetch_frontier::syndication::TABLES,
     goodfetch_frontier::trap_links::TABLES,
 ];
 

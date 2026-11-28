@@ -1076,3 +1076,185 @@ fn one_request_per_domain_key_in_flight_gives_the_same_order_either_way() {
         (1, sent("round_robin"))
     );
 }
+
+/// A syndication seed reads RSS 2.0, RSS 1.0 and Atom 1.0 feeds (at start and
+/// through `run.add_seed`), admits each entry's link at depth 0 with no Payload
+/// under the first matching rule (`no_rule` and `out_of_scope` counted), and
+/// reports unreadable feeds in `sources` with their URL and why while the
+/// others go on (ADR 0139, issue 1851).
+#[test]
+fn syndication_seeds_read_all_three_formats_and_report_unreadable_sources() {
+    let env = TestEnv::new();
+    let (handled, report) = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let mut handled: Vec<(String, String, u64)> = Vec::new();
+            let mut on_request = |params: &Value| {
+                let req = &params["crawl_request"];
+                assert!(req["payload"].is_null(), "feed entry carries no Payload");
+                let depth = req["depth"].as_u64().unwrap_or(0);
+                handled.push((
+                    req["label"].as_str().unwrap().to_owned(),
+                    req["url"].as_str().unwrap().to_owned(),
+                    depth,
+                ));
+                Reply::Records(Vec::new())
+            };
+            let started = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "seeds": [
+                            {
+                                "syndication": "https://shop.test/feeds/rss2.xml",
+                                "rules": [
+                                    { "pattern": "https://shop.test/articles/*", "label": "article" },
+                                    { "pattern": "https://other.test/**", "label": "article" },
+                                ],
+                            },
+                            {
+                                "syndication": "https://shop.test/feeds/rss1.xml",
+                                "rules": [{ "pattern": "**/articles/*", "label": "article" }],
+                            },
+                            {
+                                "syndication": "https://shop.test/feeds/broken.xml",
+                                "rules": [{ "pattern": "**", "label": "article" }],
+                            },
+                        ],
+                        "labels": {
+                            "article": {},
+                            "author": {},
+                        },
+                        "settings": {
+                            "politeness": { "domain": { "delay": 0 } },
+                        },
+                    }),
+                    &mut on_request,
+                )
+                .await;
+            assert!(started["error"].is_null(), "crawl.start: {started}");
+            let run_id = started["result"]["run_id"].as_str().unwrap().to_owned();
+
+            // Add an Atom 1.0 feed dynamically through `run.add_seed`.
+            let added = client
+                .call(
+                    "run.add_seed",
+                    json!({
+                        "run_id": run_id,
+                        "seed": {
+                            "syndication": "https://shop.test/feeds/atom.xml",
+                            "rules": [{ "pattern": "**/authors/*", "label": "author" }],
+                        },
+                    }),
+                    &mut on_request,
+                )
+                .await;
+            assert_eq!(added["result"]["kind"], "added", "run.add_seed: {added}");
+
+            let finished = client
+                .call("run.finish", json!({ "run_id": run_id }), &mut on_request)
+                .await;
+            (handled, finished["result"].clone())
+        },
+    );
+
+    let mut handled = handled;
+    handled.sort();
+    assert_eq!(
+        handled,
+        vec![
+            (
+                "article".to_owned(),
+                "https://shop.test/articles/1".to_owned(),
+                0
+            ),
+            (
+                "article".to_owned(),
+                "https://shop.test/articles/2".to_owned(),
+                0
+            ),
+            (
+                "author".to_owned(),
+                "https://shop.test/authors/1".to_owned(),
+                0
+            ),
+        ]
+    );
+    let sources = report["sources"]
+        .as_array()
+        .expect("Run report carries `sources`");
+    assert_eq!(sources.len(), 4);
+    assert_eq!(sources[0]["url"], "https://shop.test/feeds/rss2.xml");
+    assert_eq!(sources[0]["read"], 1);
+    assert_eq!(sources[0]["added"], 1);
+    assert_eq!(sources[0]["not_added"], 2);
+    assert_eq!(
+        sources[0]["not_added_by_reason"],
+        json!([
+            { "name": "no_rule", "count": 1 },
+            { "name": "out_of_scope", "count": 1 },
+        ])
+    );
+    assert_eq!(sources[1]["url"], "https://shop.test/feeds/rss1.xml");
+    assert_eq!(sources[1]["read"], 1);
+    assert_eq!(sources[1]["added"], 1);
+    assert_eq!(sources[2]["url"], "https://shop.test/feeds/broken.xml");
+    assert_eq!(sources[2]["read"], 0);
+    assert_eq!(sources[2]["failed"], 1);
+    assert_eq!(
+        sources[2]["failure"]["url"],
+        "https://shop.test/feeds/broken.xml"
+    );
+    assert_eq!(sources[2]["failure"]["code"], "response_not_ok");
+    assert_eq!(sources[3]["url"], "https://shop.test/feeds/atom.xml");
+    assert_eq!(sources[3]["read"], 1);
+    assert_eq!(sources[3]["added"], 1);
+}
+
+/// Code-free crawl (`CrawlDeclaration`, also used by Recipe manifests) accepts
+/// `SyndicationSeed` and seeds its entries into the declared Label (issue 1851).
+#[test]
+fn code_free_declaration_accepts_syndication_seed() {
+    let env = TestEnv::new();
+    let report = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let started = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "seeds": [
+                            {
+                                "syndication": "https://shop.test/feeds/atom.xml",
+                                "rules": [{ "pattern": "**/authors/*", "label": "author" }],
+                            },
+                        ],
+                        "datasets": [],
+                        "declaration": {
+                            "labels": [
+                                { "name": "author", "extract": [] },
+                            ],
+                            "datasets": [],
+                            "seeds": [],
+                        },
+                        "settings": {
+                            "politeness": { "domain": { "delay": 0 } },
+                        },
+                    }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            assert!(started["error"].is_null(), "crawl.start: {started}");
+            let run_id = started["result"]["run_id"].as_str().unwrap().to_owned();
+            let finished = client
+                .call("run.finish", json!({ "run_id": run_id }), &mut |_| {
+                    Reply::Silent
+                })
+                .await;
+            finished["result"].clone()
+        },
+    );
+    assert_eq!(report["lifecycle"], "finished");
+    assert_eq!(report["requests"]["succeeded"], 1);
+    assert_eq!(report["sources"][0]["added"], 1);
+}

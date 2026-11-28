@@ -42,6 +42,7 @@ export {
   Label,
   seed,
   sitemap,
+  syndication,
   type AttemptRun,
   type CrawlContext,
   type DatasetOptions,
@@ -113,4 +114,7 @@ export type {
   SitemapRule,
   SitemapSeed,
   SkipReason,
+  SourceFailure,
+  SourceReport,
+  SyndicationSeed,
 } from "./generated/index.ts";

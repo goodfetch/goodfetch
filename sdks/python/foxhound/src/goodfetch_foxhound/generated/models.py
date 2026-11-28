@@ -2105,6 +2105,56 @@ class SortDirection(StrEnum):
     """Largest first."""
 
 
+class SourceFailure(BaseModel):
+    """Why a syndication source could not be read (ADRs 0102 and 0139)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: str
+    """
+    Why, as a name: its fetch's Error code (`response_unavailable`,
+    `response_not_ok` for a status or an unreadable feed,
+    `response_limit_exceeded`), its skip reason (`robots_txt`), or its
+    Block cause.
+    """
+    message: str
+    """Why, in words."""
+    status: Annotated[int | None, Field(ge=0, le=65535)] = None
+    """The HTTP status the site answered, when one answered."""
+    url: str
+    """Its URL."""
+
+
+class SourceReport(BaseModel):
+    """
+    A syndication source's reads, failures and entry counts (ADRs 0102 and
+    0139): entries are counted rather than listed, since a feed can hold up to
+    50,000.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    added: Annotated[int, Field(ge=0)]
+    """How many of its entries were added."""
+    failed: Annotated[int, Field(ge=0)]
+    """How many times reading the feed failed."""
+    failure: SourceFailure | None = None
+    """The latest failure when the feed could not be read, if any."""
+    not_added: Annotated[int, Field(ge=0)]
+    """How many of its entries were not added."""
+    not_added_by_reason: list[CountOf]
+    """
+    Those not added, by the reason the Frontier gave, `no_rule` for an
+    entry no rule matched, sorted by name.
+    """
+    read: Annotated[int, Field(ge=0)]
+    """How many times the feed was read."""
+    url: str
+    """The URL of the syndication feed."""
+
+
 class StagingFullDetails(BaseModel):
     """
     What `staging_full` names: the setting that bounds an attempt's staged
@@ -2118,6 +2168,30 @@ class StagingFullDetails(BaseModel):
     """The setting's name, `crawl.max_staged_enqueues`."""
     max: Annotated[int, Field(ge=0)]
     """How many admissions it lets one attempt stage."""
+
+
+class SyndicationSeed(BaseModel):
+    """
+    A syndication feed seed (ADRs 0093, 0119 and 0139): `syndication` names an
+    RSS 2.0, RSS 1.0 or Atom 1.0 feed. The engine reads it once the Run is
+    running, through the domain policy, Politeness and robots.txt, running no
+    handler; each entry's link is checked as an enqueue is, at depth 0, with
+    the Label of the first rule whose pattern matches its URL and no Payload,
+    and one no rule matches is not added, with `no_rule`, while one outside the
+    scope is not added, with `out_of_scope`. The seed widens the crawl's scope
+    by the host of the URL it names. In a batch crawl it is read once.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    rules: list[SitemapRule]
+    """
+    The rules that give each entry its Label, in order: the first whose
+    pattern matches the entry's URL wins.
+    """
+    syndication: str
+    """The URL of the RSS 2.0, RSS 1.0 or Atom 1.0 feed."""
 
 
 class TierChosen(StrEnum):
@@ -2715,6 +2789,8 @@ class CrawlRunProgress(RunProgress):
     """The Run's ID."""
     sitemaps: list[SitemapReport] | None = None
     """Each sitemap seed's sitemaps."""
+    sources: list[SourceReport] | None = None
+    """Each syndication source's reads, failures and entry counts (ADR 0139)."""
     stop_reason: StopReason | None = None
     """Why it stopped, once it did."""
     storage: RunStorage | None = None
@@ -3029,11 +3105,11 @@ class RunAddSeedsParams(BaseModel):
     """The crawl's Run."""
 
 
-class Seed(RootModel[RequestSeed | SitemapSeed]):
-    root: RequestSeed | SitemapSeed
+class Seed(RootModel[RequestSeed | SitemapSeed | SyndicationSeed]):
+    root: RequestSeed | SitemapSeed | SyndicationSeed
     """
-    What a crawl starts from (ADR 0093): a request, or a sitemap seed, which
-    seeds the entries of a site's sitemaps.
+    What a crawl starts from (ADR 0093): a request, a sitemap seed, or a
+    syndication seed, which seeds the entries of an RSS or Atom feed.
     """
 
 
@@ -3216,6 +3292,8 @@ class CrawlRunReport(RunReport):
     """Each Sink that applies to it (ADRs 0026 and 0103)."""
     sitemaps: list[SitemapReport] | None = None
     """Each sitemap seed's sitemaps, as its progress gives them."""
+    sources: list[SourceReport] | None = None
+    """Each syndication source's reads, failures and entry counts (ADR 0139)."""
     started_at: PointInTime
     """When it started."""
     stop_reason: StopReason | None = None

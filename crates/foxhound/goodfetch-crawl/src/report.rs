@@ -70,6 +70,13 @@ impl ReportPart for CrawlParts {
                 serde_json::to_value(sitemaps).expect("invariant: sitemap counts encode"),
             );
         }
+        let sources = goodfetch_frontier::syndication::reports(connection)?;
+        if !sources.is_empty() {
+            report.kind_parts.insert(
+                "sources".to_owned(),
+                serde_json::to_value(sources).expect("invariant: source counts encode"),
+            );
+        }
         let handled: bool = connection
             .prepare_cached("SELECT EXISTS (SELECT 1 FROM work_items WHERE attempts > 0)")
             .and_then(|mut cached| cached.query_row([], |row| row.get(0)))?;

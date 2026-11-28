@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use goodfetch_collie_client::{Error, Schema, SchemaError, to_json};
-use goodfetch_protocol::foxhound::crawl::{RequestSeed, SitemapRule, SitemapSeed};
+use goodfetch_protocol::foxhound::crawl::{RequestSeed, SitemapRule, SitemapSeed, SyndicationSeed};
 use goodfetch_protocol::foxhound::dataset::{
     InvalidRecord, RECORD_INVALID, RecordData, RecordInvalidDetails, RecordIssue,
 };
@@ -149,6 +149,14 @@ pub(super) enum Seeded {
         crawls: Option<Vec<CrawlId>>,
         refused: Option<&'static str>,
     },
+    /// A syndication feed, with the crawl each rule's Label is of, or none
+    /// when its rules name their Labels by name, and the request option given
+    /// to it, which a syndication seed does not take (ADR 0139).
+    Syndication {
+        syndication: SyndicationSeed,
+        crawls: Option<Vec<CrawlId>>,
+        refused: Option<&'static str>,
+    },
 }
 
 impl Seed {
@@ -265,6 +273,64 @@ impl Seed {
         }
     }
 
+    /// The RSS 2.0, RSS 1.0 or Atom 1.0 syndication feed at `url`, each of
+    /// whose entries' links is seeded with the Label of the first of `rules`
+    /// whose pattern matches its URL, at depth 0 and with no Payload; an entry
+    /// no rule matches is not added, with `no_rule` (ADRs 0093 and 0139).
+    pub fn syndication<'a, S: Into<String>>(
+        url: impl Into<String>,
+        rules: impl IntoIterator<Item = (S, &'a Label<()>)>,
+    ) -> Self {
+        let (rules, crawls) = rules
+            .into_iter()
+            .map(|(pattern, label)| {
+                (
+                    SitemapRule {
+                        pattern: pattern.into(),
+                        label: label.name.to_string(),
+                    },
+                    label.crawl,
+                )
+            })
+            .unzip();
+        Self {
+            seeded: Seeded::Syndication {
+                syndication: SyndicationSeed {
+                    syndication: url.into(),
+                    rules,
+                },
+                crawls: Some(crawls),
+                refused: None,
+            },
+        }
+    }
+
+    /// The syndication feed at `url` as [`Seed::syndication`] reads it, each
+    /// of whose `rules` names its Label by name: a code-free crawl's
+    /// syndication seed (ADRs 0093 and 0139).
+    pub fn named_syndication<S: Into<String>, L: Into<String>>(
+        url: impl Into<String>,
+        rules: impl IntoIterator<Item = (S, L)>,
+    ) -> Self {
+        let rules = rules
+            .into_iter()
+            .map(|(pattern, label)| SitemapRule {
+                pattern: pattern.into(),
+                label: label.into(),
+            })
+            .collect();
+        Self {
+            seeded: Seeded::Syndication {
+                syndication: SyndicationSeed {
+                    syndication: url.into(),
+                    rules,
+                },
+                crawls: None,
+                refused: None,
+            },
+        }
+    }
+
     /// The seed, sent with `method`.
     #[must_use]
     pub fn method(self, method: HttpMethod) -> Self {
@@ -320,7 +386,7 @@ impl Seed {
     fn with_request(mut self, option: &'static str, set: impl FnOnce(&mut RequestSeed)) -> Self {
         match &mut self.seeded {
             Seeded::Request { request, .. } | Seeded::Named(request) => set(request),
-            Seeded::Sitemap { refused, .. } => {
+            Seeded::Sitemap { refused, .. } | Seeded::Syndication { refused, .. } => {
                 refused.get_or_insert(option);
             }
         }

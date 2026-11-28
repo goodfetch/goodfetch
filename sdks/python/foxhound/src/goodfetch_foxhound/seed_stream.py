@@ -25,6 +25,7 @@ from goodfetch_foxhound.generated.models import (
     RequestSeed,
     RunAddSeedsParams,
     SitemapSeed,
+    SyndicationSeed,
 )
 
 if TYPE_CHECKING:
@@ -54,8 +55,8 @@ def _wire_model(model: BaseModel) -> dict[str, object]:
 
 
 async def _close_source(
-    source: Iterator[RequestSeed | SitemapSeed]
-    | AsyncIterator[RequestSeed | SitemapSeed],
+    source: Iterator[RequestSeed | SitemapSeed | SyndicationSeed]
+    | AsyncIterator[RequestSeed | SitemapSeed | SyndicationSeed],
 ) -> None:
     """Closes a sync or async seed iterator on early stop or error."""
     aclose = getattr(source, "aclose", None)
@@ -88,8 +89,8 @@ class SeedStreamReading:
         connection: Streams,
         params: RunAddSeedsParams,
         crawl: AsyncCrawl | Crawl | None,
-        source: Iterable[RequestSeed | SitemapSeed]
-        | AsyncIterable[RequestSeed | SitemapSeed],
+        source: Iterable[RequestSeed | SitemapSeed | SyndicationSeed]
+        | AsyncIterable[RequestSeed | SitemapSeed | SyndicationSeed],
         order: Order,
     ) -> None:
         """Takes connection, `run.add_seeds` params, crawl, seed source and order."""
@@ -176,13 +177,15 @@ class SeedStreamReading:
         await written.wait()
         if self.closed or self._id is None:
             return
-        async_iter: AsyncIterator[RequestSeed | SitemapSeed] | None = None
-        sync_iter: Iterator[RequestSeed | SitemapSeed] | None = None
+        async_iter: (
+            AsyncIterator[RequestSeed | SitemapSeed | SyndicationSeed] | None
+        ) = None
+        sync_iter: Iterator[RequestSeed | SitemapSeed | SyndicationSeed] | None = None
         if isinstance(self._source, AsyncIterable):
             async_iter = self._source.__aiter__()
             closing: (
-                AsyncIterator[RequestSeed | SitemapSeed]
-                | Iterator[RequestSeed | SitemapSeed]
+                AsyncIterator[RequestSeed | SitemapSeed | SyndicationSeed]
+                | Iterator[RequestSeed | SitemapSeed | SyndicationSeed]
             ) = async_iter
         else:
             sync_iter = iter(self._source)
@@ -197,7 +200,7 @@ class SeedStreamReading:
                 if self.closed:
                     break
                 limit = min(self._credits, SEED_BATCH_MAX)
-                batch: list[RequestSeed | SitemapSeed] = []
+                batch: list[RequestSeed | SitemapSeed | SyndicationSeed] = []
                 while len(batch) < limit and not self.closed:
                     try:
                         if async_iter is not None:

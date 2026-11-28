@@ -65,6 +65,7 @@ from goodfetch_foxhound.generated.models import (
     RecordIssue,
     RequestSeed,
     SitemapSeed,
+    SyndicationSeed,
 )
 from goodfetch_foxhound.generated.models import (
     DatasetRecord as WireDatasetRecord,
@@ -446,21 +447,23 @@ class AsyncCommittedReads(Protocol):
         """The rejected Records of `dataset` committed when it is sent, past `after`."""
         ...
 
-    async def add_seed(self, candidate: RequestSeed | SitemapSeed) -> Enqueued:
+    async def add_seed(
+        self, candidate: RequestSeed | SitemapSeed | SyndicationSeed
+    ) -> Enqueued:
         """Adds one seed staged with this attempt (`run.add_seed`)."""
         ...
 
     def add_seeds(
         self,
-        seeds: Iterable[RequestSeed | SitemapSeed]
-        | AsyncIterable[RequestSeed | SitemapSeed],
+        seeds: Iterable[RequestSeed | SitemapSeed | SyndicationSeed]
+        | AsyncIterable[RequestSeed | SitemapSeed | SyndicationSeed],
     ) -> AsyncSequence[Enqueued]:
         """Streams seeds staged with this attempt (`run.add_seeds`)."""
         ...
 
     def build_seed(
         self,
-        seed_or_url: RequestSeed | SitemapSeed | str,
+        seed_or_url: RequestSeed | SitemapSeed | SyndicationSeed | str,
         label: Label[Any] | str | None,
         payload: object,
         method: str | None,
@@ -469,7 +472,7 @@ class AsyncCommittedReads(Protocol):
         priority: int | None,
         forefront: bool | None,
         key: str | None,
-    ) -> RequestSeed | SitemapSeed:
+    ) -> RequestSeed | SitemapSeed | SyndicationSeed:
         """Builds and validates one seed against this crawl."""
         ...
 
@@ -493,19 +496,21 @@ class CommittedReads(Protocol):
         """The rejected Records of `dataset` committed when it is sent, past `after`."""
         ...
 
-    def add_seed(self, candidate: RequestSeed | SitemapSeed) -> Enqueued:
+    def add_seed(
+        self, candidate: RequestSeed | SitemapSeed | SyndicationSeed
+    ) -> Enqueued:
         """Adds one seed staged with this attempt (`run.add_seed`)."""
         ...
 
     def add_seeds(
-        self, seeds: Iterable[RequestSeed | SitemapSeed]
+        self, seeds: Iterable[RequestSeed | SitemapSeed | SyndicationSeed]
     ) -> ReadSequence[Enqueued]:
         """Streams seeds staged with this attempt (`run.add_seeds`)."""
         ...
 
     def build_seed(
         self,
-        seed_or_url: RequestSeed | SitemapSeed | str,
+        seed_or_url: RequestSeed | SitemapSeed | SyndicationSeed | str,
         label: Label[Any] | str | None,
         payload: object,
         method: str | None,
@@ -514,7 +519,7 @@ class CommittedReads(Protocol):
         priority: int | None,
         forefront: bool | None,
         key: str | None,
-    ) -> RequestSeed | SitemapSeed:
+    ) -> RequestSeed | SitemapSeed | SyndicationSeed:
         """Builds and validates one seed against this crawl."""
         ...
 
@@ -601,7 +606,9 @@ class AsyncAttemptRun:
         return self._reads.rejected_records(dataset, after)
 
     @overload
-    async def add_seed(self, seed_or_url: RequestSeed | SitemapSeed) -> Enqueued: ...
+    async def add_seed(
+        self, seed_or_url: RequestSeed | SitemapSeed | SyndicationSeed
+    ) -> Enqueued: ...
     @overload
     async def add_seed(
         self,
@@ -645,7 +652,7 @@ class AsyncAttemptRun:
     ) -> Enqueued: ...
     async def add_seed(
         self,
-        seed_or_url: RequestSeed | SitemapSeed | str,
+        seed_or_url: RequestSeed | SitemapSeed | SyndicationSeed | str,
         label: Label[Any] | str | None = None,
         payload: object = None,
         *,
@@ -687,8 +694,8 @@ class AsyncAttemptRun:
 
     def add_seeds(
         self,
-        seeds: Iterable[RequestSeed | SitemapSeed]
-        | AsyncIterable[RequestSeed | SitemapSeed],
+        seeds: Iterable[RequestSeed | SitemapSeed | SyndicationSeed]
+        | AsyncIterable[RequestSeed | SitemapSeed | SyndicationSeed],
     ) -> AsyncSequence[Enqueued]:
         """Streams seeds staged with this attempt (`run.add_seeds`, ADRs 0024 and 0093).
 
@@ -773,7 +780,9 @@ class AttemptRun:
         return self._reads.rejected_records(dataset, after)
 
     @overload
-    def add_seed(self, seed_or_url: RequestSeed | SitemapSeed) -> Enqueued: ...
+    def add_seed(
+        self, seed_or_url: RequestSeed | SitemapSeed | SyndicationSeed
+    ) -> Enqueued: ...
     @overload
     def add_seed(
         self,
@@ -817,7 +826,7 @@ class AttemptRun:
     ) -> Enqueued: ...
     def add_seed(
         self,
-        seed_or_url: RequestSeed | SitemapSeed | str,
+        seed_or_url: RequestSeed | SitemapSeed | SyndicationSeed | str,
         label: Label[Any] | str | None = None,
         payload: object = None,
         *,
@@ -858,7 +867,7 @@ class AttemptRun:
         return self._reads.add_seed(candidate)
 
     def add_seeds(
-        self, seeds: Iterable[RequestSeed | SitemapSeed]
+        self, seeds: Iterable[RequestSeed | SitemapSeed | SyndicationSeed]
     ) -> ReadSequence[Enqueued]:
         """Streams seeds staged with this attempt (`run.add_seeds`, ADRs 0024 and 0093).
 
@@ -1843,6 +1852,26 @@ def sitemap(url: str, rules: Iterable[tuple[str, Label[None]]]) -> SitemapSeed:
     )
 
 
+def syndication(url: str, rules: Iterable[tuple[str, Label[None]]]) -> SyndicationSeed:
+    """A syndication seed of a crawl: entries of the feed at `url` (ADRs 0093, 0139).
+
+    `url` names an RSS 2.0, RSS 1.0 or Atom 1.0 feed. Each `(pattern, label)`
+    of `rules`, in order, is a glob as `crawl.scope.include` takes one and the
+    Label it gives the entries it matches: the first that matches an entry
+    picks its Label, and an entry no rule matches is not added, with `no_rule`.
+    A feed entry carries no Payload, so a rule's Label takes none. The engine
+    reads the feed once the Run is running.
+    """
+    return SyndicationSeed.model_validate(
+        {
+            "syndication": url,
+            "rules": [
+                {"pattern": pattern, "label": label.name} for pattern, label in rules
+            ],
+        }
+    )
+
+
 def _payload_field(label: Label[Any], payload: object) -> dict[str, JSONValue]:
     """The wire's `payload` field of `payload`, sent under `label`; none without one.
 
@@ -1968,7 +1997,8 @@ def _links_options(
 
 
 def check_startable(
-    crawl: AsyncCrawl | Crawl, seeds: Sequence[RequestSeed | SitemapSeed]
+    crawl: AsyncCrawl | Crawl,
+    seeds: Sequence[RequestSeed | SitemapSeed | SyndicationSeed],
 ) -> None:
     """Fails, before anything is sent, when `crawl` cannot start from `seeds`.
 
@@ -1991,7 +2021,7 @@ def check_startable(
     for seed in seeds:
         named = (
             [rule.label for rule in seed.rules]
-            if isinstance(seed, SitemapSeed)
+            if isinstance(seed, (SitemapSeed, SyndicationSeed))
             else [seed.label]
         )
         for name in named:
@@ -2001,7 +2031,7 @@ def check_startable(
 
 def build_seed_for_crawl(
     crawl: AsyncCrawl | Crawl | None,
-    seed_or_url: RequestSeed | SitemapSeed | str,
+    seed_or_url: RequestSeed | SitemapSeed | SyndicationSeed | str,
     label: Label[Any] | str | None,
     payload: object,
     method: str | None,
@@ -2010,7 +2040,7 @@ def build_seed_for_crawl(
     priority: int | None,
     forefront: bool | None,
     key: str | None,
-) -> RequestSeed | SitemapSeed:
+) -> RequestSeed | SitemapSeed | SyndicationSeed:
     """Validates and constructs one seed for `run.add_seed`."""
     if not isinstance(seed_or_url, str):
         if crawl is not None:

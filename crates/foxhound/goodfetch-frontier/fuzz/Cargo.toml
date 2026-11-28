@@ -34,6 +34,13 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "syndication"
+path = "fuzz_targets/syndication.rs"
+test = false
+doc = false
+bench = false
+
 # Goodfetch's forks of `dom_smoothie`, `rs-trafilatura` and the two crates
 # rs-trafilatura reads trees with, as the workspace's `[patch.crates-io]`
 # carries them.

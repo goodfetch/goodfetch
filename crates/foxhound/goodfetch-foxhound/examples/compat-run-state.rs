@@ -497,7 +497,8 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
                 "the learned rule merges the seed"
             );
             link_cursors(connection, &invariants, &policy)?;
-            read_sitemap(connection)
+            read_sitemap(connection)?;
+            read_syndication(connection)
         })
         .await
         .expect("the pages are learned from");
@@ -648,6 +649,72 @@ fn read_sitemap(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
                     "The sitemap {} answered 404, not a sitemap.",
                     missing.sitemap
                 ),
+                details,
+            },
+        },
+    )
+}
+
+/// Admits one readable and one missing syndication seed so `syndication_sources`,
+/// `syndication_entries` and `syndication_failures` carry scenario values.
+fn read_syndication(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
+    use goodfetch_frontier::syndication::{self, FeedDocument};
+    use goodfetch_protocol::foxhound::crawl::{SitemapRule, SyndicationSeed};
+    use goodfetch_protocol::foxhound::frontier::Enqueued;
+    use goodfetch_protocol::foxhound::outcomes::{AttemptError, Ending};
+
+    let policy = goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str])
+        .expect("every host is a policy");
+    let invariants = goodfetch_frontier::Invariants::read(connection)?;
+    let rules = vec![SitemapRule {
+        pattern: "**/articles/*".to_owned(),
+        label: "home".to_owned(),
+    }];
+    let good = SyndicationSeed {
+        syndication: "https://feeds.test/atom.xml".to_owned(),
+        rules: rules.clone(),
+    };
+    let Enqueued::Added { id: good_id, .. } =
+        syndication::admit_seed(connection, &invariants, &policy, &good, |url| {
+            work_item(connection, url, "succeeded")
+        })?
+    else {
+        panic!("syndication seed must be admitted");
+    };
+    syndication::read(
+        connection,
+        &invariants,
+        &policy,
+        &good_id,
+        &FeedDocument {
+            entries: vec!["/about".to_owned()],
+        },
+        &goodfetch_counted_work::CountedWork::default(),
+        |_, _| Err(rusqlite::Error::InvalidQuery),
+    )?;
+    let bad = SyndicationSeed {
+        syndication: "https://feeds.test/missing.xml".to_owned(),
+        rules,
+    };
+    let Enqueued::Added { id: bad_id, .. } =
+        syndication::admit_seed(connection, &invariants, &policy, &bad, |url| {
+            work_item(connection, url, "failed")
+        })?
+    else {
+        panic!("missing syndication seed must be admitted");
+    };
+    let details = serde_json::Map::from_iter([
+        ("url".to_owned(), json!(bad.syndication)),
+        ("status".to_owned(), json!(404)),
+    ]);
+    syndication::ended(
+        connection,
+        &bad_id,
+        &Ending::Failed {
+            error: AttemptError {
+                attempt: 1,
+                code: "response_not_ok".to_owned(),
+                message: format!("The syndication feed {} answered 404.", bad.syndication),
                 details,
             },
         },

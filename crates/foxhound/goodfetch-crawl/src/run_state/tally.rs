@@ -16,9 +16,9 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use goodfetch_frontier::sitemap;
+use goodfetch_frontier::{sitemap, syndication};
 use goodfetch_protocol::foxhound::outcomes::OutcomeKind;
-use goodfetch_protocol::foxhound::report::SitemapReport;
+use goodfetch_protocol::foxhound::report::{SitemapReport, SourceReport};
 use rusqlite::Connection;
 
 use crate::work_items::{self, Changed, CountedAs};
@@ -34,6 +34,8 @@ pub(crate) struct Tally {
     ended: BTreeMap<OutcomeKind, BTreeMap<Arc<str>, i64>>,
     /// Each sitemap seed's report, in the order the seeds were given.
     sitemaps: Arc<[SitemapReport]>,
+    /// Each syndication source's report, in the order the sources were added.
+    sources: Arc<[SourceReport]>,
 }
 
 impl Tally {
@@ -48,6 +50,7 @@ impl Tally {
             left: i64::try_from(work_items::left(connection)?).unwrap_or(i64::MAX),
             ended: BTreeMap::new(),
             sitemaps: sitemap::reports(connection)?.into(),
+            sources: syndication::reports(connection)?.into(),
         };
         let (ended, _) = work_items::ended_counts(connection)?;
         for (kind, name, count) in ended {
@@ -82,6 +85,9 @@ impl Tally {
         }
         if let Some(sitemaps) = changed.sitemaps {
             self.sitemaps = sitemaps.into();
+        }
+        if let Some(sources) = changed.sources {
+            self.sources = sources.into();
         }
     }
 
@@ -133,6 +139,11 @@ impl Tally {
     /// Each sitemap seed's report, in the order the seeds were given.
     pub(crate) fn sitemaps(&self) -> &[SitemapReport] {
         &self.sitemaps
+    }
+
+    /// Each syndication source's report, in the order the sources were added.
+    pub(crate) fn sources(&self) -> &[SourceReport] {
+        &self.sources
     }
 }
 

@@ -37,17 +37,23 @@ pub(crate) enum Ending {
         unsuccessful: Unsuccessful,
         ended_at: SystemTime,
     },
-    /// Its sitemap's `document` is read, its entries admitted under the
-    /// Run's domain policy `egress` and within its `invariants` (ADR 0093),
-    /// each keyed under `keys` as it is added.
-    Sitemap {
+    /// Its sitemap or syndication feed's `document` is read, its entries
+    /// admitted under `egress` and `invariants` (ADRs 0093 and 0139).
+    Source {
         attempt: AttemptKey<String>,
         egress: Arc<Policy>,
         invariants: Arc<goodfetch_frontier::Invariants>,
-        document: sitemap::Document,
+        document: SourceDocument,
         keys: Keys,
         work: CountedWork,
     },
+}
+
+/// The parsed document of a non-handler source fetch (sitemap or syndication
+/// feed).
+pub(crate) enum SourceDocument {
+    Sitemap(sitemap::Document),
+    Syndication(goodfetch_frontier::syndication::FeedDocument),
 }
 
 /// An attempt's outcome, written in one job.
@@ -158,7 +164,7 @@ impl Outcome {
                 }
                 ended
             }
-            Ending::Sitemap {
+            Ending::Source {
                 attempt,
                 egress,
                 invariants,
@@ -166,14 +172,24 @@ impl Outcome {
                 keys,
                 work,
             } => {
-                let read = work_items::read_sitemap(
-                    connection,
-                    &invariants,
-                    &egress,
-                    (&attempt.work_item, attempt.lease_epoch),
-                    &document,
-                    (&keys, &work, &mut changed),
-                )?;
+                let read = match &document {
+                    SourceDocument::Sitemap(document) => work_items::read_sitemap(
+                        connection,
+                        &invariants,
+                        &egress,
+                        (&attempt.work_item, attempt.lease_epoch),
+                        document,
+                        (&keys, &work, &mut changed),
+                    )?,
+                    SourceDocument::Syndication(document) => work_items::read_syndication(
+                        connection,
+                        &invariants,
+                        &egress,
+                        (&attempt.work_item, attempt.lease_epoch),
+                        document,
+                        (&keys, &work, &mut changed),
+                    )?,
+                };
                 Ended::SitemapRead(
                     read.map(|added| work_items::leasable_added(connection, &added))
                         .transpose()?,

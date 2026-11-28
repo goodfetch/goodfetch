@@ -63,6 +63,7 @@ fn crawl_of(count: usize) -> Connection {
         .chain(goodfetch_frontier::payload::TABLES.statements)
         .chain(crate::invariants::fixture::PAGE_DECLARED.statements)
         .chain(goodfetch_frontier::sitemap::TABLES.statements)
+        .chain(goodfetch_frontier::syndication::TABLES.statements)
         .chain(goodfetch_frontier::trap_links::TABLES.statements)
     {
         connection.execute_batch(statement).unwrap();

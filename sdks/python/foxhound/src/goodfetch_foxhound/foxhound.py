@@ -89,7 +89,11 @@ if TYPE_CHECKING:
 
     from goodfetch_foxhound.crawl import AsyncCrawl, Crawl
     from goodfetch_foxhound.crawl_run import AsyncCrawlRun, CodeFreeCrawl, CrawlRun
-    from goodfetch_foxhound.generated.models import RequestSeed, SitemapSeed
+    from goodfetch_foxhound.generated.models import (
+        RequestSeed,
+        SitemapSeed,
+        SyndicationSeed,
+    )
     from goodfetch_foxhound.generated.settings import CrawlSettings, FoxhoundSettings
     from goodfetch_foxhound.handlers import (
         AsyncFetchBackendHandler,
@@ -344,7 +348,7 @@ class AsyncFoxhound(AsyncConnection):
         self,
         crawl: AsyncCrawl,
         *,
-        seeds: Iterable[RequestSeed | SitemapSeed],
+        seeds: Iterable[RequestSeed | SitemapSeed | SyndicationSeed],
         run_id: str | None = None,
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
@@ -356,7 +360,7 @@ class AsyncFoxhound(AsyncConnection):
         self,
         crawl: CodeFreeCrawl,
         *,
-        seeds: Iterable[RequestSeed | SitemapSeed],
+        seeds: Iterable[RequestSeed | SitemapSeed | SyndicationSeed],
         run_id: str | None = None,
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
@@ -367,7 +371,7 @@ class AsyncFoxhound(AsyncConnection):
         self,
         crawl: AsyncCrawl | CodeFreeCrawl,
         *,
-        seeds: Iterable[RequestSeed | SitemapSeed],
+        seeds: Iterable[RequestSeed | SitemapSeed | SyndicationSeed],
         run_id: str | None = None,
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
@@ -756,7 +760,7 @@ class Foxhound(Connection):
         self,
         crawl: Crawl,
         *,
-        seeds: Iterable[RequestSeed | SitemapSeed],
+        seeds: Iterable[RequestSeed | SitemapSeed | SyndicationSeed],
         run_id: str | None = None,
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
@@ -768,7 +772,7 @@ class Foxhound(Connection):
         self,
         crawl: CodeFreeCrawl,
         *,
-        seeds: Iterable[RequestSeed | SitemapSeed],
+        seeds: Iterable[RequestSeed | SitemapSeed | SyndicationSeed],
         run_id: str | None = None,
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
@@ -779,7 +783,7 @@ class Foxhound(Connection):
         self,
         crawl: Crawl | CodeFreeCrawl,
         *,
-        seeds: Iterable[RequestSeed | SitemapSeed],
+        seeds: Iterable[RequestSeed | SitemapSeed | SyndicationSeed],
         run_id: str | None = None,
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,

@@ -141,7 +141,11 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.sequence import AsyncSequence
 
     from goodfetch_foxhound.crawl import AsyncCrawl, Dataset
-    from goodfetch_foxhound.generated.models import RequestSeed, SitemapSeed
+    from goodfetch_foxhound.generated.models import (
+        RequestSeed,
+        SitemapSeed,
+        SyndicationSeed,
+    )
     from goodfetch_foxhound.generated.open_values import OutcomeKind
     from goodfetch_foxhound.generated.settings import CrawlSettings
 
@@ -260,7 +264,9 @@ class AsyncCrawlRun(AsyncRun):
         return list(self._seeds)
 
     @overload
-    async def add_seed(self, seed_or_url: RequestSeed | SitemapSeed) -> Enqueued: ...
+    async def add_seed(
+        self, seed_or_url: RequestSeed | SitemapSeed | SyndicationSeed
+    ) -> Enqueued: ...
     @overload
     async def add_seed(
         self,
@@ -304,7 +310,7 @@ class AsyncCrawlRun(AsyncRun):
     ) -> Enqueued: ...
     async def add_seed(
         self,
-        seed_or_url: RequestSeed | SitemapSeed | str,
+        seed_or_url: RequestSeed | SitemapSeed | SyndicationSeed | str,
         label: Label[Any] | str | None = None,
         payload: object = None,
         *,
@@ -347,8 +353,8 @@ class AsyncCrawlRun(AsyncRun):
 
     def add_seeds(
         self,
-        seeds: Iterable[RequestSeed | SitemapSeed]
-        | AsyncIterable[RequestSeed | SitemapSeed],
+        seeds: Iterable[RequestSeed | SitemapSeed | SyndicationSeed]
+        | AsyncIterable[RequestSeed | SitemapSeed | SyndicationSeed],
     ) -> AsyncSequence[Enqueued]:
         """Streams seeds to the running crawl (`run.add_seeds`, ADRs 0024 and 0102).
 
@@ -371,7 +377,10 @@ class AsyncCrawlRun(AsyncRun):
         return self._add_seeds(seeds, attempt=None)
 
     async def _add_seed(
-        self, candidate: RequestSeed | SitemapSeed, *, attempt: SeedAttempt | None
+        self,
+        candidate: RequestSeed | SitemapSeed | SyndicationSeed,
+        *,
+        attempt: SeedAttempt | None,
     ) -> Enqueued:
         warn_entry("run.add_seed", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         fields: dict[str, object] = {"run_id": self._host.id, "seed": _wire(candidate)}
@@ -383,8 +392,8 @@ class AsyncCrawlRun(AsyncRun):
 
     def _add_seeds(
         self,
-        seeds: Iterable[RequestSeed | SitemapSeed]
-        | AsyncIterable[RequestSeed | SitemapSeed],
+        seeds: Iterable[RequestSeed | SitemapSeed | SyndicationSeed]
+        | AsyncIterable[RequestSeed | SitemapSeed | SyndicationSeed],
         *,
         attempt: SeedAttempt | None,
     ) -> AsyncSequence[Enqueued]:
@@ -1086,7 +1095,9 @@ class CrawlRun(Run):
         return self._crawl_run.seeds()
 
     @overload
-    def add_seed(self, seed_or_url: RequestSeed | SitemapSeed) -> Enqueued: ...
+    def add_seed(
+        self, seed_or_url: RequestSeed | SitemapSeed | SyndicationSeed
+    ) -> Enqueued: ...
     @overload
     def add_seed(
         self,
@@ -1130,7 +1141,7 @@ class CrawlRun(Run):
     ) -> Enqueued: ...
     def add_seed(
         self,
-        seed_or_url: RequestSeed | SitemapSeed | str,
+        seed_or_url: RequestSeed | SitemapSeed | SyndicationSeed | str,
         label: Label[Any] | str | None = None,
         payload: object = None,
         *,
@@ -1176,7 +1187,7 @@ class CrawlRun(Run):
             raise closed_error("run.add_seed") from None
 
     def add_seeds(
-        self, seeds: Iterable[RequestSeed | SitemapSeed]
+        self, seeds: Iterable[RequestSeed | SitemapSeed | SyndicationSeed]
     ) -> Sequence[Enqueued]:
         """Streams seeds to the running crawl (`run.add_seeds`), as the async Run's.
 
@@ -1587,21 +1598,23 @@ class _AttemptReads:
         """The rejected Records of `dataset` committed when it is sent, past `after`."""
         return self._run._rejected(dataset, after, committed=True)  # pyright: ignore[reportPrivateUsage]
 
-    async def add_seed(self, candidate: RequestSeed | SitemapSeed) -> Enqueued:
+    async def add_seed(
+        self, candidate: RequestSeed | SitemapSeed | SyndicationSeed
+    ) -> Enqueued:
         """Adds one seed staged with this attempt."""
         return await self._run._add_seed(candidate, attempt=self._attempt)  # pyright: ignore[reportPrivateUsage]
 
     def add_seeds(
         self,
-        seeds: Iterable[RequestSeed | SitemapSeed]
-        | AsyncIterable[RequestSeed | SitemapSeed],
+        seeds: Iterable[RequestSeed | SitemapSeed | SyndicationSeed]
+        | AsyncIterable[RequestSeed | SitemapSeed | SyndicationSeed],
     ) -> AsyncSequence[Enqueued]:
         """Streams seeds staged with this attempt."""
         return self._run._add_seeds(seeds, attempt=self._attempt)  # pyright: ignore[reportPrivateUsage]
 
     def build_seed(
         self,
-        seed_or_url: RequestSeed | SitemapSeed | str,
+        seed_or_url: RequestSeed | SitemapSeed | SyndicationSeed | str,
         label: Label[Any] | str | None,
         payload: object,
         method: str | None,
@@ -1610,7 +1623,7 @@ class _AttemptReads:
         priority: int | None,
         forefront: bool | None,
         key: str | None,
-    ) -> RequestSeed | SitemapSeed:
+    ) -> RequestSeed | SitemapSeed | SyndicationSeed:
         """Builds and validates one seed against the Run's crawl."""
         return build_seed_for_crawl(
             self._run._crawl,  # pyright: ignore[reportPrivateUsage]
@@ -1657,7 +1670,9 @@ class _ThreadedReads:
 
         return _on_thread(self._loop, "run.rejected_records", reading)
 
-    def add_seed(self, candidate: RequestSeed | SitemapSeed) -> Enqueued:
+    def add_seed(
+        self, candidate: RequestSeed | SitemapSeed | SyndicationSeed
+    ) -> Enqueued:
         """Adds one seed staged with this attempt, on the loop."""
         reads = self._reads
         try:
@@ -1666,7 +1681,7 @@ class _ThreadedReads:
             raise closed_error("run.add_seed") from None
 
     def add_seeds(
-        self, seeds: Iterable[RequestSeed | SitemapSeed]
+        self, seeds: Iterable[RequestSeed | SitemapSeed | SyndicationSeed]
     ) -> Sequence[Enqueued]:
         """Streams seeds staged with this attempt, on the loop."""
         reads = self._reads
@@ -1678,7 +1693,7 @@ class _ThreadedReads:
 
     def build_seed(
         self,
-        seed_or_url: RequestSeed | SitemapSeed | str,
+        seed_or_url: RequestSeed | SitemapSeed | SyndicationSeed | str,
         label: Label[Any] | str | None,
         payload: object,
         method: str | None,
@@ -1687,7 +1702,7 @@ class _ThreadedReads:
         priority: int | None,
         forefront: bool | None,
         key: str | None,
-    ) -> RequestSeed | SitemapSeed:
+    ) -> RequestSeed | SitemapSeed | SyndicationSeed:
         """Builds and validates one seed against the Run's crawl."""
         return self._reads.build_seed(
             seed_or_url,
@@ -1777,7 +1792,7 @@ class CrawlRuns:
         self,
         crawl: AsyncCrawl | CodeFreeCrawl,
         *,
-        seeds: Iterable[RequestSeed | SitemapSeed],
+        seeds: Iterable[RequestSeed | SitemapSeed | SyndicationSeed],
         run_id: str | None,
         tags: Iterable[str] | None,
         limits: Limits | None,
@@ -1814,7 +1829,7 @@ class CrawlRuns:
         loop: PrivateLoop,
         crawl: Crawl | CodeFreeCrawl,
         *,
-        seeds: Iterable[RequestSeed | SitemapSeed],
+        seeds: Iterable[RequestSeed | SitemapSeed | SyndicationSeed],
         run_id: str | None,
         tags: Iterable[str] | None,
         limits: Limits | None,
@@ -1859,7 +1874,7 @@ class CrawlRuns:
         crawl: AsyncCrawl | Crawl | CodeFreeCrawl,
         opened: Callable[[RunStarted, list[Enqueued]], AsyncCrawlRun],
         *,
-        seeds: Iterable[RequestSeed | SitemapSeed],
+        seeds: Iterable[RequestSeed | SitemapSeed | SyndicationSeed],
         run_id: str | None,
         tags: Iterable[str] | None,
         limits: Limits | None,
@@ -2087,7 +2102,7 @@ def _record_of(method: str, params: object) -> DatasetRecord[Any] | None:
 
 def _crawl_shape(
     crawl: AsyncCrawl | Crawl | CodeFreeCrawl,
-    seeds: list[RequestSeed | SitemapSeed],
+    seeds: list[RequestSeed | SitemapSeed | SyndicationSeed],
 ) -> dict[str, object]:
     """What `crawl.start` takes for `crawl`: its Labels and Datasets, or itself.
 

@@ -427,3 +427,15 @@ reason = "`Ending` gains the `unchanged` variant for Continuous crawl revisits (
 [[announced]]
 entry = "typescript @goodfetch/foxhound/generated OutcomeKind"
 reason = "`OutcomeKind` gains `unchanged` for Continuous crawl revisits (ADR 0139, issue 1841): the open union's known members gain it; a program reading any kind still reads it."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated Seed"
+reason = "`Seed` gains `SyndicationSeed` for RSS and Atom syndication feed seeding (ADR 0139, issue 1851)."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated/types Seed"
+reason = "`Seed` gains `SyndicationSeed` for RSS and Atom syndication feed seeding (ADR 0139, issue 1851)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/generated Seed"
+reason = "`Seed` gains `SyndicationSeed` for RSS and Atom syndication feed seeding (ADR 0139, issue 1851)."

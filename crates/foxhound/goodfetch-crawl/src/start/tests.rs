@@ -443,6 +443,12 @@ fn page(url: &goodfetch_memory_site::Url) -> goodfetch_memory_site::Page {
     match (path, retry_after(path)) {
         (PANICS, _) => panic!("the test's site panics in the attempt that fetches {PANICS}"),
         (SITEMAP, _) => Page::new(200, "application/xml", SITEMAP_XML),
+        ("/feeds/rss2.xml", _) => Page::new(200, "application/rss+xml; charset=utf-8", RSS2_XML),
+        ("/feeds/rss1.xml", _) => Page::new(200, "application/rdf+xml; charset=utf-8", RSS1_XML),
+        ("/feeds/atom.xml", _) => Page::new(200, "application/atom+xml; charset=utf-8", ATOM_XML),
+        ("/feeds/broken.xml", _) => {
+            Page::new(200, "application/rss+xml; charset=utf-8", "<rss><channel>")
+        }
         (_, Some((status, value))) => {
             let page = Page::html(PAGE)
                 .with_status(status)
@@ -465,6 +471,29 @@ const SITEMAP_XML: &str = concat!(
     "<url><loc>https://shop.test/page/2</loc></url>",
     "<url><loc>https://shop.test/page/3</loc></url>",
     "</urlset>",
+);
+
+const RSS2_XML: &str = concat!(
+    r#"<?xml version="1.0" encoding="UTF-8"?>"#,
+    r#"<rss version="2.0"><channel><title>News</title>"#,
+    "<item><link>https://shop.test/articles/1</link></item>",
+    "<item><link>https://shop.test/about</link></item>",
+    "<item><link>https://other.test/articles/9</link></item>",
+    "</channel></rss>",
+);
+
+const RSS1_XML: &str = concat!(
+    r#"<?xml version="1.0" encoding="UTF-8"?>"#,
+    r#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">"#,
+    r#"<item rdf:about="https://shop.test/articles/2"><link>https://shop.test/articles/2</link></item>"#,
+    "</rdf:RDF>",
+);
+
+const ATOM_XML: &str = concat!(
+    r#"<?xml version="1.0" encoding="UTF-8"?>"#,
+    r#"<feed xmlns="http://www.w3.org/2005/Atom"><title>Atom</title>"#,
+    r#"<entry><link rel="alternate" href="https://shop.test/authors/1"/></entry>"#,
+    "</feed>",
 );
 
 /// The fetch tiers of the harness's engine, serving [`page`]'s site from

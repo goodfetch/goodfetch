@@ -2013,13 +2013,13 @@ export type SecretFailure =
  */
 export type SecretInputRefusedReason = "invalid_certificate_exception";
 /**
- * What a crawl starts from (ADR 0093): a request, or a sitemap seed, which
- * seeds the entries of a site's sitemaps.
+ * What a crawl starts from (ADR 0093): a request, a sitemap seed, or a
+ * syndication seed, which seeds the entries of an RSS or Atom feed.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "Seed".
  */
-export type Seed = RequestSeed | SitemapSeed;
+export type Seed = RequestSeed | SitemapSeed | SyndicationSeed;
 /**
  * A Session's event a program listens to.
  *
@@ -10173,6 +10173,30 @@ export interface SitemapRule {
    * The URL pattern.
    */
   pattern: string;
+}
+/**
+ * A syndication feed seed (ADRs 0093, 0119 and 0139): `syndication` names an
+ * RSS 2.0, RSS 1.0 or Atom 1.0 feed. The engine reads it once the Run is
+ * running, through the domain policy, Politeness and robots.txt, running no
+ * handler; each entry's link is checked as an enqueue is, at depth 0, with
+ * the Label of the first rule whose pattern matches its URL and no Payload,
+ * and one no rule matches is not added, with `no_rule`, while one outside the
+ * scope is not added, with `out_of_scope`. The seed widens the crawl's scope
+ * by the host of the URL it names. In a batch crawl it is read once.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SyndicationSeed".
+ */
+export interface SyndicationSeed {
+  /**
+   * The rules that give each entry its Label, in order: the first whose
+   * pattern matches the entry's URL wins.
+   */
+  rules: SitemapRule[];
+  /**
+   * The URL of the RSS 2.0, RSS 1.0 or Atom 1.0 feed.
+   */
+  syndication: string;
 }
 /**
  * What `$/seeds` carries: the next seeds a Client streams to a

@@ -111,6 +111,10 @@ pub struct CrawlRunReport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub sitemaps: Option<Vec<SitemapReport>>,
+    /// Each syndication source's reads, failures and entry counts (ADR 0139).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub sources: Option<Vec<SourceReport>>,
     /// What every Run's report holds.
     #[serde(flatten)]
     pub report: RunReport,
@@ -344,6 +348,57 @@ pub struct SitemapFailure {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub code: String,
     /// The status its site answered, when one answered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub status: Option<u16>,
+    /// Why, in words.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub message: String,
+}
+
+/// A syndication source's reads, failures and entry counts (ADRs 0102 and
+/// 0139): entries are counted rather than listed, since a feed can hold up to
+/// 50,000.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SourceReport {
+    /// The URL of the syndication feed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// How many times the feed was read.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub read: u64,
+    /// How many times reading the feed failed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub failed: u64,
+    /// The latest failure when the feed could not be read, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub failure: Option<SourceFailure>,
+    /// How many of its entries were added.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub added: u64,
+    /// How many of its entries were not added.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub not_added: u64,
+    /// Those not added, by the reason the Frontier gave, `no_rule` for an
+    /// entry no rule matched, sorted by name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub not_added_by_reason: Vec<CountOf>,
+}
+
+/// Why a syndication source could not be read (ADRs 0102 and 0139).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SourceFailure {
+    /// Its URL.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// Why, as a name: its fetch's Error code (`response_unavailable`,
+    /// `response_not_ok` for a status or an unreadable feed,
+    /// `response_limit_exceeded`), its skip reason (`robots_txt`), or its
+    /// Block cause.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub code: String,
+    /// The HTTP status the site answered, when one answered.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub status: Option<u16>,

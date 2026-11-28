@@ -42,6 +42,8 @@ pub struct Staged {
     seeds: Vec<Url>,
     /// The URLs of the sitemaps whose fetch was added.
     sitemaps: BTreeSet<String>,
+    /// The URLs of the syndication feeds whose fetch was added.
+    syndications: BTreeSet<String>,
     /// The candidates not added whose judgement wrote to the run file: a
     /// bound's refusal, counted, and a learned rule's merge or refusal,
     /// recorded.
@@ -119,6 +121,7 @@ impl Staged {
         }
         self.seeds.extend(later.seeds);
         self.sitemaps.extend(later.sitemaps);
+        self.syndications.extend(later.syndications);
         self.left += later.left;
     }
 
@@ -154,6 +157,11 @@ impl Staged {
     /// Whether a sitemap's fetch at `url` was added.
     pub(crate) fn holds_sitemap(&self, url: &str) -> bool {
         self.sitemaps.contains(url)
+    }
+
+    /// Whether a syndication feed's fetch at `url` was added.
+    pub(crate) fn holds_syndication(&self, url: &str) -> bool {
+        self.syndications.contains(url)
     }
 }
 
@@ -356,6 +364,14 @@ impl Admitting {
     pub(crate) fn sitemap_added(&mut self, url: &str) {
         if let Self::Staging { now, .. } = self {
             now.sitemaps.insert(url.to_owned());
+        }
+    }
+
+    /// Notes, while an attempt stages, that a syndication feed's fetch at
+    /// `url` was added.
+    pub(crate) fn syndication_added(&mut self, url: &str) {
+        if let Self::Staging { now, .. } = self {
+            now.syndications.insert(url.to_owned());
         }
     }
 

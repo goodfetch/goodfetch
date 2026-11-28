@@ -38,7 +38,7 @@ use goodfetch_protocol::foxhound::progress::{
     HELD_DOMAINS, HeldDomain, InFlightPhase, InFlightRequest, POLITENESS_FILE, RATE_CAP,
     RequestProgress, WaitGroup,
 };
-use goodfetch_protocol::foxhound::report::{CountOf, SitemapReport};
+use goodfetch_protocol::foxhound::report::{CountOf, SitemapReport, SourceReport};
 use goodfetch_protocol::foxhound::settings::{
     POLITENESS_BACKOFF_MAX, POLITENESS_DOMAIN_CONCURRENCY, POLITENESS_DOMAIN_DELAY,
     POLITENESS_RETRY_AFTER_MAX,
@@ -61,6 +61,7 @@ const NEXT_DUE_AT: &str = "next_due_at";
 const CONCURRENCY: &str = "concurrency";
 const REQUESTS: &str = "requests";
 const SITEMAPS: &str = "sitemaps";
+const SOURCES: &str = "sources";
 
 /// The part `$part` encoded as its JSON value.
 macro_rules! encoded {
@@ -436,6 +437,7 @@ fn put(
     (in_flight, listed): (&[&InFlightRequest], Value),
     mut counted: RequestProgress,
     sitemaps: &[SitemapReport],
+    sources: &[SourceReport],
 ) {
     let fetching = in_flight
         .iter()
@@ -455,6 +457,11 @@ fn put(
         progress
             .kind_parts
             .insert(SITEMAPS.to_owned(), encoded!(sitemaps));
+    }
+    if !sources.is_empty() {
+        progress
+            .kind_parts
+            .insert(SOURCES.to_owned(), encoded!(sources));
     }
 }
 
@@ -499,7 +506,13 @@ impl CrawlProgress {
             by_error_code,
             by_block_cause,
         };
-        put(progress, (&in_flight, listed), requests, counted.sitemaps());
+        put(
+            progress,
+            (&in_flight, listed),
+            requests,
+            counted.sitemaps(),
+            counted.sources(),
+        );
         true
     }
 }
@@ -549,7 +562,14 @@ impl ProgressPart for CrawlProgress {
             by_block_cause: ended.by_block_cause,
         };
         let sitemaps = goodfetch_frontier::sitemap::reports(connection)?;
-        put(progress, (&in_flight, listed), requests, &sitemaps);
+        let sources = goodfetch_frontier::syndication::reports(connection)?;
+        put(
+            progress,
+            (&in_flight, listed),
+            requests,
+            &sitemaps,
+            &sources,
+        );
         Ok(())
     }
 }

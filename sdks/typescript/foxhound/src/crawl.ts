@@ -35,6 +35,7 @@ import type {
   RequestSeed,
   Seed,
   SitemapSeed,
+  SyndicationSeed,
 } from "./generated/index.ts";
 import {
   DatasetDuplicateError,
@@ -796,20 +797,20 @@ export function checkCrawlStartable(crawl: Crawl, seeds: readonly Seed[]): void 
  */
 export async function checkSeedPayloads(crawl: Crawl, seeds: readonly Seed[]): Promise<void> {
   for (const sent of seeds) {
-    if (isSitemap(sent)) continue;
+    if (isSourceSeed(sent)) continue;
     const declared = labelNamed(crawl, sent.label);
     if (declared !== undefined) await checkPayload(declared, sent.payload);
   }
 }
 
-/** Whether `sent` is a sitemap seed rather than a request. */
-function isSitemap(sent: Seed): sent is SitemapSeed {
-  return "sitemap" in sent;
+/** Whether `sent` is a sitemap or syndication source seed rather than a request. */
+function isSourceSeed(sent: Seed): sent is SitemapSeed | SyndicationSeed {
+  return "sitemap" in sent || "syndication" in sent;
 }
 
-/** The names of the Labels `sent` gives its requests: a request's own, or each of a sitemap seed's rules'. */
+/** The names of the Labels `sent` gives its requests: a request's own, or each of a source seed's rules'. */
 function labelsOf(sent: Seed): string[] {
-  return isSitemap(sent) ? sent.rules.map(({ label }) => label) : [sent.label];
+  return isSourceSeed(sent) ? sent.rules.map(({ label }) => label) : [sent.label];
 }
 
 /** The name of `label`, which `crawl` must declare; another crawl's Label fails with `label_unknown`. */
@@ -853,6 +854,25 @@ export function sitemap(
 ): SitemapSeed {
   return {
     sitemap: url,
+    rules: Array.from(rules, ([pattern, label]) => ({ pattern, label: label.name })),
+  };
+}
+
+/**
+ * A syndication seed of a crawl: the entries of the RSS 2.0, RSS 1.0 or
+ * Atom 1.0 feed at `url` (ADRs 0093, 0119 and 0139). Each `[pattern, label]`
+ * of `rules`, in order, is a glob as `crawl.scope.include` takes one and the
+ * Label it gives the entries it matches: the first that matches an entry picks
+ * its Label, and an entry no rule matches is not added, with `no_rule`. A feed
+ * entry carries no Payload, so a rule's Label takes none. The engine reads the
+ * feed once the Run is running.
+ */
+export function syndication(
+  url: string,
+  rules: Iterable<readonly [pattern: string, label: Label]>,
+): SyndicationSeed {
+  return {
+    syndication: url,
     rules: Array.from(rules, ([pattern, label]) => ({ pattern, label: label.name })),
   };
 }

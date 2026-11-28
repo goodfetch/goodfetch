@@ -38,6 +38,7 @@ mod scope;
 pub mod seeds;
 pub mod sitemap;
 mod staged;
+pub mod syndication;
 pub mod trap_links;
 mod unwritten;
 mod url;
@@ -100,6 +101,7 @@ pub fn contribution() -> Contribution {
         .with_run_state_tables(queues::TABLES)
         .with_run_state_tables(seeds::TABLES)
         .with_run_state_tables(sitemap::TABLES)
+        .with_run_state_tables(syndication::TABLES)
         .with_run_state_tables(trap_links::TABLES)
         .with_run_state_tables(identity::TABLES)
         .with_run_state_tables(scope::TABLES)
@@ -167,6 +169,7 @@ pub fn admission_statements(invariants: &Invariants) -> Vec<&'static str> {
         ])
         .chain(trap_links::SEEN_AGAIN)
         .chain(sitemap::READ)
+        .chain(syndication::READ)
         .chain([
             rules::HOLDING,
             rules::HELD,

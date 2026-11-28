@@ -35,6 +35,34 @@ impl HttpTier {
     ///
     /// Dropping the future closes the fetch's connection.
     pub async fn sitemap(&self, url: &Url, hand_over: &HandOver) -> Result<Bytes, FetchFailure> {
+        self.source_fetch("sitemap", url, hand_over).await
+    }
+
+    /// Fetches the syndication feed at `url` for `hand_over`'s Run (ADRs 0093
+    /// and 0139): same transport, redirect and Politeness rules as [`Self::sitemap`].
+    ///
+    /// # Errors
+    ///
+    /// The fetch driver's and the chain's errors; `response_unavailable` for
+    /// 408, 429 or 5xx and `response_not_ok` for any other non-2xx status.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future closes the fetch's connection.
+    pub async fn syndication(
+        &self,
+        url: &Url,
+        hand_over: &HandOver,
+    ) -> Result<Bytes, FetchFailure> {
+        self.source_fetch("syndication feed", url, hand_over).await
+    }
+
+    async fn source_fetch(
+        &self,
+        kind: &str,
+        url: &Url,
+        hand_over: &HandOver,
+    ) -> Result<Bytes, FetchFailure> {
         let run = &hand_over.run().identity;
         let clock = run.clock();
         let gate = SitemapHops(hand_over);
@@ -59,7 +87,7 @@ impl HttpTier {
             }
             Stop::NotModified { .. } => CallError::new(
                 &RESPONSE_NOT_OK,
-                "unexpected 304 Not Modified on a sitemap fetch",
+                format!("unexpected 304 Not Modified on a {kind} fetch"),
                 &serde_json::json!({ "url": url.as_str() }),
             )
             .into(),
@@ -73,14 +101,14 @@ impl HttpTier {
         Err(FetchFailure::from(if unavailable {
             CallError::new(
                 &RESPONSE_UNAVAILABLE,
-                format!("The sitemap {} answered {status}.", fetched.url),
+                format!("The {kind} {} answered {status}.", fetched.url),
                 &details,
             )
         } else {
             CallError::new(
                 &RESPONSE_NOT_OK,
                 format!(
-                    "The sitemap {} answered {status}, not a sitemap.",
+                    "The {kind} {} answered {status}, not a {kind}.",
                     fetched.url
                 ),
                 &details,

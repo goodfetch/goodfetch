@@ -42,6 +42,7 @@ from goodfetch_foxhound.crawl import (
     Label,
     seed,
     sitemap,
+    syndication,
 )
 from goodfetch_foxhound.crawl_run import AsyncCrawlRun, CodeFreeCrawl, CrawlRun
 from goodfetch_foxhound.export import AsyncExport, Export
@@ -110,4 +111,5 @@ __all__ = [
     "SkipReason",
     "seed",
     "sitemap",
+    "syndication",
 ]

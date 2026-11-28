@@ -32,6 +32,10 @@
 //! `urlset`'s or a `sitemapindex`'s `<loc>`s, by their local names, so a
 //! namespace prefix changes nothing; their text is trimmed, its entities
 //! and character references read, a CDATA section kept as written.
+//!
+//! Size: one concern, the crawl's sitemap XML/gzip reader, its SQLite tables,
+//! nesting and admission helpers (shared with `syndication` for source entries),
+//! and per-seed reporting.
 
 use std::collections::BTreeMap;
 
@@ -143,7 +147,17 @@ pub enum Refusal {
 /// Why it was not read: the limit its decoding passed, or why it is
 /// unreadable.
 pub fn read_file(url: &str, body: &[u8], limits: Limits) -> Result<Document, Refusal> {
-    let decoded;
+    let plain = decode_body(url, body, limits)?;
+    parse(&plain).map_err(Refusal::Unreadable)
+}
+
+/// Decodes a plain or gzip-compressed XML source file at `url` under `limits`,
+/// refusing files larger than [`MAX_BYTES`] uncompressed.
+pub(crate) fn decode_body<'a>(
+    url: &str,
+    body: &'a [u8],
+    limits: Limits,
+) -> Result<std::borrow::Cow<'a, [u8]>, Refusal> {
     let plain = if body.starts_with(&GZIP_MAGIC) {
         let past = u64::try_from(MAX_BYTES + 1).expect("invariant: 50 MB fits in u64");
         let capped = Limits {
@@ -151,7 +165,7 @@ pub fn read_file(url: &str, body: &[u8], limits: Limits) -> Result<Document, Ref
             ..limits
         };
         let mut decoding = Decoding::new(url, std::iter::once("gzip"), capped);
-        decoded = decoding
+        let decoded = decoding
             .push(body)
             .and_then(|()| decoding.finish())
             .map_err(|failure| match failure {
@@ -165,14 +179,14 @@ pub fn read_file(url: &str, body: &[u8], limits: Limits) -> Result<Document, Ref
                     Refusal::Unreadable(Unreadable("its gzip stream does not decode".to_owned()))
                 }
             })?;
-        decoded.as_slice()
+        std::borrow::Cow::Owned(decoded)
     } else {
-        body
+        std::borrow::Cow::Borrowed(body)
     };
     if plain.len() > MAX_BYTES {
         return Err(Refusal::Unreadable(too_large()));
     }
-    parse(plain).map_err(Refusal::Unreadable)
+    Ok(plain)
 }
 
 /// The fuzz target's body for sitemaps (ADR 0067): reads `data` as a
@@ -201,7 +215,7 @@ fn too_large() -> Unreadable {
 
 /// `count` as its messages write it, its digits grouped by three with
 /// commas: `52,428,800`.
-fn grouped(count: usize) -> String {
+pub(crate) fn grouped(count: usize) -> String {
     let digits = count.to_string();
     let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
     for (at, digit) in digits.chars().enumerate() {
@@ -841,16 +855,21 @@ pub fn ended(connection: &Connection, id: &str, ending: &Ending) -> rusqlite::Re
     )
 }
 
-/// Admits the entry `given` of the sitemap at `base` as a crawl request
-/// of its first matching rule's Label, or answers `no_rule`.
-fn admit_entry(
+/// Admits the entry `given` of a sitemap or syndication source at `base` as a
+/// crawl request of its first matching rule's Label, or answers `no_rule`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "shared entry admission helper between sitemap and syndication readers"
+)]
+pub(crate) fn admit_source_entry(
     connection: &Connection,
     invariants: &Invariants,
     policy: &Policy,
     base: &Url,
     given: &str,
     rules: &Rules,
-    add: &mut impl FnMut(&Url, Adding<'_>) -> rusqlite::Result<String>,
+    candidate: Candidate<'_>,
+    add: &mut impl FnMut(&Url, &str) -> rusqlite::Result<String>,
 ) -> rusqlite::Result<Enqueued> {
     let not_added = |reason: NotAddedReason| Enqueued::NotAdded {
         reason,
@@ -863,20 +882,39 @@ fn admit_entry(
     let Some(label) = rules.label_of(&url) else {
         return Ok(not_added(NotAddedReason::NoRule));
     };
-    admit(
+    admit(connection, invariants, policy, candidate, |url| {
+        add(url, label)
+    })
+}
+
+/// Admits the entry `given` of the sitemap at `base` as a crawl request
+/// of its first matching rule's Label, or answers `no_rule`.
+fn admit_entry(
+    connection: &Connection,
+    invariants: &Invariants,
+    policy: &Policy,
+    base: &Url,
+    given: &str,
+    rules: &Rules,
+    add: &mut impl FnMut(&Url, Adding<'_>) -> rusqlite::Result<String>,
+) -> rusqlite::Result<Enqueued> {
+    admit_source_entry(
         connection,
         invariants,
         policy,
+        base,
+        given,
+        rules,
         Candidate::SitemapEntry {
             url: given,
             sitemap: base,
         },
-        |url| add(url, Adding::Entry(label)),
+        &mut |url, label| add(url, Adding::Entry(label)),
     )
 }
 
 /// The wire name of `reason`.
-fn reason_name(reason: &NotAddedReason) -> String {
+pub(crate) fn reason_name(reason: &NotAddedReason) -> String {
     match serde_json::to_value(reason) {
         Ok(serde_json::Value::String(name)) => name,
         _ => String::new(),

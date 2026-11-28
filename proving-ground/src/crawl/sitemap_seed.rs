@@ -125,10 +125,26 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
         (HOST, "/sitemaps/broken.xml") => {
             xml("<?xml version=\"1.0\"?>\n<urlset><url><loc>/books/16</loc></url>\n".to_owned())
         }
-        (HOST, "/sitemaps/error.xml") => Page {
+        (HOST, "/sitemaps/error.xml" | "/feeds/error.xml") => Page {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             ..xml("<error/>\n".to_owned())
         },
+        (HOST, "/feeds/rss2.xml") => rss2(&[
+            on(HOST, "/books/1"),
+            on(HOST, "/books/2"),
+            on(HOST, "/about"),
+            on(PARTNER, "/books/9"),
+        ]),
+        (HOST, "/feeds/rss1.xml") => rss1(&[on(HOST, "/books/3"), on(HOST, "/authors/1")]),
+        (HOST, "/feeds/atom.xml") => atom1(&[
+            on(HOST, "/books/4"),
+            on(HOST, "/authors/2"),
+            on(HOST, "/about"),
+        ]),
+        (HOST, "/feeds/broken.xml") => Page::text(
+            "application/rss+xml; charset=utf-8",
+            "<?xml version=\"1.0\"?>\n<rss version=\"2.0\"><channel><item><link>/books/16</link></item>\n".to_owned(),
+        ),
         (PARTNER, "/cross.xml") => urlset(&[on(HOST, "/books/4"), on(PARTNER, "/books/5")]),
         (BLOCKED, "/sitemap.xml") => urlset(&[on(HOST, "/books/7")]),
         (_, path) => page(visit.seed, path),
@@ -213,4 +229,49 @@ fn urlset_text(entries: &[String]) -> Vec<u8> {
     }
     text.push_str("</urlset>\n");
     text.into_bytes()
+}
+
+/// An RSS 2.0 feed of `entries`, written as given (ADR 0139).
+fn rss2(entries: &[String]) -> Page {
+    let mut text = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\"><channel><title>Books</title>\n",
+    );
+    for entry in entries {
+        writeln!(text, "<item><link>{entry}</link></item>")
+            .expect("invariant: writing to a String succeeds");
+    }
+    text.push_str("</channel></rss>\n");
+    Page::text("application/rss+xml; charset=utf-8", text)
+}
+
+/// An RSS 1.0 (RDF) feed of `entries`, written as given (ADR 0139).
+fn rss1(entries: &[String]) -> Page {
+    let mut text = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" xmlns=\"http://purl.org/rss/1.0/\">\n",
+    );
+    for entry in entries {
+        writeln!(
+            text,
+            "<item rdf:about=\"{entry}\"><link>{entry}</link></item>"
+        )
+        .expect("invariant: writing to a String succeeds");
+    }
+    text.push_str("</rdf:RDF>\n");
+    Page::text("application/rdf+xml; charset=utf-8", text)
+}
+
+/// An Atom 1.0 feed of `entries`, written as given (ADR 0139).
+fn atom1(entries: &[String]) -> Page {
+    let mut text = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<feed xmlns=\"http://www.w3.org/2005/Atom\"><title>Books</title>\n",
+    );
+    for entry in entries {
+        writeln!(
+            text,
+            "<entry><link rel=\"alternate\" href=\"{entry}\"/></entry>"
+        )
+        .expect("invariant: writing to a String succeeds");
+    }
+    text.push_str("</feed>\n");
+    Page::text("application/atom+xml; charset=utf-8", text)
 }

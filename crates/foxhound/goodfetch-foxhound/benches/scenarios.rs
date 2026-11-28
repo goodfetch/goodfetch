@@ -201,6 +201,11 @@ const MOVED_TO: &str = "/moved/";
 const SITEMAP: &str = "/sitemap.xml";
 /// The sitemap's entry.
 const FROM_SITEMAP: &str = "/from-sitemap";
+/// The syndication feed served by the B1 fixture, whose one entry is
+/// [`FROM_FEED`] (ADR 0139, ADR 0140 F3).
+const FEED: &str = "/feed.xml";
+/// The syndication feed's entry.
+const FROM_FEED: &str = "/from-feed";
 /// The seed with a Payload.
 const WITH_PAYLOAD: &str = "/with-payload";
 
@@ -225,7 +230,7 @@ fn item_page(query: Option<&str>, items: usize) -> Option<Page> {
 
 /// The page at one of the paths only [`Frontier`] serves.
 fn frontier_page(path: &str) -> Option<Page> {
-    [MOVED_TO, FROM_SITEMAP, WITH_PAYLOAD]
+    [MOVED_TO, FROM_SITEMAP, FROM_FEED, WITH_PAYLOAD]
         .contains(&path)
         .then(|| Page {
             head: head(path, ""),
@@ -273,6 +278,35 @@ impl Site {
             _ => None,
         }
     }
+
+    fn source_response(&self, path: &str) -> Option<Sent> {
+        self.frontier?;
+        if path == SITEMAP {
+            self.sitemaps.fetch_add(1, Ordering::Relaxed);
+            let body = format!(
+                "<?xml version=\"1.0\"?><urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\"><url><loc>http://{HOST}{FROM_SITEMAP}</loc></url></urlset>"
+            );
+            let headers = vec![
+                ("content-type".to_owned(), "application/xml".to_owned()),
+                ("content-length".to_owned(), body.len().to_string()),
+            ];
+            return Some(plain(200, headers, body));
+        }
+        if path == FEED {
+            let body = format!(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?><feed xmlns=\"http://www.w3.org/2005/Atom\"><title>B1</title><entry><link rel=\"alternate\" href=\"http://{HOST}{FROM_FEED}\"/></entry></feed>"
+            );
+            let headers = vec![
+                (
+                    "content-type".to_owned(),
+                    "application/atom+xml; charset=utf-8".to_owned(),
+                ),
+                ("content-length".to_owned(), body.len().to_string()),
+            ];
+            return Some(plain(200, headers, body));
+        }
+        None
+    }
 }
 
 /// One extra unit of a row's Counted work, done once per page served with
@@ -307,16 +341,8 @@ impl Transport for Site {
                 String::new(),
             ))));
         }
-        if self.frontier.is_some() && path == SITEMAP {
-            self.sitemaps.fetch_add(1, Ordering::Relaxed);
-            let body = format!(
-                "<?xml version=\"1.0\"?><urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\"><url><loc>http://{HOST}{FROM_SITEMAP}</loc></url></urlset>"
-            );
-            let headers = vec![
-                ("content-type".to_owned(), "application/xml".to_owned()),
-                ("content-length".to_owned(), body.len().to_string()),
-            ];
-            return Box::pin(std::future::ready(Ok(plain(200, headers, body))));
+        if let Some(sent) = self.source_response(path) {
+            return Box::pin(std::future::ready(Ok(sent)));
         }
         // [`body_bytes`] holds the site's own pages, not [`Frontier`]'s.
         let page = page(path, self.linked);

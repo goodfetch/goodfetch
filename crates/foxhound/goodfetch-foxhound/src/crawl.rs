@@ -536,19 +536,48 @@ pub(super) fn own_seed(
             }
             Ok(SeedRequest::Sitemap(sitemap))
         }
+        Seeded::Syndication {
+            syndication,
+            crawls,
+            refused,
+        } => {
+            if let Some(option) = refused {
+                return Err(source_option_refused(
+                    "syndication",
+                    &syndication.syndication,
+                    option,
+                ));
+            }
+            let foreign = match &crawls {
+                Some(crawls) => syndication
+                    .rules
+                    .iter()
+                    .zip(crawls)
+                    .find_map(|(rule, crawl)| (*crawl != crawl_id).then_some(rule)),
+                None => syndication
+                    .rules
+                    .iter()
+                    .find(|rule| !has_label(&rule.label)),
+            };
+            if let Some(rule) = foreign {
+                return Err(label_unknown(&rule.label, declared.to_vec()));
+            }
+            Ok(SeedRequest::Syndication(syndication))
+        }
     }
 }
 
 /// The refusal of `option`, a request's, given to the sitemap seed
 /// `sitemap`.
 fn sitemap_option_refused(sitemap: &SitemapSeed, option: &str) -> Error {
+    source_option_refused("sitemap", &sitemap.sitemap, option)
+}
+
+fn source_option_refused(kind: &str, url: &str, option: &str) -> Error {
     Error::refused(
         CRAWL_START.name,
-        &format!(
-            "the sitemap seed `{}` was given `{option}`, which only a request seed takes",
-            sitemap.sitemap
-        ),
-        "Give the request options to `Seed::new`'s seeds; a sitemap's entries are each a `GET` of their Label's.",
+        &format!("the {kind} seed `{url}` was given `{option}`, which only a request seed takes"),
+        "Give the request options to `Seed::new`'s seeds; a source's entries are each a `GET` of their Label's.",
     )
 }
 
@@ -596,11 +625,25 @@ fn code_free_params(seeds: Vec<Seed>) -> Result<CrawlStartParams, Error> {
                 Some(option) => return Err(sitemap_option_refused(&sitemap, option)),
                 None => SeedRequest::Sitemap(sitemap),
             },
-            Seeded::Request { .. } | Seeded::Sitemap { .. } => {
+            Seeded::Syndication {
+                syndication,
+                crawls: None,
+                refused,
+            } => match refused {
+                Some(option) => {
+                    return Err(source_option_refused(
+                        "syndication",
+                        &syndication.syndication,
+                        option,
+                    ));
+                }
+                None => SeedRequest::Syndication(syndication),
+            },
+            Seeded::Request { .. } | Seeded::Sitemap { .. } | Seeded::Syndication { .. } => {
                 return Err(Error::refused(
                     CRAWL_START.name,
                     "a code-free crawl's seed names its Label by name",
-                    "Give `Seed::named` or `Seed::named_sitemap` seeds; a `Label` belongs to a `Crawl` the program declares.",
+                    "Give `Seed::named`, `Seed::named_sitemap` or `Seed::named_syndication` seeds; a `Label` belongs to a `Crawl` the program declares.",
                 ));
             }
         };

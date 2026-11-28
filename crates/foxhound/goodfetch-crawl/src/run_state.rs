@@ -899,14 +899,14 @@ impl RunState {
         let labels = drawing.labels;
         let key = labels.pools.pool(&request.label);
         let to_browser = self.pool.browser(&leased.waiting.key);
-        // A sitemap's fetch runs no handler and takes no tier choice: its
-        // attempt fetches it on the Run's HTTP tier.
+        // A sitemap or syndication feed's fetch runs no handler and takes no
+        // tier choice: its attempt fetches it on the Run's HTTP tier.
         let choosing =
-            (!leased.sitemap).then(|| labels.settings.choose(&request.label, drawing.run_tier));
+            (!leased.is_source()).then(|| labels.settings.choose(&request.label, drawing.run_tier));
         // A request keeping its URL's fragment is served only by a tier
         // that runs the page's scripts, which the engine's choice is then
         // (ADR 0120); the start refused it on any forced tier but those.
-        let keeps_fragment = !leased.sitemap && labels.fragments.keeps(&request.label);
+        let keeps_fragment = !leased.is_source() && labels.fragments.keeps(&request.label);
         let browser = AttemptPlan::On(TierChoice {
             tier: FetchTier::Browser,
             forced: None,
@@ -927,7 +927,10 @@ impl RunState {
             )
         };
         let chosen = match choosing {
-            None => Chosen::Planned(AttemptPlan::Sitemap),
+            None => Chosen::Planned(match leased.source {
+                Some(crate::work_items::SourceKind::Syndication) => AttemptPlan::Syndication,
+                _ => AttemptPlan::Sitemap,
+            }),
             Some(Choosing::Engine) if keeps_fragment => Chosen::Planned(browser),
             Some(Choosing::Engine)
                 if drawing.races && !to_browser && drawing.hooks.lets_race(&request.label) =>

@@ -366,6 +366,26 @@ CREATE TABLE sitemaps (
             read INTEGER NOT NULL,
             nesting INTEGER NOT NULL
         ) STRICT;
+CREATE TABLE syndication_entries (
+            work_item TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            count INTEGER NOT NULL,
+            PRIMARY KEY (work_item, reason)
+        ) STRICT, WITHOUT ROWID;
+CREATE TABLE syndication_failures (
+            work_item TEXT NOT NULL PRIMARY KEY,
+            url TEXT NOT NULL,
+            code TEXT NOT NULL,
+            status INTEGER,
+            message TEXT NOT NULL
+        ) STRICT;
+CREATE TABLE syndication_sources (
+            work_item TEXT NOT NULL PRIMARY KEY,
+            url TEXT NOT NULL UNIQUE,
+            rules TEXT NOT NULL,
+            reads INTEGER NOT NULL,
+            failures INTEGER NOT NULL
+        ) STRICT;
 CREATE TABLE tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT;
 CREATE TABLE tier_choices (
             label TEXT NOT NULL,

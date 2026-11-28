@@ -43,13 +43,13 @@ export type FetchTier = "http" | "discovered_api" | "browser_fetch" | "light_bro
  */
 export type CertificateExceptionKind = "trust_on_first_use" | "any";
 /**
- * What a crawl starts from (ADR 0093): a request, or a sitemap seed, which
- * seeds the entries of a site's sitemaps.
+ * What a crawl starts from (ADR 0093): a request, a sitemap seed, or a
+ * syndication seed, which seeds the entries of an RSS or Atom feed.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "Seed".
  */
-export type Seed = RequestSeed | SitemapSeed;
+export type Seed = RequestSeed | SitemapSeed | SyndicationSeed;
 /**
  * The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding).
  *
@@ -997,6 +997,30 @@ export interface SitemapRule {
   pattern: string;
 }
 /**
+ * A syndication feed seed (ADRs 0093, 0119 and 0139): `syndication` names an
+ * RSS 2.0, RSS 1.0 or Atom 1.0 feed. The engine reads it once the Run is
+ * running, through the domain policy, Politeness and robots.txt, running no
+ * handler; each entry's link is checked as an enqueue is, at depth 0, with
+ * the Label of the first rule whose pattern matches its URL and no Payload,
+ * and one no rule matches is not added, with `no_rule`, while one outside the
+ * scope is not added, with `out_of_scope`. The seed widens the crawl's scope
+ * by the host of the URL it names. In a batch crawl it is read once.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SyndicationSeed".
+ */
+export interface SyndicationSeed {
+  /**
+   * The rules that give each entry its Label, in order: the first whose
+   * pattern matches the entry's URL wins.
+   */
+  rules: SitemapRule[];
+  /**
+   * The URL of the RSS 2.0, RSS 1.0 or Atom 1.0 feed.
+   */
+  syndication: string;
+}
+/**
  * What a crawl with no handler reads from each page it fetches (spec
  * #582's code-free crawls; ADR 0103): the engine declares the Label
  * [`CODE_FREE_LABEL`] and the Dataset [`CODE_FREE_DATASET`], keyed by
@@ -1698,6 +1722,10 @@ export interface CrawlRunProgress {
    */
   sitemaps?: SitemapReport[] | null;
   /**
+   * Each syndication source's reads, failures and entry counts (ADR 0139).
+   */
+  sources?: SourceReport[] | null;
+  /**
    * Why it stopped, once it did.
    */
   stopReason?: StopReason | null;
@@ -1873,6 +1901,72 @@ export interface SitemapFailure {
   url: string;
 }
 /**
+ * A syndication source's reads, failures and entry counts (ADRs 0102 and
+ * 0139): entries are counted rather than listed, since a feed can hold up to
+ * 50,000.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SourceReport".
+ */
+export interface SourceReport {
+  /**
+   * How many of its entries were added.
+   */
+  added: number;
+  /**
+   * How many times reading the feed failed.
+   */
+  failed: number;
+  /**
+   * The latest failure when the feed could not be read, if any.
+   */
+  failure?: SourceFailure | null;
+  /**
+   * How many of its entries were not added.
+   */
+  notAdded: number;
+  /**
+   * Those not added, by the reason the Frontier gave, `no_rule` for an
+   * entry no rule matched, sorted by name.
+   */
+  notAddedByReason: CountOf[];
+  /**
+   * How many times the feed was read.
+   */
+  read: number;
+  /**
+   * The URL of the syndication feed.
+   */
+  url: string;
+}
+/**
+ * Why a syndication source could not be read (ADRs 0102 and 0139).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SourceFailure".
+ */
+export interface SourceFailure {
+  /**
+   * Why, as a name: its fetch's Error code (`response_unavailable`,
+   * `response_not_ok` for a status or an unreadable feed,
+   * `response_limit_exceeded`), its skip reason (`robots_txt`), or its
+   * Block cause.
+   */
+  code: string;
+  /**
+   * Why, in words.
+   */
+  message: string;
+  /**
+   * The HTTP status the site answered, when one answered.
+   */
+  status?: number | null;
+  /**
+   * Its URL.
+   */
+  url: string;
+}
+/**
  * The due requests one reason holds (ADR 0102).
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -2006,6 +2100,10 @@ export interface CrawlRunReport {
    * Each sitemap seed's sitemaps, as its progress gives them.
    */
   sitemaps?: SitemapReport[] | null;
+  /**
+   * Each syndication source's reads, failures and entry counts (ADR 0139).
+   */
+  sources?: SourceReport[] | null;
   /**
    * When it started.
    */

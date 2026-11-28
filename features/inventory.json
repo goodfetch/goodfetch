@@ -5910,6 +5910,17 @@
       ]
     },
     {
+      "id": "row:CO-101",
+      "kind": "row",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "row:CO-11",
       "kind": "row",
       "area": 6,

@@ -5297,6 +5297,30 @@ class Surface(StrEnum):
     """
 
 
+class SyndicationSeed(BaseModel):
+    """
+    A syndication feed seed (ADRs 0093, 0119 and 0139): `syndication` names an
+    RSS 2.0, RSS 1.0 or Atom 1.0 feed. The engine reads it once the Run is
+    running, through the domain policy, Politeness and robots.txt, running no
+    handler; each entry's link is checked as an enqueue is, at depth 0, with
+    the Label of the first rule whose pattern matches its URL and no Payload,
+    and one no rule matches is not added, with `no_rule`, while one outside the
+    scope is not added, with `out_of_scope`. The seed widens the crawl's scope
+    by the host of the URL it names. In a batch crawl it is read once.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    rules: list[SitemapRule]
+    """
+    The rules that give each entry its Label, in order: the first whose
+    pattern matches the entry's URL wins.
+    """
+    syndication: str
+    """The URL of the RSS 2.0, RSS 1.0 or Atom 1.0 feed."""
+
+
 class Table(BaseModel):
     """
     A table of the page, in document order, a table inside another listed
@@ -8726,11 +8750,11 @@ class SecretInputRefusedDetails(BaseModel):
     """The Secret reference."""
 
 
-class Seed(RootModel[RequestSeed | SitemapSeed]):
-    root: RequestSeed | SitemapSeed
+class Seed(RootModel[RequestSeed | SitemapSeed | SyndicationSeed]):
+    root: RequestSeed | SitemapSeed | SyndicationSeed
     """
-    What a crawl starts from (ADR 0093): a request, or a sitemap seed, which
-    seeds the entries of a site's sitemaps.
+    What a crawl starts from (ADR 0093): a request, a sitemap seed, or a
+    syndication seed, which seeds the entries of an RSS or Atom feed.
     """
 
 

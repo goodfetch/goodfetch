@@ -35,8 +35,8 @@ use crate::settings::ProjectSettings;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
-/// What a crawl starts from (ADR 0093): a request, or a sitemap seed, which
-/// seeds the entries of a site's sitemaps.
+/// What a crawl starts from (ADR 0093): a request, a sitemap seed, or a
+/// syndication seed, which seeds the entries of an RSS or Atom feed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum Seed {
@@ -45,6 +45,29 @@ pub enum Seed {
     /// The entries of a sitemap, or of the sitemaps a site's robots.txt
     /// names.
     Sitemap(SitemapSeed),
+    /// The entries of an RSS 2.0, RSS 1.0 or Atom 1.0 syndication feed
+    /// (ADR 0139).
+    Syndication(SyndicationSeed),
+}
+
+/// A syndication feed seed (ADRs 0093, 0119 and 0139): `syndication` names an
+/// RSS 2.0, RSS 1.0 or Atom 1.0 feed. The engine reads it once the Run is
+/// running, through the domain policy, Politeness and robots.txt, running no
+/// handler; each entry's link is checked as an enqueue is, at depth 0, with
+/// the Label of the first rule whose pattern matches its URL and no Payload,
+/// and one no rule matches is not added, with `no_rule`, while one outside the
+/// scope is not added, with `out_of_scope`. The seed widens the crawl's scope
+/// by the host of the URL it names. In a batch crawl it is read once.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SyndicationSeed {
+    /// The URL of the RSS 2.0, RSS 1.0 or Atom 1.0 feed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub syndication: String,
+    /// The rules that give each entry its Label, in order: the first whose
+    /// pattern matches the entry's URL wins.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub rules: Vec<SitemapRule>,
 }
 
 /// A sitemap seed (ADRs 0093 and 0120; CO-10): `sitemap` names a sitemap,

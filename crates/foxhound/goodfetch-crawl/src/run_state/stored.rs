@@ -36,8 +36,8 @@ use goodfetch_engine::run_state::{
 };
 use goodfetch_engine::runs::CompletenessReason;
 use goodfetch_fetch_tier::ChainHop;
+use goodfetch_frontier::SharedBudget;
 use goodfetch_frontier::revisit::{self, DueEntry};
-use goodfetch_frontier::{SharedBudget, sitemap};
 use goodfetch_protocol::foxhound::crawl::Seed;
 use goodfetch_protocol::foxhound::frontier::{Enqueued, SeedAttempt};
 use goodfetch_session_pool::{Changes, SessionPool};
@@ -872,12 +872,12 @@ impl Stored {
     /// its entries admitted under the Run's domain policy and within its
     /// invariants (ADR 0093), each keyed as it is added, in its outcome's
     /// one job, so its read asks the writer for no write of its own.
-    pub(crate) fn sitemap_read(
+    pub(crate) fn source_read(
         &self,
         attempt: AttemptKey<String>,
-        document: sitemap::Document,
+        document: crate::attempt_outcome::SourceDocument,
     ) -> Ending {
-        Ending::Sitemap {
+        Ending::Source {
             attempt,
             egress: Arc::clone(&self.egress),
             invariants: self.invariants.shared_frontier(),

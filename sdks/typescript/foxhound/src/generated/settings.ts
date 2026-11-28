@@ -460,6 +460,20 @@ export interface FoxhoundSettings {
       readonly ipv6?: number;
     };
   };
+  readonly escalation?: {
+    /**
+     * The ordered proxy kinds (`datacenter`, `isp`, `residential`, `mobile`) a crawl's Session pool climbs on a 401, 403 or 429 without a challenge page: unset, the kinds the Run's Proxy provider configures, cheapest first, so a run with no paid pool configured spends nothing; set, it narrows that list. A Recipe may set it, as `proxy.kind` is; a Client acting for a model is refused with `setting_locked`.
+     *
+     * `escalation.proxy_kinds`.
+     */
+    readonly proxyKinds?: readonly ("datacenter" | "isp" | "residential" | "mobile")[] | null;
+    /**
+     * How often an escalated domain sends one trial request through a Session at the proxy kind below, stepping back down when it succeeds and keeping the costlier kind when it is blocked: 600 s (10 minutes). Unset (`null`), no periodic trial runs.
+     *
+     * `escalation.trial_interval`.
+     */
+    readonly trialInterval?: number | null;
+  };
   readonly export?: {
     readonly csv?: {
       /**
@@ -1892,6 +1906,20 @@ export interface CrawlSettings {
       readonly ipv6?: number;
     };
   };
+  readonly escalation?: {
+    /**
+     * The ordered proxy kinds (`datacenter`, `isp`, `residential`, `mobile`) a crawl's Session pool climbs on a 401, 403 or 429 without a challenge page: unset, the kinds the Run's Proxy provider configures, cheapest first, so a run with no paid pool configured spends nothing; set, it narrows that list. A Recipe may set it, as `proxy.kind` is; a Client acting for a model is refused with `setting_locked`.
+     *
+     * `escalation.proxy_kinds`.
+     */
+    readonly proxyKinds?: readonly ("datacenter" | "isp" | "residential" | "mobile")[] | null;
+    /**
+     * How often an escalated domain sends one trial request through a Session at the proxy kind below, stepping back down when it succeeds and keeping the costlier kind when it is blocked: 600 s (10 minutes). Unset (`null`), no periodic trial runs.
+     *
+     * `escalation.trial_interval`.
+     */
+    readonly trialInterval?: number | null;
+  };
   readonly export?: {
     readonly csv?: {
       /**
@@ -3120,6 +3148,10 @@ const SPELLING: Spelling = {
       ipv4: "ipv4",
       ipv6: "ipv6",
     }],
+  }],
+  escalation: ["escalation", {
+    proxyKinds: "proxy_kinds",
+    trialInterval: "trial_interval",
   }],
   export: ["export", {
     csv: ["csv", {

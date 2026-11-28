@@ -10084,6 +10084,26 @@
       ]
     },
     {
+      "id": "setting:escalation.proxy_kinds",
+      "kind": "setting",
+      "area": 8,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:escalation.trial_interval",
+      "kind": "setting",
+      "area": 8,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:export.csv.bom",
       "kind": "setting",
       "area": 6,

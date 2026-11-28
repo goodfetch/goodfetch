@@ -10,7 +10,7 @@ return every item of the site's list."""
 area = 5
 product = "foxhound"
 status = "active"
-covers = ["row:SA-22", "row:ST-08", "row:CO-12"]
+covers = ["row:SA-22", "row:ST-08", "row:ST-09", "row:CO-12", "story:8-218", "story:8-219"]
 
 [proving_ground]
 seed = 8
@@ -31,7 +31,7 @@ text = "Crawl the site's list through the proxies"
 text = "The run reports the Block cause of each address the site flagged"
 
 [[expect]]
-text = "The Session pool retires each Session that met a flagged address and the Crawl goes on through another proxy"
+text = "The Session pool retires each Session that met a flagged address, opens its replacement from the next proxy kind, and the domain keeps that kind"
 
 [[expect]]
 text = "The oracle verifies the Crawl's Records"

@@ -1,11 +1,23 @@
 //! `escalation`'s decisions (spec #600's seam: a pure function of the
 //! cause and where its Session met it).
 
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use goodfetch_engine::transition::Refusal;
+use goodfetch_protocol::connection::INTERNAL;
 use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::fetch::FetchTier;
+use goodfetch_protocol::foxhound::session_pool::ProxyTier;
+use goodfetch_protocol::page::proxy::ProxyKind;
+use proptest::prelude::*;
 use rstest::rstest;
+use serde_json::json;
 
-use super::{Action, Met, on_block};
+use super::{
+    Action, DomainEscalation, Event, Ladder, LadderRung, Met, OBJECT, SettleCause, SettleOutcome,
+    State, TierPosition, Transition, TransitionEffect, apply, decide_draw, decide_settle, on_block,
+    refusal_error,
+};
 
 const fn on(tier: FetchTier, forced: bool) -> Met {
     Met {
@@ -140,4 +152,530 @@ fn a_refusal_of_the_transport_samples_its_label_again(
     #[case] action: Action,
 ) {
     assert_eq!(on_block(&cause, met), action);
+}
+
+const HIGHER: TierPosition = TierPosition {
+    has_higher_kind: true,
+    below_is_lowest: false,
+};
+
+const AT_TOP: TierPosition = TierPosition {
+    has_higher_kind: false,
+    below_is_lowest: false,
+};
+
+const ONE_ABOVE_BASE: TierPosition = TierPosition {
+    has_higher_kind: false,
+    below_is_lowest: true,
+};
+
+/// Every one of the 21 valid pairs of the 27-pair escalation state table
+/// (18 acting rows + 3 late rows), copied from spec #600 (ADR 0128).
+///
+/// Covers: story:8-240
+#[rstest]
+#[case::base_block_without_challenge_with_higher_kind(
+    State::Base,
+    Event::BlockWithoutChallenge,
+    HIGHER,
+    State::Escalated,
+    TransitionEffect::EscalateOrRotate
+)]
+#[case::base_block_without_challenge_at_top(
+    State::Base,
+    Event::BlockWithoutChallenge,
+    AT_TOP,
+    State::Base,
+    TransitionEffect::EscalateOrRotate
+)]
+#[case::base_challenge_on_http_tier(
+    State::Base,
+    Event::ChallengeOnHttpTier,
+    HIGHER,
+    State::Base,
+    TransitionEffect::MoveToBrowser
+)]
+#[case::base_challenge_on_browser(
+    State::Base,
+    Event::ChallengeOnBrowser,
+    HIGHER,
+    State::Base,
+    TransitionEffect::RunLadder
+)]
+#[case::base_challenge_cleared(
+    State::Base,
+    Event::ChallengeCleared,
+    HIGHER,
+    State::Base,
+    TransitionEffect::RecordLadderStart
+)]
+#[case::base_stopping_cause(
+    State::Base,
+    Event::StoppingCause,
+    HIGHER,
+    State::Base,
+    TransitionEffect::StopRequest
+)]
+#[case::base_block_on_retired_session(
+    State::Base,
+    Event::BlockOnRetiredSession,
+    HIGHER,
+    State::Base,
+    TransitionEffect::IgnoreLate
+)]
+#[case::escalated_block_without_challenge(
+    State::Escalated,
+    Event::BlockWithoutChallenge,
+    HIGHER,
+    State::Escalated,
+    TransitionEffect::EscalateOrRotate
+)]
+#[case::escalated_challenge_on_http_tier(
+    State::Escalated,
+    Event::ChallengeOnHttpTier,
+    HIGHER,
+    State::Escalated,
+    TransitionEffect::MoveToBrowser
+)]
+#[case::escalated_challenge_on_browser(
+    State::Escalated,
+    Event::ChallengeOnBrowser,
+    HIGHER,
+    State::Escalated,
+    TransitionEffect::RunLadder
+)]
+#[case::escalated_challenge_cleared(
+    State::Escalated,
+    Event::ChallengeCleared,
+    HIGHER,
+    State::Escalated,
+    TransitionEffect::RecordLadderStart
+)]
+#[case::escalated_stopping_cause(
+    State::Escalated,
+    Event::StoppingCause,
+    HIGHER,
+    State::Escalated,
+    TransitionEffect::StopRequest
+)]
+#[case::escalated_trial_due(
+    State::Escalated,
+    Event::TrialDue,
+    HIGHER,
+    State::Trialing,
+    TransitionEffect::StartTrial
+)]
+#[case::escalated_block_on_retired_session(
+    State::Escalated,
+    Event::BlockOnRetiredSession,
+    HIGHER,
+    State::Escalated,
+    TransitionEffect::IgnoreLate
+)]
+#[case::trialing_block_without_challenge(
+    State::Trialing,
+    Event::BlockWithoutChallenge,
+    HIGHER,
+    State::Trialing,
+    TransitionEffect::EscalateOrRotate
+)]
+#[case::trialing_challenge_on_http_tier(
+    State::Trialing,
+    Event::ChallengeOnHttpTier,
+    HIGHER,
+    State::Trialing,
+    TransitionEffect::MoveToBrowser
+)]
+#[case::trialing_challenge_on_browser(
+    State::Trialing,
+    Event::ChallengeOnBrowser,
+    HIGHER,
+    State::Trialing,
+    TransitionEffect::RunLadder
+)]
+#[case::trialing_challenge_cleared(
+    State::Trialing,
+    Event::ChallengeCleared,
+    HIGHER,
+    State::Trialing,
+    TransitionEffect::RecordLadderStart
+)]
+#[case::trialing_stopping_cause(
+    State::Trialing,
+    Event::StoppingCause,
+    HIGHER,
+    State::Trialing,
+    TransitionEffect::StopRequest
+)]
+#[case::trialing_trial_passed_to_base(
+    State::Trialing,
+    Event::TrialPassed,
+    ONE_ABOVE_BASE,
+    State::Base,
+    TransitionEffect::StepDown
+)]
+#[case::trialing_trial_passed_still_escalated(
+    State::Trialing,
+    Event::TrialPassed,
+    AT_TOP,
+    State::Escalated,
+    TransitionEffect::StepDown
+)]
+#[case::trialing_trial_blocked(
+    State::Trialing,
+    Event::TrialBlocked,
+    ONE_ABOVE_BASE,
+    State::Escalated,
+    TransitionEffect::KeepEscalated
+)]
+#[case::trialing_block_on_retired_session(
+    State::Trialing,
+    Event::BlockOnRetiredSession,
+    HIGHER,
+    State::Trialing,
+    TransitionEffect::IgnoreLate
+)]
+fn every_valid_pair_of_the_escalation_state_table_matches_spec_600(
+    #[case] state: State,
+    #[case] event: Event,
+    #[case] position: TierPosition,
+    #[case] next: State,
+    #[case] effect: TransitionEffect,
+) {
+    assert_eq!(
+        apply(state, event, position),
+        Ok(Transition { next, effect })
+    );
+}
+
+/// The 6 refused pairs of the 27-pair escalation state table each return
+/// `Refusal::Internal` and build an `internal` error naming `escalation`,
+/// the state and the event (ADR 0128; spec #600).
+///
+/// Covers: story:8-240
+#[rstest]
+#[case::base_trial_due(State::Base, Event::TrialDue)]
+#[case::base_trial_passed(State::Base, Event::TrialPassed)]
+#[case::base_trial_blocked(State::Base, Event::TrialBlocked)]
+#[case::escalated_trial_passed(State::Escalated, Event::TrialPassed)]
+#[case::escalated_trial_blocked(State::Escalated, Event::TrialBlocked)]
+#[case::trialing_trial_due(State::Trialing, Event::TrialDue)]
+fn every_refused_pair_of_the_escalation_state_table_returns_internal_naming_object_state_and_event(
+    #[case] state: State,
+    #[case] event: Event,
+) {
+    let invalid = apply(state, event, HIGHER).expect_err("pair must be refused");
+    assert_eq!(
+        (invalid.state, invalid.event, invalid.refusal),
+        (state, event, Refusal::Internal)
+    );
+    let error = refusal_error(invalid);
+    assert_eq!(error.code(), INTERNAL.name);
+    assert_eq!(
+        error.details(),
+        Some(
+            &json!({
+                "object": OBJECT,
+                "state": state.as_str(),
+                "event": event.as_str(),
+            })
+            .as_object()
+            .unwrap()
+            .clone()
+        )
+    );
+}
+
+/// A `trialing` record restores from a Checkpoint as `escalated`; `base`
+/// and `escalated` restore unchanged (spec #600).
+///
+/// Covers: story:8-219, story:8-240
+#[rstest]
+#[case::base(State::Base, State::Base)]
+#[case::escalated(State::Escalated, State::Escalated)]
+#[case::trialing_restores_as_escalated(State::Trialing, State::Escalated)]
+fn checkpoint_restore_normalizes_trialing_to_escalated(
+    #[case] stored: State,
+    #[case] restored: State,
+) {
+    assert_eq!(stored.from_checkpoint(), restored);
+}
+
+/// `Ladder::build` orders configured proxy kinds cheapest first, narrows by
+/// `escalation.proxy_kinds`, starts at `proxy.kind` when set without
+/// narrowing, and stays empty when no paid pool is configured.
+///
+/// Covers: story:8-221
+#[test]
+fn ladder_orders_cheapest_first_narrows_and_spends_nothing_when_unconfigured() {
+    let rung = |kind| LadderRung {
+        kind,
+        rotatable: false,
+    };
+    let configured = [
+        rung(ProxyKind::Residential),
+        rung(ProxyKind::Datacenter),
+        rung(ProxyKind::Isp),
+    ];
+    let default = Ladder::build(&configured, None, None);
+    assert_eq!(
+        default.kinds(),
+        vec![
+            ProxyKind::Datacenter,
+            ProxyKind::Isp,
+            ProxyKind::Residential
+        ]
+    );
+    assert_eq!(default.base_tier(), ProxyTier::Datacenter);
+    assert_eq!(
+        default.next_tier(ProxyTier::Datacenter),
+        Some(ProxyTier::Isp)
+    );
+    assert_eq!(
+        default.next_tier(ProxyTier::Isp),
+        Some(ProxyTier::Residential)
+    );
+    assert_eq!(default.next_tier(ProxyTier::Residential), None);
+    assert_eq!(
+        default.lower_tier(ProxyTier::Residential),
+        Some(ProxyTier::Isp)
+    );
+    assert_eq!(default.lower_tier(ProxyTier::Datacenter), None);
+
+    let narrowed = Ladder::build(
+        &configured,
+        None,
+        Some(&[ProxyKind::Datacenter, ProxyKind::Isp, ProxyKind::Mobile]),
+    );
+    assert_eq!(
+        narrowed.kinds(),
+        vec![ProxyKind::Datacenter, ProxyKind::Isp]
+    );
+
+    let starting_at_isp = Ladder::build(&configured, Some(ProxyKind::Isp), None);
+    assert_eq!(
+        starting_at_isp.kinds(),
+        vec![ProxyKind::Isp, ProxyKind::Residential]
+    );
+
+    let empty = Ladder::build(&[], None, None);
+    assert!(empty.is_empty());
+    assert_eq!(empty.base_tier(), ProxyTier::None);
+    assert_eq!(empty.next_tier(ProxyTier::None), None);
+    assert_eq!(empty.budget_per_request(), 0);
+}
+
+/// `escalation` decides exclusively from typed `BlockCause` and `Event`
+/// variants, never from error message text: a reworded transport failure
+/// changes only area 5's translation table (ADR 0127).
+///
+/// Covers: story:8-241
+#[test]
+fn escalation_decides_from_typed_variants_never_failure_text() {
+    let ladder = Ladder::from_kinds(vec![ProxyKind::Datacenter, ProxyKind::Isp]);
+    let position = ladder.position(ProxyTier::Datacenter);
+    assert_eq!(
+        apply(State::Base, Event::BlockWithoutChallenge, position),
+        Ok(Transition {
+            next: State::Escalated,
+            effect: TransitionEffect::EscalateOrRotate,
+        })
+    );
+    assert_eq!(
+        on_block(&BlockCause::IpBlock, by_transport(FetchTier::Http, false)),
+        Action::Sample
+    );
+    assert_eq!(
+        on_block(&BlockCause::RateLimit, on(FetchTier::Http, false)),
+        Action::Blocked
+    );
+}
+
+fn arb_proxy_tier() -> impl Strategy<Value = ProxyTier> {
+    prop_oneof![
+        Just(ProxyTier::None),
+        Just(ProxyTier::Datacenter),
+        Just(ProxyTier::Isp),
+        Just(ProxyTier::Residential),
+        Just(ProxyTier::Mobile),
+    ]
+}
+
+fn arb_state() -> impl Strategy<Value = State> {
+    prop_oneof![
+        Just(State::Base),
+        Just(State::Escalated),
+        Just(State::Trialing),
+    ]
+}
+
+fn arb_ladder() -> impl Strategy<Value = Ladder> {
+    prop::collection::vec((0..4usize, any::<bool>()), 0..=4).prop_map(|entries| {
+        let mut seen = [false; 4];
+        let mut rungs = Vec::new();
+        for (idx, rotatable) in entries {
+            if !seen[idx] {
+                seen[idx] = true;
+                rungs.push(LadderRung {
+                    kind: ProxyKind::ALL[idx],
+                    rotatable,
+                });
+            }
+        }
+        Ladder::build(&rungs, None, None)
+    })
+}
+
+fn arb_time() -> impl Strategy<Value = SystemTime> {
+    (0u64..10_000_000).prop_map(|ms| UNIX_EPOCH + Duration::from_millis(ms))
+}
+
+fn arb_trial_interval() -> impl Strategy<Value = Option<Duration>> {
+    prop_oneof![
+        Just(None),
+        (1u64..1_000_000).prop_map(|ms| Some(Duration::from_millis(ms))),
+    ]
+}
+
+fn arb_settle_cause() -> impl Strategy<Value = SettleCause> {
+    prop_oneof![
+        Just(SettleCause::Success),
+        (arb_proxy_tier(), any::<bool>()).prop_map(|(session_tier, retired_by_block)| {
+            SettleCause::BlockWithoutChallenge {
+                session_tier,
+                retired_by_block,
+            }
+        }),
+        Just(SettleCause::StoppingCause),
+        Just(SettleCause::Challenge),
+        Just(SettleCause::Other),
+    ]
+}
+
+proptest! {
+    /// Escalation draw and settle decisions are pure functions of the
+    /// per-domain state, the cause and the `Clock` reading: identical inputs
+    /// produce identical outputs, `trial_interval: None` never starts or
+    /// schedules a trial, a due trial always uses the cheaper kind below,
+    /// `TrialPassed` steps down, `TrialBlocked` stays at the same tier and
+    /// reschedules, and stopping causes never escalate or retire (#1141).
+    ///
+    /// Covers: story:8-220, story:8-222
+    #[test]
+    fn escalation_decisions_are_pure_functions_of_state_cause_and_clock(
+        tier in arb_proxy_tier(),
+        state in arb_state(),
+        next_trial_at in prop::option::of(arb_time()),
+        ladder in arb_ladder(),
+        trial_interval in arb_trial_interval(),
+        now in arb_time(),
+        cause in arb_settle_cause(),
+        was_trial in any::<bool>(),
+    ) {
+        let record = DomainEscalation {
+            tier,
+            state,
+            next_trial_at,
+        };
+
+        // Purity: identical inputs yield identical outputs.
+        let draw1 = decide_draw(record, &ladder, trial_interval, now);
+        let draw2 = decide_draw(record, &ladder, trial_interval, now);
+        prop_assert_eq!(draw1, draw2);
+
+        let settle1 = decide_settle(record, cause, was_trial, &ladder, trial_interval, now);
+        let settle2 = decide_settle(record, cause, was_trial, &ladder, trial_interval, now);
+        prop_assert_eq!(settle1, settle2);
+
+        // With `trial_interval: None`, no trial ever starts or is scheduled.
+        if trial_interval.is_none() {
+            prop_assert!(!draw1.started_trial);
+            prop_assert_eq!(draw1.next.next_trial_at, None);
+            prop_assert_eq!(settle1.next.next_trial_at, None);
+        }
+
+        // Empty ladder spends nothing and stays at ProxyTier::None / State::Base.
+        if ladder.is_empty() {
+            prop_assert_eq!(draw1.tier, ProxyTier::None);
+            prop_assert!(!draw1.started_trial);
+            prop_assert_eq!(settle1.outcome, SettleOutcome::Unchanged);
+            prop_assert_eq!(settle1.next.tier, ProxyTier::None);
+            prop_assert_eq!(settle1.next.state, State::Base);
+        } else {
+            let clamped = ladder.clamp(tier);
+
+            // Trial starts iff Escalated, trial_interval is Some, lower_tier exists, and now >= due.
+            if state == State::Escalated
+                && let Some(interval) = trial_interval
+                && let Some(lower) = ladder.lower_tier(clamped)
+            {
+                match next_trial_at {
+                    Some(due) if now >= due => {
+                        prop_assert!(draw1.started_trial);
+                        prop_assert_eq!(draw1.tier, lower);
+                        prop_assert!(draw1.tier < clamped);
+                        prop_assert_eq!(draw1.next.state, State::Trialing);
+                        prop_assert_eq!(draw1.next.next_trial_at, None);
+                    }
+                    Some(due) => {
+                        prop_assert!(!draw1.started_trial);
+                        prop_assert_eq!(draw1.tier, clamped);
+                        prop_assert_eq!(draw1.next.next_trial_at, Some(due));
+                    }
+                    None => {
+                        prop_assert!(!draw1.started_trial);
+                        prop_assert_eq!(draw1.tier, clamped);
+                        prop_assert_eq!(draw1.next.next_trial_at, Some(now + interval));
+                    }
+                }
+            } else {
+                prop_assert!(!draw1.started_trial);
+            }
+
+            // Stopping causes never escalate, rotate or retire.
+            if cause == SettleCause::StoppingCause {
+                prop_assert_eq!(settle1.outcome, SettleOutcome::Unchanged);
+                prop_assert!(!settle1.retire_session);
+                prop_assert_eq!(settle1.next.tier, clamped);
+            }
+
+            // Trial outcomes: pass steps down; block keeps current tier and reschedules.
+            if was_trial && state == State::Trialing {
+                match cause {
+                    SettleCause::Success => {
+                        let expected_tier = ladder.lower_tier(clamped).unwrap_or(clamped);
+                        prop_assert_eq!(settle1.next.tier, expected_tier);
+                        prop_assert_eq!(settle1.outcome, SettleOutcome::Unchanged);
+                        prop_assert!(!settle1.retire_session);
+                        if ladder.position(clamped).below_is_lowest {
+                            prop_assert_eq!(settle1.next.state, State::Base);
+                            prop_assert_eq!(settle1.next.next_trial_at, None);
+                        } else {
+                            prop_assert_eq!(settle1.next.state, State::Escalated);
+                            prop_assert_eq!(
+                                settle1.next.next_trial_at,
+                                trial_interval.map(|d| now + d)
+                            );
+                        }
+                    }
+                    SettleCause::BlockWithoutChallenge { .. } => {
+                        prop_assert_eq!(settle1.next.tier, clamped);
+                        prop_assert_eq!(settle1.next.state, State::Escalated);
+                        prop_assert_eq!(
+                            settle1.next.next_trial_at,
+                            trial_interval.map(|d| now + d)
+                        );
+                        prop_assert!(settle1.retire_session);
+                        prop_assert_eq!(
+                            settle1.outcome,
+                            SettleOutcome::Escalated {
+                                budget: ladder.budget_per_request()
+                            }
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
 }

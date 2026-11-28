@@ -3863,6 +3863,7 @@ dependencies = [
  "goodfetch-engine",
  "goodfetch-protocol",
  "goodfetch-workspace-hack",
+ "proptest",
  "rstest",
  "rusqlite",
  "serde_json",

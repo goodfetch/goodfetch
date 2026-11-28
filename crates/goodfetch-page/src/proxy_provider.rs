@@ -207,6 +207,23 @@ impl ProxyDriver {
         }
     }
 
+    /// The distinct proxy kinds this provider offers, cheapest first, with
+    /// whether each kind has more than one exit (and can therefore rotate
+    /// within the provider when no costlier kind is left; ADR 0021).
+    pub(crate) fn offered_kinds(&self, hosted: bool) -> Vec<(ProxyKind, bool)> {
+        let endpoints = &self.provider.offer().endpoints;
+        ProxyKind::ALL
+            .into_iter()
+            .filter_map(|kind| {
+                let count = endpoints
+                    .iter()
+                    .filter(|endpoint| endpoint.kinds.contains(&kind))
+                    .count();
+                (count > 0).then_some((kind, hosted || count > 1))
+            })
+            .collect()
+    }
+
     /// The proxy of the Session `session`, the `ordinal`-th of its Run, as
     /// `wanted` asks.
     ///

@@ -2756,6 +2756,7 @@ impl HttpTier {
     pub fn of_session(
         &self,
         session: &SessionId,
+        proxy_kind: Option<goodfetch_protocol::page::proxy::ProxyKind>,
         local: Option<&LocalSource>,
     ) -> Result<HttpTier, String> {
         let own = local.filter(|local| self.sessions.config.local.as_ref() != Some(*local));
@@ -2768,7 +2769,7 @@ impl HttpTier {
         };
         let uncached = match (&self.proxies, direct) {
             (Some(proxies), direct) => {
-                proxies.of(session, own.cloned(), direct) as Arc<dyn Transport>
+                proxies.of(session, proxy_kind, own.cloned(), direct) as Arc<dyn Transport>
             }
             (None, Some(direct)) => direct,
             // The Run's own transport, already answering from its source.

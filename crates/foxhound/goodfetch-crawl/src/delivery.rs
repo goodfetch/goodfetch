@@ -112,19 +112,21 @@ use goodfetch_protocol::foxhound::report::{
     BLOCK_CLASSIFICATION_OFF, LEARNING_OFF, LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK, PROVENANCE_OFF,
     RECORDS_OFF,
 };
+use goodfetch_protocol::foxhound::session_pool::{ESCALATION_PROXY_KINDS, ServingSession};
 use goodfetch_protocol::foxhound::settings::{
     DATASET_RECORDS, FETCH_BLOCK_CLASSIFICATION, PROVENANCE_LOG,
 };
 use goodfetch_protocol::governor::WorkKind;
-use goodfetch_protocol::page::proxy::{PROXY_PROVIDER, PROXY_SERVER};
-use goodfetch_protocol::page::{SITE_PREFERENCES_REFUSED, SessionId};
+use goodfetch_protocol::page::SITE_PREFERENCES_REFUSED;
+use goodfetch_protocol::page::proxy::{PROXY_KIND, PROXY_PROVIDER, PROXY_SERVER, ProxyKind};
 use goodfetch_protocol::run::{
     EndingError, NothingDone, RUN_STATE_UNAVAILABLE, RunDetails, RunWarning, StopReason,
 };
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::usage::REQUESTS;
 use goodfetch_session_pool::{
-    Changes, Effect, LocalAddressing, PoolSettings, Rotated, SendsFrom, SessionPool,
+    Changes, Effect, Ladder, LadderRung, LocalAddressing, PoolSettings, Rotated, SendsFrom,
+    SessionPool, SettleOutcome,
 };
 use serde_json::{Map, Value};
 use tokio::sync::oneshot;
@@ -994,7 +996,7 @@ impl Fetching<'_> {
         &self,
         state: &RunState,
         leased: &Leased,
-        ((session, local, sends_from), chosen): ((&SessionId, Local, SendsFrom), Chosen),
+        ((session, local, sends_from), chosen): ((&ServingSession, Local, SendsFrom), Chosen),
         (transport, site_files): (Option<DrawnSession>, Option<DrawnSession>),
         (second_copies, settings, permits_after_hooks): (&SecondCopies, PoolSettings, bool),
     ) -> (Tiering, Option<HttpTier>) {
@@ -1021,12 +1023,12 @@ impl Fetching<'_> {
         };
         let http = self.session_tier(session, local);
         let transport = transport.map(|drawn| TransportSession {
-            http: self.session_tier(&drawn.session.id, drawn.local),
+            http: self.session_tier(&drawn.session, drawn.local),
             session: drawn.session,
             in_browser: drawn.in_browser,
         });
         let site_files = site_files.map(|drawn| {
-            let http = self.session_tier(&drawn.session.id, drawn.local);
+            let http = self.session_tier(&drawn.session, drawn.local);
             (drawn.session, http)
         });
         let reader = match (sends_from, &transport, &site_files) {
@@ -1037,7 +1039,7 @@ impl Fetching<'_> {
                 http.as_ref().map(|http| (&drawn.id, http))
             }
             (SendsFrom::Transport, _, _) | (SendsFrom::Browser, None, None) => {
-                http.as_ref().map(|http| (session, http))
+                http.as_ref().map(|http| (&session.id, http))
             }
         }
         .map(|(session, http)| http.keeping_cookies_of(session));
@@ -1069,7 +1071,7 @@ impl Fetching<'_> {
     /// sets one (#1640): `None`, which fails the attempt's fetch, when the
     /// Session's addresses are no longer held or its transport cannot be
     /// built, rather than sending from an address the OS chooses.
-    fn session_tier(&self, session: &SessionId, local: Local) -> Option<HttpTier> {
+    fn session_tier(&self, session: &ServingSession, local: Local) -> Option<HttpTier> {
         let http = self.http?;
         let source = match local {
             None => None,
@@ -1079,7 +1081,7 @@ impl Fetching<'_> {
                 return None;
             }
         };
-        http.of_session(session, source.as_ref())
+        http.of_session(&session.id, session.proxy_tier.kind(), source.as_ref())
             .inspect_err(|error| tracing::warn!(%error, "a Session's HTTP transport could not be built; its HTTP fetches fail"))
             .ok()
     }
@@ -1196,7 +1198,7 @@ async fn lease_to_servers(
             let (tiering, reader) = fetching.served(
                 pooled.state,
                 &leased,
-                ((&session.id, local, sends_from), chosen),
+                ((&session, local, sends_from), chosen),
                 (transport, site_files),
                 (&copies, pooled.settings, admission.permits_after_hooks()),
             );
@@ -1434,6 +1436,7 @@ struct Settling {
 struct Scored {
     changes: Changes,
     chosen: Option<(String, String, Unit)>,
+    escalate_retry: bool,
 }
 
 /// The settlements whose outcomes the run state's writer has yet to
@@ -1609,23 +1612,9 @@ fn scored(
         // Session of its own, whose attempt's answer is its browser run's,
         // or a race's first request sent from one, unless its answer is
         // the attempt's (#2421).
-        let (on_session, on_transport) = match &attempt.escalated {
-            Some(escalated) => {
-                pool.settle(escalated, &waiting.key, effect, &read.pool);
-                (Effect::Neutral, Effect::Neutral)
-            }
-            None if attempt.transport_answered => (Effect::Neutral, effect),
-            None => (effect, Effect::Neutral),
-        };
-        pool.settle(&attempt.session, &waiting.key, on_session, &read.pool);
-        if let Some(transport) = &attempt.transport {
-            pool.settle(transport, &waiting.key, on_transport, &read.pool);
-        }
-        // The Session drawn only to read the attempt's site files: what
-        // they answer says nothing of how its client fares (#2422).
-        if let Some(reader) = &attempt.site_files {
-            pool.settle(reader, &waiting.key, Effect::Neutral, &read.pool);
-        }
+        let now = run.identity.clock().wall();
+        let (changes, escalate_retry) =
+            settle_sessions(state, &attempt, &waiting, effect, &read.pool, now);
         let held = if replaying {
             None
         } else {
@@ -1644,12 +1633,67 @@ fn scored(
             held,
         });
         scores.push(Scored {
-            changes: pool.changes(),
+            changes,
             chosen,
+            escalate_retry,
         });
         attempts.push(attempt);
     }
     (attempts, settlings, scores)
+}
+
+/// Settles every Session an attempt held and answers the pool's changes and
+/// whether the request should be re-admitted on the replacement Session
+/// without spending `crawl.retry.max` (ADR 0021; spec #600).
+fn settle_sessions(
+    state: &mut RunState,
+    attempt: &Attempt,
+    waiting: &Waiting,
+    effect: Effect,
+    pool_settings: &PoolSettings,
+    now: SystemTime,
+) -> (Changes, bool) {
+    let pool = state.pool();
+    let (on_session, on_transport) = match &attempt.escalated {
+        Some(escalated) => {
+            let _ = pool.settle(escalated, &waiting.key, effect, pool_settings, now);
+            (Effect::Neutral, Effect::Neutral)
+        }
+        None if attempt.transport_answered => (Effect::Neutral, effect),
+        None => (effect, Effect::Neutral),
+    };
+    let session_outcome = pool.settle(
+        &attempt.session,
+        &waiting.key,
+        on_session,
+        pool_settings,
+        now,
+    );
+    let transport_outcome = attempt
+        .transport
+        .as_ref()
+        .map_or(SettleOutcome::Unchanged, |transport| {
+            pool.settle(transport, &waiting.key, on_transport, pool_settings, now)
+        });
+    // The Session drawn only to read the attempt's site files: what they
+    // answer says nothing of how its client fares (#2422).
+    if let Some(reader) = &attempt.site_files {
+        let _ = pool.settle(reader, &waiting.key, Effect::Neutral, pool_settings, now);
+    }
+    let changes = pool.changes();
+    let settle_outcome = if session_outcome == SettleOutcome::Unchanged {
+        transport_outcome
+    } else {
+        session_outcome
+    };
+    let escalate_retry = if settle_outcome.should_re_admit(state.escalations_used(&waiting.id)) {
+        state.record_escalation(&waiting.id);
+        true
+    } else {
+        state.clear_escalations(&waiting.id);
+        false
+    };
+    (changes, escalate_retry)
 }
 
 /// Returns, in their order, each settled attempt's domain turn to
@@ -1775,7 +1819,37 @@ async fn open(
         )),
         None => pool,
     };
+    let ladder = proxy_ladder(resolved)?;
+    let pool = pool.with_ladder(ladder);
     Ok((admission, (pool, opening), stored))
+}
+
+/// The Run's proxy-tier escalation ladder from its configured `proxy.provider`,
+/// `proxy.kind` and `escalation.proxy_kinds` (ADR 0021; spec #600).
+fn proxy_ladder(resolved: &Resolved) -> Result<Ladder, String> {
+    let offered =
+        goodfetch_fetch_tier::offered_proxy_kinds(resolved).map_err(|error| error.to_string())?;
+    let rungs: Vec<LadderRung> = offered
+        .into_iter()
+        .map(|entry| LadderRung {
+            kind: entry.kind,
+            rotatable: entry.rotatable,
+        })
+        .collect();
+    let initial = resolved
+        .get::<Option<&str>>(&PROXY_KIND)
+        .and_then(ProxyKind::named);
+    let narrowed: Option<Vec<ProxyKind>> =
+        resolved
+            .value(&ESCALATION_PROXY_KINDS)
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str().and_then(ProxyKind::named))
+                    .collect()
+            });
+    Ok(Ladder::build(&rungs, initial, narrowed.as_deref()))
 }
 
 /// The interface `egress.local_addresses` names, if it names one.
@@ -2210,6 +2284,10 @@ async fn queue_outcome(
                 Why::Blocked(_) if transport_refused && policy.may_retry(tries) => {
                     Unsuccessful::Retried(kept)
                 }
+                // Proxy-tier escalation or rotation re-admits the request on
+                // the replacement Session without spending `crawl.retry.max`
+                // (ADR 0021; ADR 0093; spec #600).
+                Why::Blocked(_) if scored.escalate_retry => Unsuccessful::Released,
                 Why::Blocked(cause) => Unsuccessful::Blocked(cause),
                 _ if held => Unsuccessful::Failed(kept.with_fix(RETRY_AFTER_FIX)),
                 why => failure(kept, &why, retryable),

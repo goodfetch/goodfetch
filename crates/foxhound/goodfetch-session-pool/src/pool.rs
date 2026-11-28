@@ -46,6 +46,9 @@
 //! hands the crawl for its Run report. With a proxy, whose exit rotates
 //! instead (ADR 0021), the replacement keeps the retired Session's
 //! addresses.
+//!
+//! Size: one concern — the Session pools' state machine (draw, settle,
+//! proxy-tier escalation, retirement and local-address rotation).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::IpAddr;
@@ -61,6 +64,10 @@ use goodfetch_protocol::foxhound::session_pool::{ProxyTier, ServingSession};
 use goodfetch_protocol::page::SessionId;
 use rusqlite::Connection;
 
+pub use crate::escalation::SettleOutcome;
+use crate::escalation::{
+    DomainEscalation, DrawDecision, Ladder, SettleCause, State, decide_draw, decide_settle,
+};
 use crate::labels::PoolKey;
 use crate::settings::{Affinity, Growth, PoolSettings};
 use crate::store::{self, Changes, SendsFrom, StoredSession, StoredTier};
@@ -242,8 +249,10 @@ pub struct SessionPool {
     /// How many attempts each Session drawn serves now.
     serving: BTreeMap<SessionId, u64>,
     /// The retired Sessions an attempt still holds, each with its rotation
-    /// position, which a block one of those attempts meets still blocks.
-    retiring: BTreeMap<SessionId, Option<u64>>,
+    /// position (which a block one of those attempts meets still blocks)
+    /// and whether it was retired by a block (so a second in-flight block
+    /// on it is a late row and does not double-escalate).
+    retiring: BTreeMap<SessionId, (Option<u64>, bool)>,
     /// The retired Sessions no attempt holds, not yet taken.
     closable: Vec<SessionId>,
     changes: Changes,
@@ -262,6 +271,15 @@ pub struct SessionPool {
     /// one, which their next on-demand draw opens (ADR 0021); in memory
     /// only.
     owed: BTreeSet<String>,
+    /// The Run's configured proxy-tier escalation ladder (ADR 0021; spec
+    /// #600): empty when no paid proxy pool is configured.
+    ladder: Ladder,
+    /// When each escalated domain's next periodic trial on the cheaper kind
+    /// is due (spec #600; ADR 0021); in memory only.
+    next_trial_at: BTreeMap<String, SystemTime>,
+    /// The active trial Session for each domain currently in
+    /// [`State::Trialing`]; in memory only.
+    trial_sessions: BTreeMap<String, SessionId>,
 }
 
 impl SessionPool {
@@ -299,7 +317,31 @@ impl SessionPool {
             replaced: BTreeMap::new(),
             rotated: Vec::new(),
             owed: BTreeSet::new(),
+            ladder: Ladder::default(),
+            next_trial_at: BTreeMap::new(),
+            trial_sessions: BTreeMap::new(),
         })
+    }
+
+    /// The pools, climbing `ladder` on a 401, 403 or 429 without a
+    /// challenge page (ADR 0021; spec #600).
+    #[must_use]
+    pub fn with_ladder(self, ladder: Ladder) -> Self {
+        Self { ladder, ..self }
+    }
+
+    /// The Run's proxy-tier escalation ladder.
+    #[must_use]
+    pub fn ladder(&self) -> &Ladder {
+        &self.ladder
+    }
+
+    /// The escalation lifecycle state of `domain_key`.
+    #[must_use]
+    pub fn escalation_state(&self, domain_key: &str) -> State {
+        self.tiers
+            .get(domain_key)
+            .map_or(State::Base, |stored| stored.state)
     }
 
     /// The pools, their Sessions taking local addresses as `local` says.
@@ -385,13 +427,14 @@ impl SessionPool {
             sends_from,
             ..
         } = *wanted;
+        let decision = self.draw_decision(domain_key, settings, now);
         let Drawable {
             tier,
             room,
             at_tier,
             every,
-        } = self.drawable(pool, domain_key, sends_from, (settings, now));
-        if room {
+        } = self.drawable_at(pool, decision.tier, sends_from, (settings, now));
+        let position = if room {
             self.open_session(pool, tier, sends_from, now, domain_key)
         } else if at_tier.is_empty() {
             let making_room = self.pick(&every);
@@ -399,7 +442,9 @@ impl SessionPool {
             self.open_session(pool, tier, sends_from, now, domain_key)
         } else {
             self.pick(&at_tier)
-        }
+        };
+        self.commit_draw_decision(domain_key, decision, &id(pool, position));
+        position
     }
 
     /// The position an on-demand draw takes (#2178), `None` when the
@@ -424,12 +469,13 @@ impl SessionPool {
             host,
             sends_from,
         } = *wanted;
+        let decision = self.draw_decision(domain_key, settings, now);
         let Drawable {
             tier,
             room,
             mut at_tier,
             every,
-        } = self.drawable(pool, domain_key, sends_from, (settings, now));
+        } = self.drawable_at(pool, decision.tier, sends_from, (settings, now));
         at_tier.retain(|position| !self.in_blocked_block(pool, *position, domain_key));
         let free: Vec<u64> = at_tier
             .iter()
@@ -442,21 +488,23 @@ impl SessionPool {
             })
             .collect();
         let owed = self.owed.contains(domain_key);
-        if !owed && !free.is_empty() {
-            return Some(self.prefer(pool, &free, host, settings.affinity));
-        }
-        if !(room || owed || at_tier.is_empty()) {
-            return Some(self.prefer(pool, &at_tier, host, settings.affinity));
-        }
-        if sends_from == SendsFrom::Browser && !place() {
-            return None;
-        }
-        if !room {
-            let making_room = self.pick(&every);
-            self.retire(pool, making_room, Retirement::PoolFull);
-        }
-        self.owed.remove(domain_key);
-        Some(self.open_session(pool, tier, sends_from, now, domain_key))
+        let position = if !owed && !free.is_empty() {
+            self.prefer(pool, &free, host, settings.affinity)
+        } else if !(room || owed || at_tier.is_empty()) {
+            self.prefer(pool, &at_tier, host, settings.affinity)
+        } else {
+            if sends_from == SendsFrom::Browser && !place() {
+                return None;
+            }
+            if !room {
+                let making_room = self.pick(&every);
+                self.retire(pool, making_room, Retirement::PoolFull);
+            }
+            self.owed.remove(domain_key);
+            self.open_session(pool, tier, sends_from, now, domain_key)
+        };
+        self.commit_draw_decision(domain_key, decision, &id(pool, position));
+        Some(position)
     }
 
     /// The position drawn among `positions` of `pool`, which hold at least
@@ -560,8 +608,20 @@ impl SessionPool {
         sends_from: SendsFrom,
         (settings, now): (&PoolSettings, SystemTime),
     ) -> Drawable {
-        self.retire_spent(pool, settings, now);
         let tier = self.tier_of(domain_key);
+        self.drawable_at(pool, tier, sends_from, (settings, now))
+    }
+
+    /// What `pool` holds open at `tier` at `now`, sent from `sends_from`,
+    /// once the Sessions spent by then are retired.
+    fn drawable_at(
+        &mut self,
+        pool: &PoolKey,
+        tier: ProxyTier,
+        sends_from: SendsFrom,
+        (settings, now): (&PoolSettings, SystemTime),
+    ) -> Drawable {
+        self.retire_spent(pool, settings, now);
         let sessions = self.pools.entry(pool.clone()).or_default();
         let at_tier = sessions
             .open
@@ -576,6 +636,67 @@ impl SessionPool {
             room: sessions.open.len() < settings.max_size,
             at_tier,
             every: sessions.open.keys().copied().collect(),
+        }
+    }
+
+    fn domain_escalation(&self, domain_key: &str) -> DomainEscalation {
+        DomainEscalation {
+            tier: self.tier_of(domain_key),
+            state: self.escalation_state(domain_key),
+            next_trial_at: self.next_trial_at.get(domain_key).copied(),
+        }
+    }
+
+    fn draw_decision(
+        &self,
+        domain_key: &str,
+        settings: &PoolSettings,
+        now: SystemTime,
+    ) -> DrawDecision {
+        decide_draw(
+            self.domain_escalation(domain_key),
+            &self.ladder,
+            settings.trial_interval,
+            now,
+        )
+    }
+
+    fn commit_draw_decision(
+        &mut self,
+        domain_key: &str,
+        decision: DrawDecision,
+        session_id: &SessionId,
+    ) {
+        self.apply_domain_escalation(domain_key, decision.next);
+        if decision.started_trial {
+            self.trial_sessions
+                .insert(domain_key.to_owned(), session_id.clone());
+        }
+    }
+
+    fn apply_domain_escalation(&mut self, domain_key: &str, next: DomainEscalation) {
+        match next.next_trial_at {
+            Some(due) => {
+                self.next_trial_at.insert(domain_key.to_owned(), due);
+            }
+            None => {
+                self.next_trial_at.remove(domain_key);
+            }
+        }
+        if let Some(stored) = self.tiers.get_mut(domain_key) {
+            if stored.proxy_tier != next.tier || stored.state != next.state {
+                stored.proxy_tier = next.tier;
+                stored.state = next.state;
+                self.changes.tiers.insert(domain_key.to_owned(), *stored);
+            }
+        } else if next.tier != self.ladder.base_tier() || next.state != State::Base {
+            let stored = StoredTier {
+                proxy_tier: next.tier,
+                browser: false,
+                state: next.state,
+            };
+            self.tiers.insert(domain_key.to_owned(), stored);
+            self.changes.tiers.insert(domain_key.to_owned(), stored);
         }
     }
 
@@ -604,18 +725,61 @@ impl SessionPool {
         serving
     }
 
-    /// Scores `session` on how its attempt on `domain_key` ended, retiring
-    /// it as the ending says; a block that escalates moves the domain up
-    /// even when its Session was already retired. The attempt no longer
-    /// holds the Session.
+    /// Scores `session` on how its attempt on `domain_key` ended at `now`,
+    /// retiring it as the ending says; a block that escalates moves the
+    /// domain up one kind in its configured [`Ladder`] when the Session was
+    /// still open, or ignores a late block on an already-retired Session
+    /// (ADR 0128). If this attempt was an active periodic trial on the
+    /// cheaper kind, `Success` steps the domain down (`TrialPassed`) and a
+    /// block keeps it escalated and schedules the next trial
+    /// (`TrialBlocked`). The attempt no longer holds the Session.
     pub fn settle(
         &mut self,
         session: &ServingSession,
         domain_key: &str,
         effect: Effect,
         settings: &PoolSettings,
-    ) {
+        now: SystemTime,
+    ) -> SettleOutcome {
         let (pool, position) = key(&session.id);
+        let was_trial = self
+            .trial_sessions
+            .get(domain_key)
+            .is_some_and(|trial_id| trial_id == &session.id);
+        if was_trial {
+            self.trial_sessions.remove(domain_key);
+        }
+        let already_retired_by_block = self
+            .retiring
+            .get(&session.id)
+            .is_some_and(|(_, by_block)| *by_block);
+        let settle_cause = match &effect {
+            Effect::Success => SettleCause::Success,
+            Effect::Blocked(BlockCause::RateLimit | BlockCause::IpBlock) => {
+                SettleCause::BlockWithoutChallenge {
+                    session_tier: session.proxy_tier,
+                    retired_by_block: already_retired_by_block,
+                }
+            }
+            Effect::Blocked(
+                BlockCause::PaymentRequired | BlockCause::ConsentRequired | BlockCause::Decoy,
+            ) => SettleCause::StoppingCause,
+            Effect::Blocked(BlockCause::Challenge | BlockCause::Captcha) => SettleCause::Challenge,
+            Effect::Neutral
+            | Effect::PageCheckFailed
+            | Effect::TransportRefused
+            | Effect::Blocked(_) => SettleCause::Other,
+        };
+        let decision = decide_settle(
+            self.domain_escalation(domain_key),
+            settle_cause,
+            was_trial,
+            &self.ladder,
+            settings.trial_interval,
+            now,
+        );
+        self.apply_domain_escalation(domain_key, decision.next);
+        let outcome = decision.outcome;
         let retirement = match effect {
             Effect::Neutral => None,
             Effect::Success => {
@@ -637,9 +801,18 @@ impl SessionPool {
             }
             Effect::Blocked(cause) => match cause {
                 BlockCause::RateLimit | BlockCause::IpBlock => {
-                    self.scored_down(&pool, position, settings);
-                    self.escalate(domain_key, session.proxy_tier.next());
-                    Some(Retirement::Escalated)
+                    if already_retired_by_block && !was_trial {
+                        // A late block from a Session already retired by a
+                        // block for this domain (spec #600's
+                        // `block_on_retired_session`): state does not
+                        // change again, though its local-address block is
+                        // still recorded.
+                        self.blocked_on(&pool, position, domain_key);
+                        None
+                    } else {
+                        self.scored_down(&pool, position, settings);
+                        decision.retire_session.then_some(Retirement::Escalated)
+                    }
                 }
                 BlockCause::Challenge | BlockCause::Captcha => {
                     self.scored_down(&pool, position, settings);
@@ -666,6 +839,7 @@ impl SessionPool {
             self.retire(&pool, position, retirement);
         }
         self.released(&session.id);
+        outcome
     }
 
     /// Learns that a Challenge met on a tier short of the browser moved a
@@ -739,18 +913,17 @@ impl SessionPool {
         reached
     }
 
-    /// Moves `domain_key` up to `tier`, never down.
-    fn escalate(&mut self, domain_key: &str, tier: ProxyTier) {
-        let stored = self.tiers.entry(domain_key.to_owned()).or_default();
-        if stored.proxy_tier < tier {
-            stored.proxy_tier = tier;
-            self.changes.tiers.insert(domain_key.to_owned(), *stored);
-        }
-    }
-
     /// Moves `domain_key` to the browser tier.
     fn move_to_browser(&mut self, domain_key: &str) {
-        let stored = self.tiers.entry(domain_key.to_owned()).or_default();
+        let base = self.ladder.base_tier();
+        let stored = self
+            .tiers
+            .entry(domain_key.to_owned())
+            .or_insert_with(|| StoredTier {
+                proxy_tier: base,
+                browser: false,
+                state: State::Base,
+            });
         if !stored.browser {
             stored.browser = true;
             self.changes.tiers.insert(domain_key.to_owned(), *stored);
@@ -758,9 +931,10 @@ impl SessionPool {
     }
 
     fn tier_of(&self, domain_key: &str) -> ProxyTier {
-        self.tiers
-            .get(domain_key)
-            .map_or(ProxyTier::None, |stored| stored.proxy_tier)
+        match self.tiers.get(domain_key) {
+            Some(stored) => self.ladder.clamp(stored.proxy_tier),
+            None => self.ladder.base_tier(),
+        }
     }
 
     /// Retires each open Session of `pool` past its uses or its age at
@@ -869,7 +1043,7 @@ impl SessionPool {
             .and_then(|sessions| sessions.open.get(&position))
             .map(|open| open.stored.address_ordinal);
         let Some(ordinal) = open
-            .or_else(|| self.retiring.get(&id(pool, position)).copied())
+            .or_else(|| self.retiring.get(&id(pool, position)).map(|(ord, _)| *ord))
             .flatten()
         else {
             return;
@@ -918,7 +1092,10 @@ impl SessionPool {
             .insert((pool.clone(), position), open.stored);
         let session = id(pool, position);
         if self.serving.contains_key(&session) {
-            self.retiring.insert(session, address_ordinal);
+            self.retiring.insert(
+                session,
+                (address_ordinal, retirement == Retirement::Escalated),
+            );
         } else {
             self.closable.push(session);
         }

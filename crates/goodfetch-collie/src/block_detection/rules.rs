@@ -238,6 +238,7 @@ pub(super) const RULES: &[Rule] = &[
             "your ip address has been blocked",
             "your ip has been blocked",
             "your ip address is blocked",
+            "requests from your address have been flagged",
         ]],
         unless: &[],
     },

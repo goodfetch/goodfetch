@@ -307,7 +307,29 @@ enum Opener {
     /// Run reopens none of them, the pool opening each again at its next
     /// page. Its egress relay binds the rotation position the pool gave
     /// it, when it gave one.
-    Pool { address_ordinal: Option<u64> },
+    Pool {
+        address_ordinal: Option<u64>,
+        proxy_kind: Option<goodfetch_protocol::page::proxy::ProxyKind>,
+    },
+}
+
+impl Opener {
+    fn proxy_kind(self) -> Option<goodfetch_protocol::page::proxy::ProxyKind> {
+        match self {
+            Self::Pool { proxy_kind, .. } => proxy_kind,
+            Self::Default => None,
+        }
+    }
+
+    fn address_ordinal(self, position: u32) -> u64 {
+        match self {
+            Self::Pool {
+                address_ordinal: Some(ordinal),
+                ..
+            } => ordinal,
+            Self::Default | Self::Pool { .. } => rotation_ordinal(position),
+        }
+    }
 }
 
 /// The Provenance action of a Session held to the policy by interception
@@ -619,7 +641,7 @@ impl Sessions {
         let (position, pool, human_cell) = taken(&mut *self.state.lock().await, &run)?;
         let human_input = human_input_of(&human_cell, &run, &identity, context).await;
         let owner = run.identity.owner().child();
-        let proxy = open_proxy((&run, &owner), &settings, context, position).await?;
+        let proxy = open_proxy((&run, &owner), &settings, context, position, None).await?;
         no_proxy_under(borrowed.as_ref(), proxy.as_deref())?;
         let relay = open_relay(
             (&run, &owner),
@@ -770,16 +792,18 @@ impl Sessions {
         let (position, pool, human_cell) = taken(&mut *self.state.lock().await, run)?;
         let human_input = human_input_of(&human_cell, run, identity, context).await;
         let owner = run.identity.owner().child();
-        let proxy = open_proxy((run, &owner), &default_settings, context, position).await?;
+        let proxy = open_proxy(
+            (run, &owner),
+            &default_settings,
+            context,
+            position,
+            opener.proxy_kind(),
+        )
+        .await?;
         no_proxy_under(borrowed, proxy.as_deref())?;
         // A pool Session's relay binds the position its pool gave it, which
         // its HTTP requests leave from too (ADR 0044's #682 note).
-        let address_ordinal = match opener {
-            Opener::Pool {
-                address_ordinal: Some(ordinal),
-            } => ordinal,
-            Opener::Default | Opener::Pool { .. } => rotation_ordinal(position),
-        };
+        let address_ordinal = opener.address_ordinal(position);
         let relay = open_relay(
             (run, &owner),
             &default_settings,
@@ -986,6 +1010,7 @@ impl Sessions {
         );
         let opener = Opener::Pool {
             address_ordinal: pooled.address_ordinal,
+            proxy_kind: pooled.proxy_kind,
         };
         let position = *cell
             .get_or_try_init(|| {
@@ -1683,6 +1708,7 @@ async fn open_proxy(
     own: &Values,
     context: &CallContext,
     position: u32,
+    proxy_kind: Option<goodfetch_protocol::page::proxy::ProxyKind>,
 ) -> Result<Option<Arc<SessionProxy>>, CallError> {
     let Some(settings) = run.identity.settings() else {
         return match own.keys().next() {
@@ -1724,6 +1750,7 @@ async fn open_proxy(
         session: &session,
         ordinal: u64::from(position),
         currencies: &currencies,
+        proxy_kind,
     };
     Ok(
         SessionProxy::open(&resolved, &proxy_run(run, tasks), &opening)
@@ -2292,7 +2319,7 @@ async fn reopened_egress(
     if borrowed.is_some() {
         return (None, None, None);
     }
-    let proxy = match open_proxy((run, tasks), settings, context, position).await {
+    let proxy = match open_proxy((run, tasks), settings, context, position, None).await {
         Ok(proxy) => proxy,
         Err(error) => return (None, None, Some(error)),
     };

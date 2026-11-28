@@ -172,7 +172,7 @@ impl Exchange<'_> {
             .await;
             return;
         }
-        let Ok((socket, side)) = bound_socket(ip) else {
+        let Ok((socket, side)) = bound_socket(ip, None, false) else {
             self.write(&reply(CONNECTION_REFUSED)).await;
             return;
         };

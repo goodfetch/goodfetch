@@ -45,7 +45,7 @@ fn browser(pool: &mut SessionPool, settings: &PoolSettings) -> ServingSession {
 }
 
 fn succeeded(pool: &mut SessionPool, served: &ServingSession, settings: &PoolSettings) {
-    pool.settle(served, "shop.test", Effect::Success, settings);
+    pool.settle(served, "shop.test", Effect::Success, settings, start());
 }
 
 /// How many Sessions `served` names.
@@ -259,7 +259,7 @@ fn after_a_block_that_retires_a_session_the_domains_next_draw_opens_a_new_one(
     let blocked = browser(&mut pool, &ON_DEMAND);
     let free = browser(&mut pool, &ON_DEMAND);
     succeeded(&mut pool, &free, &ON_DEMAND);
-    pool.settle(&blocked, "shop.test", block, &ON_DEMAND);
+    pool.settle(&blocked, "shop.test", block, &ON_DEMAND, start());
 
     let replacement = browser(&mut pool, &ON_DEMAND);
     succeeded(&mut pool, &replacement, &ON_DEMAND);
@@ -293,6 +293,7 @@ fn escalation_opens_a_new_session_when_the_pool_is_full() {
         "shop.test",
         Effect::Blocked(BlockCause::Challenge),
         &settings,
+        start(),
     );
     // Another domain fills the pool again with a Session of the other
     // client.
@@ -336,6 +337,7 @@ fn no_draw_on_a_domain_takes_an_open_session_in_a_block_blocked_there() {
         "shop.test",
         Effect::Blocked(BlockCause::Challenge),
         &ON_DEMAND,
+        start(),
     );
 
     let on_the_domain: Vec<[u8; 4]> = (0..30)
@@ -360,7 +362,7 @@ fn no_draw_on_a_domain_takes_an_open_session_in_a_block_blocked_there() {
                 let served = pool
                     .draw(&PoolKey::Run, &wanted, &settings, start(), || true)
                     .unwrap();
-                pool.settle(&served, "books.test", Effect::Success, &settings);
+                pool.settle(&served, "books.test", Effect::Success, &settings, start());
                 address_of(&pool, &served)
             })
             .collect::<Vec<_>>()

@@ -15,7 +15,7 @@ use goodfetch_engine::run::state_unavailable;
 use goodfetch_engine::runs::{self, ReportWarnings};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::page::SessionId;
-use goodfetch_protocol::page::proxy::PROXY_PROVIDER;
+use goodfetch_protocol::page::proxy::{PROXY_PROVIDER, ProxyKind};
 use goodfetch_protocol::usage::PROXY_BYTES;
 use secrecy::SecretString;
 
@@ -82,6 +82,7 @@ impl TransportProxy {
         settings: &Resolved,
         session: SessionId,
         ordinal: u64,
+        proxy_kind: Option<ProxyKind>,
     ) -> Result<Option<Self>, CallError> {
         // A Proxy provider's price must be in the currency of each currency
         // Limit on `proxy_bytes` that holds the Run (ADR 0101), as a
@@ -108,6 +109,7 @@ impl TransportProxy {
             session: &session,
             ordinal,
             currencies: &currencies,
+            proxy_kind,
         };
         // A fetch tier's Session has no owner of its own: its proxy's tasks
         // start on the Run's, which its end stops.

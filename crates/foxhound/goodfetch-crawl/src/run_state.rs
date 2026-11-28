@@ -5,6 +5,9 @@
 //! pool, how its tier is chosen, what its Label on its domain learned and
 //! the latencies of the first requests that time a race.
 //!
+//! Size: one concern — the delivery loop's in-memory Run state, leasing,
+//! tier-choice memory and writer claims.
+//!
 //! A lease waits for no write (#2168): each work item's row is the one
 //! the crawl kept of a change the run file's readers may not see yet, a
 //! retry or a work item an attempt added, else one read on a reader, or,
@@ -327,6 +330,9 @@ pub(crate) struct RunState {
     /// for a Session of the browser client to have room, or for a
     /// browser-page place, in the order they were leased (#2178).
     undrawn: VecDeque<Planned>,
+    /// How many proxy-tier escalations/rotations each work item has used
+    /// so far (spec #600), cleared once it succeeds or ends terminally.
+    escalations: BTreeMap<String, usize>,
 }
 
 /// A claim queued with the run-state writer: answers the IDs it did not
@@ -353,7 +359,24 @@ impl RunState {
             kept: Kept::new(whole),
             claims: tokio::sync::Mutex::new(FuturesUnordered::new()),
             undrawn: VecDeque::new(),
+            escalations: BTreeMap::new(),
         }
+    }
+
+    /// How many proxy-tier escalations or rotations `work_item` has used
+    /// so far in this Run.
+    pub(crate) fn escalations_used(&self, work_item: &str) -> usize {
+        self.escalations.get(work_item).copied().unwrap_or_default()
+    }
+
+    /// Records one proxy-tier escalation or rotation for `work_item`.
+    pub(crate) fn record_escalation(&mut self, work_item: &str) {
+        *self.escalations.entry(work_item.to_owned()).or_default() += 1;
+    }
+
+    /// Drops the escalation counter for `work_item` once it ends.
+    pub(crate) fn clear_escalations(&mut self, work_item: &str) {
+        self.escalations.remove(work_item);
     }
 
     /// What is still the run file's, as the loop reads and writes it.
@@ -528,6 +551,7 @@ impl RunState {
                         &escalated.domain_key,
                         Effect::Neutral,
                         &escalated.settings,
+                        escalated.now,
                     );
                 }
                 return None;
@@ -932,6 +956,7 @@ impl RunState {
             id: session.id.clone(),
             source: pools.source(key),
             address_ordinal: self.pool.address_ordinal(&session.id),
+            proxy_kind: session.proxy_tier.kind(),
             place,
         };
         let local = self.pool.local_addresses(&session.id);

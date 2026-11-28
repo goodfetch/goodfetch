@@ -604,7 +604,14 @@ async fn carry(
     (request, address, destination): (RelayRequest, SocketAddr, &Destination),
     in_flight: Option<InFlight<'_>>,
 ) {
-    let Ok((socket, side)) = bound_socket(address.ip()) else {
+    let Ok((socket, side)) = bound_socket(
+        address.ip(),
+        request.exit.as_deref(),
+        request
+            .sticky
+            .as_ref()
+            .is_some_and(|sticky| sticky.session.is_some()),
+    ) else {
         let answer = failure("502 Bad Gateway", "proxy_internal_error");
         let _ = client.write_all(&answer).await;
         return;
@@ -704,9 +711,42 @@ fn accepted(given: Option<&(String, String)>, credentials: &Credentials) -> Opti
     username::read(username, &credentials.username)
 }
 
+/// A distinct loopback IPv4 address for a proxy kind's exit: a static
+/// proxy without a sticky session uses one address per kind
+/// (`datacenter` -> `127.0.0.11`, `isp` -> `127.0.0.21`,
+/// `residential` -> `127.0.0.31`, `mobile` -> `127.0.0.41`), while a
+/// sticky session gets a distinct address per exit index (`base + index`).
+fn exit_loopback(ip: IpAddr, exit: &str, sticky: bool) -> Option<IpAddr> {
+    if !ip.is_ipv4() || !ip.is_loopback() {
+        return None;
+    }
+    let (kind, number) = exit.rsplit_once('-')?;
+    let base: u8 = match kind {
+        "datacenter" => 10,
+        "isp" => 20,
+        "residential" => 30,
+        "mobile" => 40,
+        _ => return None,
+    };
+    let index: u8 = if sticky { number.parse().ok()? } else { 1 };
+    let last = base.checked_add(index)?;
+    (last >= 2).then_some(IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, last)))
+}
+
 /// A socket bound on this host before it connects to `ip`, and its address,
 /// so the relay is recorded with it before the connection is accepted.
-fn bound_socket(ip: IpAddr) -> std::io::Result<(TcpSocket, SocketAddr)> {
+fn bound_socket(
+    ip: IpAddr,
+    exit: Option<&str>,
+    sticky: bool,
+) -> std::io::Result<(TcpSocket, SocketAddr)> {
+    if let Some(loopback) = exit.and_then(|exit| exit_loopback(ip, exit, sticky))
+        && let Ok(socket) = TcpSocket::new_v4()
+        && socket.bind(SocketAddr::new(loopback, 0)).is_ok()
+        && let Ok(side) = socket.local_addr()
+    {
+        return Ok((socket, side));
+    }
     let socket = if ip.is_ipv4() {
         TcpSocket::new_v4()?
     } else {

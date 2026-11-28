@@ -16,10 +16,12 @@ use goodfetch_engine::local_addresses::{BlockSizes, Host, Ipv6Prefix, LocalAddre
 use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::session_pool::{ProxyTier, ServingSession};
 use goodfetch_protocol::page::SessionId;
+use goodfetch_protocol::page::proxy::ProxyKind;
 use rstest::rstest;
 use rusqlite::Connection;
 
-use super::{Effect, LocalAddressing, Rotated, SendsFrom, SessionPool, Wanted};
+use super::{Effect, LocalAddressing, Rotated, SendsFrom, SessionPool, SettleOutcome, Wanted};
+use crate::escalation::{Ladder, State};
 use crate::labels::PoolKey;
 use crate::settings::{Affinity, Growth, PoolSettings};
 use crate::store::TABLES;
@@ -34,6 +36,7 @@ const ONE: PoolSettings = PoolSettings {
     growth: Growth::OnDemand,
     session_concurrency: Some(1),
     affinity: Affinity::Host,
+    trial_interval: Some(Duration::from_mins(10)),
 };
 
 /// The pool's draws as the cases before on-demand growth make them: on the
@@ -142,7 +145,7 @@ fn a_session_is_retired_once_its_error_score_reaches_the_maximum(
             &ONE,
             start(),
         );
-        pool.settle(&session, "shop.test", effect, &ONE);
+        pool.settle(&session, "shop.test", effect, &ONE, start());
     }
 
     let session = pool.drawn(
@@ -351,15 +354,15 @@ fn which_session_serves_a_request_is_drawn_from_the_entropy_seed(
 
 /// Covers: story:6-251
 #[rstest]
-#[case::ip_block(BlockCause::IpBlock, ProxyTier::Datacenter)]
-#[case::rate_limit(BlockCause::RateLimit, ProxyTier::Datacenter)]
-#[case::challenge(BlockCause::Challenge, ProxyTier::None)]
-#[case::captcha(BlockCause::Captcha, ProxyTier::None)]
+#[case::ip_block(BlockCause::IpBlock, ProxyTier::Isp)]
+#[case::rate_limit(BlockCause::RateLimit, ProxyTier::Isp)]
+#[case::challenge(BlockCause::Challenge, ProxyTier::Datacenter)]
+#[case::captcha(BlockCause::Captcha, ProxyTier::Datacenter)]
 fn a_block_that_escalates_retires_its_session_and_the_replacement_opens_at_its_tier(
     #[case] cause: BlockCause,
     #[case] tier: ProxyTier,
 ) {
-    let mut pool = pool(1);
+    let mut pool = pool(1).with_ladder(Ladder::from_kinds(ProxyKind::ALL.to_vec()));
     let blocked = pool.drawn(
         &PoolKey::Run,
         "shop.test",
@@ -367,7 +370,7 @@ fn a_block_that_escalates_retires_its_session_and_the_replacement_opens_at_its_t
         &ONE,
         start(),
     );
-    pool.settle(&blocked, "shop.test", Effect::Blocked(cause), &ONE);
+    pool.settle(&blocked, "shop.test", Effect::Blocked(cause), &ONE, start());
 
     let replacement = pool.drawn(
         &PoolKey::Run,
@@ -386,16 +389,16 @@ fn a_block_that_escalates_retires_its_session_and_the_replacement_opens_at_its_t
 
     assert_eq!(
         (replacement, elsewhere.proxy_tier),
-        (serving("session-2", tier, false), ProxyTier::None)
+        (serving("session-2", tier, false), ProxyTier::Datacenter)
     );
 }
 
 /// Covers: story:6-251
 #[test]
 fn each_escalation_moves_its_domain_one_proxy_tier_up_to_the_top() {
-    let mut pool = pool(1);
+    let mut pool = pool(1).with_ladder(Ladder::from_kinds(ProxyKind::ALL.to_vec()));
     let mut tiers = Vec::new();
-    for _ in 0..5 {
+    for _ in 0..4 {
         let session = pool.drawn(
             &PoolKey::Run,
             "shop.test",
@@ -409,6 +412,7 @@ fn each_escalation_moves_its_domain_one_proxy_tier_up_to_the_top() {
             "shop.test",
             Effect::Blocked(BlockCause::IpBlock),
             &ONE,
+            start(),
         );
     }
 
@@ -426,13 +430,115 @@ fn each_escalation_moves_its_domain_one_proxy_tier_up_to_the_top() {
     assert_eq!(
         tiers,
         [
-            ProxyTier::None,
             ProxyTier::Datacenter,
             ProxyTier::Isp,
             ProxyTier::Residential,
             ProxyTier::Mobile,
             ProxyTier::Mobile,
         ]
+    );
+}
+
+/// With no paid proxy pool configured (empty ladder), a 403 retires the
+/// Session and keeps the domain at `ProxyTier::None`, spending nothing.
+///
+/// Covers: story:8-221
+#[test]
+fn without_a_configured_proxy_ladder_a_block_retires_the_session_and_spends_nothing() {
+    let mut pool = pool(1);
+    let blocked = pool.drawn(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Browser,
+        &ONE,
+        start(),
+    );
+    let outcome = pool.settle(
+        &blocked,
+        "shop.test",
+        Effect::Blocked(BlockCause::IpBlock),
+        &ONE,
+        start(),
+    );
+    let replacement = pool.drawn(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Browser,
+        &ONE,
+        start(),
+    );
+    assert_eq!(
+        (outcome, replacement),
+        (
+            SettleOutcome::Unchanged,
+            serving("session-2", ProxyTier::None, false)
+        )
+    );
+}
+
+/// A second in-flight block on a Session already retired by a block is a
+/// late row (`block_on_retired_session`): it does not double-escalate the
+/// domain.
+///
+/// Covers: story:8-240
+#[test]
+fn a_late_block_on_a_block_retired_session_does_not_double_escalate() {
+    let settings = PoolSettings {
+        max_size: 2,
+        session_concurrency: None,
+        ..ONE
+    };
+    let mut pool = pool(1).with_ladder(Ladder::from_kinds(ProxyKind::ALL.to_vec()));
+    let first = pool.drawn(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Browser,
+        &settings,
+        start(),
+    );
+    let second = pool.drawn(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Browser,
+        &settings,
+        start(),
+    );
+    assert_eq!(first.id, second.id);
+
+    let first_outcome = pool.settle(
+        &first,
+        "shop.test",
+        Effect::Blocked(BlockCause::IpBlock),
+        &settings,
+        start(),
+    );
+    let second_outcome = pool.settle(
+        &second,
+        "shop.test",
+        Effect::Blocked(BlockCause::IpBlock),
+        &settings,
+        start(),
+    );
+    let next = pool.drawn(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Browser,
+        &settings,
+        start(),
+    );
+    assert_eq!(
+        (
+            first_outcome,
+            second_outcome,
+            next.proxy_tier,
+            pool.escalation_state("shop.test")
+        ),
+        (
+            SettleOutcome::Escalated { budget: 4 },
+            SettleOutcome::LateBlock { budget: 4 },
+            ProxyTier::Isp,
+            State::Escalated,
+        )
     );
 }
 
@@ -443,7 +549,7 @@ fn each_escalation_moves_its_domain_one_proxy_tier_up_to_the_top() {
 /// Covers: story:6-251
 #[test]
 fn a_refused_transport_retires_its_session_without_moving_the_proxy_tier() {
-    let mut pool = pool(1);
+    let mut pool = pool(1).with_ladder(Ladder::from_kinds(ProxyKind::ALL.to_vec()));
     let refused = pool.drawn(
         &PoolKey::Run,
         "shop.test",
@@ -451,7 +557,13 @@ fn a_refused_transport_retires_its_session_without_moving_the_proxy_tier() {
         &ONE,
         start(),
     );
-    pool.settle(&refused, "shop.test", Effect::TransportRefused, &ONE);
+    pool.settle(
+        &refused,
+        "shop.test",
+        Effect::TransportRefused,
+        &ONE,
+        start(),
+    );
     let browser = pool.drawn(
         &PoolKey::Run,
         "shop.test",
@@ -464,6 +576,7 @@ fn a_refused_transport_retires_its_session_without_moving_the_proxy_tier() {
         "shop.test",
         Effect::Blocked(BlockCause::IpBlock),
         &ONE,
+        start(),
     );
 
     let next = pool.drawn(
@@ -477,8 +590,8 @@ fn a_refused_transport_retires_its_session_without_moving_the_proxy_tier() {
     assert_eq!(
         (browser, next),
         (
-            serving("session-2", ProxyTier::None, false),
-            serving("session-3", ProxyTier::Datacenter, false)
+            serving("session-2", ProxyTier::Datacenter, false),
+            serving("session-3", ProxyTier::Isp, false)
         )
     );
 }
@@ -501,7 +614,13 @@ fn a_block_that_never_rotates_leaves_its_session_serving(#[case] cause: BlockCau
         &settings,
         start(),
     );
-    pool.settle(&blocked, "shop.test", Effect::Blocked(cause), &settings);
+    pool.settle(
+        &blocked,
+        "shop.test",
+        Effect::Blocked(cause),
+        &settings,
+        start(),
+    );
 
     let next = pool.drawn(
         &PoolKey::Run,
@@ -518,7 +637,7 @@ fn a_block_that_never_rotates_leaves_its_session_serving(#[case] cause: BlockCau
 #[test]
 fn a_block_on_a_session_already_retired_still_moves_its_domain_up() {
     let settings = PoolSettings { max_uses: 1, ..ONE };
-    let mut pool = pool(1);
+    let mut pool = pool(1).with_ladder(Ladder::from_kinds(ProxyKind::ALL.to_vec()));
     let blocked = pool.drawn(
         &PoolKey::Run,
         "shop.test",
@@ -538,6 +657,7 @@ fn a_block_on_a_session_already_retired_still_moves_its_domain_up() {
         "shop.test",
         Effect::Blocked(BlockCause::IpBlock),
         &settings,
+        start(),
     );
 
     let next = pool.drawn(
@@ -548,15 +668,18 @@ fn a_block_on_a_session_already_retired_still_moves_its_domain_up() {
         start(),
     );
 
-    assert_eq!(next, serving("session-3", ProxyTier::Datacenter, false));
+    assert_eq!(next, serving("session-3", ProxyTier::Isp, false));
 }
 
 /// Covers: story:6-255
 #[test]
 fn a_pool_read_again_from_run_state_keeps_its_sessions_and_revalidates_each_on_its_first_page() {
     let settings = PoolSettings { max_size: 2, ..ONE };
+    let ladder = Ladder::from_kinds(ProxyKind::ALL.to_vec());
     let file = run_file();
-    let mut pool = SessionPool::open(&file, Entropy::seeded(1)).unwrap();
+    let mut pool = SessionPool::open(&file, Entropy::seeded(1))
+        .unwrap()
+        .with_ladder(ladder.clone());
     let blocked = pool.drawn(
         &PoolKey::Run,
         "shop.test",
@@ -569,6 +692,7 @@ fn a_pool_read_again_from_run_state_keeps_its_sessions_and_revalidates_each_on_i
         "shop.test",
         Effect::Blocked(BlockCause::IpBlock),
         &settings,
+        start(),
     );
     pool.drawn(
         &PoolKey::Run,
@@ -586,7 +710,9 @@ fn a_pool_read_again_from_run_state_keeps_its_sessions_and_revalidates_each_on_i
     );
     pool.changes().write(&file).unwrap();
 
-    let mut resumed = SessionPool::open(&file, Entropy::seeded(2)).unwrap();
+    let mut resumed = SessionPool::open(&file, Entropy::seeded(2))
+        .unwrap()
+        .with_ladder(ladder);
     let served = [
         resumed.drawn(
             &PoolKey::Run,
@@ -614,9 +740,9 @@ fn a_pool_read_again_from_run_state_keeps_its_sessions_and_revalidates_each_on_i
     assert_eq!(
         served,
         [
-            serving("session-2", ProxyTier::Datacenter, true),
-            serving("session-3", ProxyTier::None, true),
-            serving("session-3", ProxyTier::None, false),
+            serving("session-2", ProxyTier::Isp, true),
+            serving("session-3", ProxyTier::Datacenter, true),
+            serving("session-3", ProxyTier::Datacenter, false),
         ]
     );
 }
@@ -688,18 +814,19 @@ fn a_block_on_a_pools_session_retires_it_and_the_replacement_is_a_new_session(
     #[case] key: PoolKey,
     #[case] replacement: &str,
 ) {
-    let mut pool = pool(1);
+    let mut pool = pool(1).with_ladder(Ladder::from_kinds(ProxyKind::ALL.to_vec()));
     let blocked = pool.drawn(&key, "shop.test", SendsFrom::Browser, &ONE, start());
     pool.settle(
         &blocked,
         "shop.test",
         Effect::Blocked(BlockCause::IpBlock),
         &ONE,
+        start(),
     );
 
     let next = pool.drawn(&key, "shop.test", SendsFrom::Browser, &ONE, start());
 
-    assert_eq!(next, serving(replacement, ProxyTier::Datacenter, false));
+    assert_eq!(next, serving(replacement, ProxyTier::Isp, false));
 }
 
 /// Covers: story:5-138
@@ -721,7 +848,7 @@ fn a_challenge_moves_its_domain_to_the_browser_tier(
         &ONE,
         start(),
     );
-    pool.settle(&blocked, "shop.test", Effect::Blocked(cause), &ONE);
+    pool.settle(&blocked, "shop.test", Effect::Blocked(cause), &ONE, start());
 
     let moved = (pool.browser("shop.test"), pool.browser("books.test"));
 
@@ -751,10 +878,11 @@ fn a_retired_session_closes_once_no_attempt_holds_it() {
         "shop.test",
         Effect::Blocked(BlockCause::Challenge),
         &ONE,
+        start(),
     );
     let while_held = pool.closable();
 
-    pool.settle(&also, "shop.test", Effect::Success, &ONE);
+    pool.settle(&also, "shop.test", Effect::Success, &ONE, start());
 
     assert_eq!(
         (while_held, pool.closable(), pool.closable()),
@@ -790,6 +918,7 @@ fn the_pools_read_again_from_run_state_keep_each_labels_sessions_and_the_browser
         "shop.test",
         Effect::Blocked(BlockCause::Challenge),
         &ONE,
+        start(),
     );
     pool.drawn(
         &label("account"),
@@ -892,7 +1021,7 @@ fn address_of(pool: &SessionPool, served: &ServingSession) -> [u8; 4] {
 fn served(pool: &mut SessionPool, domain: &str, effect: Effect) -> [u8; 4] {
     let served = pool.drawn(&PoolKey::Run, domain, SendsFrom::Browser, &ROOMY, start());
     let address = address_of(pool, &served);
-    pool.settle(&served, domain, effect, &ROOMY);
+    pool.settle(&served, domain, effect, &ROOMY, start());
     address
 }
 
@@ -1047,9 +1176,10 @@ fn a_block_met_after_its_session_was_retired_still_blocks_its_block() {
         "shop.test",
         Effect::Blocked(BlockCause::IpBlock),
         &settings,
+        start(),
     );
     let other_address = address_of(&pool, &other);
-    pool.settle(&other, "books.test", Effect::Success, &settings);
+    pool.settle(&other, "books.test", Effect::Success, &settings, start());
 
     let replacement = pool.drawn(
         &PoolKey::Run,
@@ -1276,6 +1406,242 @@ fn a_run_file_whose_pool_table_predates_the_sessions_client_is_not_resumed() {
     let refused = SessionPool::open(&file, Entropy::seeded(1)).unwrap_err();
 
     assert_eq!(refused.to_string(), crate::store::PREDATES_CLIENTS);
+}
+
+/// With `escalation.trial_interval` set short, a periodic trial on the
+/// cheaper kind brings the domain down when it succeeds (`TrialPassed`) and
+/// leaves it up when it is blocked again (`TrialBlocked`), rescheduling the
+/// next trial; `escalation.trial_interval: null` (`None`) runs no trial
+/// (#1141).
+///
+/// Covers: story:8-222, setting:escalation.trial_interval
+#[expect(
+    clippy::doc_markdown,
+    reason = "Covers: line follows ADR 0072 syntax without backticks"
+)]
+#[test]
+fn periodic_trial_steps_down_on_success_stays_up_on_block_and_none_runs_no_trial() {
+    let ladder = Ladder::from_kinds(vec![
+        ProxyKind::Datacenter,
+        ProxyKind::Isp,
+        ProxyKind::Residential,
+    ]);
+    let settings = PoolSettings {
+        trial_interval: Some(Duration::from_secs(10)),
+        ..ONE
+    };
+    let mut pool = pool(1).with_ladder(ladder.clone());
+    let t0 = start();
+
+    // Climb datacenter -> isp -> residential.
+    let s1 = pool.drawn(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Browser,
+        &settings,
+        t0,
+    );
+    assert_eq!(s1.proxy_tier, ProxyTier::Datacenter);
+    pool.settle(
+        &s1,
+        "shop.test",
+        Effect::Blocked(BlockCause::IpBlock),
+        &settings,
+        t0,
+    );
+    let s2 = pool.drawn(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Browser,
+        &settings,
+        t0,
+    );
+    assert_eq!(s2.proxy_tier, ProxyTier::Isp);
+    pool.settle(
+        &s2,
+        "shop.test",
+        Effect::Blocked(BlockCause::IpBlock),
+        &settings,
+        t0,
+    );
+    assert_eq!(pool.escalation_state("shop.test"), State::Escalated);
+
+    // Before the interval elapses, requests stay at residential.
+    let before = pool.drawn(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Browser,
+        &settings,
+        t0 + Duration::from_secs(9),
+    );
+    assert_eq!(before.proxy_tier, ProxyTier::Residential);
+    pool.settle(
+        &before,
+        "shop.test",
+        Effect::Success,
+        &settings,
+        t0 + Duration::from_secs(9),
+    );
+
+    // At t0 + 10s, a trial runs at isp; if blocked, domain stays at residential
+    // and reschedules for t0 + 20s.
+    let t1 = t0 + Duration::from_secs(10);
+    let trial_blocked = pool.drawn(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Browser,
+        &settings,
+        t1,
+    );
+    assert_eq!(trial_blocked.proxy_tier, ProxyTier::Isp);
+    assert_eq!(pool.escalation_state("shop.test"), State::Trialing);
+    let blocked_outcome = pool.settle(
+        &trial_blocked,
+        "shop.test",
+        Effect::Blocked(BlockCause::IpBlock),
+        &settings,
+        t1,
+    );
+    assert_eq!(blocked_outcome, SettleOutcome::Escalated { budget: 3 });
+    assert_eq!(pool.escalation_state("shop.test"), State::Escalated);
+
+    // Immediately after the blocked trial, the replacement runs at residential.
+    let after_block = pool.drawn(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Browser,
+        &settings,
+        t1,
+    );
+    assert_eq!(after_block.proxy_tier, ProxyTier::Residential);
+    pool.settle(&after_block, "shop.test", Effect::Success, &settings, t1);
+
+    // At t0 + 20s, another trial runs at isp; when it succeeds, domain steps
+    // down to isp (still Escalated, since datacenter is below).
+    let t2 = t1 + Duration::from_secs(10);
+    let trial_ok_1 = pool.drawn(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Browser,
+        &settings,
+        t2,
+    );
+    assert_eq!(trial_ok_1.proxy_tier, ProxyTier::Isp);
+    pool.settle(&trial_ok_1, "shop.test", Effect::Success, &settings, t2);
+    assert_eq!(pool.escalation_state("shop.test"), State::Escalated);
+    let at_isp = pool.drawn(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Browser,
+        &settings,
+        t2,
+    );
+    assert_eq!(at_isp.proxy_tier, ProxyTier::Isp);
+    pool.settle(&at_isp, "shop.test", Effect::Success, &settings, t2);
+
+    // At t0 + 30s, trial runs at datacenter; when it succeeds, domain returns
+    // to Base at datacenter.
+    let t3 = t2 + Duration::from_secs(10);
+    let trial_ok_2 = pool.drawn(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Browser,
+        &settings,
+        t3,
+    );
+    assert_eq!(trial_ok_2.proxy_tier, ProxyTier::Datacenter);
+    pool.settle(&trial_ok_2, "shop.test", Effect::Success, &settings, t3);
+    assert_eq!(pool.escalation_state("shop.test"), State::Base);
+
+    // With `trial_interval: None`, no trial ever runs even hours later.
+    let no_trial = PoolSettings {
+        trial_interval: None,
+        ..ONE
+    };
+    let mut off_pool = self::pool(2).with_ladder(ladder);
+    let first = off_pool.drawn(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Browser,
+        &no_trial,
+        t0,
+    );
+    off_pool.settle(
+        &first,
+        "shop.test",
+        Effect::Blocked(BlockCause::IpBlock),
+        &no_trial,
+        t0,
+    );
+    let later = off_pool.drawn(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Browser,
+        &no_trial,
+        t0 + Duration::from_hours(24),
+    );
+    assert_eq!(
+        (later.proxy_tier, off_pool.escalation_state("shop.test")),
+        (ProxyTier::Isp, State::Escalated)
+    );
+}
+
+/// With no costlier kind left and a rotatable provider rung, a block retires
+/// the Session and returns `SettleOutcome::Rotated { budget }`, opening a
+/// fresh Session on the next draw; once the budget is spent, `should_re_admit`
+/// returns `false` (#1141).
+///
+/// Covers: story:8-220
+#[test]
+fn rotation_within_a_provider_retires_and_opens_a_fresh_session_until_budget_is_spent() {
+    let ladder = Ladder::build(
+        &[crate::escalation::LadderRung {
+            kind: ProxyKind::Datacenter,
+            rotatable: true,
+        }],
+        None,
+        None,
+    );
+    let mut pool = pool(1).with_ladder(ladder);
+    let first = pool.drawn(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Browser,
+        &ONE,
+        start(),
+    );
+    let outcome = pool.settle(
+        &first,
+        "shop.test",
+        Effect::Blocked(BlockCause::IpBlock),
+        &ONE,
+        start(),
+    );
+    let second = pool.drawn(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Browser,
+        &ONE,
+        start(),
+    );
+    assert_eq!(
+        (
+            first.id.0.as_str(),
+            second.id.0.as_str(),
+            second.proxy_tier,
+            outcome,
+            outcome.should_re_admit(0),
+            outcome.should_re_admit(1),
+        ),
+        (
+            "session-1",
+            "session-2",
+            ProxyTier::Datacenter,
+            SettleOutcome::Rotated { budget: 1 },
+            true,
+            false,
+        )
+    );
 }
 
 mod on_demand;

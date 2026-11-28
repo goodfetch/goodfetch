@@ -814,6 +814,12 @@ number = 6
 kind = "setting"
 prefix = "session.pool."
 
+# Area 8's proxy-tier escalation (#600, ADR 0021): its `escalation.*` keys.
+[[area]]
+number = 8
+kind = "setting"
+prefix = "escalation."
+
 # The Response cache (spec #580, #793, #798, ADR 0046): its settings, the
 # refusal of a `replay` the Operator policy does not allow, its format, and
 # its upkeep's `cache.*` operations with their commands.

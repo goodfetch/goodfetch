@@ -16,6 +16,7 @@ serde_json.workspace = true
 goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]
+proptest.workspace = true
 rstest.workspace = true
 goodfetch-dev-workspace-hack.workspace = true
 

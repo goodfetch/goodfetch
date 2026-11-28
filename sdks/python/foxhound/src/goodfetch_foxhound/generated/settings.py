@@ -1275,6 +1275,28 @@ class RevisitPolicyEstimated(TypedDict):
     """Target expected freshness, strictly in `(0, 1)` (default: 0.9)."""
 
 
+class ConnectionRevisitSiteHintsSettings(TypedDict):
+    """The `revisit.site_hints` settings of `FoxhoundSettings`."""
+
+    cache_control: NotRequired[bool]
+    """Whether `Cache-Control: max-age` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.site_hints.cache_control`.
+    """
+
+    expires: NotRequired[bool]
+    """Whether `Expires` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.site_hints.expires`.
+    """
+
+    retry_after: NotRequired[bool]
+    """Whether `Retry-After` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.site_hints.retry_after`.
+    """
+
+
 class ConnectionRevisitSettings(TypedDict):
     """The `revisit` settings of `FoxhoundSettings`."""
 
@@ -1307,6 +1329,8 @@ class ConnectionRevisitSettings(TypedDict):
 
     `revisit.policy`.
     """
+
+    site_hints: NotRequired[ConnectionRevisitSiteHintsSettings]
 
 
 class ConnectionRunStateBatchSettings(TypedDict):
@@ -3383,6 +3407,28 @@ class RunResolverSettings(TypedDict):
     """
 
 
+class RunRevisitSiteHintsSettings(TypedDict):
+    """The `revisit.site_hints` settings of `CrawlSettings`."""
+
+    cache_control: NotRequired[bool]
+    """Whether `Cache-Control: max-age` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.site_hints.cache_control`.
+    """
+
+    expires: NotRequired[bool]
+    """Whether `Expires` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.site_hints.expires`.
+    """
+
+    retry_after: NotRequired[bool]
+    """Whether `Retry-After` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.site_hints.retry_after`.
+    """
+
+
 class RunRevisitSettings(TypedDict):
     """The `revisit` settings of `CrawlSettings`."""
 
@@ -3415,6 +3461,8 @@ class RunRevisitSettings(TypedDict):
 
     `revisit.policy`.
     """
+
+    site_hints: NotRequired[RunRevisitSiteHintsSettings]
 
 
 class RunRunStateBatchSettings(TypedDict):
@@ -4087,6 +4135,28 @@ class LabelFetchSettings(TypedDict):
     """
 
 
+class LabelRevisitSiteHintsSettings(TypedDict):
+    """The `revisit.site_hints` settings of `LabelSettings`."""
+
+    cache_control: NotRequired[bool]
+    """Whether `Cache-Control: max-age` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.site_hints.cache_control`.
+    """
+
+    expires: NotRequired[bool]
+    """Whether `Expires` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.site_hints.expires`.
+    """
+
+    retry_after: NotRequired[bool]
+    """Whether `Retry-After` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.site_hints.retry_after`.
+    """
+
+
 class LabelRevisitSettings(TypedDict):
     """The `revisit` settings of `LabelSettings`."""
 
@@ -4119,6 +4189,8 @@ class LabelRevisitSettings(TypedDict):
 
     `revisit.policy`.
     """
+
+    site_hints: NotRequired[LabelRevisitSiteHintsSettings]
 
 
 class LabelSessionSettings(TypedDict):

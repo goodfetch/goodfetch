@@ -11232,6 +11232,36 @@
       ]
     },
     {
+      "id": "setting:revisit.site_hints.cache_control",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:revisit.site_hints.expires",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:revisit.site_hints.retry_after",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:run_state.batch.bytes",
       "kind": "setting",
       "area": 3,

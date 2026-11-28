@@ -20,6 +20,10 @@ fn no() -> Value {
     Value::Bool(false)
 }
 
+fn yes() -> Value {
+    Value::Bool(true)
+}
+
 /// Default initial interval for `revisit.policy: adaptive` and `estimated`: 1 day (ADR 0139).
 pub const REVISIT_DEFAULT_INITIAL_MS: u64 = 86_400_000;
 /// Default minimum interval for `revisit.policy: adaptive` and `estimated`: 1 hour (ADR 0139).
@@ -825,6 +829,81 @@ pub const REVISIT_GONE_AFTER_YIELDS_TO_BATCH: Yielding = Yielding {
     reason: "a batch crawl does not revisit URLs",
 };
 
+/// `revisit.site_hints.cache_control` (ADR 0139).
+pub const REVISIT_SITE_HINTS_CACHE_CONTROL: Setting = Setting {
+    name: "revisit.site_hints.cache_control",
+    description: "Whether `Cache-Control: max-age` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `revisit.site_hints.expires` (ADR 0139).
+pub const REVISIT_SITE_HINTS_EXPIRES: Setting = Setting {
+    name: "revisit.site_hints.expires",
+    description: "Whether `Expires` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `revisit.site_hints.retry_after` (ADR 0139).
+pub const REVISIT_SITE_HINTS_RETRY_AFTER: Setting = Setting {
+    name: "revisit.site_hints.retry_after",
+    description: "Whether `Retry-After` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `revisit.site_hints.cache_control` yields to `crawl.continuous = false`.
+pub const REVISIT_SITE_HINTS_CACHE_CONTROL_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &REVISIT_SITE_HINTS_CACHE_CONTROL,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl does not revisit URLs",
+};
+
+/// `revisit.site_hints.expires` yields to `crawl.continuous = false`.
+pub const REVISIT_SITE_HINTS_EXPIRES_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &REVISIT_SITE_HINTS_EXPIRES,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl does not revisit URLs",
+};
+
+/// `revisit.site_hints.retry_after` yields to `crawl.continuous = false`.
+pub const REVISIT_SITE_HINTS_RETRY_AFTER_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &REVISIT_SITE_HINTS_RETRY_AFTER,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl does not revisit URLs",
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -841,6 +920,9 @@ pub const ENTRIES: Entries = Entries {
         REVISIT_ON_UNCHANGED,
         REVISIT_ON_ERROR,
         REVISIT_GONE_AFTER,
+        REVISIT_SITE_HINTS_CACHE_CONTROL,
+        REVISIT_SITE_HINTS_EXPIRES,
+        REVISIT_SITE_HINTS_RETRY_AFTER,
         CRAWL_REVISIT_ORDER,
         CRAWL_REVISIT_DOMAIN_SHARE,
     ],

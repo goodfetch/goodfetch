@@ -258,6 +258,10 @@ pub(super) struct RevisitPlan {
 pub(super) struct RevisitMeta {
     pub(super) etag: Option<String>,
     pub(super) last_modified: Option<String>,
+    pub(super) cache_control: Option<String>,
+    pub(super) expires: Option<String>,
+    pub(super) retry_after: Option<String>,
+    pub(super) date: Option<String>,
     pub(super) signature: Option<String>,
     pub(super) tier: Option<FetchTier>,
     pub(super) unchanged: bool,
@@ -1731,11 +1735,13 @@ impl On<'_> {
                         }
                     }
                     Stop::NotModified { headers } => {
-                        let etag = header_from_pairs(&headers, "etag");
-                        let last_modified = header_from_pairs(&headers, "last-modified");
                         let meta = RevisitMeta {
-                            etag,
-                            last_modified,
+                            etag: header_from_pairs(&headers, "etag"),
+                            last_modified: header_from_pairs(&headers, "last-modified"),
+                            cache_control: header_from_pairs(&headers, "cache-control"),
+                            expires: header_from_pairs(&headers, "expires"),
+                            retry_after: header_from_pairs(&headers, "retry-after"),
+                            date: header_from_pairs(&headers, "date"),
                             signature: None,
                             tier: Some(choice.tier),
                             unchanged: true,
@@ -1918,22 +1924,24 @@ impl On<'_> {
         if !self.revisit.continuous || matches!(how, Chosen::Sample(_)) {
             return None;
         }
-        let etag = facts
-            .response
-            .as_ref()
-            .and_then(|response| header_from_map(&response.headers, "etag"));
-        let last_modified = facts
-            .response
-            .as_ref()
-            .and_then(|response| header_from_map(&response.headers, "last-modified"));
+        let resp_header = |name: &str| {
+            facts
+                .response
+                .as_ref()
+                .and_then(|response| header_from_map(&response.headers, name))
+        };
         let signature = facts.signature.map(hex_signature);
         let unchanged = self.leased.is_revisit_attempt()
             && self.revisit.change_check.uses_signature()
             && signature.is_some()
             && signature == self.revisit.previous_signature;
         *self.revisit_meta.lock().await = Some(RevisitMeta {
-            etag,
-            last_modified,
+            etag: resp_header("etag"),
+            last_modified: resp_header("last-modified"),
+            cache_control: resp_header("cache-control"),
+            expires: resp_header("expires"),
+            retry_after: resp_header("retry-after"),
+            date: resp_header("date"),
             signature,
             tier: Some(tier),
             unchanged,
@@ -1994,13 +2002,10 @@ impl On<'_> {
         let status = status.filter(|&code| code == 404 || code == 410)?;
         let next_gone = self.revisit.previous_consecutive_gone.saturating_add(1);
         *self.revisit_meta.lock().await = Some(RevisitMeta {
-            etag: None,
-            last_modified: None,
-            signature: None,
             tier: Some(tier),
-            unchanged: false,
             consecutive_gone: next_gone,
             gone_status: true,
+            ..RevisitMeta::default()
         });
         let threshold = self.revisit.gone_after.max(1);
         if next_gone >= threshold {
@@ -2050,14 +2055,16 @@ impl On<'_> {
         let unchanged = self.leased.is_revisit_attempt()
             && signature.is_some()
             && signature == self.revisit.previous_signature;
+        let resp_header = |name: &str| response.and_then(|r| header_from_map(&r.headers, name));
         *self.revisit_meta.lock().await = Some(RevisitMeta {
-            etag: None,
-            last_modified: None,
+            cache_control: resp_header("cache-control"),
+            expires: resp_header("expires"),
+            retry_after: resp_header("retry-after"),
+            date: resp_header("date"),
             signature,
             tier: Some(FetchTier::Browser),
             unchanged,
-            consecutive_gone: 0,
-            gone_status: false,
+            ..RevisitMeta::default()
         });
         unchanged && self.revisit.on_unchanged == RevisitOnUnchanged::Skip
     }

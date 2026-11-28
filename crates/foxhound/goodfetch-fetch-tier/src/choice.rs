@@ -18,8 +18,9 @@ use goodfetch_engine::{CallError, named};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_protocol::foxhound::continuous::{
     REVISIT_CHANGE_CHECK, REVISIT_CHANGE_CHECK_VALUES, REVISIT_GONE_AFTER, REVISIT_ON_ERROR,
-    REVISIT_ON_UNCHANGED, REVISIT_ON_UNCHANGED_VALUES, REVISIT_POLICY, RevisitChangeCheck,
-    RevisitOnUnchanged, RevisitPolicy,
+    REVISIT_ON_UNCHANGED, REVISIT_ON_UNCHANGED_VALUES, REVISIT_POLICY,
+    REVISIT_SITE_HINTS_CACHE_CONTROL, REVISIT_SITE_HINTS_EXPIRES, REVISIT_SITE_HINTS_RETRY_AFTER,
+    RevisitChangeCheck, RevisitOnUnchanged, RevisitPolicy,
 };
 use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CRAWL_CONTENT_TYPES, CRAWL_RETRY_HANDLER_FAILED, LabelDeclaration,
@@ -75,6 +76,9 @@ pub struct LabelSettings {
     revisit_on_unchanged: BTreeMap<String, RevisitOnUnchanged>,
     revisit_on_error: BTreeMap<String, u64>,
     revisit_gone_after: BTreeMap<String, u32>,
+    revisit_site_hints_cache_control: BTreeMap<String, bool>,
+    revisit_site_hints_expires: BTreeMap<String, bool>,
+    revisit_site_hints_retry_after: BTreeMap<String, bool>,
 }
 
 /// How a request's tier is chosen.
@@ -182,6 +186,9 @@ impl LabelSettings {
             revisit_on_unchanged: BTreeMap::new(),
             revisit_on_error: BTreeMap::new(),
             revisit_gone_after: BTreeMap::new(),
+            revisit_site_hints_cache_control: BTreeMap::new(),
+            revisit_site_hints_expires: BTreeMap::new(),
+            revisit_site_hints_retry_after: BTreeMap::new(),
         };
         for (name, declaration) in labels {
             let mut keys = Vec::new();
@@ -245,15 +252,33 @@ impl LabelSettings {
         } else if key == CRAWL_RETRY_HANDLER_FAILED.name {
             self.retries_handler_failed
                 .insert(name.to_owned(), boolean(name, &key, value)?);
-        } else if key == REVISIT_POLICY.name {
+        } else if self.apply_revisit_key(name, &key, value)? {
+            // Handled by `apply_revisit_key`.
+        } else if key == SESSION_SOURCE.name || key.starts_with(SESSION_SOURCE_KEYS) {
+            // The Session pool reads a Label's own Session source.
+        } else if key == FETCH_TIER.name {
+            *tier = tier_of(name, key, value)?;
+        } else {
+            return Err(not_taken(name, key));
+        }
+        Ok(())
+    }
+
+    fn apply_revisit_key(
+        &mut self,
+        name: &str,
+        key: &str,
+        value: &Value,
+    ) -> Result<bool, CallError> {
+        if key == REVISIT_POLICY.name {
             let policy =
-                RevisitPolicy::read(value).map_err(|reason| invalid(name, &key, value, &reason))?;
+                RevisitPolicy::read(value).map_err(|reason| invalid(name, key, value, &reason))?;
             self.revisit_policies.insert(name.to_owned(), policy);
         } else if key == REVISIT_CHANGE_CHECK.name {
             let Some(check) = RevisitChangeCheck::read(value) else {
                 return Err(invalid(
                     name,
-                    &key,
+                    key,
                     value,
                     &format!("is none of {}", REVISIT_CHANGE_CHECK_VALUES.join(", ")),
                 ));
@@ -263,7 +288,7 @@ impl LabelSettings {
             let Some(on_unchanged) = RevisitOnUnchanged::read(value) else {
                 return Err(invalid(
                     name,
-                    &key,
+                    key,
                     value,
                     &format!("is none of {}", REVISIT_ON_UNCHANGED_VALUES.join(", ")),
                 ));
@@ -272,7 +297,7 @@ impl LabelSettings {
                 .insert(name.to_owned(), on_unchanged);
         } else if key == REVISIT_ON_ERROR.name {
             self.revisit_on_error
-                .insert(name.to_owned(), millis(name, &key, value)?);
+                .insert(name.to_owned(), millis(name, key, value)?);
         } else if key == REVISIT_GONE_AFTER.name {
             let Some(count) = value
                 .as_u64()
@@ -281,20 +306,25 @@ impl LabelSettings {
             else {
                 return Err(invalid(
                     name,
-                    &key,
+                    key,
                     value,
                     "is not a whole number of at least 1",
                 ));
             };
             self.revisit_gone_after.insert(name.to_owned(), count);
-        } else if key == SESSION_SOURCE.name || key.starts_with(SESSION_SOURCE_KEYS) {
-            // The Session pool reads a Label's own Session source.
-        } else if key == FETCH_TIER.name {
-            *tier = tier_of(name, key, value)?;
+        } else if key == REVISIT_SITE_HINTS_CACHE_CONTROL.name {
+            self.revisit_site_hints_cache_control
+                .insert(name.to_owned(), boolean(name, key, value)?);
+        } else if key == REVISIT_SITE_HINTS_EXPIRES.name {
+            self.revisit_site_hints_expires
+                .insert(name.to_owned(), boolean(name, key, value)?);
+        } else if key == REVISIT_SITE_HINTS_RETRY_AFTER.name {
+            self.revisit_site_hints_retry_after
+                .insert(name.to_owned(), boolean(name, key, value)?);
         } else {
-            return Err(not_taken(name, key));
+            return Ok(false);
         }
-        Ok(())
+        Ok(true)
     }
 
     /// The `revisit.policy` of `label`, falling back to `run` when the Label
@@ -333,6 +363,26 @@ impl LabelSettings {
     #[must_use]
     pub fn revisit_gone_after(&self, label: &str, run: u32) -> u32 {
         self.revisit_gone_after.get(label).copied().unwrap_or(run)
+    }
+
+    /// The `(cache_control, expires, retry_after)` site-hint switches of
+    /// `label`, each falling back to `run` when the Label sets none (ADR 0139).
+    #[must_use]
+    pub fn revisit_site_hints(&self, label: &str, run: (bool, bool, bool)) -> (bool, bool, bool) {
+        (
+            self.revisit_site_hints_cache_control
+                .get(label)
+                .copied()
+                .unwrap_or(run.0),
+            self.revisit_site_hints_expires
+                .get(label)
+                .copied()
+                .unwrap_or(run.1),
+            self.revisit_site_hints_retry_after
+                .get(label)
+                .copied()
+                .unwrap_or(run.2),
+        )
     }
 
     /// Each Label that declares `revisit.change_check`, with its value.

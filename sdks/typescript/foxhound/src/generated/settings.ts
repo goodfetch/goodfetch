@@ -1029,6 +1029,26 @@ export interface FoxhoundSettings {
      * `revisit.policy`.
      */
     readonly policy?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number };
+    readonly siteHints?: {
+      /**
+       * Whether `Cache-Control: max-age` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `revisit.site_hints.cache_control`.
+       */
+      readonly cacheControl?: boolean;
+      /**
+       * Whether `Expires` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `revisit.site_hints.expires`.
+       */
+      readonly expires?: boolean;
+      /**
+       * Whether `Retry-After` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `revisit.site_hints.retry_after`.
+       */
+      readonly retryAfter?: boolean;
+    };
   };
   readonly runState?: {
     readonly batch?: {
@@ -2507,6 +2527,26 @@ export interface CrawlSettings {
      * `revisit.policy`.
      */
     readonly policy?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number };
+    readonly siteHints?: {
+      /**
+       * Whether `Cache-Control: max-age` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `revisit.site_hints.cache_control`.
+       */
+      readonly cacheControl?: boolean;
+      /**
+       * Whether `Expires` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `revisit.site_hints.expires`.
+       */
+      readonly expires?: boolean;
+      /**
+       * Whether `Retry-After` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `revisit.site_hints.retry_after`.
+       */
+      readonly retryAfter?: boolean;
+    };
   };
   readonly runState?: {
     readonly batch?: {
@@ -3075,6 +3115,26 @@ export interface LabelSettings {
      * `revisit.policy`.
      */
     readonly policy?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number };
+    readonly siteHints?: {
+      /**
+       * Whether `Cache-Control: max-age` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `revisit.site_hints.cache_control`.
+       */
+      readonly cacheControl?: boolean;
+      /**
+       * Whether `Expires` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `revisit.site_hints.expires`.
+       */
+      readonly expires?: boolean;
+      /**
+       * Whether `Retry-After` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `revisit.site_hints.retry_after`.
+       */
+      readonly retryAfter?: boolean;
+    };
   };
   readonly session?: {
     /**
@@ -3450,6 +3510,11 @@ const SPELLING: Spelling = {
     onError: "on_error",
     onUnchanged: "on_unchanged",
     policy: { setting: "policy", value: { fields: { "rate_changed": "rateChanged", "rate_unchanged": "rateUnchanged", "target_freshness": "targetFreshness" } } },
+    siteHints: ["site_hints", {
+      cacheControl: "cache_control",
+      expires: "expires",
+      retryAfter: "retry_after",
+    }],
   }],
   runState: ["run_state", {
     batch: ["batch", {

@@ -11,7 +11,9 @@
 //! writes nothing and runs no query against it.
 
 use std::collections::BTreeMap;
+use std::time::{Duration, UNIX_EPOCH};
 
+use goodfetch_engine::retry_after::{self, RetryAfter};
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_protocol::foxhound::continuous::RevisitPolicy;
 use rusqlite::{Connection, OptionalExtension as _, params};
@@ -108,12 +110,105 @@ pub enum VisitResult {
     Unchanged,
 }
 
+/// Per-header switches controlling which HTTP caching headers act as revisit
+/// floors (`revisit.site_hints.*`, ADR 0139). All three are `true` by default.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SiteHintSwitches {
+    /// Respect `Cache-Control: max-age` as a revisit floor.
+    pub cache_control: bool,
+    /// Respect `Expires` as a revisit floor.
+    pub expires: bool,
+    /// Respect `Retry-After` as a revisit floor.
+    pub retry_after: bool,
+}
+
+impl Default for SiteHintSwitches {
+    fn default() -> Self {
+        Self {
+            cache_control: true,
+            expires: true,
+            retry_after: true,
+        }
+    }
+}
+
 /// Caching and freshness hints returned by the site (ADR 0139).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SiteHints {
     /// Earliest wall-clock timestamp (ms since Unix epoch) allowed by site
     /// caching headers (`Cache-Control: max-age`, `Expires`, `Retry-After`).
     pub floor_at_ms: Option<u64>,
+}
+
+impl SiteHints {
+    /// Computes the revisit floor timestamp from HTTP response headers under
+    /// `switches`, measured at wall-clock `now_ms` (ADR 0139).
+    #[must_use]
+    pub fn from_headers(
+        cache_control: Option<&str>,
+        expires: Option<&str>,
+        retry_after_header: Option<&str>,
+        date: Option<&str>,
+        switches: SiteHintSwitches,
+        now_ms: u64,
+    ) -> Self {
+        let mut floor: Option<u64> = None;
+        let mut raise = |candidate: Option<u64>| {
+            if let Some(ts) = candidate {
+                floor = Some(floor.map_or(ts, |current| current.max(ts)));
+            }
+        };
+        if switches.cache_control
+            && let Some(cc) = cache_control
+        {
+            raise(cache_control_max_age_floor(cc, now_ms));
+        }
+        if switches.expires
+            && let Some(exp) = expires
+        {
+            raise(expires_floor(exp, date, now_ms));
+        }
+        if switches.retry_after
+            && let Some(ra) = retry_after_header
+        {
+            raise(retry_after_floor(ra, date, now_ms));
+        }
+        Self { floor_at_ms: floor }
+    }
+}
+
+fn cache_control_max_age_floor(header: &str, now_ms: u64) -> Option<u64> {
+    for directive in header.split(',') {
+        let Some((name, raw_val)) = directive.split_once('=') else {
+            continue;
+        };
+        if name.trim().eq_ignore_ascii_case("max-age") {
+            let trimmed = raw_val.trim().trim_matches('"');
+            let secs: u64 = trimmed.parse().ok()?;
+            return (secs > 0).then(|| now_ms.saturating_add(secs.saturating_mul(1_000)));
+        }
+    }
+    None
+}
+
+fn expires_floor(header: &str, date: Option<&str>, now_ms: u64) -> Option<u64> {
+    let trimmed = header.trim_matches([' ', '\t']);
+    // RFC 9111 §5.3: numeric values like `0` or `-1` mean already expired, not delta-seconds.
+    if trimmed.is_empty() || trimmed.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    retry_after_floor(trimmed, date, now_ms)
+}
+
+fn retry_after_floor(header: &str, date: Option<&str>, now_ms: u64) -> Option<u64> {
+    let received = UNIX_EPOCH.checked_add(Duration::from_millis(now_ms))?;
+    match retry_after::read(header, date, received) {
+        RetryAfter::Until(until) => {
+            let ms = until.duration_since(UNIX_EPOCH).ok()?.as_millis();
+            Some(u64::try_from(ms).unwrap_or(u64::MAX))
+        }
+        RetryAfter::NoWait | RetryAfter::Unparsable => None,
+    }
 }
 
 /// Output of the pure schedule function: the chosen interval and next due time.

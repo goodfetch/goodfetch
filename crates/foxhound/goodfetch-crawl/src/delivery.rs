@@ -96,12 +96,14 @@ use goodfetch_fetch_tier::{
     UntouchedReaders,
 };
 use goodfetch_frontier::Bounds;
-use goodfetch_frontier::revisit::{self, RevisitRow, SiteHints, VisitResult};
+use goodfetch_frontier::revisit::{self, RevisitRow, SiteHintSwitches, SiteHints, VisitResult};
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
 use goodfetch_protocol::foxhound::continuous::{
     CRAWL_CONTINUOUS, REVISIT_CHANGE_CHECK, REVISIT_GONE_AFTER, REVISIT_ON_ERROR,
-    REVISIT_ON_UNCHANGED, REVISIT_POLICY, RevisitChangeCheck, RevisitOnUnchanged, RevisitPolicy,
+    REVISIT_ON_UNCHANGED, REVISIT_POLICY, REVISIT_SITE_HINTS_CACHE_CONTROL,
+    REVISIT_SITE_HINTS_EXPIRES, REVISIT_SITE_HINTS_RETRY_AFTER, RevisitChangeCheck,
+    RevisitOnUnchanged, RevisitPolicy,
 };
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_CONTENT_TYPES, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_LOST,
@@ -453,6 +455,8 @@ struct Read {
     run_revisit_policy: RevisitPolicy,
     /// Run-level `revisit.on_error` fallback in ms for Labels that set none.
     run_revisit_on_error: u64,
+    /// Run-level `revisit.site_hints.*` fallback switches for Labels that set none.
+    run_site_hints: SiteHintSwitches,
 }
 
 impl Read {
@@ -476,6 +480,11 @@ impl Read {
                 .as_u64()
                 .filter(|&ms| ms >= 1)
                 .unwrap_or(7_200_000),
+            run_site_hints: SiteHintSwitches {
+                cache_control: resolved.get(&REVISIT_SITE_HINTS_CACHE_CONTROL),
+                expires: resolved.get(&REVISIT_SITE_HINTS_EXPIRES),
+                retry_after: resolved.get(&REVISIT_SITE_HINTS_RETRY_AFTER),
+            },
         }
     }
 }
@@ -1823,6 +1832,40 @@ async fn settled(
     })
 }
 
+/// Computes site-hint floor timestamps from response headers in `meta` under
+/// the Label's (or Run's) `revisit.site_hints.*` switches (ADR 0139).
+fn site_hints_for(
+    read: Read,
+    fetching: &Fetching<'_>,
+    label: &str,
+    meta: Option<&attempt::RevisitMeta>,
+    now_ms: u64,
+) -> SiteHints {
+    let Some(meta) = meta else {
+        return SiteHints::default();
+    };
+    let (cache_control, expires, retry_after) = fetching.labels.settings.revisit_site_hints(
+        label,
+        (
+            read.run_site_hints.cache_control,
+            read.run_site_hints.expires,
+            read.run_site_hints.retry_after,
+        ),
+    );
+    SiteHints::from_headers(
+        meta.cache_control.as_deref(),
+        meta.expires.as_deref(),
+        meta.retry_after.as_deref(),
+        meta.date.as_deref(),
+        SiteHintSwitches {
+            cache_control,
+            expires,
+            retry_after,
+        },
+        now_ms,
+    )
+}
+
 /// Preserves prior revisit metadata while updating schedule and gone streak
 /// for a revisit that ended `gone` or `failed` (ADR 0139).
 fn preserved_revisit_row(
@@ -1896,7 +1939,13 @@ fn planned_unsuccessful_revisit(
                 .labels
                 .settings
                 .revisit_on_error(&request.label, read.run_revisit_on_error);
-            let next_visit_at = reschedule.then(|| now_ms.saturating_add(on_error_ms.max(1)));
+            let hints = site_hints_for(read, fetching, &request.label, meta, now_ms);
+            let next_visit_at = reschedule.then(|| {
+                let policy_due = now_ms.saturating_add(on_error_ms.max(1));
+                hints
+                    .floor_at_ms
+                    .map_or(policy_due, |floor| policy_due.max(floor))
+            });
             let consecutive_gone = if is_gone_status {
                 meta.map_or(0, |m| m.consecutive_gone)
             } else {
@@ -1958,10 +2007,11 @@ fn planned_revisit(
     } else {
         VisitResult::Changed
     };
+    let hints = site_hints_for(read, fetching, &request.label, meta, now_ms);
     let scheduled = if run.end.is_let_finish() {
         None
     } else {
-        revisit::next_visit(policy, previous, visit_result, SiteHints::default(), now_ms)
+        revisit::next_visit(policy, previous, visit_result, hints, now_ms)
     };
     let meta = attempt.revisit_meta.as_ref();
     let (etag, last_modified, signature, last_tier) =

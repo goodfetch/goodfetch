@@ -1171,6 +1171,46 @@ pub mod revisit {
             }
         }
     }
+
+    /// The `revisit.site_hints.*` settings.
+    pub mod site_hints {
+
+        /// Whether `Cache-Control: max-age` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+        ///
+        /// `revisit.site_hints.cache_control`.
+        pub const CACHE_CONTROL: crate::settings::Setting<bool> = crate::settings::Setting::new(
+            "revisit.site_hints.cache_control",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+                ::goodfetch_protocol::catalog::SettingScope::Label,
+            ],
+        );
+
+        /// Whether `Expires` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+        ///
+        /// `revisit.site_hints.expires`.
+        pub const EXPIRES: crate::settings::Setting<bool> = crate::settings::Setting::new(
+            "revisit.site_hints.expires",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+                ::goodfetch_protocol::catalog::SettingScope::Label,
+            ],
+        );
+
+        /// Whether `Retry-After` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+        ///
+        /// `revisit.site_hints.retry_after`.
+        pub const RETRY_AFTER: crate::settings::Setting<bool> = crate::settings::Setting::new(
+            "revisit.site_hints.retry_after",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+                ::goodfetch_protocol::catalog::SettingScope::Label,
+            ],
+        );
+    }
 }
 
 /// The `session.*` settings.

@@ -2134,6 +2134,10 @@ fn revisit_policy_defaults_to_adaptive_and_rejects_invalid_settings() {
 /// issue 1845).
 ///
 /// Covers: setting:revisit.policy, setting:crawl.continuous
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end Continuous crawl test exercises adaptive and estimated policies and verifies Run report"
+)]
 #[test]
 fn adaptive_and_estimated_policies_list_fast_urls_in_run_report() {
     let env = TestEnv::new();
@@ -2253,5 +2257,134 @@ fn adaptive_and_estimated_policies_list_fast_urls_in_run_report() {
             "https://example.test/fast",
         ],
         "expected both fast-changing URLs listed in Run report: {report}"
+    );
+}
+
+/// `Cache-Control: max-age`, `Expires`, and `Retry-After` act as revisit floors
+/// by default (winning over `revisit.policy`), and each can be switched off
+/// individually under `revisit.site_hints.*` (ADR 0139; issue 1849).
+///
+/// Covers: setting:revisit.site_hints.cache_control, setting:revisit.site_hints.expires, setting:revisit.site_hints.retry_after
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end Continuous crawl test exercises all three HTTP caching headers and per-header switches"
+)]
+#[test]
+fn site_caching_headers_are_floors_by_default_and_switchable_individually() {
+    let env = TestEnv::new();
+    let hits = std::sync::Arc::new(std::sync::Mutex::new(std::collections::BTreeMap::<
+        String,
+        usize,
+    >::new()));
+    let hits_c = std::sync::Arc::clone(&hits);
+    let site = std::sync::Arc::new(ScriptedSite {
+        recorded: std::sync::Mutex::new(Vec::new()),
+        respond: Box::new(move |hop| {
+            let path = hop.url.path().to_owned();
+            let n = {
+                let mut map = hits_c.lock().unwrap();
+                let entry = map.entry(path.clone()).or_insert(0);
+                *entry += 1;
+                *entry
+            };
+            let mut headers = vec![("content-type".to_owned(), "text/html".to_owned())];
+            match path.as_str() {
+                "/cc" | "/off" => {
+                    headers.push(("cache-control".to_owned(), "public, max-age=120".to_owned()));
+                }
+                "/exp" => {
+                    headers.push((
+                        "date".to_owned(),
+                        "Mon, 05 Jan 2026 09:00:00 GMT".to_owned(),
+                    ));
+                    headers.push((
+                        "expires".to_owned(),
+                        "Mon, 05 Jan 2026 09:02:00 GMT".to_owned(),
+                    ));
+                }
+                "/ra" => headers.push(("retry-after".to_owned(), "120".to_owned())),
+                _ => {}
+            }
+            (
+                200,
+                headers,
+                format!("<html><body>{path} v{n}</body></html>"),
+            )
+        }),
+    });
+    let engine = engine_with_site(std::sync::Arc::clone(&site));
+    let mut handler = |_: &Value| Reply::Records(Vec::new());
+
+    let (explained_batch, report) = super::crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let explained_batch = client
+                .call(
+                    "config.explain",
+                    json!({
+                        "keys": [
+                            "revisit.site_hints.cache_control",
+                            "revisit.site_hints.expires",
+                            "revisit.site_hints.retry_after",
+                        ],
+                        "settings": {
+                            "crawl": { "continuous": false },
+                            "revisit": {
+                                "site_hints": {
+                                    "cache_control": false,
+                                    "expires": false,
+                                    "retry_after": false,
+                                }
+                            }
+                        },
+                    }),
+                    &mut handler,
+                )
+                .await;
+            let started = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "site-hints-run",
+                        "seeds": [
+                            { "url": "https://cc.test/cc", "label": "on" },
+                            { "url": "https://exp.test/exp", "label": "on" },
+                            { "url": "https://ra.test/ra", "label": "on" },
+                            { "url": "https://off.test/off", "label": "cc_off" },
+                        ],
+                        "settings": { "crawl": { "continuous": true } },
+                        "labels": {
+                            "on": { "settings": { "revisit": { "policy": { "kind": "every", "interval": 10_000 } } } },
+                            "cc_off": { "settings": { "revisit": {
+                                "policy": { "kind": "every", "interval": 10_000 },
+                                "site_hints": { "cache_control": false }
+                            } } }
+                        }
+                    }),
+                    &mut handler,
+                )
+                .await;
+            assert!(started["result"].is_object(), "start failed: {started}");
+            let _ = progress_matching(client, "site-hints-run", |p| p["idle"] == json!(true), &mut handler).await;
+            advance(Duration::from_secs(12)).await;
+            let _ = progress_matching(client, "site-hints-run", |p| p["idle"] == json!(true), &mut handler).await;
+            let report = client.call("run.finish", json!({ "run_id": "site-hints-run" }), &mut handler).await;
+            (explained_batch, report)
+        },
+    )
+    .0;
+
+    for setting in explained_batch["result"]["settings"].as_array().unwrap() {
+        assert_eq!(setting["yields_to"]["key"], "crawl.continuous", "{setting}");
+    }
+    assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
+    let map = hits.lock().unwrap();
+    assert_eq!(map.get("/cc").copied(), Some(1));
+    assert_eq!(map.get("/exp").copied(), Some(1));
+    assert_eq!(map.get("/ra").copied(), Some(1));
+    assert!(
+        map.get("/off").copied().unwrap_or(0) >= 2,
+        "expected /off to revisit: {map:?}"
     );
 }

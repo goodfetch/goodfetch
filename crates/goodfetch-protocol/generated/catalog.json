@@ -11858,6 +11858,78 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": true,
+      "deprecated": null,
+      "description": "Whether `Cache-Control: max-age` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+      "fixed_for_run": false,
+      "name": "revisit.site_hints.cache_control",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "label"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "deprecated": null,
+      "description": "Whether `Expires` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+      "fixed_for_run": false,
+      "name": "revisit.site_hints.expires",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "label"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "deprecated": null,
+      "description": "Whether `Retry-After` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+      "fixed_for_run": false,
+      "name": "revisit.site_hints.retry_after",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "label"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": 8388608,
       "deprecated": null,
       "description": "Write the Run's changes once they hold this many bytes of rows. This bounds the memory that changes not yet written take.",

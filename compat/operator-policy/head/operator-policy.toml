@@ -423,6 +423,11 @@ on_unchanged = "skip"
 on_error = 30000
 gone_after = 4
 
+[settings.revisit.site_hints]
+cache_control = true
+expires = true
+retry_after = true
+
 [settings.fetch]
 tier = "auto"
 tier_race = true
@@ -920,6 +925,11 @@ change_check = "conditional+signature"
 on_unchanged = "skip"
 on_error = 30000
 gone_after = 4
+
+[lock.revisit.site_hints]
+cache_control = true
+expires = true
+retry_after = true
 
 [lock.fetch]
 tier = "auto"

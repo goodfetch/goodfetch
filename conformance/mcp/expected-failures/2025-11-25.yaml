@@ -1,0 +1,28 @@
+# Expected failures for MCP conformance against `goodfetch-collie` on 2025-11-25.
+# Only scenarios requiring fixture tools, resources, prompts, or server-initiated
+# sampling/elicitation/logging/subscriptions belong here (ADR 0070, `xtask mcp check`).
+server:
+  - logging-set-level # Collie logs to stderr via tracing and does not expose logging/setLevel
+  - completion-complete # Requires fixture prompt test_prompt_with_arguments and completions capability
+  - tools-call-simple-text # Requires fixture tool test_simple_text
+  - tools-call-image # Requires fixture tool test_image_content
+  - tools-call-audio # Requires fixture tool test_audio_content
+  - tools-call-embedded-resource # Requires fixture tool test_embedded_resource
+  - tools-call-mixed-content # Requires fixture tool test_multiple_content_types
+  - tools-call-with-logging # Requires fixture tool test_tool_with_logging
+  - tools-call-error # Requires fixture tool test_error_handling
+  - tools-call-with-progress # Requires fixture tool test_tool_with_progress
+  - tools-call-sampling # Requires fixture tool test_sampling; Collie never sends sampling requests
+  - tools-call-elicitation # Requires fixture tool test_elicitation; Collie never sends elicitation requests
+  - elicitation-sep1034-defaults # Requires fixture tool test_elicitation_sep1034_defaults
+  - elicitation-sep1330-enums # Requires fixture tool test_elicitation_sep1330_enums
+  - resources-read-text # Requires fixture resource test://static-text
+  - resources-read-binary # Requires fixture resource test://static-binary
+  - resources-templates-read # Requires fixture resource template test://template/{id}/data
+  - resources-subscribe # Requires fixture resource test://watched-resource and subscribe capability
+  - resources-unsubscribe # Requires fixture resource test://watched-resource and subscribe capability
+  - prompts-list # Requires fixture prompts; Collie does not advertise prompts capability
+  - prompts-get-simple # Requires fixture prompt test_simple_prompt
+  - prompts-get-with-args # Requires fixture prompt test_prompt_with_arguments
+  - prompts-get-embedded-resource # Requires fixture prompt test_prompt_with_embedded_resource
+  - prompts-get-with-image # Requires fixture prompt test_prompt_with_image

@@ -190,7 +190,7 @@ impl ServerHandler for McpServer {
             Some(result) => Ok(ReadResourceResponse::from(result)),
             None => Err(McpError::resource_not_found(
                 format!("unknown resource `{}`", request.uri),
-                None,
+                Some(serde_json::json!({ "uri": request.uri })),
             )),
         };
         std::future::ready(outcome)

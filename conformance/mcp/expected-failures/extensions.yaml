@@ -1,0 +1,3 @@
+# Expected failures for MCP conformance extensions against `goodfetch-collie`.
+server:
+  - sep-2640-skills-enumeration:sep-2640-skill-uri-scheme # Goodfetch serves skills under goodfetch://skills/ (spec #608) rather than skill://

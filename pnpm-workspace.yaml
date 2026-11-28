@@ -95,6 +95,9 @@ allowBuilds:
   eslint-plugin-n8n-nodes-base: false
   isolated-vm: false
   ssh2: false
+  # `@modelcontextprotocol/inspector` postinstall only tries to install optional clients;
+  # its prebuilt CLI (`--cli`) runs directly without running install scripts.
+  "@modelcontextprotocol/inspector": false
 
 # Fixes to dependencies, each upstreamable; remove one once a release has it.
 # The local search (website/src/search.ts) builds a section's index with the

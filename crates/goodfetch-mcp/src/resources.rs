@@ -170,15 +170,22 @@ impl ResourceStore {
         }
         for served in self.skills.values() {
             for (uri, bytes) in &served.files {
-                let name = uri
-                    .strip_prefix(SKILLS_URI_PREFIX)
-                    .unwrap_or(uri.as_str())
-                    .to_owned();
-                resources.push(
-                    Resource::new(uri.clone(), name)
-                        .with_mime_type(mime_type_for_path(uri))
-                        .with_size(bytes.len() as u64),
-                );
+                let is_skill_md = uri == &served.skill.uri;
+                let name = if is_skill_md {
+                    served.skill.frontmatter.name.clone()
+                } else {
+                    uri.strip_prefix(SKILLS_URI_PREFIX)
+                        .unwrap_or(uri.as_str())
+                        .to_owned()
+                };
+                let mut resource = Resource::new(uri.clone(), name)
+                    .with_mime_type(mime_type_for_path(uri))
+                    .with_size(bytes.len() as u64);
+                if is_skill_md && !served.skill.frontmatter.description.is_empty() {
+                    resource =
+                        resource.with_description(served.skill.frontmatter.description.clone());
+                }
+                resources.push(resource);
             }
         }
         resources

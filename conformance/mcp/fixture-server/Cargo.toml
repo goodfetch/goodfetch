@@ -1,0 +1,30 @@
+[package]
+name = "goodfetch-mcp-fixture-server"
+description = "Test-only MCP conformance fixture server built on goodfetch-mcp; never shipped (ADR 0070, ticket #414)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+clap.workspace = true
+goodfetch-mcp.workspace = true
+goodfetch-protocol.workspace = true
+goodfetch-runtime.workspace = true
+goodfetch-workspace-hack.workspace = true
+rmcp = { workspace = true, features = ["server", "transport-io", "transport-streamable-http-server"] }
+secrecy.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-util = { workspace = true, features = ["rt"] }
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+[dev-dependencies]
+goodfetch-dev-workspace-hack.workspace = true
+
+[lints]
+workspace = true

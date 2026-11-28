@@ -75,6 +75,7 @@ const CONFORMANCE: &str = "goodfetch-conformance";
 const PROTOCOL: &str = "goodfetch-protocol";
 const WORKSPACE_HACK: &str = "goodfetch-workspace-hack";
 const DEV_WORKSPACE_HACK: &str = "goodfetch-dev-workspace-hack";
+const MCP_FIXTURE_SERVER: &str = "goodfetch-mcp-fixture-server";
 const RUNTIME: &str = "goodfetch-runtime";
 const XTASK: &str = "xtask";
 /// The Proving ground's manifest, from the workspace's root (ADR 0032).
@@ -298,6 +299,22 @@ fn takes_test_crates_as_dev_only(package: &Package, findings: &mut Vec<Finding>)
                 ),
             ));
         }
+    }
+    if package.name == MCP_FIXTURE_SERVER && !package.publish.as_ref().is_some_and(Vec::is_empty) {
+        findings.push(Finding::new(
+            "mcp-fixture-server-published",
+            &package.name,
+            "the MCP conformance fixture server is never published (`publish = false`, ADR 0070)",
+        ));
+    }
+    if takes_outside_dev(package, MCP_FIXTURE_SERVER) {
+        findings.push(Finding::new(
+            "mcp-fixture-server-not-dev-only",
+            &package.name,
+            format!(
+                "it takes `{MCP_FIXTURE_SERVER}` outside `[dev-dependencies]`; the MCP fixture server is never shipped (ADR 0070)"
+            ),
+        ));
     }
     if takes_outside_dev(package, DEV_WORKSPACE_HACK) {
         findings.push(Finding::new(

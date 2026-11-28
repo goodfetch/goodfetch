@@ -129,6 +129,7 @@ lint-drift:
     step --after xtask xtask-modules 'cargo run --quiet --bin xtask -- modules'
     step --after xtask xtask-codegen 'cargo run --quiet --bin xtask -- codegen --check'
     step --after xtask xtask-clients 'cargo run --quiet --bin xtask -- clients check'
+    step --after xtask xtask-mcp 'cargo run --quiet --bin xtask -- mcp check'
     step --after xtask xtask-sdk-manifests 'cargo run --quiet --bin xtask -- sdk-manifests'
     step --after xtask xtask-sdk-exports 'cargo run --quiet --bin xtask -- sdk-exports'
     step --after xtask xtask-compat 'cargo run --quiet --bin xtask -- compat check'
@@ -2586,6 +2587,15 @@ duplicate-runs hosted="":
 # which `just pre-merge` runs first on a Linux host.
 _os-services:
     ci/os-services.sh setup
+
+# Runs the pinned MCP conformance suite against Collie's executable and the
+# test-only fixture server for `revision` (or every supported revision when
+# omitted), plus implemented extensions and StrictStdout stdio checks (ADR 0070,
+# ticket #414).
+mcp-conformance revision="":
+    cargo build --quiet -p goodfetch-collie --bin goodfetch-collie --features executable
+    cargo build --quiet -p goodfetch-mcp-fixture-server
+    node conformance/mcp/run-conformance.mjs {{ revision }}
 
 # Runs the benchmark release-gate decision in patch correctness-only mode
 # (ADRs 0025, 0030, 0032, 0094; issue 176). Exits 0 on pass, 1 on block,

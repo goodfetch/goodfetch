@@ -60,6 +60,7 @@ mod live_checks;
 mod load_proofs;
 mod markdown;
 mod mask_writers;
+mod mcp;
 mod metadata;
 mod mocking_lockfile;
 mod models;
@@ -330,6 +331,11 @@ enum Command {
     /// Fails on a writer in a Product's crates that the Mask's list of writers
     /// does not hold as it is found (spec #564).
     MaskWriters,
+    /// MCP conformance expected-failures and client matrix checks (ADR 0070).
+    Mcp {
+        #[command(subcommand)]
+        command: mcp::Command,
+    },
     /// Fails when `uv.lock` holds a mocking library such as pytest-mock (ADR 0062).
     MockingLockfile,
     /// Checks the model manifest, `test-support/fixtures/models.toml`, for
@@ -763,6 +769,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::KennelManifest => Ok(check::report(&kennel::check(root)?)),
         Command::Lazyfs { command } => lazyfs::run(&command, environment),
         Command::MaskWriters => Ok(check::report(&mask_writers::check(root)?)),
+        Command::Mcp { command } => mcp::run(&command, environment),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Models { command } => models::run(&command, environment),
         Command::Modules { workspace } => {

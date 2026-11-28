@@ -10,25 +10,24 @@
 
 use goodfetch_protocol::daemon::{DRAIN_GRACE, DaemonToken};
 use goodfetch_protocol::group::{
-    GROUP_EXISTS, GROUP_INIT, GROUP_JOIN, GROUP_LEAD, GROUP_LEAVE, GROUP_MEMBER_UNKNOWN,
-    GROUP_REVOKE, GROUP_TOKEN, GroupFormed, GroupInitParams, GroupJoinParams, GroupJoined,
-    GroupLeadParams, GroupLeadStatus, GroupLeaveParams, GroupLeft, GroupMemberRevoked,
-    GroupRevokeParams, GroupTokenParams, JoinTokenMinted, LEAD_CANNOT_LEAVE, LEAD_UNCONFIRMED,
-    LeadEpoch, NOT_IN_A_GROUP, NOT_LEAD_DAEMON,
+    GROUP_EXISTS, GROUP_INIT, GROUP_JOIN, GROUP_LEAD, GROUP_LEAVE, GROUP_REVOKE, GROUP_TOKEN,
+    GroupFormed, GroupInitParams, GroupJoinParams, GroupJoined, GroupLeadParams, GroupLeadStatus,
+    GroupLeaveParams, GroupLeft, GroupMemberRevoked, GroupRevokeParams, GroupTokenParams,
+    JoinTokenMinted, NOT_IN_A_GROUP,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use secrecy::ExposeSecret;
 
+use super::errors::{internal, lead_cannot_leave, not_lead, revoked, store_failed};
 use super::identity::{KeptIdentity, renew_at};
 use super::leadership::OPERATOR_CONFIRM_WARNING;
 use super::peering::{self, Asking};
-use super::store::Revocation;
 use super::{GroupAuthority, GroupMemberKey, GroupMemberName, JoinToken, store};
 use crate::composition::{CallContext, Contribution, Handler};
 use crate::known_certificates::KeyHash;
 use crate::settings::get_or_default;
 use crate::transport::{PeerListener, listen_peer};
-use crate::user_store::{UserStore, UserStoreError};
+use crate::user_store::UserStore;
 use crate::{CallError, kept_by_the_daemon};
 
 /// What Daemon groups add to an engine: the group store and the `group.*`
@@ -266,39 +265,6 @@ async fn lead(params: GroupLeadParams, context: CallContext) -> Result<GroupLead
     })
 }
 
-/// The number of the revocation list that removed the Group member `name`,
-/// as the store answers `revocation`.
-///
-/// # Errors
-///
-/// `not_lead_daemon` off the Lead Daemon, `lead_cannot_leave` for the Lead
-/// Daemon's own name and `group_member_unknown` for a name the group has
-/// no Group member of.
-pub(super) fn revoked(revocation: Revocation, name: &GroupMemberName) -> Result<u64, CallError> {
-    match revocation {
-        Revocation::Revoked(number) => Ok(number),
-        Revocation::NotLead => Err(not_lead()),
-        Revocation::Lead => Err(lead_cannot_leave()),
-        Revocation::Unknown => Err(CallError::new(
-            &GROUP_MEMBER_UNKNOWN,
-            format!(
-                "The Daemon group has no Group member named `{}`: it left, was revoked, or never joined.",
-                name.as_str()
-            ),
-            &(),
-        )),
-    }
-}
-
-/// The refusal of the Lead Daemon's leaving or revocation.
-fn lead_cannot_leave() -> CallError {
-    CallError::new(
-        &LEAD_CANNOT_LEAVE,
-        "The Lead Daemon cannot leave its Daemon group, nor be revoked from it: promote another Group member to Lead Daemon first.",
-        &(),
-    )
-}
-
 /// The refusal of a Daemon in no group.
 fn not_in_a_group() -> CallError {
     CallError::new(
@@ -351,47 +317,4 @@ fn group_exists() -> CallError {
         "This Daemon belongs to a Daemon group already; mint a join token with `group token` on its Lead Daemon.",
         &(),
     )
-}
-
-/// The refusal of a Daemon that keeps no group's authority.
-pub(super) fn not_lead() -> CallError {
-    CallError::new(
-        &NOT_LEAD_DAEMON,
-        "This Daemon is not a Daemon group's Lead Daemon; run `group token` on the Lead Daemon, or `group init` to form a group here.",
-        &(),
-    )
-}
-
-/// The refusal of a Lead Daemon that has not yet confirmed its lead epoch.
-pub(super) fn lead_unconfirmed(
-    lead_epoch: LeadEpoch,
-    confirmed_by: usize,
-    total_members: usize,
-) -> CallError {
-    CallError::new(
-        &LEAD_UNCONFIRMED,
-        format!(
-            "The Lead Daemon has not yet confirmed lead epoch {} ({confirmed_by} of {total_members} last-known Group members reached): wait for a majority, or run `group lead --confirm` once no other Lead Daemon runs.",
-            lead_epoch.get()
-        ),
-        &(),
-    )
-}
-
-/// The failure of a call this Daemon could not finish: `error` is its
-/// own, not the caller's.
-pub(super) fn internal(error: &dyn std::fmt::Display) -> CallError {
-    CallError::protocol(ProtocolFailure::InternalError, error.to_string())
-}
-
-/// The error a call answers when the store fails it.
-pub(super) fn store_failed(error: &UserStoreError) -> CallError {
-    match error {
-        UserStoreError::Format {
-            found,
-            compatibility,
-            ..
-        } => crate::run::format_refusal(&store::GROUP_STORE, found, *compatibility),
-        _ => CallError::protocol(ProtocolFailure::InternalError, error.to_string()),
-    }
 }

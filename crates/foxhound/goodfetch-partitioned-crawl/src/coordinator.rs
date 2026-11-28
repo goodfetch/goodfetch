@@ -18,7 +18,9 @@ use std::sync::{Arc, Mutex, PoisonError, RwLock, Weak};
 use std::time::{Duration, SystemTime};
 
 use goodfetch_crawl::CrawlRuntime;
-use goodfetch_crawl::partition::{ForwardedItem, PartitionRouter, PartitionStartOptions};
+use goodfetch_crawl::partition::{
+    DomainHandoffSnapshot, ForwardedItem, PartitionRouter, PartitionStartOptions,
+};
 use goodfetch_dataset::Query;
 use goodfetch_engine::run::{run_id, run_layer, settings_error};
 use goodfetch_engine::settings::Opening;
@@ -419,6 +421,202 @@ impl State {
             }
         }
     }
+
+    fn attach_forwarder(
+        &self,
+        target: ForwarderTarget,
+        peer: Arc<dyn GroupPeer>,
+        context: &CallContext,
+        register: bool,
+    ) -> Arc<dyn PartitionRouter> {
+        let run_id = target.local_run_id.clone();
+        let router: Arc<dyn PartitionRouter> =
+            spawn_forwarder(target, self.runtime.clone(), peer, context);
+        if register {
+            self.runtime.register_router(run_id, Arc::clone(&router));
+        }
+        router
+    }
+
+    async fn admit_forwarded(&self, run_id: &RunId, seeds: Vec<Seed>) -> Result<usize, CallError> {
+        self.runtime.admit_forwarded(run_id, seeds).await
+    }
+
+    async fn hold_incoming_domains_if_live(&self, run_id: &RunId, domains: Vec<String>) {
+        if self.runtime.is_live(run_id).await {
+            let _ = self.runtime.hold_incoming_domains(run_id, domains).await;
+        }
+    }
+
+    async fn install_domain_handoff_if_live(
+        &self,
+        run_id: &RunId,
+        snapshot: DomainHandoffSnapshot,
+    ) -> Result<usize, CallError> {
+        if self.runtime.is_live(run_id).await {
+            self.runtime.install_domain_handoff(run_id, snapshot).await
+        } else {
+            Ok(0)
+        }
+    }
+
+    async fn unfence_domain_if_live(
+        &self,
+        run_id: &RunId,
+        domain_key: String,
+    ) -> Result<(), CallError> {
+        if self.runtime.is_live(run_id).await {
+            self.runtime
+                .unfence_domains(run_id, vec![domain_key])
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn drain_live_domains(
+        &self,
+        source_run_id: &RunId,
+        domains: Vec<String>,
+    ) -> Result<Option<(u64, Vec<DomainHandoffSnapshot>)>, CallError> {
+        if !self.runtime.is_live(source_run_id).await {
+            return Ok(None);
+        }
+        let run_epoch = self
+            .runtime
+            .live_run_epoch(source_run_id)
+            .await
+            .unwrap_or(1);
+        let snapshots = self
+            .runtime
+            .fence_and_drain_domains(source_run_id, domains)
+            .await?;
+        Ok(Some((run_epoch, snapshots)))
+    }
+
+    async fn flush_run_state(&self, run_id: &RunId) {
+        let _ = self.runtime.flush_run_state(run_id).await;
+    }
+
+    async fn live_folder(&self, run_id: &RunId) -> Option<PathBuf> {
+        self.runtime.live_folder(run_id).await
+    }
+
+    async fn start_partition(
+        &self,
+        params: CrawlStartParams,
+        initial_seeds: Vec<Seed>,
+        options: PartitionStartOptions,
+        context: CallContext,
+    ) -> Result<RunStarted, CallError> {
+        self.runtime
+            .start_partition(params, initial_seeds, options, context)
+            .await
+    }
+
+    fn insert_prepared(&self, prepared: PreparedPartition) {
+        self.prepared
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(prepared.run_id.clone(), prepared);
+    }
+
+    fn take_prepared(&self, run_id: &RunId) -> Option<PreparedPartition> {
+        self.prepared
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(run_id)
+    }
+
+    fn domain_keys_for(&self, run_id: &RunId, settings: &Map<String, Value>) -> Arc<DomainKeys> {
+        self.domain_keys
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(run_id)
+            .cloned()
+            .unwrap_or_else(|| Arc::new(domain_keys_from_map(settings)))
+    }
+
+    fn set_domain_keys(&self, run_id: RunId, domain_keys: Arc<DomainKeys>) {
+        self.domain_keys
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(run_id, domain_keys);
+    }
+
+    fn ensure_run_folder(&self, run_id: RunId, fallback_folder: PathBuf) {
+        self.run_folders
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(run_id)
+            .or_insert(fallback_folder);
+    }
+
+    fn set_run_folder(&self, run_id: RunId, folder: PathBuf) {
+        self.run_folders
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(run_id, folder);
+    }
+
+    fn run_folder(&self, run_id: &RunId) -> Option<PathBuf> {
+        self.run_folders
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(run_id)
+            .cloned()
+    }
+
+    async fn run_blocking<T: Send + 'static>(
+        &self,
+        work: impl FnOnce() -> T + Send + 'static,
+    ) -> T {
+        let blocking = self
+            .blocking
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        match blocking {
+            Some(threads) => threads.run(work).await,
+            None => work(),
+        }
+    }
+
+    fn all_known_crawls(&self) -> Vec<PartitionedCrawlRecord> {
+        self.known
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .cloned()
+            .collect()
+    }
+
+    fn local_partitions_for_member(&self, member: &str) -> Vec<(RunId, RunId, u32)> {
+        self.by_partition_run
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter_map(|(part_run_id, (crawl_id, part_idx))| {
+                let record = self.get_known(crawl_id)?;
+                let slot = record.map.slot(*part_idx)?;
+                (slot.member == member).then(|| (crawl_id.clone(), part_run_id.clone(), *part_idx))
+            })
+            .collect()
+    }
+
+    fn get_start_params(&self, crawl_id: &RunId) -> Option<CrawlStartParams> {
+        self.start_params
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(crawl_id)
+            .cloned()
+    }
+
+    fn set_start_params(&self, crawl_id: RunId, params: CrawlStartParams) {
+        self.start_params
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(crawl_id, params);
+    }
 }
 
 /// Live [`PartitionRouter`] sharing an atomically updatable [`PartitionMap`]
@@ -686,11 +884,7 @@ fn build_crawl_start_guard(crawl_start_state: Arc<State>) -> Guard {
         // Case A: Prepared Partition member start triggered by coordinator.
         if let Some(id_str) = params.run_id.as_deref()
             && let Ok(parsed_id) = RunId::parse(id_str)
-            && let Some(prepared) = crawl_start_state
-                .prepared
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .remove(&parsed_id)
+            && let Some(prepared) = crawl_start_state.take_prepared(&parsed_id)
         {
             let state = Arc::clone(&crawl_start_state);
             let context = context.clone();
@@ -761,15 +955,9 @@ fn reattach_partition_router(
     context: &CallContext,
 ) {
     let run_id = params.run_id.clone();
-    let domain_keys = state
-        .domain_keys
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .get(&run_id)
-        .cloned()
-        .unwrap_or_else(|| Arc::new(domain_keys_from_map(&params.settings)));
+    let domain_keys = state.domain_keys_for(&run_id, &params.settings);
     let map_handle = state.live_map_handle(&record.crawl_id, record.map);
-    let router = spawn_forwarder(
+    let _router = state.attach_forwarder(
         ForwarderTarget {
             crawl_id: record.crawl_id,
             local_partition: partition_idx,
@@ -777,23 +965,17 @@ fn reattach_partition_router(
             map: map_handle,
             domain_keys,
         },
-        state.runtime.clone(),
         peer,
         context,
+        true,
     );
-    state.runtime.register_router(run_id.clone(), router);
     let fallback_folder = context
         .engine()
         .home()
         .per_major(&context.identity().product_version)
         .join("runs")
         .join(run_id.as_str());
-    state
-        .run_folders
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .entry(run_id)
-        .or_insert(fallback_folder);
+    state.ensure_run_folder(run_id, fallback_folder);
 }
 
 fn dispatch_partitioned_run_op(
@@ -942,11 +1124,7 @@ impl PeerExtensionHandler for PrepareMemberHandler {
                     format!("invalid `partition.prepare_member` payload: {error}"),
                 )
             })?;
-            state
-                .prepared
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .insert(prepared.run_id.clone(), prepared);
+            state.insert_prepared(prepared);
             Ok(json!({ "ok": true }))
         })
     }
@@ -993,10 +1171,7 @@ impl PeerExtensionHandler for ForwardLinksHandler {
             let accepted = if seeds.is_empty() {
                 0
             } else {
-                state
-                    .runtime
-                    .admit_forwarded(&req.target_run_id, seeds)
-                    .await?
+                state.admit_forwarded(&req.target_run_id, seeds).await?
             };
             // Re-route links whose domain key this Partition no longer owns
             // under the current `PartitionMap` (ADR 0054).
@@ -1083,11 +1258,9 @@ impl PeerExtensionHandler for PublishMapHandler {
             state.cache_record(record);
             if !req.hold_incoming_domains.is_empty()
                 && let Some(target_run_id) = req.target_run_id
-                && state.runtime.is_live(&target_run_id).await
             {
-                let _ = state
-                    .runtime
-                    .hold_incoming_domains(&target_run_id, req.hold_incoming_domains)
+                state
+                    .hold_incoming_domains_if_live(&target_run_id, req.hold_incoming_domains)
                     .await;
             }
             Ok(json!({ "ok": true, "map_epoch": req.map.map_epoch }))
@@ -1163,14 +1336,9 @@ impl PeerExtensionHandler for HandoffDomainHandler {
             }
             let domain_key = req.snapshot.domain_key.clone();
             state.record_domains(&req.crawl_id, [domain_key.clone()]);
-            let installed = if state.runtime.is_live(&req.to_run_id).await {
-                state
-                    .runtime
-                    .install_domain_handoff(&req.to_run_id, req.snapshot)
-                    .await?
-            } else {
-                0
-            };
+            let installed = state
+                .install_domain_handoff_if_live(&req.to_run_id, req.snapshot)
+                .await?;
             if !req.adopted {
                 trace_ack_handoff(&domain_key, &req.from_member, &req.to_member, req.map_epoch);
             }
@@ -1201,12 +1369,9 @@ impl PeerExtensionHandler for ActivateDomainHandler {
                     format!("invalid `partition.activate_domain` payload: {error}"),
                 )
             })?;
-            if state.runtime.is_live(&req.target_run_id).await {
-                state
-                    .runtime
-                    .unfence_domains(&req.target_run_id, vec![req.domain_key.clone()])
-                    .await?;
-            }
+            state
+                .unfence_domain_if_live(&req.target_run_id, req.domain_key.clone())
+                .await?;
             trace_admit_domain(&req.domain_key, &req.member, req.map_epoch);
             Ok(json!({ "ok": true }))
         })
@@ -1279,23 +1444,15 @@ async fn execute_domain_handoffs(
     if moves.is_empty() {
         return Ok(Vec::new());
     }
-    if !state.runtime.is_live(source_run_id).await {
-        return Ok(activate_ended_source_moves(peer, crawl_id, map_epoch, moves).await);
-    }
     let from_member = peer.member_name().to_owned();
     let domains: Vec<String> = moves.iter().map(|m| m.domain_key.clone()).collect();
+    let Some((run_epoch, snapshots)) = state.drain_live_domains(source_run_id, domains).await?
+    else {
+        return Ok(activate_ended_source_moves(peer, crawl_id, map_epoch, moves).await);
+    };
     for mv in &moves {
         trace_fence_domain(&mv.domain_key, &from_member, &mv.to_member, map_epoch);
     }
-    let run_epoch = state
-        .runtime
-        .live_run_epoch(source_run_id)
-        .await
-        .unwrap_or(1);
-    let snapshots = state
-        .runtime
-        .fence_and_drain_domains(source_run_id, domains)
-        .await?;
     let mut by_domain: BTreeMap<String, _> = snapshots
         .into_iter()
         .map(|s| (s.domain_key.clone(), s))
@@ -1436,13 +1593,7 @@ async fn rebalance_crawl_for_added_member(
     peer_address: &str,
     ctx: &GroupMembershipContext,
 ) {
-    let Some(params) = state
-        .start_params
-        .read()
-        .unwrap_or_else(PoisonError::into_inner)
-        .get(&record.crawl_id)
-        .cloned()
-    else {
+    let Some(params) = state.get_start_params(&record.crawl_id) else {
         return;
     };
     if !any_partition_running(&ctx.peer, &record.map).await {
@@ -1642,14 +1793,7 @@ impl GroupMembershipHook for PartitionMembershipHook {
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         let state = Arc::clone(&self.0);
         Box::pin(async move {
-            let crawls: Vec<PartitionedCrawlRecord> = state
-                .known
-                .read()
-                .unwrap_or_else(PoisonError::into_inner)
-                .values()
-                .cloned()
-                .collect();
-            for record in crawls {
+            for record in state.all_known_crawls() {
                 rebalance_crawl_for_added_member(&state, record, &member, &peer_address, &ctx)
                     .await;
             }
@@ -1663,14 +1807,7 @@ impl GroupMembershipHook for PartitionMembershipHook {
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         let state = Arc::clone(&self.0);
         Box::pin(async move {
-            let crawls: Vec<PartitionedCrawlRecord> = state
-                .known
-                .read()
-                .unwrap_or_else(PoisonError::into_inner)
-                .values()
-                .cloned()
-                .collect();
-            for mut record in crawls {
+            for mut record in state.all_known_crawls() {
                 if let Some(new_map) = map_without_member(&record.map, &member) {
                     trace_publish_map(new_map.map_epoch);
                     record.map = new_map.clone();
@@ -1691,18 +1828,7 @@ impl GroupMembershipHook for PartitionMembershipHook {
     ) -> Pin<Box<dyn Future<Output = Vec<RunId>> + Send>> {
         let state = Arc::clone(&self.0);
         Box::pin(async move {
-            let local_partitions: Vec<(RunId, RunId, u32)> = state
-                .by_partition_run
-                .read()
-                .unwrap_or_else(PoisonError::into_inner)
-                .iter()
-                .filter_map(|(part_run_id, (crawl_id, part_idx))| {
-                    let record = state.get_known(crawl_id)?;
-                    let slot = record.map.slot(*part_idx)?;
-                    (slot.member == member)
-                        .then(|| (crawl_id.clone(), part_run_id.clone(), *part_idx))
-                })
-                .collect();
+            let local_partitions = state.local_partitions_for_member(&member);
 
             let mut handled_runs = Vec::with_capacity(local_partitions.len());
             for (crawl_id, part_run_id, part_idx) in local_partitions {
@@ -1724,17 +1850,17 @@ impl GroupMembershipHook for PartitionMembershipHook {
                     )
                     .await
                 else {
-                    let _ = state.runtime.flush_run_state(&part_run_id).await;
+                    state.flush_run_state(&part_run_id).await;
                     continue;
                 };
                 let Ok(resp) = serde_json::from_value::<RemoveMemberMapResponse>(raw) else {
-                    let _ = state.runtime.flush_run_state(&part_run_id).await;
+                    state.flush_run_state(&part_run_id).await;
                     continue;
                 };
                 let new_map = resp.map;
                 let mut domains: BTreeSet<String> =
                     state.known_domains_of(&crawl_id).into_iter().collect();
-                if let Some(folder) = state.runtime.live_folder(&part_run_id).await {
+                if let Some(folder) = state.live_folder(&part_run_id).await {
                     domains.extend(distinct_domains_in_run_file(&folder.join("run.sqlite")));
                 }
                 let domain_list: Vec<String> = domains.into_iter().collect();
@@ -1745,7 +1871,7 @@ impl GroupMembershipHook for PartitionMembershipHook {
 
                 let now = ctx.clock.now();
                 if now >= deadline {
-                    let _ = state.runtime.flush_run_state(&part_run_id).await;
+                    state.flush_run_state(&part_run_id).await;
                     continue;
                 }
                 let remaining = deadline.saturating_duration_since(now);
@@ -1767,7 +1893,7 @@ impl GroupMembershipHook for PartitionMembershipHook {
                     // Grace period expired before every domain finished:
                     // seal Run state so `runs adopt` completes the rest from
                     // the kept volume (ADR 0054).
-                    let _ = state.runtime.flush_run_state(&part_run_id).await;
+                    state.flush_run_state(&part_run_id).await;
                 }
             }
             handled_runs
@@ -1792,13 +1918,7 @@ impl PeerExtensionHandler for ReadRecordsHandler {
                     format!("invalid `partition.read_records` payload: {error}"),
                 )
             })?;
-            let folder = state
-                .run_folders
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .get(&req.run_id)
-                .cloned();
-            let Some(folder) = folder else {
+            let Some(folder) = state.run_folder(&req.run_id) else {
                 return Ok(serde_json::to_value(ReadRecordsResponse {
                     records: Vec::new(),
                 })
@@ -1833,15 +1953,7 @@ impl PeerExtensionHandler for ReadRecordsHandler {
                 }
                 Ok(all)
             };
-            let blocking = state
-                .blocking
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone();
-            let result = match blocking {
-                Some(threads) => threads.run(read_work).await,
-                None => read_work(),
-            };
+            let result = state.run_blocking(read_work).await;
             let records = result.map_err(|error| {
                 CallError::protocol(
                     ProtocolFailure::InternalError,
@@ -1864,11 +1976,7 @@ async fn start_prepared_partition(
     state.remember_store_path(&context);
     let resolved_settings = open_settings_for_check(&params, &context).await?;
     let domain_keys = Arc::new(DomainKeys::of(resolved_settings.resolved()));
-    state
-        .domain_keys
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .insert(prepared.run_id.clone(), Arc::clone(&domain_keys));
+    state.set_domain_keys(prepared.run_id.clone(), Arc::clone(&domain_keys));
 
     // Remember a fallback folder immediately, then overwrite with the exact
     // run folder from `RunIdentity::folder()` once started.
@@ -1878,11 +1986,7 @@ async fn start_prepared_partition(
         .per_major(&context.identity().product_version)
         .join("runs")
         .join(prepared.run_id.as_str());
-    state
-        .run_folders
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .insert(prepared.run_id.clone(), fallback_folder);
+    state.set_run_folder(prepared.run_id.clone(), fallback_folder);
 
     let peer = context.engine().group_peer().ok_or_else(|| {
         CallError::protocol(
@@ -1892,7 +1996,7 @@ async fn start_prepared_partition(
     })?;
 
     let map_handle = state.live_map_handle(&prepared.crawl_id, prepared.map.clone());
-    let router = spawn_forwarder(
+    let router = state.attach_forwarder(
         ForwarderTarget {
             crawl_id: prepared.crawl_id.clone(),
             local_partition: prepared.partition,
@@ -1900,9 +2004,9 @@ async fn start_prepared_partition(
             map: map_handle,
             domain_keys,
         },
-        state.runtime.clone(),
         peer,
         &context,
+        false,
     );
 
     let crawl_id_for_row = prepared.crawl_id.clone();
@@ -1929,15 +2033,10 @@ async fn start_prepared_partition(
     };
 
     let started = state
-        .runtime
         .start_partition(params, prepared.initial_seeds, options, context)
         .await?;
-    if let Some(actual_folder) = state.runtime.live_folder(&part_run_id).await {
-        state
-            .run_folders
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(part_run_id, actual_folder);
+    if let Some(actual_folder) = state.live_folder(&part_run_id).await {
+        state.set_run_folder(part_run_id, actual_folder);
     }
     Ok(started)
 }
@@ -2034,11 +2133,7 @@ async fn start_partitioned_crawl(
         created_at: epoch_millis(now),
     };
     register_partitioned_record(&state, &peer, &record, &context).await?;
-    state
-        .start_params
-        .write()
-        .unwrap_or_else(PoisonError::into_inner)
-        .insert(crawl_id.clone(), params.clone());
+    state.set_start_params(crawl_id.clone(), params.clone());
     let domain_keys = DomainKeys::of(resolved.resolved());
     record_initial_seed_domains(&state, &crawl_id, &params, &map, &domain_keys);
     let seeds_by_partition = distribute_initial_seeds(&params, &map, &domain_keys);

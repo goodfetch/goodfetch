@@ -296,6 +296,11 @@ impl GroupAuthority {
         &self.certificate
     }
 
+    /// Its certificate DER encoded as standard base64 for peer wire messages.
+    pub(crate) fn certificate_base64(&self) -> String {
+        data_encoding::BASE64.encode(&self.certificate)
+    }
+
     /// The SHA-256 of its public key, which a Daemon that joins pins
     /// before it trusts the certificate the Lead Daemon shows, as
     /// `kubeadm join` pins its cluster's CA.

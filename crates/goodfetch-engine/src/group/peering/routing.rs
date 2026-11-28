@@ -44,7 +44,7 @@ use crate::call_error::CallError;
 use crate::engine_context::{EventsRoute, ForwardedCall, LiveViewRelay, LiveViewRoute, RoutedCall};
 use crate::forward::answered_failure;
 use crate::framing::{Frame, Incoming, decode};
-use crate::group::operations::{internal, store_failed};
+use crate::group::errors::{internal, store_failed};
 use crate::group::placement::{
     MemberRecord, eligible_members, headroom_changed_noticeably, headroom_from_system_info,
     select_member,

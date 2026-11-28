@@ -525,7 +525,7 @@ impl Engine {
             governor,
             owner,
         );
-        self.wire_group_handles(&context, &runs, &events);
+        self.wire_group_handles(&context, &runs, &events, owner);
         (runs, events, context)
     }
 
@@ -589,7 +589,13 @@ impl Engine {
         )
     }
 
-    fn wire_group_handles(&self, context: &EngineContext, runs: &Runs, events: &Events) {
+    fn wire_group_handles(
+        &self,
+        context: &EngineContext,
+        runs: &Runs,
+        events: &Events,
+        owner: &TaskOwner,
+    ) {
         context.set_runs_handle(Some(Arc::new(runs.clone())));
         context.set_local_dispatcher(Some(rpc::local_dispatcher(
             Arc::clone(&self.dispatch),
@@ -597,6 +603,12 @@ impl Engine {
             events.clone(),
             context.clone(),
         )));
+        let cleanup = context.clone();
+        let token = owner.token().clone();
+        owner.spawn(async move {
+            token.cancelled().await;
+            cleanup.clear_runtime_handles();
+        });
     }
 
     /// What sends the calls the major's Daemon keeps to it, through the

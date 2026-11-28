@@ -74,7 +74,7 @@ impl ForwardedLink {
             priority: self.priority,
             forefront: self.forefront,
             method: self.method,
-            headers: Default::default(),
+            headers: BTreeMap::default(),
             body: self.body,
             key: self.key,
         })

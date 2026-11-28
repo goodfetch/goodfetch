@@ -29,6 +29,7 @@
 
 mod authority;
 pub mod drain;
+mod errors;
 mod identity;
 mod join_tokens;
 mod leadership;

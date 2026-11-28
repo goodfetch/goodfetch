@@ -47,9 +47,9 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::sync::Semaphore;
 use tokio_rustls::TlsAcceptor;
 
+use super::errors::{internal, lead_unconfirmed, not_lead, store_failed};
 use super::identity::KeptIdentity;
 use super::leadership::{ExchangeOutcome, LeadRefusal, LeadSnapshot, Leadership};
-use super::operations::{internal, lead_unconfirmed, not_lead, store_failed};
 use super::store::{self, Admission, Certified, Joining};
 use super::{
     Answer, GroupAuthority, GroupMemberName, GroupMemberPublicKey, LeadEpochs, PeerLink,
@@ -1281,7 +1281,7 @@ impl Peering {
                     lead_epoch,
                     certificate: BASE64.encode(&signed.certificate),
                     certificate_expires_at: signed.not_after,
-                    authority: BASE64.encode(authority.certificate()),
+                    authority: authority.certificate_base64(),
                     revocations: BASE64.encode(revocations),
                 })
             }

@@ -12,8 +12,8 @@ use rustls::pki_types::CertificateDer;
 use super::{Asked, Peering, ask_lead, presented_name};
 use crate::call_error::CallError;
 use crate::clock::Clock;
+use crate::group::errors::{revoked, store_failed};
 use crate::group::identity::KeptIdentity;
-use crate::group::operations::{revoked, store_failed};
 use crate::group::{failure_line, result_line, store};
 use crate::product::Identity;
 

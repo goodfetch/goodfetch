@@ -7,7 +7,7 @@ use goodfetch_protocol::group::GROUP_POLITENESS_UNSHARED;
 use goodfetch_protocol::politeness::POLITENESS_SHARING;
 
 use crate::call_error::CallError;
-use crate::group::operations::internal;
+use crate::group::errors::internal;
 use crate::settings::{Policy, Resolved, Settings};
 
 /// Checks whether the Lead Daemon's machine settings permit admitting a second

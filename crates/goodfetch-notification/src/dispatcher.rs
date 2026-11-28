@@ -12,7 +12,9 @@ use goodfetch_engine::notification_endpoint::NotificationEndpoint;
 use goodfetch_engine::secrets::{Purpose, RunSecrets};
 use goodfetch_engine::webhook_signing::{Signer, SigningKey};
 use goodfetch_engine::{Contribution, EngineContext};
-use goodfetch_protocol::notifications::{ChannelSettings, NOTIFICATIONS_CHANNELS, WebhookPayload};
+use goodfetch_protocol::notifications::{
+    ChannelEmail, ChannelSettings, ChannelTarget, NOTIFICATIONS_CHANNELS, WebhookPayload,
+};
 use goodfetch_protocol::secret_reference::SecretReference;
 use secrecy::{ExposeSecret as _, SecretString};
 use url::Url;
@@ -162,26 +164,46 @@ async fn send_channel(
     rate_limit: &RateLimit,
     clock: goodfetch_engine::clock::Clock,
 ) -> bool {
-    match settings.channel_type.as_deref() {
-        Some("webhook") => {
+    match settings.target() {
+        Some(ChannelTarget::Webhook {
+            url,
+            secret,
+            payload,
+        }) => {
             send_webhook(
-                name, settings, message, endpoint, secrets, rate_limit, clock,
+                name, url, secret, payload, message, endpoint, secrets, rate_limit, clock,
             )
             .await
         }
-        Some(kind @ ("slack" | "teams" | "discord" | "telegram")) => {
-            send_chat(
-                kind, name, settings, message, endpoint, secrets, rate_limit, clock,
+        Some(ChannelTarget::Telegram { chat_id, bot_token }) => {
+            send_telegram(
+                name, chat_id, bot_token, message, endpoint, secrets, rate_limit, clock,
             )
             .await
         }
-        Some("email") => {
-            send_email(
-                name, settings, message, endpoint, secrets, rate_limit, clock,
+        Some(ChannelTarget::Slack { url }) => {
+            send_webhook_chat(
+                "slack", name, url, message, endpoint, secrets, rate_limit, clock,
             )
             .await
         }
-        Some(other) => {
+        Some(ChannelTarget::Teams { url }) => {
+            send_webhook_chat(
+                "teams", name, url, message, endpoint, secrets, rate_limit, clock,
+            )
+            .await
+        }
+        Some(ChannelTarget::Discord { url }) => {
+            send_webhook_chat(
+                "discord", name, url, message, endpoint, secrets, rate_limit, clock,
+            )
+            .await
+        }
+        Some(ChannelTarget::Email(email)) => {
+            send_email(name, email, message, endpoint, secrets, rate_limit, clock).await
+        }
+        Some(ChannelTarget::Incomplete) => false,
+        Some(ChannelTarget::Other(other)) => {
             tracing::warn!(
                 channel = name,
                 channel_type = other,
@@ -193,25 +215,21 @@ async fn send_channel(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "sends a single webhook notification with engine endpoint, secrets, rate limit and clock"
+)]
 async fn send_webhook(
     name: &str,
-    settings: &ChannelSettings,
+    url_ref: &str,
+    secret_ref: &str,
+    payload: WebhookPayload,
     message: &Message,
     endpoint: &NotificationEndpoint,
     secrets: &RunSecrets,
     rate_limit: &RateLimit,
     clock: goodfetch_engine::clock::Clock,
 ) -> bool {
-    let Some(url_ref) = settings.url.as_deref() else {
-        return false;
-    };
-    let Some(secret_ref) = settings
-        .webhook
-        .as_ref()
-        .and_then(|webhook| webhook.secret.as_deref())
-    else {
-        return false;
-    };
     let Some(url_secret) = resolve_secret(
         secrets,
         &format!("notifications.channels.{name}.url"),
@@ -242,11 +260,6 @@ async fn send_webhook(
         tracing::warn!(channel = name, "webhook signer could not be built");
         return false;
     };
-    let payload = settings
-        .webhook
-        .as_ref()
-        .and_then(|webhook| webhook.payload)
-        .unwrap_or(WebhookPayload::Full);
     let Ok(channel) = Webhook::new(name, url, signer, payload, endpoint.clone(), clock) else {
         tracing::warn!(channel = name, "webhook channel could not be constructed");
         return false;
@@ -269,65 +282,80 @@ async fn send_webhook(
 
 #[expect(
     clippy::too_many_arguments,
-    reason = "sends a single chat channel notification with engine endpoint, secrets, rate limit and clock"
+    reason = "sends a single Telegram notification with engine endpoint, secrets, rate limit and clock"
 )]
-async fn send_chat(
-    kind: &str,
+async fn send_telegram(
     name: &str,
-    settings: &ChannelSettings,
+    chat_id: &str,
+    token_ref: &str,
     message: &Message,
     endpoint: &NotificationEndpoint,
     secrets: &RunSecrets,
     rate_limit: &RateLimit,
     clock: goodfetch_engine::clock::Clock,
 ) -> bool {
-    let channel = if kind == "telegram" {
-        let Some(telegram) = settings.telegram.as_ref() else {
-            return false;
-        };
-        let (Some(chat_id), Some(token_ref)) =
-            (telegram.chat_id.as_deref(), telegram.bot_token.as_deref())
-        else {
-            return false;
-        };
-        let Some(token) = resolve_secret(
-            secrets,
-            &format!("notifications.channels.{name}.telegram.bot_token"),
-            token_ref,
-        )
-        .await
-        else {
-            return false;
-        };
-        Chat::telegram(name, chat_id, &token, None, endpoint.clone(), clock)
-    } else {
-        let Some(url_ref) = settings.url.as_deref() else {
-            return false;
-        };
-        let Some(url_secret) = resolve_secret(
-            secrets,
-            &format!("notifications.channels.{name}.url"),
-            url_ref,
-        )
-        .await
-        else {
-            return false;
-        };
-        let Ok(url) = Url::parse(url_secret.expose_secret()) else {
-            tracing::warn!(channel = name, "chat channel URL is invalid");
-            return false;
-        };
-        match kind {
-            "slack" => Chat::slack(name, &url, endpoint.clone(), clock),
-            "teams" => Chat::teams(name, &url, endpoint.clone(), clock),
-            "discord" => Chat::discord(name, &url, endpoint.clone(), clock),
-            _ => return false,
-        }
+    let Some(token) = resolve_secret(
+        secrets,
+        &format!("notifications.channels.{name}.telegram.bot_token"),
+        token_ref,
+    )
+    .await
+    else {
+        return false;
+    };
+    let Ok(channel) = Chat::telegram(name, chat_id, &token, None, endpoint.clone(), clock) else {
+        tracing::warn!(channel = name, "chat channel could not be constructed");
+        return false;
+    };
+    deliver_chat(name, &channel, message, rate_limit).await
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "sends a single chat channel notification with engine endpoint, secrets, rate limit and clock"
+)]
+async fn send_webhook_chat(
+    kind: &str,
+    name: &str,
+    url_ref: &str,
+    message: &Message,
+    endpoint: &NotificationEndpoint,
+    secrets: &RunSecrets,
+    rate_limit: &RateLimit,
+    clock: goodfetch_engine::clock::Clock,
+) -> bool {
+    let Some(url_secret) = resolve_secret(
+        secrets,
+        &format!("notifications.channels.{name}.url"),
+        url_ref,
+    )
+    .await
+    else {
+        return false;
+    };
+    let Ok(url) = Url::parse(url_secret.expose_secret()) else {
+        tracing::warn!(channel = name, "chat channel URL is invalid");
+        return false;
+    };
+    let channel = match kind {
+        "slack" => Chat::slack(name, &url, endpoint.clone(), clock),
+        "teams" => Chat::teams(name, &url, endpoint.clone(), clock),
+        "discord" => Chat::discord(name, &url, endpoint.clone(), clock),
+        _ => return false,
     };
     let Ok(channel) = channel else {
         tracing::warn!(channel = name, "chat channel could not be constructed");
         return false;
     };
+    deliver_chat(name, &channel, message, rate_limit).await
+}
+
+async fn deliver_chat(
+    name: &str,
+    channel: &Chat,
+    message: &Message,
+    rate_limit: &RateLimit,
+) -> bool {
     rate_limit.wait_turn(channel.destination()).await;
     match channel.send(message).await {
         Ok(()) => true,
@@ -456,16 +484,13 @@ async fn build_email_provider(
 
 async fn send_email(
     name: &str,
-    settings: &ChannelSettings,
+    email: &ChannelEmail,
     message: &Message,
     endpoint: &NotificationEndpoint,
     secrets: &RunSecrets,
     rate_limit: &RateLimit,
     clock: goodfetch_engine::clock::Clock,
 ) -> bool {
-    let Some(email) = settings.email.as_ref() else {
-        return false;
-    };
     let (Some(provider_kind), Some(from_raw), Some(to_raw)) =
         (email.provider, email.from.as_deref(), email.to.as_ref())
     else {

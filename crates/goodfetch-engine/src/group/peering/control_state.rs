@@ -32,7 +32,7 @@ use tokio::sync::broadcast::error::RecvError;
 use super::{Asked, Peering, ask_lead, ask_peer, presented_name};
 use crate::call_error::CallError;
 use crate::control_state::{ApplyOutcome, STORE_OPERATOR_POLICY, STORE_USER_CONFIGURATION};
-use crate::group::operations::{internal, store_failed};
+use crate::group::errors::{internal, store_failed};
 use crate::group::{failure_line, result_line, store};
 use crate::tasks::TaskOwner;
 

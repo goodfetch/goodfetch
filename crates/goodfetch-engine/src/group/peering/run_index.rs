@@ -19,7 +19,7 @@ use tokio::sync::broadcast::error::RecvError;
 use super::{Asked, Peering, ask_lead, presented_name};
 use crate::call_error::CallError;
 use crate::clock::Clock;
-use crate::group::operations::internal;
+use crate::group::errors::internal;
 use crate::group::{failure_line, result_line, store};
 use crate::home::Home;
 use crate::product::Identity;

@@ -795,15 +795,21 @@ impl Charging {
     /// `NotUnderstood` when a Limit the run cannot be placed outside of
     /// appeared, `Ledger` when the ledger cannot be read.
     pub fn applied(&mut self, now: Timestamp) -> Result<Vec<AppliedLimit>, Refusal> {
-        let authority = self.ledger.active_authority(now)?;
-        let limits = match &authority {
-            Some(authority) => authority.limits(now)?,
-            None => self
-                .ledger
-                .limits_on(&mut self.connection)?
-                .into_iter()
-                .filter(|stored| !is_group_redirect(stored))
-                .collect(),
+        let (authority, limits) = if let Some(authority) = self.ledger.direct_authority() {
+            let limits = authority.limits(now)?;
+            (Some(authority), limits)
+        } else {
+            let stored = self.ledger.limits_on(&mut self.connection)?;
+            if let Some(authority) = self.ledger.resolve_redirect_in(&stored, now)? {
+                let limits = authority.limits(now)?;
+                (Some(authority), limits)
+            } else {
+                let limits = stored
+                    .into_iter()
+                    .filter(|stored| !is_group_redirect(stored))
+                    .collect();
+                (None, limits)
+            }
         };
         let holding = self
             .placement

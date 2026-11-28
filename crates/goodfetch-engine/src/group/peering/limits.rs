@@ -30,12 +30,12 @@ use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use tokio::net::TcpListener;
 
 use super::{Asked, Peering, ask_lead, presented_name};
-use crate::accounts::AccountsStore;
+use crate::accounts::{AccountsStore, NamedTokenLookup};
 use crate::call_error::CallError;
 use crate::control_state::STORE_USAGE_LIMITS;
 use crate::durable;
 use crate::endpoint::same_token;
-use crate::group::operations::{internal, store_failed};
+use crate::group::errors::{internal, store_failed};
 use crate::group::{failure_line, result_line, store};
 use crate::ledger::{
     DEFAULT_REDIRECT_HEARTBEAT_TTL_MS, Ledger, LedgerError, PeerLedgerClient, Refusal, StoredLimit,
@@ -290,15 +290,16 @@ impl Peering {
         let Some(home) = &self.services.home else {
             return Ok(None);
         };
-        let path = home
-            .per_major(&self.identity.product_version)
-            .join(goodfetch_protocol::home::ACCOUNTS_STORE);
-        if !path.is_file() {
+        if !home
+            .accounts_store(&self.identity.product_version)
+            .is_file()
+        {
             return Ok(None);
         }
-        let store = AccountsStore::open(&path, None).map_err(|error| internal(&error))?;
+        let store = AccountsStore::of(home, &self.identity.product_version)
+            .map_err(|error| internal(&error))?;
         store
-            .named_token_by_hash(token_sha256)
+            .named_token(NamedTokenLookup::Sha256(token_sha256))
             .map_err(|error| internal(&error))
     }
 
@@ -734,26 +735,28 @@ pub(super) async fn serve_local_redirect(
     }
 }
 
-async fn renew_redirect_heartbeat(
-    peering: Arc<Peering>,
-    mut row: GroupRedirectRow,
-    owner: TaskOwner,
-) {
-    let interval = Duration::from_millis((row.heartbeat_ttl_ms / 3).max(250));
-    loop {
-        tokio::select! {
-            () = owner.token().cancelled() => return,
-            () = peering.clock.sleep(interval) => {}
+async fn renew_redirect_heartbeat(peering: Arc<Peering>, row: GroupRedirectRow, owner: TaskOwner) {
+    peering.run_redirect_heartbeat(row, owner).await;
+}
+
+impl Peering {
+    async fn run_redirect_heartbeat(self: Arc<Self>, mut row: GroupRedirectRow, owner: TaskOwner) {
+        let interval = Duration::from_millis((row.heartbeat_ttl_ms / 3).max(250));
+        loop {
+            tokio::select! {
+                () = owner.token().cancelled() => return,
+                () = self.clock.sleep(interval) => {}
+            }
+            let Some(ledger) = self.services.ledger.clone() else {
+                return;
+            };
+            let now = self.clock.timestamp();
+            row.heartbeat_at = now.to_string();
+            let next = row.clone();
+            let _ = self
+                .run_blocking(move || ledger.write_group_redirect(&next, now))
+                .await;
         }
-        let Some(ledger) = peering.services.ledger.clone() else {
-            return;
-        };
-        let now = peering.clock.timestamp();
-        row.heartbeat_at = now.to_string();
-        let next = row.clone();
-        let _ = peering
-            .run_blocking(move || ledger.write_group_redirect(&next, now))
-            .await;
     }
 }
 

@@ -24,8 +24,8 @@ use rustls::pki_types::{CertificateDer, CertificateRevocationListDer};
 use super::{Asked, Peering, ask_lead, presented_name, public_key_of};
 use crate::call_error::CallError;
 use crate::clock::rfc3339;
+use crate::group::errors::{internal, store_failed};
 use crate::group::identity::{KeptIdentity, Renewed};
-use crate::group::operations::{internal, store_failed};
 use crate::group::store::Certified;
 use crate::group::{GroupMemberKey, GroupMemberName, accepting, failure_line, result_line, store};
 use crate::tasks::TaskOwner;
@@ -41,22 +41,25 @@ const RETRY_AT_LEAST: Duration = Duration::from_secs(1);
 /// Dropping the future stops renewing; a renewal under way records all of
 /// itself or nothing.
 pub(super) async fn keep_renewed(peering: Arc<Peering>, owner: TaskOwner) {
-    loop {
-        let wait = tokio::select! {
-            () = owner.token().cancelled() => return,
-            wait = peering.renew_when_due() => wait,
-        };
-        let Some(wait) = wait else {
-            return;
-        };
-        tokio::select! {
-            () = owner.token().cancelled() => return,
-            () = peering.clock.sleep(wait) => {}
-        }
-    }
+    peering.run_keep_renewed(owner).await;
 }
 
 impl Peering {
+    async fn run_keep_renewed(self: Arc<Self>, owner: TaskOwner) {
+        loop {
+            let wait = tokio::select! {
+                () = owner.token().cancelled() => return,
+                wait = self.renew_when_due() => wait,
+            };
+            let Some(wait) = wait else {
+                return;
+            };
+            tokio::select! {
+                () = owner.token().cancelled() => return,
+                () = self.clock.sleep(wait) => {}
+            }
+        }
+    }
     /// The answer to the `group.renew` `request` of the Group member that
     /// presented `presented`, to which the Lead Daemon hands
     /// `revocations`, the list its listener enforces.

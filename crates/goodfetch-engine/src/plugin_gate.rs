@@ -35,7 +35,9 @@
 //! awaits the answer to, and while fewer than [`CALL_BACKS`] run; the
 //! credits and leases that will bound it come with issue 827.
 
+pub mod effects;
 mod inserting;
+pub mod policy;
 
 use std::collections::BTreeMap;
 
@@ -59,6 +61,7 @@ use hyper::{HeaderMap, Method, Request};
 use serde_json::Value;
 use url::{Origin, Url};
 
+pub use self::effects::{EffectsGate, PluginEffectEntry, PluginEffectJournal};
 pub use self::inserting::Inserting;
 use crate::call_error::{CallError, named};
 use crate::clock::Clock;
@@ -139,6 +142,9 @@ pub struct PluginFetch {
     /// How it inserts the Secrets a request names, none where the Plugin
     /// runs outside a Run, which then refuses them.
     inserting: Option<Inserting>,
+    /// Optional Effects / `page_script` / navigation-scope gate for a live
+    /// Run's Plugin (ADR 0033, issue 845).
+    effects: Option<EffectsGate>,
 }
 
 impl PluginFetch {
@@ -171,6 +177,7 @@ impl PluginFetch {
             max_body_size: Limits::of(settings).max_body_size,
             trust: OnceCell::new(),
             inserting: None,
+            effects: None,
         })
     }
 
@@ -182,6 +189,29 @@ impl PluginFetch {
             inserting: Some(inserting),
             ..self
         }
+    }
+
+    /// Attaches the Run's [`EffectsGate`] so Effects toward the run's sites
+    /// are checked against `approved.effects`, audited and journaled (ADR 0033,
+    /// issue 845).
+    #[must_use]
+    pub fn with_effects(self, effects: EffectsGate) -> Self {
+        Self {
+            effects: Some(effects),
+            ..self
+        }
+    }
+
+    /// The attached [`EffectsGate`], if any.
+    #[must_use]
+    pub fn effects_gate(&self) -> Option<&EffectsGate> {
+        self.effects.as_ref()
+    }
+
+    /// The Run's domain policy as this Plugin's page-reachable requests meet it.
+    #[must_use]
+    pub fn page_policy(&self) -> &Policy {
+        &self.page
     }
 
     /// The egress class of `url`: Operator-configured when its origin is
@@ -234,9 +264,9 @@ impl PluginFetch {
             .error());
         }
         let class = self.class(url.as_ref());
-        if class == EgressClass::PageReachable {
-            no_effect(&method, &params)?;
-        }
+        let effect_entry = self
+            .authorize_effect(&method, &params, class, url.as_ref())
+            .await?;
         let mut headers = HeaderMap::new();
         for header in &params.headers {
             let (name, value) = header_of(header)?;
@@ -247,7 +277,13 @@ impl PluginFetch {
             .take()
             .map(NetFetchBody::into_bytes)
             .unwrap_or_default();
-        let sent_to = self.inserted(&params, url, &mut headers, &mut body).await?;
+        let sent_to = match self.inserted(&params, url, &mut headers, &mut body).await {
+            Ok(sent_to) => sent_to,
+            Err(error) => {
+                mark_uncertain(effect_entry).await;
+                return Err(error);
+            }
+        };
         let mut request = Request::new(Bytes::from(body));
         *request.method_mut() = method;
         *request.headers_mut() = headers;
@@ -259,7 +295,7 @@ impl PluginFetch {
             },
         };
         let trust = self.trust.get_or_init(|| self.settings.trust()).await;
-        let response = self
+        let response = match self
             .settings
             .send_whole_through(
                 ConfiguredKind::PluginEndpoint,
@@ -270,7 +306,18 @@ impl PluginFetch {
                 BODY_LIMIT,
             )
             .await
-            .map_err(|failure| self.failed(&params.url, class, failure))?;
+        {
+            Ok(response) => {
+                if let Some(entry) = effect_entry {
+                    entry.done().await?;
+                }
+                response
+            }
+            Err(failure) => {
+                mark_uncertain(effect_entry).await;
+                return Err(self.failed(&params.url, class, failure));
+            }
+        };
         let masked = |bytes: &[u8]| match &self.inserting {
             Some(inserting) => inserting
                 .masks()
@@ -291,6 +338,28 @@ impl PluginFetch {
             headers,
             body: NetFetchBody::new(masked(response.body())),
         })
+    }
+
+    /// Authorizes a page-reachable `net.fetch` Effect against `self.effects`
+    /// (opening a journal entry when approved) or refuses it when no gate is
+    /// attached.
+    async fn authorize_effect(
+        &self,
+        method: &Method,
+        params: &NetFetchParams,
+        class: EgressClass,
+        url: Option<&Url>,
+    ) -> Result<Option<Box<dyn PluginEffectEntry>>, CallError> {
+        if class != EgressClass::PageReachable || !is_effect_request(method, params) {
+            return Ok(None);
+        }
+        if let (Some(gate), Some(target_url)) = (&self.effects, url) {
+            gate.authorize_net_fetch(method.as_str(), target_url, true, class, None)
+                .await
+        } else {
+            no_effect(method, params)?;
+            Ok(None)
+        }
     }
 
     /// The URL `params` sends to: `url`, as it parsed, with the Secrets it
@@ -401,6 +470,38 @@ const METHOD_OVERRIDES: [&str; 3] = [
     "x-http-method",
     "x-method-override",
 ];
+
+/// Marks an in-flight Plugin Effect uncertain after a send failure.
+async fn mark_uncertain(entry: Option<Box<dyn PluginEffectEntry>>) {
+    if let Some(entry) = entry {
+        entry
+            .uncertain(goodfetch_protocol::effect::UncertainReason::FailedAfterSend)
+            .await;
+    }
+}
+
+/// Whether `method` and `params` ask for a write (an Effect when sent toward
+/// a page-reachable site): any method other than `GET` or `HEAD`, or a
+/// method-override header in the request or its inserted Secrets.
+fn is_effect_request(method: &Method, params: &NetFetchParams) -> bool {
+    if method != Method::GET && method != Method::HEAD {
+        return true;
+    }
+    let secret_headers = params.secrets.iter().filter_map(|secret| match secret {
+        NetFetchSecret::Header { name, .. } => Some(name),
+        NetFetchSecret::Query { .. } | NetFetchSecret::Form { .. } => None,
+    });
+    params
+        .headers
+        .iter()
+        .map(|header| &header.name)
+        .chain(secret_headers)
+        .any(|header| {
+            METHOD_OVERRIDES
+                .iter()
+                .any(|name| header.eq_ignore_ascii_case(name))
+        })
+}
 
 /// Refuses the request `params` asks for with `method`, checked as a
 /// page's destination, when it is an Effect: a method other than `GET` and

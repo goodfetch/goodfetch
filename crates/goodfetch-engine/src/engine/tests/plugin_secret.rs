@@ -346,6 +346,26 @@ fn a_secret_provider_resolves_a_canary_with_zero_leaks_and_no_effect_journal() {
     );
 
     let run_folder = std::path::PathBuf::from(answer["result"]["folder"].as_str().unwrap());
+    assert_secret_trace_and_no_leaks(
+        &env,
+        &run_folder,
+        &canaries,
+        &report,
+        &usage,
+        &audit_entries,
+        &captured_logs.written(),
+    );
+}
+
+fn assert_secret_trace_and_no_leaks(
+    env: &TestEnv,
+    run_folder: &std::path::Path,
+    canaries: &Canaries,
+    report: &Value,
+    usage: &Value,
+    audit_entries: &Value,
+    logs: &[u8],
+) {
     let trace_text = std::fs::read_to_string(run_folder.join(RUN_TRACE_PLUGIN_CALLS)).unwrap();
     let trace_lines: Vec<Value> = trace_text
         .lines()
@@ -368,23 +388,19 @@ fn a_secret_provider_resolves_a_canary_with_zero_leaks_and_no_effect_journal() {
             true,
         )
     );
-
     let connection = rusqlite::Connection::open(run_folder.join("run.sqlite")).unwrap();
     let effect_count: i64 = connection
         .query_row("SELECT COUNT(*) FROM effect_journal", [], |row| row.get(0))
         .unwrap();
     assert_eq!(effect_count, 0);
-
     assert_eq!(
         usage["result"]["plugins"],
         json!([{ "plugin": "toy-vault", "calls": 1, "time": 0 }]),
         "{usage}"
     );
-
     let report_json = report.to_string();
     let usage_json = usage.to_string();
     let audit_json = audit_entries.to_string();
-    let logs = captured_logs.written();
     let hits = canaries
         .search(&[
             Output::Path(env.home()),
@@ -402,7 +418,7 @@ fn a_secret_provider_resolves_a_canary_with_zero_leaks_and_no_effect_journal() {
             },
             Output::Bytes {
                 name: "logs",
-                bytes: &logs,
+                bytes: logs,
             },
         ])
         .unwrap();

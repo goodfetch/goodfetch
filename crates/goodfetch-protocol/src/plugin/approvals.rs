@@ -482,6 +482,13 @@ pub const PLUGIN_SECRET_VALUE_RELEASED: SharedTypeValue = kind(
     "The engine released a Secret reference's value to a Plugin, as the Operator policy's `plugins.<name>.approved.secret_values` allows: the Plugin, the reference and the Run, never the value.",
 );
 
+/// A Plugin used an Operator-approved permission (`effects`, `page_script` or
+/// `session_credentials`) on a domain (ADR 0033).
+pub const PLUGIN_PERMISSION_USED: SharedTypeValue = kind(
+    "plugin_permission_used",
+    "A Plugin performed an action under an Operator-approved permission (`effects`, `page_script` or `session_credentials`) on a domain: the Plugin, the permission, the domain, the method and the Run.",
+);
+
 /// The module's entries.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -493,7 +500,11 @@ pub const ENTRIES: Entries = Entries {
     metrics: &[],
     settings: &[],
     hook_stages: &[],
-    shared_type_values: &[PLUGIN_APPROVED, PLUGIN_SECRET_VALUE_RELEASED],
+    shared_type_values: &[
+        PLUGIN_APPROVED,
+        PLUGIN_SECRET_VALUE_RELEASED,
+        PLUGIN_PERMISSION_USED,
+    ],
 };
 
 #[cfg(test)]

@@ -38,7 +38,9 @@ use crate::browser_cache::{BrowserCache, CacheLocation, HeldArtifact};
 use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::home::Home;
-use crate::plugin_gate::{Inserting, PluginFetch, permission_denied};
+use crate::plugin_gate::{
+    EffectsGate, Inserting, PluginEffectJournal, PluginFetch, permission_denied,
+};
 use crate::plugin_host::instance::{self, PluginInstance, Scope};
 use crate::plugin_host::settings::{self as plugin_settings, EnvironmentError, PluginSettings};
 use crate::plugin_host::spend::{PluginSpend, SpendAccountant};
@@ -64,6 +66,7 @@ pub struct RunPlugins {
     index_store: PluginIndexStore,
     audit: Option<AuditLog>,
     spend: Option<Arc<dyn SpendAccountant>>,
+    effects_journal: Option<Arc<dyn PluginEffectJournal>>,
     cache: CacheLocation,
     instances: PathBuf,
     places: Option<Arc<Places>>,
@@ -115,6 +118,7 @@ impl RunPlugins {
             index_store: PluginIndexStore::new(home.plugin_index()),
             audit: None,
             spend: None,
+            effects_journal: None,
             cache: CacheLocation::new(home.root(), home.browsers_path().map(Path::to_path_buf)),
             instances: home.plugin_instances(),
             places,
@@ -142,6 +146,14 @@ impl RunPlugins {
     #[must_use]
     pub fn with_spend(mut self, spend: Arc<dyn SpendAccountant>) -> Self {
         self.spend = Some(spend);
+        self
+    }
+
+    /// Attaches the Run's Effect journal writer so Plugin Effects toward the
+    /// run's sites are authorized, audited and journaled (ADR 0033, issue 845).
+    #[must_use]
+    pub fn with_effects_journal(mut self, journal: Arc<dyn PluginEffectJournal>) -> Self {
+        self.effects_journal = Some(journal);
         self
     }
 
@@ -508,15 +520,15 @@ impl RunPlugins {
                 }
                 ungranted @ EnvironmentError::Ungranted { .. } => cannot_start(&ungranted),
             })?;
-        let fetch = PluginFetch::of(resolved, &name, self.clock, self.owner.blocking_threads())
-            .map_err(|invalid| cannot_start(&invalid))?
-            .inserting(Inserting::new(
+        let fetch = self
+            .build_fetch(
                 &name,
-                (&installed.manifest, &entry.approved),
+                &installed.manifest,
+                &entry.approved,
                 resolved,
-                secrets.clone(),
-                self.run_id.clone(),
-            ));
+                secrets,
+            )
+            .map_err(|invalid| cannot_start(&invalid))?;
         let resolved_runtime = self
             .resolve_runtime(
                 &name,
@@ -561,6 +573,40 @@ impl RunPlugins {
         self.track_instance(name, digest, None, instance.clone())
             .await;
         Ok(instance)
+    }
+
+    /// Builds a Plugin's [`PluginFetch`] wired with Secret insertion and the
+    /// Run's [`EffectsGate`] (when an Effect journal is attached).
+    fn build_fetch(
+        &self,
+        name: &str,
+        manifest: &PluginManifest,
+        approved: &goodfetch_protocol::plugin::approvals::Approvals,
+        resolved: &Resolved,
+        secrets: &RunSecrets,
+    ) -> Result<PluginFetch, crate::egress::InvalidEntry> {
+        let mut fetch = PluginFetch::of(resolved, name, self.clock, self.owner.blocking_threads())?
+            .inserting(Inserting::new(
+                name,
+                (manifest, approved),
+                resolved,
+                secrets.clone(),
+                self.run_id.clone(),
+            ));
+        if let Some(journal) = &self.effects_journal {
+            let page_policy = fetch.page_policy().clone();
+            fetch = fetch.with_effects(EffectsGate::new(
+                name.to_owned(),
+                manifest.clone(),
+                approved.clone(),
+                page_policy,
+                self.audit.clone(),
+                self.run_id.clone(),
+                self.clock,
+                Arc::clone(journal),
+            ));
+        }
+        Ok(fetch)
     }
 
     /// Checks the cached Plugin index for revocations and expiry, auditing

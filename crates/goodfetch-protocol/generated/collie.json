@@ -29482,6 +29482,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Plugin performed an action under an Operator-approved permission (`effects`, `page_script` or `session_credentials`) on a domain: the Plugin, the permission, the domain, the method and the Run.",
+      "name": "plugin_permission_used",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A Plugin reported a quantity above its declared maximum, recorded in full.",
       "name": "plugin_quantity_above_maximum",
       "product": "collie",

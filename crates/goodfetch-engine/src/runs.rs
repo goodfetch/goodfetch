@@ -108,6 +108,7 @@ pub use self::clean_up::{Answering, Chosen, CleanUpVersions, Fallback, Holding, 
 pub use self::end::RunEnd;
 pub use self::import::fuzz_run_state_import;
 pub use self::keys::RunKeys;
+pub use self::plugin_effects::RunEffectJournal;
 pub use self::plugin_spend::{RunSpendAccountant, limit_not_understood, limit_reached};
 pub use self::progress::{PartValue, PauseHeld, Progress, ProgressPart, TypedPart, TypedParts};
 pub use self::reader::{RunFileOpener, RunReader};
@@ -4559,6 +4560,7 @@ impl Registry {
                     &charging,
                     &warnings,
                     &trace,
+                    &state,
                 ),
                 charging,
                 keys,
@@ -4596,6 +4598,10 @@ impl Registry {
     /// The process Plugins of the Run `identity` names, started as tasks of
     /// its `owner` (ADR 0145), wired with its spend accountant and attached as
     /// its process-Plugin Secret provider.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "wires one live Run's Plugin powers (audit, spend, effects journal and secret provider)"
+    )]
     fn plugins(
         &self,
         secrets: &RunSecrets,
@@ -4604,17 +4610,20 @@ impl Registry {
         charging: &RunCharging,
         warnings: &ReportWarnings,
         trace: &run_trace::RunTrace,
+        state: &RunState,
     ) -> Arc<RunPlugins> {
+        let clock = self.setup.engine.clock();
         let plugins = Arc::new(
             RunPlugins::new(
                 self.setup.engine.home(),
                 self.setup.engine.places().cloned(),
                 self.setup.product,
                 identity.id().clone(),
-                (Arc::clone(owner), self.setup.engine.clock()),
+                (Arc::clone(owner), clock),
             )
             .with_audit(self.setup.engine.audit().clone())
-            .with_spend(RunSpendAccountant::new(charging.clone(), warnings.clone())),
+            .with_spend(RunSpendAccountant::new(charging.clone(), warnings.clone()))
+            .with_effects_journal(RunEffectJournal::new(state.clone(), clock)),
         );
         secrets.set_plugin_provider(Arc::new(PluginSecretResolver::new(
             Arc::clone(&plugins),
@@ -5656,6 +5665,7 @@ pub mod lifecycle;
 mod list;
 mod opening;
 pub mod outcome;
+mod plugin_effects;
 mod plugin_secret;
 mod plugin_spend;
 mod progress;

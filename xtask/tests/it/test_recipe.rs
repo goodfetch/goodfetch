@@ -79,10 +79,19 @@ fn test_recipe_with(suite: &str, packages: &[&str], env: &[(&str, &str)]) -> Run
         std::fs::copy(repository.join(script), copy).unwrap();
     }
     for manifest in [
+        "crates/goodfetch-engine/Cargo.toml",
+        "crates/goodfetch-collie/Cargo.toml",
+        "crates/goodfetch-page/Cargo.toml",
         "sdks/typescript/collie/package.json",
+        "sdks/typescript/collie-client/package.json",
+        "sdks/typescript/smoke/package.json",
         "sdks/typescript/foxhound/package.json",
         "sdks/python/collie/pyproject.toml",
+        "sdks/python/collie/tests/integration/test_five_word_port.py",
+        "sdks/python/collie-client/pyproject.toml",
         "sdks/python/foxhound/pyproject.toml",
+        "bench/package.json",
+        "adapters/foxhound/custom/package.json",
         "crates/foxhound/goodfetch-custom-future/Cargo.toml",
     ] {
         let path = workspace.path().join(manifest);
@@ -214,8 +223,12 @@ fn every_other_suite_builds_the_tools_before_its_runners_start_and_names_the_man
 #[case::engine(&["goodfetch-engine"])]
 #[case::collie(&["goodfetch-collie"])]
 #[case::page_and_engine(&["goodfetch-page", "goodfetch-engine"])]
+#[case::proving_ground(&["goodfetch-proving-ground"])]
 #[case::ts_collie(&["sdks/typescript/collie"])]
-#[case::py_collie(&["sdks/python/collie"])]
+#[case::ts_collie_normalized(&["./sdks/typescript/collie/"])]
+#[case::ts_collie_client(&["sdks/typescript/collie-client"])]
+#[case::ts_smoke(&["sdks/typescript/smoke"])]
+#[case::py_collie_client(&["sdks/python/collie-client"])]
 fn collie_only_package_selection_builds_minimal_tools_and_skips_foxhound(
     #[case] packages: &[&str],
 ) {
@@ -245,7 +258,12 @@ fn collie_only_package_selection_builds_minimal_tools_and_skips_foxhound(
 #[case::foxhound_dir(&["crates/foxhound/goodfetch-frontier"])]
 #[case::foxhound_crate_by_dir(&["goodfetch-custom-future"])]
 #[case::ts_foxhound(&["sdks/typescript/foxhound"])]
+#[case::ts_foxhound_dot_slash(&["./sdks/typescript/foxhound"])]
+#[case::py_collie(&["sdks/python/collie"])]
+#[case::py_collie_five_word_port(&["sdks/python/collie/tests/integration/test_five_word_port.py"])]
 #[case::py_foxhound(&["sdks/python/foxhound"])]
+#[case::bench(&["bench"])]
+#[case::adapter_foxhound(&["adapters/foxhound/custom"])]
 #[case::conformance(&["goodfetch-conformance"])]
 #[case::stub_gateway(&["goodfetch-stub-gateway"])]
 #[case::test_support(&["goodfetch-test-support"])]

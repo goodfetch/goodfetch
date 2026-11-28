@@ -133,6 +133,7 @@ impl HackedWorkspace {
             &format!(
                 "#!/bin/sh\n\
                  rewrite() {{ contents=$(cat \"$1\"; echo x); printf '%s' \"${{contents%x}}\" >\"$1\"; }}\n\
+                 if [ \"$1\" = metadata ]; then echo '{{}}'; exit 0; fi\n\
                  [ \"$1\" = hakari ] || exit 2\n\
                  rewrite Cargo.lock\n\
                  case \"$2\" in\n\
@@ -175,19 +176,33 @@ impl HackedWorkspace {
         .collect()
     }
 
-    /// Runs `ci/workspace-hack.sh check`, with the stand-in first on `PATH`.
-    fn check(&self) -> std::process::Output {
+    /// Runs `ci/workspace-hack.sh <subcommand>`, with the stand-in first on `PATH`.
+    fn run(&self, subcommand: &str) -> std::process::Output {
         let path = std::env::join_paths(
             std::iter::once(self.stand_in.clone())
                 .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
         )
         .unwrap();
         Command::new(self.folder.path().join("ci/workspace-hack.sh"))
-            .arg("check")
+            .arg(subcommand)
             .current_dir(self.folder.path())
             .env("PATH", path)
             .output()
             .unwrap()
+    }
+
+    /// Runs `ci/workspace-hack.sh check`, with the stand-in first on `PATH`.
+    fn check(&self) -> std::process::Output {
+        self.run("check")
+    }
+
+    /// Runs `ci/workspace-hack.sh generate`, with the stand-in first on `PATH`.
+    fn generate(&self) -> std::process::Output {
+        self.run("generate")
+    }
+
+    fn read(&self, relative: &str) -> String {
+        std::fs::read_to_string(self.folder.path().join(relative)).unwrap()
     }
 }
 
@@ -278,6 +293,136 @@ fn a_check_of_a_member_taking_the_dev_workspace_hack_in_dependencies_fails() {
 
     assert_eq!(check.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&check.stderr);
-    assert!(stderr.contains("goodfetch-dev-workspace-hack"), "{stderr}");
+    assert!(
+        stderr.contains("move it to [dev-dependencies]")
+            && !stderr.contains("workspace-hack.sh generate"),
+        "{stderr}"
+    );
     assert_eq!(workspace.written(), before, "the check wrote the tree");
+}
+
+#[test]
+fn a_check_rejects_protocol_taking_the_dev_workspace_hack() {
+    let workspace = HackedWorkspace::new(BUILD_SIDE, CODE_SIDE, MEMBER_WITH_DEV_HACK);
+    std::fs::write(
+        workspace.folder.path().join(PROTOCOL_MANIFEST),
+        "[package]\nname = \"goodfetch-protocol\"\nversion = \"0.0.0\"\n\n\
+         [dev-dependencies]\ngoodfetch-dev-workspace-hack.workspace = true\n",
+    )
+    .unwrap();
+
+    let check = workspace.check();
+
+    assert_eq!(check.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&check.stderr);
+    assert!(
+        stderr.contains("excluded member goodfetch-protocol"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn a_check_accepts_dotted_dev_table_and_rejects_dotted_or_renamed_non_dev_table() {
+    let dotted_dev = "[package]\nname = \"goodfetch-sample\"\nversion = \"0.0.0\"\n\n\
+        [dev-dependencies.goodfetch-dev-workspace-hack]\nworkspace = true\n";
+    let ok = HackedWorkspace::new(BUILD_SIDE, CODE_SIDE, dotted_dev).check();
+    assert!(
+        ok.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ok.stderr)
+    );
+
+    let dotted_normal = "[package]\nname = \"goodfetch-sample\"\nversion = \"0.0.0\"\n\n\
+        [dependencies.goodfetch-dev-workspace-hack]\nworkspace = true\n";
+    let fail_dotted = HackedWorkspace::new(BUILD_SIDE, CODE_SIDE, dotted_normal).check();
+    assert_eq!(fail_dotted.status.code(), Some(1));
+
+    let renamed_normal = "[package]\nname = \"goodfetch-sample\"\nversion = \"0.0.0\"\n\n\
+        [dependencies]\nhack = { package = \"goodfetch-dev-workspace-hack\", workspace = true }\n";
+    let fail_renamed = HackedWorkspace::new(BUILD_SIDE, CODE_SIDE, renamed_normal).check();
+    assert_eq!(fail_renamed.status.code(), Some(1));
+}
+
+#[test]
+fn generate_inserts_dev_workspace_hack_into_existing_dev_dependencies_preserving_trailing_comment()
+{
+    let member = "[package]\nname = \"goodfetch-sample\"\nversion = \"0.0.0\"\n\n\
+        [dev-dependencies]\nrstest.workspace = true\n\n\
+        # Belongs to the next table.\n[lints]\nworkspace = true\n";
+    let workspace = HackedWorkspace::new("", "", member);
+
+    let out = workspace.generate();
+
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        workspace.read(MANIFEST),
+        manifest_with("goodfetch-workspace-hack", BUILD_SIDE)
+    );
+    assert_eq!(
+        workspace.read(DEV_MANIFEST),
+        manifest_with("goodfetch-dev-workspace-hack", CODE_SIDE)
+    );
+    assert_eq!(
+        workspace.read(MEMBER_MANIFEST),
+        "[package]\nname = \"goodfetch-sample\"\nversion = \"0.0.0\"\n\n\
+         [dev-dependencies]\nrstest.workspace = true\ngoodfetch-dev-workspace-hack.workspace = true\n\n\
+         # Belongs to the next table.\n[lints]\nworkspace = true\n"
+    );
+}
+
+#[test]
+fn generate_creates_dev_dependencies_before_lints_or_at_eof() {
+    let with_lints = "[package]\nname = \"goodfetch-sample\"\nversion = \"0.0.0\"\n\n\
+        [dependencies]\ngoodfetch-workspace-hack.workspace = true\n\n\
+        [lints]\nworkspace = true\n";
+    let ws_lints = HackedWorkspace::new("", "", with_lints);
+    let out = ws_lints.generate();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        ws_lints.read(MEMBER_MANIFEST),
+        "[package]\nname = \"goodfetch-sample\"\nversion = \"0.0.0\"\n\n\
+         [dependencies]\ngoodfetch-workspace-hack.workspace = true\n\n\
+         [dev-dependencies]\ngoodfetch-dev-workspace-hack.workspace = true\n\n\
+         [lints]\nworkspace = true\n"
+    );
+
+    let without_lints = "[package]\nname = \"goodfetch-sample\"\nversion = \"0.0.0\"\n\n\
+        [dependencies]\ngoodfetch-workspace-hack.workspace = true\n";
+    let ws_eof = HackedWorkspace::new("", "", without_lints);
+    let out_eof = ws_eof.generate();
+    assert!(
+        out_eof.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out_eof.stderr)
+    );
+    assert_eq!(
+        ws_eof.read(MEMBER_MANIFEST),
+        "[package]\nname = \"goodfetch-sample\"\nversion = \"0.0.0\"\n\n\
+         [dependencies]\ngoodfetch-workspace-hack.workspace = true\n\n\
+         [dev-dependencies]\ngoodfetch-dev-workspace-hack.workspace = true\n"
+    );
+}
+
+#[test]
+fn generate_refuses_member_declaring_dev_workspace_hack_outside_dev_dependencies() {
+    let wrong = "[package]\nname = \"goodfetch-sample\"\nversion = \"0.0.0\"\n\n\
+        [dependencies]\ngoodfetch-dev-workspace-hack.workspace = true\n";
+    let workspace = HackedWorkspace::new(BUILD_SIDE, CODE_SIDE, wrong);
+
+    let out = workspace.generate();
+
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("outside [dev-dependencies]"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }

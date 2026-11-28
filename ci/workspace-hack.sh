@@ -152,8 +152,20 @@ workspace_members() {
   eval "$old_nullglob"
 }
 
+# Whether $1 is excluded from taking `goodfetch-dev-workspace-hack`: the
+# protocol crate (linked by the Kennel's workspace, ADR 0141) and the two
+# workspace-hack crates themselves.
+is_excluded_member() {
+  case "$1" in
+    goodfetch-protocol | goodfetch-workspace-hack | goodfetch-dev-workspace-hack) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Inspects a member manifest at $1 for `goodfetch-dev-workspace-hack`: prints
-# `in_dev=0|1 outside_dev=0|1`.
+# `in_dev=0|1 outside_dev=0|1`. Handles flat keys, dotted dependency subtables
+# (`[dev-dependencies.goodfetch-dev-workspace-hack]`) and renamed dependencies
+# (`package = "goodfetch-dev-workspace-hack"`).
 inspect_dev_hack_dep() {
   awk -v pkg="$dev_hack_pkg" '
     BEGIN { section = ""; in_dev = 0; outside_dev = 0 }
@@ -162,15 +174,20 @@ inspect_dev_hack_dep() {
       sub(/#.*/, "", line)
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
       section = line
+      if (section == "[dev-dependencies." pkg "]") {
+        in_dev = 1
+      } else if (section ~ ("^\\[(target\\..*\\.)?(dependencies|build-dependencies|dev-dependencies)\\." pkg "\\]$")) {
+        outside_dev = 1
+      }
       next
     }
     {
       line = $0
       sub(/#.*/, "", line)
-      if (line ~ "^[[:space:]]*" pkg "([[:space:]]*=|[[:space:]]*\\.)") {
-        if (section == "[dev-dependencies]") {
+      if (line ~ ("^[[:space:]]*" pkg "([[:space:]]*=|[[:space:]]*\\.)") || line ~ ("package[[:space:]]*=[[:space:]]*[\"\x27]" pkg "[\"\x27]")) {
+        if (section == "[dev-dependencies]" || section ~ /^\[dev-dependencies\.[^]]+\]$/) {
           in_dev = 1
-        } else if (section ~ /^\[(target\..*\.)?(dependencies|build-dependencies|dev-dependencies)\]$/) {
+        } else if (section ~ /^\[(target\..*\.)?(dependencies|build-dependencies|dev-dependencies)(\.[^]]+)?\]$/) {
           outside_dev = 1
         }
       }
@@ -249,11 +266,9 @@ add_dev_hack_dep() {
 manage_dev_deps() {
   local ws_root=$1 name member_manifest state in_dev outside_dev
   while IFS=$'\t' read -r name member_manifest; do
-    case "$name" in
-      goodfetch-protocol | goodfetch-workspace-hack | goodfetch-dev-workspace-hack)
-        continue
-        ;;
-    esac
+    if is_excluded_member "$name"; then
+      continue
+    fi
     state=$(inspect_dev_hack_dep "$member_manifest")
     in_dev=${state#*in_dev=}
     in_dev=${in_dev%% *}
@@ -278,23 +293,18 @@ check_dev_deps() {
     in_dev=${state#*in_dev=}
     in_dev=${in_dev%% *}
     outside_dev=${state#*outside_dev=}
-    case "$name" in
-      goodfetch-protocol | goodfetch-workspace-hack | goodfetch-dev-workspace-hack)
-        if [[ "$in_dev" -ne 0 || "$outside_dev" -ne 0 ]]; then
-          echo "error[workspace-hack] excluded member $name must not depend on $dev_hack_pkg ($member_manifest)" >&2
-          status=1
-        fi
-        ;;
-      *)
-        if [[ "$outside_dev" -ne 0 ]]; then
-          echo "error[workspace-hack] $name declares $dev_hack_pkg outside [dev-dependencies]: move it to [dev-dependencies] or run ci/workspace-hack.sh generate" >&2
-          status=1
-        elif [[ "$in_dev" -eq 0 ]]; then
-          echo "error[workspace-hack] $name does not depend on $dev_hack_pkg in [dev-dependencies]: run ci/workspace-hack.sh generate" >&2
-          status=1
-        fi
-        ;;
-    esac
+    if is_excluded_member "$name"; then
+      if [[ "$in_dev" -ne 0 || "$outside_dev" -ne 0 ]]; then
+        echo "error[workspace-hack] excluded member $name must not depend on $dev_hack_pkg ($member_manifest)" >&2
+        status=1
+      fi
+    elif [[ "$outside_dev" -ne 0 ]]; then
+      echo "error[workspace-hack] $name declares $dev_hack_pkg outside [dev-dependencies]: move it to [dev-dependencies]" >&2
+      status=1
+    elif [[ "$in_dev" -eq 0 ]]; then
+      echo "error[workspace-hack] $name does not depend on $dev_hack_pkg in [dev-dependencies]: run ci/workspace-hack.sh generate" >&2
+      status=1
+    fi
   done < <(workspace_members "$ws_root")
   return "$status"
 }

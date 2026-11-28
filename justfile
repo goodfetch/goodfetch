@@ -697,34 +697,41 @@ test suite *packages:
       unset GOODFETCH_TEST_TOOLS
     else
       # When narrowing a non-Quick run to explicit Collie-side packages (no
-      # engine override, Journey selection or `--shuffled-all`), build only the
-      # tools Collie-side tests use so they never rebuild and link
+      # engine override, Journey selection or `--shuffled-all`), fail closed:
+      # build only Collie's tools when every selected package is on the
+      # Collie-only allowlist so Collie runs never rebuild and link
       # `goodfetch-foxhound` (ADR 0094's note of 2026-11-27).
       tool_args=()
       if [[ -z "${GOODFETCH_TEST_ENGINE:-}" && -z "${GOODFETCH_TEST_SELECTION:-}" ]] && ! $shuffled_all && [[ -n "{{ packages }}" ]]; then
-        needs_all_tools=false
+        collie_only=true
         for package in {{ packages }}; do
-          pkg=${package%/}
+          pkg=$package
+          while [[ "$pkg" == ./* ]]; do pkg=${pkg#./}; done
+          while [[ "$pkg" == */ ]]; do pkg=${pkg%/}; done
           case "$pkg" in
-            goodfetch-foxhound | goodfetch-foxhound-* | goodfetch-crawl | goodfetch-dataset | goodfetch-fetch-tier | goodfetch-frontier | goodfetch-memory-site | goodfetch-session-pool | goodfetch-sink | goodfetch-sink-* | goodfetch-sql-tab \
-            | crates/foxhound | crates/foxhound/* \
-            | sdks/*/foxhound | sdks/*/foxhound/* | sdks/*/foxhound-* \
-            | goodfetch-conformance | crates/goodfetch-conformance | crates/goodfetch-conformance/* | conformance | conformance/* \
-            | goodfetch-stub-gateway | crates/goodfetch-stub-gateway | crates/goodfetch-stub-gateway/* \
-            | goodfetch-test-support | crates/goodfetch-test-support | crates/goodfetch-test-support/* | test-support | test-support/* \
-            | xtask | xtask/*)
-              needs_all_tools=true
+            goodfetch-conformance | goodfetch-stub-gateway | goodfetch-test-support)
+              collie_only=false
               break
               ;;
-            *)
-              if [[ -d "crates/foxhound/$pkg" ]] || [[ -f "$pkg" && "$pkg" != sdks/*/collie* ]]; then
-                needs_all_tools=true
+            goodfetch-proving-ground \
+            | sdks/typescript/collie | sdks/typescript/collie/* \
+            | sdks/typescript/collie-client | sdks/typescript/collie-client/* \
+            | sdks/typescript/smoke | sdks/typescript/smoke/* \
+            | sdks/python/collie-client | sdks/python/collie-client/*)
+              ;;
+            goodfetch-*)
+              if [[ "$pkg" == */* || ! -d "crates/$pkg" ]]; then
+                collie_only=false
                 break
               fi
               ;;
+            *)
+              collie_only=false
+              break
+              ;;
           esac
         done
-        if ! $needs_all_tools; then
+        if $collie_only; then
           tool_args=(--tool collie --tool proving_ground --tool test_env --tool scripted_engine --tool scripted_plugin)
         fi
       fi

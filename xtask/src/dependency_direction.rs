@@ -36,9 +36,11 @@
 //! only `goodfetch-protocol` and `xtask` name the protocol's `foxhound`
 //! module in their source (ADR 0099, [`crate::foxhound_module`]).
 //!
-//! `goodfetch-workspace-hack`, which every member takes (ADR 0094), holds no
-//! code, and `goodfetch-runtime` builds a runtime and nothing else, so no
-//! other rule counts either as a Goodfetch crate.
+//! `goodfetch-workspace-hack` (build side, in `[dependencies]`) and
+//! `goodfetch-dev-workspace-hack` (code side, in `[dev-dependencies]` only,
+//! never in `goodfetch-protocol`), which every non-excluded member takes
+//! (ADR 0094), hold no code, and `goodfetch-runtime` builds a runtime and
+//! nothing else, so no other rule counts any of them as a Goodfetch crate.
 //!
 //! The workspace-wide direction of ADR 0087 is cargo-deny's (`deny.toml`).
 
@@ -272,7 +274,9 @@ fn takes_none(package: &Package, member: Option<&Dependency>, findings: &mut Vec
 }
 
 /// `goodfetch-test-support`, which `goodfetch-test-client` alone takes as
-/// a normal dependency, and the test adapters, which no crate does.
+/// a normal dependency, the test adapters, which no crate does, and
+/// `goodfetch-dev-workspace-hack`, which stays in `[dev-dependencies]` and
+/// out of `goodfetch-protocol` (ADR 0094).
 fn takes_test_crates_as_dev_only(package: &Package, findings: &mut Vec<Finding>) {
     if package.name != TEST_SUPPORT
         && package.name != TEST_CLIENT

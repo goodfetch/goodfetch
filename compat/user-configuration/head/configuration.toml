@@ -412,6 +412,10 @@ min_claims = 4
 min_precision = 0.9
 window = 4
 
+[settings.crawl.syndication]
+revisit = { kind = "never" }
+discover = true
+
 [settings.crawl.revisit]
 order = ["sources", "first_visits", "revisits"]
 domain_share = 0.5
@@ -446,6 +450,8 @@ retry_after = true
 changefreq = true
 priority = true
 lastmod = "learned"
+ttl = true
+sy_update_period = true
 
 [settings.fetch]
 tier = "auto"

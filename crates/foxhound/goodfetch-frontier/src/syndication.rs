@@ -16,6 +16,9 @@
 //! A feed file is read plain or gzip-compressed ([`read_file`]), within the
 //! same 50 MB uncompressed and 50,000-entry limits as sitemaps and the Run's
 //! response limits (ADR 0067).
+//!
+//! Size: one concern, syndication feed parsing (RSS 2.0, RSS 1.0, Atom 1.0,
+//! dates and refresh hints), admission, entry reading and reporting.
 
 use std::collections::BTreeMap;
 
@@ -36,11 +39,15 @@ use url::Url;
 use crate::admit::{Candidate, widen};
 use crate::invariants::Invariants;
 use crate::sitemap::{
-    MAX_BYTES, MAX_ENTRIES, Refusal, Unreadable, admit_source_entry, decode_body, grouped,
-    reason_name,
+    MAX_BYTES, MAX_ENTRIES, ReadOptions, Refusal, SitemapDate, Unreadable, admit_source_entry,
+    decode_body, grouped, parse_w3c_datetime, reason_name,
 };
 use crate::staged::Admitting;
 use crate::url::parse as parse_url;
+
+/// One week in milliseconds, used for `sy:updatePeriod = weekly` and 7-day
+/// entry rate windows (ADR 0139).
+const ONE_WEEK_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
 
 /// The crawl's syndication sources, each the fetch of one work item, with the
 /// rules of the seed it came from, its read and failure counts, its entries'
@@ -85,11 +92,136 @@ pub(crate) const READ: [&str; 4] = [
      ON CONFLICT DO UPDATE SET count = count + excluded.count",
 ];
 
-/// What a syndication feed lists.
+/// One entry in a syndication feed (ADR 0139).
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FeedEntry {
+    /// The entry's link, as written in the feed.
+    pub link: String,
+    /// The entry's update or publication date (`<updated>`, `<published>`,
+    /// `<pubDate>`, or `<dc:date>`), when present and parsable.
+    pub updated_at: Option<SitemapDate>,
+}
+
+impl FeedEntry {
+    /// Constructs a feed entry carrying only its link and no date.
+    #[must_use]
+    pub fn link(link: impl Into<String>) -> Self {
+        Self {
+            link: link.into(),
+            updated_at: None,
+        }
+    }
+}
+
+/// RSS Syndication Module `<sy:updatePeriod>` value (ADR 0139).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SyUpdatePeriod {
+    /// Updates every hour (`3_600_000` ms).
+    Hourly,
+    /// Updates every day (`86_400_000` ms).
+    Daily,
+    /// Updates every week (`604_800_000` ms).
+    Weekly,
+    /// Updates every month (30 days = `2_592_000_000` ms).
+    Monthly,
+    /// Updates every year (365 days = `31_536_000_000` ms).
+    Yearly,
+}
+
+impl SyUpdatePeriod {
+    /// Parses a `<sy:updatePeriod>` value, case-insensitively.
+    #[must_use]
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "hourly" => Some(Self::Hourly),
+            "daily" => Some(Self::Daily),
+            "weekly" => Some(Self::Weekly),
+            "monthly" => Some(Self::Monthly),
+            "yearly" => Some(Self::Yearly),
+            _ => None,
+        }
+    }
+
+    /// Period duration in milliseconds.
+    #[must_use]
+    pub const fn period_ms(self) -> u64 {
+        match self {
+            Self::Hourly => 3_600_000,
+            Self::Daily => 86_400_000,
+            Self::Weekly => ONE_WEEK_MS,
+            Self::Monthly => 30 * 86_400_000,
+            Self::Yearly => 365 * 86_400_000,
+        }
+    }
+}
+
+/// What a syndication feed lists, plus its channel-level refresh hints
+/// (`<ttl>`, `<sy:updatePeriod>`, `<sy:updateFrequency>`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FeedDocument {
-    /// Each entry's link, as written in the feed, in document order.
-    pub entries: Vec<String>,
+    /// Each entry in document order.
+    pub entries: Vec<FeedEntry>,
+    /// RSS 2.0 `<ttl>` in minutes (when positive and valid).
+    pub ttl_minutes: Option<u64>,
+    /// RSS Syndication Module `<sy:updatePeriod>`.
+    pub sy_update_period: Option<SyUpdatePeriod>,
+    /// RSS Syndication Module `<sy:updateFrequency>` (defaults to 1 when absent).
+    pub sy_update_frequency: Option<u32>,
+}
+
+impl FeedDocument {
+    /// Computes the feed-level revisit floor duration in milliseconds from
+    /// `<ttl>` and `<sy:updatePeriod>` / `<sy:updateFrequency>`, gated by the
+    /// `revisit.site_hints.ttl` and `revisit.site_hints.sy_update_period`
+    /// switches (ADR 0139).
+    #[must_use]
+    pub fn floor_duration_ms(&self, use_ttl: bool, use_sy_update_period: bool) -> Option<u64> {
+        let mut floor: Option<u64> = None;
+        let mut raise = |candidate: Option<u64>| {
+            if let Some(ms) = candidate.filter(|&ms| ms > 0) {
+                floor = Some(floor.map_or(ms, |cur| cur.max(ms)));
+            }
+        };
+        if use_ttl && let Some(mins) = self.ttl_minutes {
+            raise(Some(mins.saturating_mul(60_000)));
+        }
+        if use_sy_update_period && let Some(period) = self.sy_update_period {
+            let freq = u64::from(self.sy_update_frequency.unwrap_or(1).max(1));
+            raise(Some((period.period_ms() / freq).max(1)));
+        }
+        floor
+    }
+
+    /// Counts entries whose date falls within the last 7 days relative to
+    /// `now_ms` (allowing up to 24 hours of clock skew), or `None` when no
+    /// entry carries a parsable date.
+    #[must_use]
+    pub fn entries_in_last_week(&self, now_ms: u64) -> Option<u64> {
+        let any_dated = self.entries.iter().any(|e| e.updated_at.is_some());
+        if !any_dated {
+            return None;
+        }
+        let window_start = now_ms.saturating_sub(ONE_WEEK_MS);
+        let max_future = now_ms.saturating_add(86_400_000);
+        let count = self
+            .entries
+            .iter()
+            .filter_map(|e| e.updated_at)
+            .filter(|d| d.ms >= window_start && d.ms <= max_future)
+            .count();
+        Some(u64::try_from(count).unwrap_or(u64::MAX))
+    }
+}
+
+/// Summary of one [`read`] call, used by Continuous crawls to schedule the
+/// syndication source's next read under `entry_rate` (ADR 0139).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ReadOutcome {
+    /// `true` when the read added at least one new entry, or saw at least one
+    /// entry updated strictly after `previous_fetched_at`.
+    pub changed: bool,
+    /// Number of new entries added by this read.
+    pub added: u64,
 }
 
 /// The three syndication formats [`parse`] reads.
@@ -164,17 +296,32 @@ pub fn parse(body: &[u8]) -> Result<FeedDocument, Unreadable> {
     state.finish()
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TextTarget {
+    Link,
+    Ttl,
+    SyUpdatePeriod,
+    SyUpdateFrequency,
+    EntryUpdated,
+    EntryPublished,
+}
+
 #[derive(Default)]
 struct FeedParser {
     format: Option<FeedFormat>,
-    entries: Vec<String>,
+    entries: Vec<FeedEntry>,
+    ttl_minutes: Option<u64>,
+    sy_update_period: Option<SyUpdatePeriod>,
+    sy_update_frequency: Option<u32>,
     depth: usize,
     in_channel: bool,
     in_item: bool,
     item_prefix: Option<Vec<u8>>,
     item_fallback_link: Option<String>,
     item_link: Option<String>,
-    reading_link_text: Option<String>,
+    item_updated: Option<SitemapDate>,
+    item_published: Option<SitemapDate>,
+    reading_text: Option<(TextTarget, usize, String)>,
 }
 
 impl FeedParser {
@@ -190,7 +337,23 @@ impl FeedParser {
             (1, _, b"RDF") => self.format = Some(FeedFormat::Rss1),
             (1, _, b"feed") => self.format = Some(FeedFormat::Atom1),
             (1, _, _) => return Err(no_feed()),
-            (2, Some(FeedFormat::Rss2), b"channel") => self.in_channel = true,
+            (2, Some(FeedFormat::Rss2 | FeedFormat::Rss1), b"channel") => self.in_channel = true,
+            (3, Some(FeedFormat::Rss2), b"ttl")
+                if self.in_channel && self.ttl_minutes.is_none() =>
+            {
+                self.reading_text = Some((TextTarget::Ttl, self.depth, String::new()));
+            }
+            (3, Some(FeedFormat::Rss2 | FeedFormat::Rss1), b"updatePeriod")
+                if self.in_channel && self.sy_update_period.is_none() =>
+            {
+                self.reading_text = Some((TextTarget::SyUpdatePeriod, self.depth, String::new()));
+            }
+            (3, Some(FeedFormat::Rss2 | FeedFormat::Rss1), b"updateFrequency")
+                if self.in_channel && self.sy_update_frequency.is_none() =>
+            {
+                self.reading_text =
+                    Some((TextTarget::SyUpdateFrequency, self.depth, String::new()));
+            }
             (3, Some(FeedFormat::Rss2), b"item") if self.in_channel => {
                 self.begin_item(element, None);
             }
@@ -204,7 +367,7 @@ impl FeedParser {
             (4, Some(FeedFormat::Rss2), b"link") | (3, Some(FeedFormat::Rss1), b"link")
                 if self.matches_item_prefix(element) && self.item_link.is_none() =>
             {
-                self.reading_link_text = Some(String::new());
+                self.reading_text = Some((TextTarget::Link, self.depth, String::new()));
             }
             (3, Some(FeedFormat::Atom1), b"link")
                 if self.matches_item_prefix(element) && self.item_link.is_none() =>
@@ -212,6 +375,18 @@ impl FeedParser {
                 if let Some(href) = atom_alternate_href(element)? {
                     self.item_link = Some(href);
                 }
+            }
+            (4, Some(FeedFormat::Rss2), b"updated") | (3, Some(FeedFormat::Atom1), b"updated")
+                if self.in_item && self.item_updated.is_none() =>
+            {
+                self.reading_text = Some((TextTarget::EntryUpdated, self.depth, String::new()));
+            }
+            (4, Some(FeedFormat::Rss2), b"pubDate" | b"date")
+            | (3, Some(FeedFormat::Rss1), b"date")
+            | (3, Some(FeedFormat::Atom1), b"published")
+                if self.in_item && self.item_published.is_none() =>
+            {
+                self.reading_text = Some((TextTarget::EntryPublished, self.depth, String::new()));
             }
             _ => {}
         }
@@ -223,14 +398,14 @@ impl FeedParser {
         self.item_prefix = prefix_of(element);
         self.item_link = None;
         self.item_fallback_link = fallback;
+        self.item_updated = None;
+        self.item_published = None;
     }
 
     fn on_empty(&mut self, element: &BytesStart<'_>) -> Result<Option<FeedDocument>, Unreadable> {
         if self.depth == 0 {
             return match element.local_name().as_ref() {
-                b"rss" | b"RDF" | b"feed" => Ok(Some(FeedDocument {
-                    entries: Vec::new(),
-                })),
+                b"rss" | b"RDF" | b"feed" => Ok(Some(FeedDocument::default())),
                 _ => Err(no_feed()),
             };
         }
@@ -247,17 +422,30 @@ impl FeedParser {
     }
 
     fn on_end(&mut self) -> Result<(), Unreadable> {
-        let link_depth = match self.format {
-            Some(FeedFormat::Rss2) => 4,
-            Some(FeedFormat::Rss1) => 3,
-            _ => 0,
-        };
-        if self.depth == link_depth
-            && let Some(text) = self.reading_link_text.take()
+        if let Some((_, target_depth, _)) = &self.reading_text
+            && *target_depth == self.depth
+            && let Some((target, _, text)) = self.reading_text.take()
         {
             let trimmed = text.trim();
             if !trimmed.is_empty() {
-                self.item_link = Some(trimmed.to_owned());
+                match target {
+                    TextTarget::Link => self.item_link = Some(trimmed.to_owned()),
+                    TextTarget::Ttl => {
+                        self.ttl_minutes = trimmed.parse::<u64>().ok().filter(|&m| m > 0);
+                    }
+                    TextTarget::SyUpdatePeriod => {
+                        self.sy_update_period = SyUpdatePeriod::parse(trimmed);
+                    }
+                    TextTarget::SyUpdateFrequency => {
+                        self.sy_update_frequency = trimmed.parse::<u32>().ok().filter(|&f| f > 0);
+                    }
+                    TextTarget::EntryUpdated => {
+                        self.item_updated = parse_feed_date(trimmed);
+                    }
+                    TextTarget::EntryPublished => {
+                        self.item_published = parse_feed_date(trimmed);
+                    }
+                }
             }
         }
         let item_depth = match self.format {
@@ -267,16 +455,20 @@ impl FeedParser {
         };
         if self.depth == item_depth && std::mem::take(&mut self.in_item) {
             self.item_prefix = None;
+            let updated_at = self
+                .item_updated
+                .take()
+                .or_else(|| self.item_published.take());
             if let Some(link) = self
                 .item_link
                 .take()
                 .or_else(|| self.item_fallback_link.take())
             {
-                push_entry(&mut self.entries, link)?;
+                push_entry(&mut self.entries, FeedEntry { link, updated_at })?;
             }
             self.item_fallback_link = None;
         }
-        if self.depth == 2 && self.format == Some(FeedFormat::Rss2) {
+        if self.depth == 2 && matches!(self.format, Some(FeedFormat::Rss2 | FeedFormat::Rss1)) {
             self.in_channel = false;
         }
         self.depth = self.depth.saturating_sub(1);
@@ -284,26 +476,26 @@ impl FeedParser {
     }
 
     fn push_text(&mut self, text: &str) {
-        if let Some(link) = self.reading_link_text.as_mut() {
-            link.push_str(text);
+        if let Some((_, _, buf)) = self.reading_text.as_mut() {
+            buf.push_str(text);
         }
     }
 
     fn on_ref(&mut self, reference: &quick_xml::events::BytesRef<'_>) -> Result<(), Unreadable> {
         let unreadable =
             |error: &dyn std::fmt::Display| Unreadable(format!("its XML breaks: {error}"));
-        if let Some(link) = self.reading_link_text.as_mut() {
+        if let Some((_, _, buf)) = self.reading_text.as_mut() {
             if let Some(character) = reference
                 .resolve_char_ref()
                 .map_err(|error| unreadable(&error))?
             {
-                link.push(character);
+                buf.push(character);
             } else {
                 let name = reference.decode().map_err(|error| unreadable(&error))?;
                 let text = resolve_predefined_entity(&name).ok_or_else(|| {
                     Unreadable(format!("it uses the undeclared entity `&{name};`"))
                 })?;
-                link.push_str(text);
+                buf.push_str(text);
             }
         }
         Ok(())
@@ -318,19 +510,145 @@ impl FeedParser {
         }
         Ok(FeedDocument {
             entries: self.entries,
+            ttl_minutes: self.ttl_minutes,
+            sy_update_period: self.sy_update_period,
+            sy_update_frequency: self.sy_update_frequency,
         })
     }
 }
 
-fn push_entry(entries: &mut Vec<String>, link: String) -> Result<(), Unreadable> {
+fn push_entry(entries: &mut Vec<FeedEntry>, entry: FeedEntry) -> Result<(), Unreadable> {
     if entries.len() == MAX_ENTRIES {
         return Err(Unreadable(format!(
             "it lists more than {} entries",
             grouped(MAX_ENTRIES)
         )));
     }
-    entries.push(link);
+    entries.push(entry);
     Ok(())
+}
+
+/// Parses a feed entry date in W3C Datetime (RFC 3339 / ISO 8601) or RFC 2822
+/// (`pubDate`) format into a [`SitemapDate`].
+#[must_use]
+pub fn parse_feed_date(raw: &str) -> Option<SitemapDate> {
+    let trimmed = raw.trim();
+    if let Some(date) = parse_w3c_datetime(trimmed) {
+        return Some(date);
+    }
+    parse_rfc2822_date(trimmed)
+}
+
+/// Parses an RFC 2822 / RFC 5322 date-time string such as
+/// `Mon, 02 Nov 2026 12:30:00 GMT` or `02 Nov 2026 12:30:00 +0200`.
+fn parse_rfc2822_date(raw: &str) -> Option<SitemapDate> {
+    // Strip optional day-of-week prefix (`Mon, `).
+    let rest = match raw.find(',') {
+        Some(comma) => raw.get(comma + 1..)?.trim(),
+        None => raw,
+    };
+    let mut parts = rest.split_ascii_whitespace();
+    let day: u32 = parts.next()?.parse().ok()?;
+    let month_str = parts.next()?;
+    let month: u32 = match month_str.to_ascii_lowercase().as_str() {
+        "jan" => 1,
+        "feb" => 2,
+        "mar" => 3,
+        "apr" => 4,
+        "may" => 5,
+        "jun" => 6,
+        "jul" => 7,
+        "aug" => 8,
+        "sep" => 9,
+        "oct" => 10,
+        "nov" => 11,
+        "dec" => 12,
+        _ => return None,
+    };
+    let year_raw: i64 = parts.next()?.parse().ok()?;
+    let year = if (0..=49).contains(&year_raw) {
+        2000 + year_raw
+    } else if (50..=99).contains(&year_raw) {
+        1900 + year_raw
+    } else {
+        year_raw
+    };
+    let time_str = parts.next()?;
+    let mut time_parts = time_str.split(':');
+    let hour: u32 = time_parts.next()?.parse().ok()?;
+    let minute: u32 = time_parts.next()?.parse().ok()?;
+    let second: u32 = match time_parts.next() {
+        Some(s) => s.parse().ok()?,
+        None => 0,
+    };
+    if hour > 23 || minute > 59 || second > 60 {
+        return None;
+    }
+    let tz_offset_secs: i64 = match parts.next() {
+        None => 0,
+        Some(tz) => parse_rfc2822_tz(tz)?,
+    };
+    let days = days_from_civil(year, month, day)?;
+    let secs = days
+        .checked_mul(86_400)?
+        .checked_add(i64::from(hour) * 3_600 + i64::from(minute) * 60 + i64::from(second.min(59)))?
+        .checked_sub(tz_offset_secs)?;
+    let ms = u64::try_from(secs).ok()?.checked_mul(1_000)?;
+    Some(SitemapDate {
+        ms,
+        date_only: false,
+    })
+}
+
+fn parse_rfc2822_tz(tz: &str) -> Option<i64> {
+    let bytes = tz.as_bytes();
+    if bytes.len() == 5 && (bytes[0] == b'+' || bytes[0] == b'-') {
+        let sign: i64 = if bytes[0] == b'+' { 1 } else { -1 };
+        let hours: i64 = tz.get(1..3)?.parse().ok()?;
+        let mins: i64 = tz.get(3..5)?.parse().ok()?;
+        if hours > 23 || mins > 59 {
+            return None;
+        }
+        return Some(sign * (hours * 3_600 + mins * 60));
+    }
+    match tz.to_ascii_uppercase().as_str() {
+        "UTC" | "GMT" | "UT" | "Z" => Some(0),
+        "EDT" => Some(-4 * 3_600),
+        "EST" | "CDT" => Some(-5 * 3_600),
+        "CST" | "MDT" => Some(-6 * 3_600),
+        "MST" | "PDT" => Some(-7 * 3_600),
+        "PST" => Some(-8 * 3_600),
+        _ => None,
+    }
+}
+
+fn days_from_civil(year: i64, month: u32, day: u32) -> Option<i64> {
+    if !(1..=12).contains(&month) || day == 0 {
+        return None;
+    }
+    let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+    let max_day = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if is_leap {
+                29
+            } else {
+                28
+            }
+        }
+        _ => return None,
+    };
+    if day > max_day {
+        return None;
+    }
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400);
+    let m = i64::from(month);
+    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + i64::from(day) - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    Some(era * 146_097 + doe - 719_468)
 }
 
 fn no_feed() -> Unreadable {
@@ -498,6 +816,66 @@ pub fn is_fetch(connection: &Connection, id: &str) -> rusqlite::Result<bool> {
         .is_some())
 }
 
+/// Admits a discovered syndication feed linked by a page in scope
+/// (`crawl.syndication.discover`, ADR 0139): checks the domain policy and
+/// deduplicates against `syndication_sources`, without widening the crawl's
+/// scope.
+///
+/// # Errors
+///
+/// When the run file cannot be read or written, or what `add` fails with.
+pub fn admit_discovered(
+    connection: &Connection,
+    invariants: &Invariants,
+    policy: &Policy,
+    seed: &SyndicationSeed,
+    add: impl FnOnce(&Url) -> rusqlite::Result<String>,
+) -> rusqlite::Result<Enqueued> {
+    let url = match parse_url(&seed.syndication, None) {
+        Ok(url) => url,
+        Err(reason) => {
+            return Ok(Enqueued::NotAdded {
+                reason,
+                url: seed.syndication.clone(),
+            });
+        }
+    };
+    let request = Request {
+        url: url.as_str(),
+        kind: RequestKind::Fetch,
+    };
+    if let Judgment::Refused(_) = judge(&request, policy) {
+        return Ok(Enqueued::NotAdded {
+            reason: NotAddedReason::DomainPolicy,
+            url: seed.syndication.clone(),
+        });
+    }
+    let known = connection
+        .prepare_cached("SELECT 1 FROM syndication_sources WHERE url = ?1")
+        .and_then(|mut cached| cached.query_row([url.as_str()], |_| Ok(())))
+        .optional()?
+        .is_some();
+    if known {
+        return Ok(Enqueued::NotAdded {
+            reason: NotAddedReason::Duplicate,
+            url: seed.syndication.clone(),
+        });
+    }
+    let id = add(&url)?;
+    let rules = serde_json::to_string(&seed.rules).expect("invariant: rules encode as JSON");
+    connection
+        .prepare_cached(
+            "INSERT INTO syndication_sources (work_item, url, rules, reads, failures)
+             VALUES (?1, ?2, ?3, 0, 0)",
+        )
+        .and_then(|mut cached| cached.execute((&id, url.as_str(), &rules)))?;
+    let _unreadable = invariants.know_sitemap_rules(&seed.rules);
+    Ok(Enqueued::Added {
+        id,
+        url: url.into(),
+    })
+}
+
 /// Admits the entries of `document`, read by work item `id`, as one links
 /// batch through the Frontier admission within `invariants` and `policy`, with
 /// 0 reads of the Run invariants from the run file and 0 rule compilations
@@ -511,10 +889,10 @@ pub fn read(
     invariants: &Invariants,
     policy: &Policy,
     id: &str,
-    document: &FeedDocument,
+    (document, options): (&FeedDocument, ReadOptions),
     work: &CountedWork,
     mut add: impl FnMut(&Url, &str) -> rusqlite::Result<String>,
-) -> rusqlite::Result<()> {
+) -> rusqlite::Result<ReadOutcome> {
     let Some((url, given_rules)) = connection
         .prepare_cached(READ[0])
         .and_then(|mut cached| {
@@ -524,29 +902,50 @@ pub fn read(
         })
         .optional()?
     else {
-        return Ok(());
+        return Ok(ReadOutcome::default());
     };
     let base = Url::parse(&url).map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(error))
     })?;
     let rules = invariants.sitemap_rules(&given_rules, work)?;
     let mut counts: BTreeMap<String, u64> = BTreeMap::new();
-    for given in &document.entries {
+    let mut changed = false;
+    let mut added: u64 = 0;
+    for entry in &document.entries {
+        if let Some(prev) = options.previous_fetched_at
+            && let Some(updated) = entry.updated_at
+            && updated.ms > prev
+        {
+            changed = true;
+        }
+        if let Some((now_ms, max_age_ms)) = options.max_entry_age
+            && let Some(updated) = entry.updated_at
+            && now_ms.saturating_sub(updated.ms) > max_age_ms
+        {
+            *counts
+                .entry(reason_name(&NotAddedReason::MaxEntryAge))
+                .or_insert(0) += 1;
+            continue;
+        }
         let answer = admit_source_entry(
             connection,
             invariants,
             policy,
             &base,
-            given,
+            &entry.link,
             &rules,
             Candidate::SyndicationEntry {
-                url: given,
+                url: &entry.link,
                 feed: &base,
             },
             &mut add,
         )?;
         let name = match answer {
-            Enqueued::Added { .. } => ADDED.to_owned(),
+            Enqueued::Added { .. } => {
+                changed = true;
+                added += 1;
+                ADDED.to_owned()
+            }
             Enqueued::NotAdded { reason, .. } => reason_name(&reason),
         };
         *counts.entry(name).or_insert(0) += 1;
@@ -561,6 +960,22 @@ pub fn read(
     for (reason, count) in counts {
         insert.execute((id, reason, i64::try_from(count).unwrap_or(i64::MAX)))?;
     }
+    Ok(ReadOutcome { changed, added })
+}
+
+/// Records an unchanged (304 Not Modified) read of a syndication source,
+/// incrementing its read count and clearing any previous failure.
+///
+/// # Errors
+///
+/// When the run file cannot be read or written.
+pub fn record_unchanged_read(connection: &Connection, id: &str) -> rusqlite::Result<()> {
+    connection
+        .prepare_cached(READ[1])
+        .and_then(|mut cached| cached.execute([id]))?;
+    connection
+        .prepare_cached(READ[2])
+        .and_then(|mut cached| cached.execute([id]))?;
     Ok(())
 }
 

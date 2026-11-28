@@ -67,6 +67,7 @@ fn demand() -> UntouchedDemand {
         signs: true,
         keeps: false,
         formats: FormatsRequest::default(),
+        discover_feeds: false,
     }
 }
 
@@ -256,6 +257,7 @@ fn streaming_demand() -> UntouchedDemand {
         signs: false,
         keeps: false,
         formats: FormatsRequest::default(),
+        discover_feeds: false,
     }
 }
 
@@ -292,7 +294,7 @@ fn the_stream_reads_what_the_tree_reads_on_the_corpus() {
             "{html}"
         );
         let (on_tree, _) = readers.read(tree, (URL, URL), (|_| [0; 32], &work));
-        let on_stream = readers.read_streamed(streamed, URL);
+        let on_stream = readers.read_streamed(streamed, URL, URL);
         for selector in &demand.links {
             assert_eq!(
                 on_stream.links(selector),
@@ -558,4 +560,71 @@ fn a_handlers_page_keeps_its_untouched_tree_and_signs_a_copy() {
         ),
         (Some([7; 32]), Some(served), 1, 1)
     );
+}
+
+/// Shared paths (ADR 0140, F1): RSS/Atom feed discovery (`<link rel="alternate">`)
+/// is a stage of the Page analysis on both the streaming and tree paths, with
+/// 0 parses of its own and 0 selector compilations / 0 work when off.
+#[test]
+fn feed_discovery_runs_as_page_analysis_stage_and_costs_zero_when_off() {
+    let html = r#"<!doctype html><html><head>
+        <link rel="stylesheet" href="/app.css">
+        <link rel="alternate" type="application/rss+xml" href="/rss.xml">
+        <link rel="alternate" type="application/atom+xml; charset=utf-8" href="https://news.test/atom.xml">
+        <link rel="alternate" type="text/html" href="/mobile">
+        <link rel="alternate" type="application/rss+xml" href="/rss.xml">
+    </head><body><h1>News</h1></body></html>"#;
+
+    // 1. Off: 0 discovered feeds, and baseline selector compilations.
+    let work_off = CountedWork::default();
+    let readers_off = UntouchedReaders::of(UntouchedDemand::default(), &work_off);
+    let compiles_off = work_off.read(Row::PageSelectorCompilations);
+    let streamed_off = readers_off.stream(html).expect("streams when off");
+    let read_off =
+        readers_off.read_streamed(streamed_off, "https://news.test/", "https://news.test/");
+    assert_eq!(read_off.discovered_feeds(), []);
+    assert_eq!(work_off.read(Row::PageParses), 0);
+
+    // 2. On (streaming path): 0 HTML parses, extracts RSS & Atom deduplicated.
+    let work_on = CountedWork::default();
+    let readers_on = UntouchedReaders::of(
+        UntouchedDemand {
+            discover_feeds: true,
+            ..UntouchedDemand::default()
+        },
+        &work_on,
+    );
+    assert!(
+        work_on.read(Row::PageSelectorCompilations) > compiles_off,
+        "selector compiles only when discover_feeds is on"
+    );
+    let streamed_on = readers_on
+        .stream(html)
+        .expect("streams with discover_feeds");
+    let read_on = readers_on.read_streamed(streamed_on, "https://news.test/", "https://news.test/");
+    let expected = vec![
+        url::Url::parse("https://news.test/rss.xml").unwrap(),
+        url::Url::parse("https://news.test/atom.xml").unwrap(),
+    ];
+    assert_eq!(read_on.discovered_feeds(), expected.as_slice());
+    assert_eq!(work_on.read(Row::PageParses), 0);
+
+    // 3. On (tree path, e.g. with signing): 1 parse total, same discovered feeds.
+    let work_tree = CountedWork::default();
+    let readers_tree = UntouchedReaders::of(
+        UntouchedDemand {
+            signs: true,
+            discover_feeds: true,
+            ..UntouchedDemand::default()
+        },
+        &work_tree,
+    );
+    let tree = work_tree.parse_html(Row::PageParses, html);
+    let (read_tree, _) = readers_tree.read(
+        tree,
+        ("https://news.test/", "https://news.test/"),
+        (|_| [1; 32], &work_tree),
+    );
+    assert_eq!(read_tree.discovered_feeds(), expected.as_slice());
+    assert_eq!(work_tree.read(Row::PageParses), 1);
 }

@@ -105,13 +105,14 @@ use goodfetch_protocol::foxhound::continuous::{
     CRAWL_CONTINUOUS_RETENTION, CRAWL_SITEMAP_LASTMOD_TRUST_MIN_CLAIMS,
     CRAWL_SITEMAP_LASTMOD_TRUST_MIN_PRECISION, CRAWL_SITEMAP_LASTMOD_TRUST_WINDOW,
     CRAWL_SITEMAP_NEWS_REVISIT, CRAWL_SITEMAP_READ_LASTMOD, CRAWL_SITEMAP_REVISIT,
-    LASTMOD_TRUST_DEFAULT_MIN_CLAIMS, LASTMOD_TRUST_DEFAULT_MIN_PRECISION,
-    LASTMOD_TRUST_DEFAULT_WINDOW, LastmodHint, REVISIT_ADAPTIVE_DEFAULT_RATE_CHANGED,
-    REVISIT_ADAPTIVE_DEFAULT_RATE_UNCHANGED, REVISIT_CHANGE_CHECK, REVISIT_GONE_AFTER,
-    REVISIT_ON_ERROR, REVISIT_ON_UNCHANGED, REVISIT_POLICY, REVISIT_SITE_HINTS_CACHE_CONTROL,
-    REVISIT_SITE_HINTS_CHANGEFREQ, REVISIT_SITE_HINTS_EXPIRES, REVISIT_SITE_HINTS_LASTMOD,
-    REVISIT_SITE_HINTS_PRIORITY, REVISIT_SITE_HINTS_RETRY_AFTER, RevisitChangeCheck,
-    RevisitOnUnchanged, RevisitPolicy, SITEMAP_NEWS_DEFAULT_INITIAL_MS,
+    CRAWL_SYNDICATION_DISCOVER, CRAWL_SYNDICATION_REVISIT, LASTMOD_TRUST_DEFAULT_MIN_CLAIMS,
+    LASTMOD_TRUST_DEFAULT_MIN_PRECISION, LASTMOD_TRUST_DEFAULT_WINDOW, LastmodHint,
+    REVISIT_ADAPTIVE_DEFAULT_RATE_CHANGED, REVISIT_ADAPTIVE_DEFAULT_RATE_UNCHANGED,
+    REVISIT_CHANGE_CHECK, REVISIT_GONE_AFTER, REVISIT_ON_ERROR, REVISIT_ON_UNCHANGED,
+    REVISIT_POLICY, REVISIT_SITE_HINTS_CACHE_CONTROL, REVISIT_SITE_HINTS_CHANGEFREQ,
+    REVISIT_SITE_HINTS_EXPIRES, REVISIT_SITE_HINTS_LASTMOD, REVISIT_SITE_HINTS_PRIORITY,
+    REVISIT_SITE_HINTS_RETRY_AFTER, REVISIT_SITE_HINTS_SY_UPDATE_PERIOD, REVISIT_SITE_HINTS_TTL,
+    RevisitChangeCheck, RevisitOnUnchanged, RevisitPolicy, SITEMAP_NEWS_DEFAULT_INITIAL_MS,
     SITEMAP_NEWS_DEFAULT_MAX_MS, SITEMAP_NEWS_DEFAULT_MIN_MS,
 };
 use goodfetch_protocol::foxhound::crawl::{
@@ -475,15 +476,24 @@ fn parse_gone_after(resolved: &Resolved) -> u32 {
         .unwrap_or(1)
 }
 
-/// Run-level sitemap date, standing revisit, and hint settings (ADR 0139).
+/// Feed-level refresh hint switches (`revisit.site_hints.{ttl,sy_update_period}`).
+#[derive(Clone, Copy)]
+struct FeedHintSwitches {
+    ttl: bool,
+    sy_update_period: bool,
+}
+
+/// Run-level sitemap and syndication date, standing revisit, and hint settings (ADR 0139).
 struct SitemapReadConfig {
     read_lastmod: bool,
     changefreq: bool,
     priority: bool,
+    feed_hints: FeedHintSwitches,
     lastmod_hint: LastmodHint,
     lastmod_trust: TrustThresholds,
     revisit: RevisitPolicy,
     news_revisit: RevisitPolicy,
+    syndication_revisit: RevisitPolicy,
     max_entry_age: Option<u64>,
 }
 
@@ -511,6 +521,10 @@ impl SitemapReadConfig {
             read_lastmod: resolved.get(&CRAWL_SITEMAP_READ_LASTMOD),
             changefreq: resolved.get(&REVISIT_SITE_HINTS_CHANGEFREQ),
             priority: resolved.get(&REVISIT_SITE_HINTS_PRIORITY),
+            feed_hints: FeedHintSwitches {
+                ttl: resolved.get(&REVISIT_SITE_HINTS_TTL),
+                sy_update_period: resolved.get(&REVISIT_SITE_HINTS_SY_UPDATE_PERIOD),
+            },
             lastmod_hint,
             lastmod_trust: TrustThresholds {
                 min_claims,
@@ -527,6 +541,8 @@ impl SitemapReadConfig {
                     rate_changed: REVISIT_ADAPTIVE_DEFAULT_RATE_CHANGED,
                     rate_unchanged: REVISIT_ADAPTIVE_DEFAULT_RATE_UNCHANGED,
                 }),
+            syndication_revisit: RevisitPolicy::read(resolved.value(&CRAWL_SYNDICATION_REVISIT))
+                .unwrap_or_else(|_| RevisitPolicy::default_entry_rate()),
             max_entry_age: resolved
                 .get::<Option<Duration>>(&CRAWL_CONTINUOUS_MAX_ENTRY_AGE)
                 .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX)),
@@ -1237,17 +1253,22 @@ impl Untouched {
         let work = run.identity.metrics().counted_work();
         goodfetch_fetch_tier::compile_served_call_selectors(work);
         let demands = code_free.map(CodeFree::untouched).unwrap_or_default();
-        let (continuous, run_change_check) =
-            run.identity
-                .settings()
-                .map_or((false, RevisitChangeCheck::default()), |settings| {
-                    let resolved = settings.resolved();
-                    (
-                        resolved.get::<bool>(&CRAWL_CONTINUOUS),
-                        RevisitChangeCheck::read(resolved.value(&REVISIT_CHANGE_CHECK))
-                            .unwrap_or_default(),
-                    )
-                });
+        let (continuous, run_change_check, discover_feeds) = run.identity.settings().map_or(
+            (false, RevisitChangeCheck::default(), false),
+            |settings| {
+                let resolved = settings.resolved();
+                let continuous: bool = resolved.get(&CRAWL_CONTINUOUS);
+                let discover_feeds = resolved
+                    .get::<Option<bool>>(&CRAWL_SYNDICATION_DISCOVER)
+                    .unwrap_or(continuous);
+                (
+                    continuous,
+                    RevisitChangeCheck::read(resolved.value(&REVISIT_CHANGE_CHECK))
+                        .unwrap_or_default(),
+                    discover_feeds,
+                )
+            },
+        );
         let learns = attempt::learns(&run.identity);
         let demand =
             |(links, fields): &code_free::Demand, page_check: Option<PageCheck>, signs: bool| {
@@ -1262,6 +1283,7 @@ impl Untouched {
                     // A code-free crawl's formats are read ahead in each document's
                     // hand-off to the CPU pool (issue 2189).
                     formats: code_free.map(CodeFree::formats).unwrap_or_default(),
+                    discover_feeds,
                 }
             };
         let readers = |own, page_check, signs| {
@@ -2110,6 +2132,10 @@ fn source_read_options(
     let revisit = read.continuous.then(|| attempt_outcome::SourceRevisitPlan {
         sitemap_policy: cfg.revisit,
         news_policy: cfg.news_revisit,
+        syndication_policy: cfg.syndication_revisit,
+        site_hints: read.run_site_hints,
+        use_ttl: cfg.feed_hints.ttl,
+        use_sy_update_period: cfg.feed_hints.sy_update_period,
         now_ms,
         url: attempt.leased.crawl_request.url.clone(),
         domain_key: attempt.leased.waiting.key.clone(),
@@ -3084,6 +3110,7 @@ async fn queue_outcome(
         lease,
         answer,
         refused: transport_refused,
+        discovered_feeds,
         ..
     } = attempt;
     let (work_item, lease_epoch) = (leased.crawl_request.id.clone(), leased.lease_epoch);
@@ -3114,10 +3141,22 @@ async fn queue_outcome(
         Answer::SourceRead(document) => {
             let ending = file.source_read(
                 AttemptKey::new(work_item, lease_epoch),
-                document,
+                *document,
                 source_options.unwrap_or_default(),
             );
-            return queued(on, (leased, lease), (scored, None, None, ending), false).await;
+            return queued(
+                on,
+                (leased, lease),
+                QueuedParts {
+                    scored,
+                    revisit: None,
+                    claim_judgement: None,
+                    discovered_feeds: None,
+                    ending,
+                },
+                false,
+            )
+            .await;
         }
         Answer::Unchanged => Unsuccessful::Unchanged,
         Answer::Gone => Unsuccessful::Gone,
@@ -3137,10 +3176,18 @@ async fn queue_outcome(
                         });
                     let ending = attempt_outcome::Ending::Commit { commit, refused };
                     let revisit = revisit.map(|row| (row, (OutcomeKind::Succeeded, String::new())));
+                    let discovered_feeds =
+                        file.discovered_feeds(discovered_feeds, leased.crawl_request.label.clone());
                     return queued(
                         on,
                         (leased, lease),
-                        (scored, revisit, claim_judgement, ending),
+                        QueuedParts {
+                            scored,
+                            revisit,
+                            claim_judgement,
+                            discovered_feeds,
+                            ending,
+                        },
                         commits,
                     )
                     .await;
@@ -3177,7 +3224,13 @@ async fn queue_outcome(
     queued(
         on,
         (leased, lease),
-        (scored, revisit, claim_judgement, ending),
+        QueuedParts {
+            scored,
+            revisit,
+            claim_judgement,
+            discovered_feeds: None,
+            ending,
+        },
         commits,
     )
     .await
@@ -3218,24 +3271,35 @@ fn unsuccessful_revisit_outcome(
     }
 }
 
+struct QueuedParts {
+    scored: Scored,
+    revisit: Option<(RevisitRow, crate::work_items::CountedAs)>,
+    claim_judgement: Option<attempt_outcome::ClaimJudgement>,
+    discovered_feeds: Option<attempt_outcome::DiscoveredFeeds>,
+    ending: attempt_outcome::Ending,
+}
+
 /// Queues the outcome of `leased`'s attempt under `lease`, ending as
 /// `ending` says beside `scored`, in the run state's writer's queue now.
 async fn queued(
     (run, file, policy): (&std::sync::Arc<CrawlRun>, &Stored, CrawlPolicy),
     (leased, lease): (Leased, WorkItemLease),
-    (scored, revisit, claim_judgement, ending): (
-        Scored,
-        Option<(RevisitRow, crate::work_items::CountedAs)>,
-        Option<attempt_outcome::ClaimJudgement>,
-        attempt_outcome::Ending,
-    ),
+    parts: QueuedParts,
     commits: bool,
 ) -> QueuedOutcome {
+    let QueuedParts {
+        scored,
+        revisit,
+        claim_judgement,
+        discovered_feeds,
+        ending,
+    } = parts;
     let outcome = Outcome {
         scored: scored.changes,
         chosen: scored.chosen,
         revisit: revisit.as_ref().map(|(row, _)| row.clone()),
         claim_judgement,
+        discovered_feeds,
         ending,
     };
     let written = file.end(outcome).await;

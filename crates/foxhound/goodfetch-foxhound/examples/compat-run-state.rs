@@ -699,9 +699,13 @@ fn read_syndication(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
         &invariants,
         &policy,
         &good_id,
-        &FeedDocument {
-            entries: vec!["/about".to_owned()],
-        },
+        (
+            &FeedDocument {
+                entries: vec![syndication::FeedEntry::link("/about")],
+                ..FeedDocument::default()
+            },
+            goodfetch_frontier::sitemap::ReadOptions::default(),
+        ),
         &goodfetch_counted_work::CountedWork::default(),
         |_, _| Err(rusqlite::Error::InvalidQuery),
     )?;

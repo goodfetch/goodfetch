@@ -602,6 +602,11 @@ prefix = "crawl.sitemap."
 [[area]]
 number = 3
 kind = "setting"
+prefix = "crawl.syndication."
+
+[[area]]
+number = 3
+kind = "setting"
 prefix = "revisit."
 
 [[area]]

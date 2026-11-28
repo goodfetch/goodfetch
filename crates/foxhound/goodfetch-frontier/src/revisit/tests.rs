@@ -680,6 +680,120 @@ fn site_hints_from_headers_parses_each_header_and_respects_switches() {
 }
 
 #[test]
+fn entry_rate_divides_one_week_and_clamps_by_validators_and_floors() {
+    let policy = RevisitPolicy::default_entry_rate();
+    let now = 1_700_000_000_000_u64;
+    let prev = PreviousState::default();
+
+    // 28 entries/week -> 1 week / 28 = 6 hours (21_600_000 ms), within [15m, 24h].
+    let six_h = next_visit(
+        &policy,
+        prev,
+        VisitResult::Changed,
+        SiteHints {
+            entries_per_week: Some(28.0),
+            has_validators: true,
+            ..SiteHints::default()
+        },
+        now,
+    )
+    .expect("scheduled");
+    assert_eq!(six_h.interval_ms, 6 * 3_600_000);
+    assert_eq!(six_h.next_visit_at, now + 6 * 3_600_000);
+    assert!(!six_h.clamped_at_min);
+
+    // Busy feed (1000 entries/week -> ~10m): clamped to 15m WITH validators.
+    let busy_validated = next_visit(
+        &policy,
+        prev,
+        VisitResult::Changed,
+        SiteHints {
+            entries_per_week: Some(1_000.0),
+            has_validators: true,
+            ..SiteHints::default()
+        },
+        now,
+    )
+    .expect("scheduled");
+    assert_eq!(busy_validated.interval_ms, 900_000);
+    assert!(busy_validated.clamped_at_min);
+
+    // Busy feed WITHOUT validators: clamped to 1 hour (3_600_000 ms).
+    let busy_unvalidated = next_visit(
+        &policy,
+        prev,
+        VisitResult::Changed,
+        SiteHints {
+            entries_per_week: Some(1_000.0),
+            has_validators: false,
+            ..SiteHints::default()
+        },
+        now,
+    )
+    .expect("scheduled");
+    assert_eq!(busy_unvalidated.interval_ms, 3_600_000);
+
+    // Quiet feed (0 entries/week) or unknown rate -> 24h max.
+    let quiet = next_visit(
+        &policy,
+        prev,
+        VisitResult::Unchanged,
+        SiteHints {
+            entries_per_week: Some(0.0),
+            has_validators: true,
+            ..SiteHints::default()
+        },
+        now,
+    )
+    .expect("scheduled");
+    assert_eq!(quiet.interval_ms, 86_400_000);
+
+    // 304 Not Modified (no body -> entries_per_week: None) preserves previous interval.
+    let unchanged_304 = next_visit(
+        &policy,
+        PreviousState {
+            interval_ms: Some(1_800_000),
+            visits: 1,
+            changes: 1,
+        },
+        VisitResult::Unchanged,
+        SiteHints {
+            entries_per_week: None,
+            has_validators: true,
+            ..SiteHints::default()
+        },
+        now,
+    )
+    .expect("scheduled");
+    assert_eq!(unchanged_304.interval_ms, 1_800_000);
+
+    // Site floor (e.g., <ttl> or sy:updatePeriod) pushes next_visit_at later.
+    let floored = next_visit(
+        &policy,
+        prev,
+        VisitResult::Changed,
+        SiteHints {
+            floor_at_ms: Some(now + 12 * 3_600_000),
+            entries_per_week: Some(28.0),
+            has_validators: true,
+            ..SiteHints::default()
+        },
+        now,
+    )
+    .expect("scheduled");
+    assert_eq!(floored.interval_ms, 6 * 3_600_000);
+    assert_eq!(floored.next_visit_at, now + 12 * 3_600_000);
+
+    // Validation rejects min > max or 0.
+    assert!(
+        RevisitPolicy::read(&serde_json::json!({ "kind": "entry_rate", "min": 100, "max": 50 }))
+            .is_err()
+    );
+    assert!(RevisitPolicy::read(&serde_json::json!({ "kind": "entry_rate", "min": 0 })).is_err());
+    assert!(RevisitPolicy::read(&serde_json::json!({ "kind": "entry_rate" })).is_ok());
+}
+
+#[test]
 fn freshness_aggregates_overdue_lags_outcomes_overall_and_per_domain() {
     use std::time::Duration;
     let conn = Connection::open_in_memory().unwrap();

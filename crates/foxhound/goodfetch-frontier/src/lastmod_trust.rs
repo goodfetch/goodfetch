@@ -164,7 +164,9 @@ pub fn brought_forward_due(
     let min_ms = match *policy {
         RevisitPolicy::Never => return None,
         RevisitPolicy::Every { interval } => interval,
-        RevisitPolicy::Adaptive { min, .. } | RevisitPolicy::Estimated { min, .. } => min,
+        RevisitPolicy::Adaptive { min, .. }
+        | RevisitPolicy::Estimated { min, .. }
+        | RevisitPolicy::EntryRate { min, .. } => min,
     };
     let mut due = now_ms.max(last_fetched_at_ms.saturating_add(min_ms));
     if let Some(floor) = floor_at_ms {

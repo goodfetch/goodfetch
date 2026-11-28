@@ -6,7 +6,7 @@
 
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::robots_txt::Fetched;
-use goodfetch_fetch_tier::{HttpTier, Reading, Request};
+use goodfetch_fetch_tier::{ConditionalRevisit, HttpTier, Reading, Request, SyndicationFetched};
 use goodfetch_frontier::{sitemap, syndication};
 use goodfetch_protocol::foxhound::crawl::RESPONSE_NOT_OK;
 use serde_json::{Map, Value};
@@ -57,7 +57,7 @@ impl On<'_> {
                 };
                 if sitemap::is_robots_txt(&url) {
                     return match read.as_ref().map(Reading::copy) {
-                        Some(Fetched::File(file)) => Answer::SourceRead(
+                        Some(Fetched::File(file)) => Answer::SourceRead(Box::new(
                             crate::attempt_outcome::SourceDocument::Sitemap(
                                 sitemap::Document::Sitemaps(
                                     file.sitemaps()
@@ -66,23 +66,23 @@ impl On<'_> {
                                         .collect(),
                                 ),
                             ),
-                        ),
+                        )),
                         Some(Fetched::Unreachable(reason)) => Answer::RobotsTxtUnreachable(format!(
                             "The site's robots.txt could not be read ({reason}), so its sitemaps were not read."
                         )),
-                        Some(Fetched::NotFound(_)) | None => Answer::SourceRead(
+                        Some(Fetched::NotFound(_)) | None => Answer::SourceRead(Box::new(
                             crate::attempt_outcome::SourceDocument::Sitemap(
                                 sitemap::Document::Sitemaps(Vec::new()),
                             ),
-                        ),
+                        )),
                     };
                 }
                 let limits = Limits::of_run(run.identity.settings());
                 match http.sitemap(&url, hand_over).await {
                     Ok(body) => match sitemap::read_file(url.as_str(), &body, limits) {
-                        Ok(document) => Answer::SourceRead(
+                        Ok(document) => Answer::SourceRead(Box::new(
                             crate::attempt_outcome::SourceDocument::Sitemap(document),
-                        ),
+                        )),
                         Err(sitemap::Refusal::Unreadable(why)) => unreadable(url.as_str(), &why.0),
                         Err(sitemap::Refusal::Limit(exceeded)) => failed(&exceeded.error()),
                     },
@@ -116,16 +116,32 @@ impl On<'_> {
                     return refused;
                 }
                 let limits = Limits::of_run(run.identity.settings());
-                match http.syndication(&url, self.hand_over).await {
-                    Ok(body) => match syndication::read_file(url.as_str(), &body, limits) {
-                        Ok(document) => Answer::SourceRead(
-                            crate::attempt_outcome::SourceDocument::Syndication(document),
-                        ),
-                        Err(sitemap::Refusal::Unreadable(why)) => {
-                            unreadable_source("syndication feed", url.as_str(), &why.0)
+                let conditional = leased.revisit_row.as_ref().and_then(|row| {
+                    (row.etag.is_some() || row.last_modified.is_some()).then(|| {
+                        ConditionalRevisit {
+                            etag: row.etag.clone(),
+                            last_modified: row.last_modified.clone(),
                         }
-                        Err(sitemap::Refusal::Limit(exceeded)) => failed(&exceeded.error()),
-                    },
+                    })
+                });
+                match http.syndication(&url, self.hand_over, conditional.as_ref()).await {
+                    Ok(SyndicationFetched::Modified { body, headers }) => {
+                        match syndication::read_file(url.as_str(), &body, limits) {
+                            Ok(document) => Answer::SourceRead(Box::new(
+                                crate::attempt_outcome::SourceDocument::Syndication {
+                                    document,
+                                    headers,
+                                },
+                            )),
+                            Err(sitemap::Refusal::Unreadable(why)) => {
+                                unreadable_source("syndication feed", url.as_str(), &why.0)
+                            }
+                            Err(sitemap::Refusal::Limit(exceeded)) => failed(&exceeded.error()),
+                        }
+                    }
+                    Ok(SyndicationFetched::NotModified { headers }) => Answer::SourceRead(Box::new(
+                        crate::attempt_outcome::SourceDocument::SyndicationUnchanged { headers },
+                    )),
                     Err(failure) => fetch_failed(&failure),
                 }
             } => answer,

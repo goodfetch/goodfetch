@@ -123,6 +123,10 @@ fn brought_forward_respects_now_floors_min_and_never() {
     );
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "exercises earn, withdraw, re-earn, miss, and news false-claim lifecycle in one sequence"
+)]
 #[test]
 fn trust_earned_withdrawn_re_earned_misses_do_not_hurt_and_news_false_claims_counted() {
     let conn = memory_db();

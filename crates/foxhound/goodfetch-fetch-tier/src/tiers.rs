@@ -132,6 +132,7 @@ use crate::use_signals::UseSignals;
 pub(crate) mod calls;
 mod reading;
 mod sitemap;
+pub use sitemap::{SourceHeaders, SyndicationFetched};
 #[cfg(test)]
 mod tests;
 
@@ -361,6 +362,9 @@ pub struct PageFacts {
     /// when requested by `frontier.learning` or a Continuous crawl (ADR 0138,
     /// ADR 0139, ADR 0140).
     pub signature: Option<[u8; 32]>,
+    /// RSS and Atom feed URLs discovered via `<link rel="alternate">` during
+    /// the untouched Page analysis (`crawl.syndication.discover`, ADR 0139).
+    pub discovered_feeds: Vec<Url>,
 }
 
 /// A document a fetch answered, read as a served page holds it: its text,
@@ -628,7 +632,7 @@ impl Decoded {
             Untouched::Streamed(streamed) => (
                 UntouchedReaders::streamed_use_signals(signals, &fetched.url),
                 if own {
-                    readers.read_streamed(streamed, &url)
+                    readers.read_streamed(streamed, &url, &base_url)
                 } else {
                     untouched::Read::default()
                 },
@@ -1628,6 +1632,7 @@ impl FetchTiers {
             use_signals: pages.use_signals.get(page_id).cloned().unwrap_or_default(),
             escalated: page.escalated,
             signature: page.untouched.signed().map(|(signature, _)| signature),
+            discovered_feeds: page.untouched.discovered_feeds().to_vec(),
         })
     }
 
@@ -2104,6 +2109,7 @@ impl FetchTiers {
             use_signals,
             escalated: page.escalated,
             signature: page.untouched.signed().map(|(signature, _)| signature),
+            discovered_feeds: page.untouched.discovered_feeds().to_vec(),
         })
     }
 

@@ -868,6 +868,23 @@ impl Stored {
         }
     }
 
+    /// Builds a [`crate::attempt_outcome::DiscoveredFeeds`] bundle for feeds
+    /// discovered via `<link rel="alternate">` on a committed page, or `None`
+    /// when none were discovered.
+    pub(crate) fn discovered_feeds(
+        &self,
+        feeds: Vec<String>,
+        label: String,
+    ) -> Option<crate::attempt_outcome::DiscoveredFeeds> {
+        (!feeds.is_empty()).then(|| crate::attempt_outcome::DiscoveredFeeds {
+            feeds,
+            label,
+            egress: Arc::clone(&self.egress),
+            invariants: self.invariants.shared_frontier(),
+            keys: self.keys.clone(),
+        })
+    }
+
     /// How the sitemap's fetch `attempt` ends once its `document` is read:
     /// its entries admitted under the Run's domain policy and within its
     /// invariants (ADR 0093), each keyed as it is added, in its outcome's

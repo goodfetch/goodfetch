@@ -465,6 +465,23 @@ class CrawlSitemapNewsRevisitEstimated(TypedDict):
     """Target expected freshness, strictly in `(0, 1)` (default: 0.9)."""
 
 
+class CrawlSitemapNewsRevisitEntryRate(TypedDict):
+    """Entry-rate schedule for syndication sources (ADR 0139): one week
+    divided by the source's new entries per week, clamped to `[min, max]`
+    with validators and `[max(min, 1 hour), max]` without.
+    """
+
+    kind: Literal["entry_rate"]
+
+    max: NotRequired[int]
+    """Maximum revisit interval in milliseconds (default: 24 hours)."""
+
+    min: NotRequired[int]
+    """Minimum revisit interval in milliseconds when the source returns
+    validators (default: 15 minutes).
+    """
+
+
 class CrawlSitemapRevisitNever(TypedDict):
     """Never revisit the URL after its first visit, such as articles."""
 
@@ -526,12 +543,29 @@ class CrawlSitemapRevisitEstimated(TypedDict):
     """Target expected freshness, strictly in `(0, 1)` (default: 0.9)."""
 
 
+class CrawlSitemapRevisitEntryRate(TypedDict):
+    """Entry-rate schedule for syndication sources (ADR 0139): one week
+    divided by the source's new entries per week, clamped to `[min, max]`
+    with validators and `[max(min, 1 hour), max]` without.
+    """
+
+    kind: Literal["entry_rate"]
+
+    max: NotRequired[int]
+    """Maximum revisit interval in milliseconds (default: 24 hours)."""
+
+    min: NotRequired[int]
+    """Minimum revisit interval in milliseconds when the source returns
+    validators (default: 15 minutes).
+    """
+
+
 class ConnectionCrawlSitemapSettings(TypedDict):
     """The `crawl.sitemap` settings of `FoxhoundSettings`."""
 
     lastmod_trust: NotRequired[ConnectionCrawlSitemapLastmodTrustSettings]
 
-    news_revisit: NotRequired[CrawlSitemapNewsRevisitNever | CrawlSitemapNewsRevisitEvery | CrawlSitemapNewsRevisitAdaptive | CrawlSitemapNewsRevisitEstimated]
+    news_revisit: NotRequired[CrawlSitemapNewsRevisitNever | CrawlSitemapNewsRevisitEvery | CrawlSitemapNewsRevisitAdaptive | CrawlSitemapNewsRevisitEstimated | CrawlSitemapNewsRevisitEntryRate]
     """Revisit policy for Google News sitemaps in a Continuous crawl: `adaptive` (initial 1 hour, 15 minutes to 24 hours) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
 
     `crawl.sitemap.news_revisit`.
@@ -543,10 +577,104 @@ class ConnectionCrawlSitemapSettings(TypedDict):
     `crawl.sitemap.read_lastmod`.
     """
 
-    revisit: NotRequired[CrawlSitemapRevisitNever | CrawlSitemapRevisitEvery | CrawlSitemapRevisitAdaptive | CrawlSitemapRevisitEstimated]
+    revisit: NotRequired[CrawlSitemapRevisitNever | CrawlSitemapRevisitEvery | CrawlSitemapRevisitAdaptive | CrawlSitemapRevisitEstimated | CrawlSitemapRevisitEntryRate]
     """Revisit policy for standing sitemaps (other than Google News sitemaps) in a Continuous crawl: `adaptive` (initial 24 hours, 1 hour to 30 days) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
 
     `crawl.sitemap.revisit`.
+    """
+
+
+class CrawlSyndicationRevisitNever(TypedDict):
+    """Never revisit the URL after its first visit, such as articles."""
+
+    kind: Literal["never"]
+
+
+class CrawlSyndicationRevisitEvery(TypedDict):
+    """Revisit at a fixed interval, in whole milliseconds (at least 1)."""
+
+    interval: int
+    """Interval between revisits in milliseconds (at least 1)."""
+
+    kind: Literal["every"]
+
+
+class CrawlSyndicationRevisitAdaptive(TypedDict):
+    """Multiplicative adaptive schedule (Nutch / `StormCrawler`, ADR 0139):
+    shrinks by `rate_changed` after a change and grows by `rate_unchanged`
+    after none, clamped to `[min, max]`. Default for pages.
+    """
+
+    initial: NotRequired[int]
+    """Initial revisit interval in milliseconds (default: 1 day)."""
+
+    kind: Literal["adaptive"]
+
+    max: NotRequired[int]
+    """Maximum revisit interval in milliseconds (default: 30 days)."""
+
+    min: NotRequired[int]
+    """Minimum revisit interval in milliseconds (default: 1 hour)."""
+
+    rate_changed: NotRequired[float]
+    """Fractional shrink applied after a changed visit, in `(0, 1]` (default: 0.5)."""
+
+    rate_unchanged: NotRequired[float]
+    """Fractional growth applied after an unchanged visit, in `(0, 1]` (default: 0.5)."""
+
+
+class CrawlSyndicationRevisitEstimated(TypedDict):
+    """Change-rate estimator schedule (Cho and Garcia-Molina, ADR 0139):
+    estimates change rate from visits and changes starting from a prior of
+    two intervals of `initial`, and schedules to reach `target_freshness`,
+    clamped to `[min, max]`.
+    """
+
+    initial: NotRequired[int]
+    """Prior interval in milliseconds (default: 1 day)."""
+
+    kind: Literal["estimated"]
+
+    max: NotRequired[int]
+    """Maximum revisit interval in milliseconds (default: 30 days)."""
+
+    min: NotRequired[int]
+    """Minimum revisit interval in milliseconds (default: 1 hour)."""
+
+    target_freshness: NotRequired[float]
+    """Target expected freshness, strictly in `(0, 1)` (default: 0.9)."""
+
+
+class CrawlSyndicationRevisitEntryRate(TypedDict):
+    """Entry-rate schedule for syndication sources (ADR 0139): one week
+    divided by the source's new entries per week, clamped to `[min, max]`
+    with validators and `[max(min, 1 hour), max]` without.
+    """
+
+    kind: Literal["entry_rate"]
+
+    max: NotRequired[int]
+    """Maximum revisit interval in milliseconds (default: 24 hours)."""
+
+    min: NotRequired[int]
+    """Minimum revisit interval in milliseconds when the source returns
+    validators (default: 15 minutes).
+    """
+
+
+class ConnectionCrawlSyndicationSettings(TypedDict):
+    """The `crawl.syndication` settings of `FoxhoundSettings`."""
+
+    discover: NotRequired[bool | None]
+    """Whether pages in scope that link an RSS or Atom feed via `<link rel="alternate" type="application/rss+xml|application/atom+xml">` add that feed as a syndication source. Unset (`null`, the default) is on in a Continuous crawl (`crawl.continuous.enabled: true`) and off elsewhere.
+
+    `crawl.syndication.discover`.
+    """
+
+    revisit: NotRequired[CrawlSyndicationRevisitNever | CrawlSyndicationRevisitEvery | CrawlSyndicationRevisitAdaptive | CrawlSyndicationRevisitEstimated | CrawlSyndicationRevisitEntryRate]
+    """Revisit policy for syndication sources (RSS and Atom feeds) in a Continuous crawl: `entry_rate` (one week divided by new entries per week, clamped to 15 minutes–24 hours with validators and 1 hour–24 hours without) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.syndication.revisit`.
     """
 
 
@@ -656,6 +784,8 @@ class ConnectionCrawlSettings(TypedDict):
     scope: NotRequired[ConnectionCrawlScopeSettings]
 
     sitemap: NotRequired[ConnectionCrawlSitemapSettings]
+
+    syndication: NotRequired[ConnectionCrawlSyndicationSettings]
 
 
 class ConnectionDatasetQuerySettings(TypedDict):
@@ -1475,6 +1605,23 @@ class RevisitPolicyEstimated(TypedDict):
     """Target expected freshness, strictly in `(0, 1)` (default: 0.9)."""
 
 
+class RevisitPolicyEntryRate(TypedDict):
+    """Entry-rate schedule for syndication sources (ADR 0139): one week
+    divided by the source's new entries per week, clamped to `[min, max]`
+    with validators and `[max(min, 1 hour), max]` without.
+    """
+
+    kind: Literal["entry_rate"]
+
+    max: NotRequired[int]
+    """Maximum revisit interval in milliseconds (default: 24 hours)."""
+
+    min: NotRequired[int]
+    """Minimum revisit interval in milliseconds when the source returns
+    validators (default: 15 minutes).
+    """
+
+
 class ConnectionRevisitSiteHintsSettings(TypedDict):
     """The `revisit.site_hints` settings of `FoxhoundSettings`."""
 
@@ -1514,6 +1661,18 @@ class ConnectionRevisitSiteHintsSettings(TypedDict):
     `revisit.site_hints.retry_after`.
     """
 
+    sy_update_period: NotRequired[bool]
+    """Whether an RSS feed's `sy:updatePeriod` (and `sy:updateFrequency`) acts as a floor for the source's next revisit in a Continuous crawl: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.site_hints.sy_update_period`.
+    """
+
+    ttl: NotRequired[bool]
+    """Whether an RSS feed's `<ttl>` element acts as a floor for the source's next revisit in a Continuous crawl: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.site_hints.ttl`.
+    """
+
 
 class ConnectionRevisitSettings(TypedDict):
     """The `revisit` settings of `FoxhoundSettings`."""
@@ -1542,7 +1701,7 @@ class ConnectionRevisitSettings(TypedDict):
     `revisit.on_unchanged`.
     """
 
-    policy: NotRequired[RevisitPolicyNever | RevisitPolicyEvery | RevisitPolicyAdaptive | RevisitPolicyEstimated]
+    policy: NotRequired[RevisitPolicyNever | RevisitPolicyEvery | RevisitPolicyAdaptive | RevisitPolicyEstimated | RevisitPolicyEntryRate]
     """How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `never` for pages read once, `every` for a fixed interval, `adaptive` (the default for pages: initial 1 day, min 1 hour, max 30 days, both rates 0.5) for multiplicative adjustment, or `estimated` (Cho and Garcia-Molina's estimator targeting `target_freshness`). Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
 
     `revisit.policy`.
@@ -2848,7 +3007,7 @@ class RunCrawlSitemapSettings(TypedDict):
 
     lastmod_trust: NotRequired[RunCrawlSitemapLastmodTrustSettings]
 
-    news_revisit: NotRequired[CrawlSitemapNewsRevisitNever | CrawlSitemapNewsRevisitEvery | CrawlSitemapNewsRevisitAdaptive | CrawlSitemapNewsRevisitEstimated]
+    news_revisit: NotRequired[CrawlSitemapNewsRevisitNever | CrawlSitemapNewsRevisitEvery | CrawlSitemapNewsRevisitAdaptive | CrawlSitemapNewsRevisitEstimated | CrawlSitemapNewsRevisitEntryRate]
     """Revisit policy for Google News sitemaps in a Continuous crawl: `adaptive` (initial 1 hour, 15 minutes to 24 hours) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
 
     `crawl.sitemap.news_revisit`.
@@ -2860,10 +3019,26 @@ class RunCrawlSitemapSettings(TypedDict):
     `crawl.sitemap.read_lastmod`.
     """
 
-    revisit: NotRequired[CrawlSitemapRevisitNever | CrawlSitemapRevisitEvery | CrawlSitemapRevisitAdaptive | CrawlSitemapRevisitEstimated]
+    revisit: NotRequired[CrawlSitemapRevisitNever | CrawlSitemapRevisitEvery | CrawlSitemapRevisitAdaptive | CrawlSitemapRevisitEstimated | CrawlSitemapRevisitEntryRate]
     """Revisit policy for standing sitemaps (other than Google News sitemaps) in a Continuous crawl: `adaptive` (initial 24 hours, 1 hour to 30 days) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
 
     `crawl.sitemap.revisit`.
+    """
+
+
+class RunCrawlSyndicationSettings(TypedDict):
+    """The `crawl.syndication` settings of `CrawlSettings`."""
+
+    discover: NotRequired[bool | None]
+    """Whether pages in scope that link an RSS or Atom feed via `<link rel="alternate" type="application/rss+xml|application/atom+xml">` add that feed as a syndication source. Unset (`null`, the default) is on in a Continuous crawl (`crawl.continuous.enabled: true`) and off elsewhere.
+
+    `crawl.syndication.discover`.
+    """
+
+    revisit: NotRequired[CrawlSyndicationRevisitNever | CrawlSyndicationRevisitEvery | CrawlSyndicationRevisitAdaptive | CrawlSyndicationRevisitEstimated | CrawlSyndicationRevisitEntryRate]
+    """Revisit policy for syndication sources (RSS and Atom feeds) in a Continuous crawl: `entry_rate` (one week divided by new entries per week, clamped to 15 minutes–24 hours with validators and 1 hour–24 hours without) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.syndication.revisit`.
     """
 
 
@@ -2973,6 +3148,8 @@ class RunCrawlSettings(TypedDict):
     scope: NotRequired[RunCrawlScopeSettings]
 
     sitemap: NotRequired[RunCrawlSitemapSettings]
+
+    syndication: NotRequired[RunCrawlSyndicationSettings]
 
 
 class RunDatasetQuerySettings(TypedDict):
@@ -3742,6 +3919,18 @@ class RunRevisitSiteHintsSettings(TypedDict):
     `revisit.site_hints.retry_after`.
     """
 
+    sy_update_period: NotRequired[bool]
+    """Whether an RSS feed's `sy:updatePeriod` (and `sy:updateFrequency`) acts as a floor for the source's next revisit in a Continuous crawl: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.site_hints.sy_update_period`.
+    """
+
+    ttl: NotRequired[bool]
+    """Whether an RSS feed's `<ttl>` element acts as a floor for the source's next revisit in a Continuous crawl: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.site_hints.ttl`.
+    """
+
 
 class RunRevisitSettings(TypedDict):
     """The `revisit` settings of `CrawlSettings`."""
@@ -3770,7 +3959,7 @@ class RunRevisitSettings(TypedDict):
     `revisit.on_unchanged`.
     """
 
-    policy: NotRequired[RevisitPolicyNever | RevisitPolicyEvery | RevisitPolicyAdaptive | RevisitPolicyEstimated]
+    policy: NotRequired[RevisitPolicyNever | RevisitPolicyEvery | RevisitPolicyAdaptive | RevisitPolicyEstimated | RevisitPolicyEntryRate]
     """How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `never` for pages read once, `every` for a fixed interval, `adaptive` (the default for pages: initial 1 day, min 1 hour, max 30 days, both rates 0.5) for multiplicative adjustment, or `estimated` (Cho and Garcia-Molina's estimator targeting `target_freshness`). Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
 
     `revisit.policy`.
@@ -4516,7 +4705,7 @@ class LabelRevisitSettings(TypedDict):
     `revisit.on_unchanged`.
     """
 
-    policy: NotRequired[RevisitPolicyNever | RevisitPolicyEvery | RevisitPolicyAdaptive | RevisitPolicyEstimated]
+    policy: NotRequired[RevisitPolicyNever | RevisitPolicyEvery | RevisitPolicyAdaptive | RevisitPolicyEstimated | RevisitPolicyEntryRate]
     """How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `never` for pages read once, `every` for a fixed interval, `adaptive` (the default for pages: initial 1 day, min 1 hour, max 30 days, both rates 0.5) for multiplicative adjustment, or `estimated` (Cho and Garcia-Molina's estimator targeting `target_freshness`). Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
 
     `revisit.policy`.

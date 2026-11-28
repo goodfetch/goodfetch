@@ -14,16 +14,18 @@ use rstest::rstest;
 use rusqlite::Connection;
 
 use super::{
-    FeedDocument, MAX_FEED_BYTES, MAX_FEED_ENTRIES, Refusal, Unreadable, admit_seed, ended, parse,
-    read, read_file, reports,
+    FeedDocument, FeedEntry, MAX_FEED_BYTES, MAX_FEED_ENTRIES, Refusal, SyUpdatePeriod, Unreadable,
+    admit_seed, ended, parse, parse_feed_date, read, read_file, reports,
 };
 use crate::bounds::{self, Bounds};
 use crate::invariants::Invariants;
 use crate::scope::{self, Patterns, Scope, Strategy};
+use crate::sitemap::ReadOptions;
 
 fn links(urls: &[&str]) -> FeedDocument {
     FeedDocument {
-        entries: urls.iter().map(|url| (*url).to_owned()).collect(),
+        entries: urls.iter().map(|url| FeedEntry::link(*url)).collect(),
+        ..FeedDocument::default()
     }
 }
 
@@ -218,7 +220,7 @@ fn admits_entries_by_first_matching_rule_and_reports_unreadable_sources() {
         &invariants,
         &policy,
         &good_id,
-        &doc,
+        (&doc, ReadOptions::default()),
         &work,
         |url, label| {
             admitted.push((url.as_str().to_owned(), label.to_owned()));
@@ -313,7 +315,10 @@ fn reports_out_of_scope_entries_and_source_failures() {
         &invariants,
         &policy,
         &broad_id,
-        &links(&["http://other.test/external"]),
+        (
+            &links(&["http://other.test/external"]),
+            ReadOptions::default(),
+        ),
         &work,
         |_, _| Ok(alloc_id()),
     )
@@ -340,6 +345,134 @@ fn reports_out_of_scope_entries_and_source_failures() {
         sources[1].failure.as_ref().expect("skip failure").code,
         "robots_txt"
     );
+}
+
+#[test]
+fn parses_ttl_sy_update_period_and_entry_dates_across_formats() {
+    let rss2 = r#"<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:sy="http://purl.org/rss/1.0/modules/syndication/">
+  <channel>
+    <title>News</title>
+    <ttl>45</ttl>
+    <sy:updatePeriod>hourly</sy:updatePeriod>
+    <sy:updateFrequency>1</sy:updateFrequency>
+    <item>
+      <link>http://shop.test/a1</link>
+      <pubDate>Mon, 02 Nov 2026 12:30:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>"#;
+    let doc = parse(rss2.as_bytes()).expect("rss2 with hints");
+    assert_eq!(doc.ttl_minutes, Some(45));
+    assert_eq!(doc.sy_update_period, Some(SyUpdatePeriod::Hourly));
+    assert_eq!(doc.sy_update_frequency, Some(1));
+    assert_eq!(doc.floor_duration_ms(true, false), Some(45 * 60_000));
+    assert_eq!(doc.floor_duration_ms(false, true), Some(60 * 60_000));
+    assert_eq!(doc.floor_duration_ms(true, true), Some(60 * 60_000));
+    assert_eq!(doc.floor_duration_ms(false, false), None);
+    let expected_ts = parse_feed_date("2026-11-02T12:30:00Z").expect("iso");
+    assert_eq!(doc.entries[0].updated_at, Some(expected_ts));
+    assert_eq!(
+        doc.entries_in_last_week(expected_ts.ms + 3_600_000),
+        Some(1)
+    );
+    assert_eq!(
+        doc.entries_in_last_week(expected_ts.ms + 8 * 86_400_000),
+        Some(0)
+    );
+
+    let atom = r#"<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <link href="http://shop.test/a2"/>
+    <published>2026-11-01T00:00:00Z</published>
+    <updated>2026-11-02T12:30:00Z</updated>
+  </entry>
+</feed>"#;
+    let atom_doc = parse(atom.as_bytes()).expect("atom with dates");
+    assert_eq!(atom_doc.entries[0].updated_at, Some(expected_ts));
+}
+
+#[test]
+fn syndication_read_reports_changed_on_new_or_updated_entry() {
+    let expected_ts = parse_feed_date("2026-11-02T12:30:00Z").expect("iso");
+    let atom = r#"<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <link href="http://shop.test/a2"/>
+    <published>2026-11-01T00:00:00Z</published>
+    <updated>2026-11-02T12:30:00Z</updated>
+  </entry>
+</feed>"#;
+    let atom_doc = parse(atom.as_bytes()).expect("atom with dates");
+
+    let (connection, invariants, policy) = test_db();
+    let work = CountedWork::default();
+    let mut seq = 0_u64;
+    let mut alloc = || {
+        seq += 1;
+        format!("id-{seq}")
+    };
+    let seed = SyndicationSeed {
+        syndication: "http://shop.test/atom.xml".to_owned(),
+        rules: vec![SitemapRule {
+            pattern: "**".to_owned(),
+            label: "article".to_owned(),
+        }],
+    };
+    let Enqueued::Added { id, .. } =
+        admit_seed(&connection, &invariants, &policy, &seed, |_| Ok(alloc())).expect("admit")
+    else {
+        panic!("expected added");
+    };
+    let first = read(
+        &connection,
+        &invariants,
+        &policy,
+        &id,
+        (&atom_doc, ReadOptions::default()),
+        &work,
+        |_, _| Ok(alloc()),
+    )
+    .expect("first read");
+    assert!(first.changed);
+    assert_eq!(first.added, 1);
+
+    let same = read(
+        &connection,
+        &invariants,
+        &policy,
+        &id,
+        (
+            &atom_doc,
+            ReadOptions {
+                previous_fetched_at: Some(expected_ts.ms),
+                ..ReadOptions::default()
+            },
+        ),
+        &work,
+        |_, _| Ok(alloc()),
+    )
+    .expect("second read unchanged");
+    assert!(!same.changed);
+    assert_eq!(same.added, 0);
+
+    let updated = read(
+        &connection,
+        &invariants,
+        &policy,
+        &id,
+        (
+            &atom_doc,
+            ReadOptions {
+                previous_fetched_at: Some(expected_ts.ms - 1_000),
+                ..ReadOptions::default()
+            },
+        ),
+        &work,
+        |_, _| Ok(alloc()),
+    )
+    .expect("third read updated entry");
+    assert!(updated.changed);
+    assert_eq!(updated.added, 0);
 }
 
 goodfetch_test_support::fuzz_replay!(crate::syndication::fuzz_syndication, "fuzz/syndication");

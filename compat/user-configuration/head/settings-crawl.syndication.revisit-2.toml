@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[settings.crawl.syndication]
+revisit = { interval = 3600000, kind = "every" }

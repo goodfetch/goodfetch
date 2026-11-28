@@ -142,15 +142,22 @@ impl Default for SiteHintSwitches {
 }
 
 /// Caching and freshness hints returned by the site (ADR 0139).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SiteHints {
     /// Earliest wall-clock timestamp (ms since Unix epoch) allowed by site
-    /// caching headers (`Cache-Control: max-age`, `Expires`, `Retry-After`).
+    /// caching headers (`Cache-Control: max-age`, `Expires`, `Retry-After`)
+    /// or feed hints (`<ttl>`, `sy:updatePeriod`).
     pub floor_at_ms: Option<u64>,
     /// Optional initial revisit interval hint in milliseconds (for example from
     /// a sitemap entry's `<changefreq>` when `revisit.site_hints.changefreq` is
     /// enabled), applied on the URL's first visit and clamped to `[min, max]`.
     pub initial_interval_ms: Option<u64>,
+    /// Observed new entries per week for `RevisitPolicy::EntryRate` (ADR 0139).
+    pub entries_per_week: Option<f64>,
+    /// Whether the source returned HTTP validators (`ETag` or `Last-Modified`),
+    /// which allows `RevisitPolicy::EntryRate` to use its 15-minute floor
+    /// instead of the 1-hour floor (ADR 0139).
+    pub has_validators: bool,
 }
 
 impl SiteHints {
@@ -189,6 +196,8 @@ impl SiteHints {
         Self {
             floor_at_ms: floor,
             initial_interval_ms: None,
+            entries_per_week: None,
+            has_validators: false,
         }
     }
 }
@@ -280,6 +289,14 @@ pub fn next_visit(
             min,
             max,
             target_freshness,
+            previous,
+            result,
+        ),
+        RevisitPolicy::EntryRate { min, max } => entry_rate_interval(
+            min,
+            max,
+            hints.entries_per_week,
+            hints.has_validators,
             previous,
             result,
         ),
@@ -391,6 +408,56 @@ fn estimated_interval(
     )]
     let rounded = raw.round() as u64;
     (rounded.clamp(min, max), false)
+}
+
+/// One week in milliseconds, numerator of `RevisitPolicy::EntryRate` (ADR 0139).
+pub const ONE_WEEK_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
+
+/// Entry-rate schedule for syndication sources (ADR 0139): one week divided by
+/// the source's new entries per week, clamped to `[min, max]` when the source
+/// returns validators (`ETag` / `Last-Modified`), and `[max(min, 1 hour), max]`
+/// when it does not.
+fn entry_rate_interval(
+    min: u64,
+    max: u64,
+    entries_per_week: Option<f64>,
+    has_validators: bool,
+    previous: PreviousState,
+    result: VisitResult,
+) -> (u64, bool) {
+    let min = min.max(1);
+    let max = max.max(min);
+    let effective_min = if has_validators {
+        min
+    } else {
+        min.max(goodfetch_protocol::foxhound::continuous::SYNDICATION_NO_VALIDATORS_MIN_MS)
+            .min(max)
+    };
+    let Some(rate) = entries_per_week else {
+        if result == VisitResult::Unchanged
+            && let Some(prev) = previous.interval_ms
+        {
+            return (prev.clamp(effective_min, max), false);
+        }
+        return (max, false);
+    };
+    if !rate.is_finite() || rate <= 0.0 {
+        return (max, false);
+    }
+    let raw = to_f64(ONE_WEEK_MS) / rate;
+    if !raw.is_finite() || raw >= to_f64(max) {
+        return (max, false);
+    }
+    if raw < to_f64(effective_min) {
+        return (effective_min, raw < to_f64(min));
+    }
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "raw is finite and strictly between effective_min and max"
+    )]
+    let rounded = raw.round() as u64;
+    (rounded.clamp(effective_min, max), false)
 }
 
 /// Solves `(1 - e^{-u}) / u = target_freshness` for `u > 0` by bisection.

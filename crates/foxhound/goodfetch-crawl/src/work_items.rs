@@ -694,19 +694,20 @@ pub(crate) fn read_syndication(
     policy: &Policy,
     (id, lease_epoch): (&str, u64),
     document: &syndication::FeedDocument,
+    options: sitemap::ReadOptions,
     (keys, work, changed): (&Keys, &CountedWork, &mut Changed),
-) -> rusqlite::Result<Option<Vec<Waiting>>> {
+) -> rusqlite::Result<Option<(Vec<Waiting>, syndication::ReadOutcome)>> {
     if !still_leased(connection, AttemptKey::new(id, lease_epoch))? {
         return Ok(None);
     }
     let mut positions = Positions::keying(connection, keys.clone())?;
     let no_hints = SitemapHintPolicy::default();
-    syndication::read(
+    let outcome = syndication::read(
         connection,
         invariants,
         policy,
         id,
-        document,
+        (document, options),
         work,
         |url, label| {
             add(
@@ -728,7 +729,70 @@ pub(crate) fn read_syndication(
         .prepare_cached(ENDED)
         .and_then(|mut cached| cached.execute((SUCCEEDED, id)))?;
     changed.fetches_ended += 1;
-    Ok(Some(changed.adds(&mut positions)))
+    Ok(Some((changed.adds(&mut positions), outcome)))
+}
+
+/// Ends a standing syndication feed fetch whose conditional request answered
+/// `304 Not Modified`, incrementing its read count with no new entries.
+pub(crate) fn read_syndication_unchanged(
+    connection: &Connection,
+    (id, lease_epoch): (&str, u64),
+    changed: &mut Changed,
+) -> rusqlite::Result<bool> {
+    if !still_leased(connection, AttemptKey::new(id, lease_epoch))? {
+        return Ok(false);
+    }
+    syndication::record_unchanged_read(connection, id)?;
+    connection
+        .prepare_cached(ENDED)
+        .and_then(|mut cached| cached.execute((SUCCEEDED, id)))?;
+    changed.fetches_ended += 1;
+    Ok(true)
+}
+
+/// Admits RSS/Atom feeds discovered via `<link rel="alternate">` on a page in
+/// scope (`crawl.syndication.discover`, ADR 0139), returning the newly added
+/// source work items ready to enter their domains' `LANE_SOURCE` queues.
+pub(crate) fn admit_discovered_feeds(
+    connection: &Connection,
+    invariants: &goodfetch_frontier::Invariants,
+    policy: &Policy,
+    feeds: &[String],
+    label: &str,
+    (keys, changed): (&Keys, &mut Changed),
+) -> rusqlite::Result<Vec<Leased>> {
+    if feeds.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut positions = Positions::keying(connection, keys.clone())?;
+    let rules = vec![goodfetch_protocol::foxhound::crawl::SitemapRule {
+        pattern: "**".to_owned(),
+        label: label.to_owned(),
+    }];
+    let no_hints = SitemapHintPolicy::default();
+    for feed_url in feeds {
+        let seed = SyndicationSeed {
+            syndication: feed_url.clone(),
+            rules: rules.clone(),
+        };
+        let answer = syndication::admit_discovered(connection, invariants, policy, &seed, |url| {
+            add(
+                connection,
+                &mut positions,
+                url,
+                from_sitemap(sitemap::Adding::Sitemap, &no_hints),
+            )
+        })?;
+        if matches!(answer, Enqueued::Added { .. }) {
+            positions.syndication_seed = true;
+        }
+    }
+    let waiting = changed.adds(&mut positions);
+    let mut leased = leasable_added(connection, &waiting)?;
+    for item in &mut leased {
+        item.waiting.lane = LANE_SOURCE;
+    }
+    Ok(leased)
 }
 
 /// Admits each seed through the Frontier within the Run's `invariants` and

@@ -1518,6 +1518,7 @@ impl Subject {
             chosen: None,
             revisit: None,
             claim_judgement: None,
+            discovered_feeds: None,
             ending,
         };
         let stored = crawl.stored();
@@ -1887,6 +1888,7 @@ fn a_work_item_readmitted_before_its_failed_attempt_settles_stays_pending() {
         chosen: None,
         revisit: None,
         claim_judgement: None,
+        discovered_feeds: None,
         ending: Ending::End {
             work_item: leased.crawl_request.id.clone(),
             lease_epoch: leased.lease_epoch,

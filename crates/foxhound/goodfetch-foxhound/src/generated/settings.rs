@@ -507,6 +507,34 @@ pub mod crawl {
             );
         }
     }
+
+    /// The `crawl.syndication.*` settings.
+    pub mod syndication {
+
+        /// Whether pages in scope that link an RSS or Atom feed via `<link rel="alternate" type="application/rss+xml|application/atom+xml">` add that feed as a syndication source. Unset (`null`, the default) is on in a Continuous crawl (`crawl.continuous.enabled: true`) and off elsewhere.
+        ///
+        /// `crawl.syndication.discover`. `None` clears it.
+        pub const DISCOVER: crate::settings::Setting<Option<bool>> = crate::settings::Setting::new(
+            "crawl.syndication.discover",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+
+        /// Revisit policy for syndication sources (RSS and Atom feeds) in a Continuous crawl: `entry_rate` (one week divided by new entries per week, clamped to 15 minutes–24 hours with validators and 1 hour–24 hours without) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+        ///
+        /// `crawl.syndication.revisit`.
+        pub const REVISIT: crate::settings::Setting<
+            ::goodfetch_protocol::foxhound::continuous::RevisitPolicy,
+        > = crate::settings::Setting::new(
+            "crawl.syndication.revisit",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+    }
 }
 
 /// The `dataset.*` settings.
@@ -1375,6 +1403,28 @@ pub mod revisit {
                 ::goodfetch_protocol::catalog::SettingScope::Connection,
                 ::goodfetch_protocol::catalog::SettingScope::Run,
                 ::goodfetch_protocol::catalog::SettingScope::Label,
+            ],
+        );
+
+        /// Whether an RSS feed's `sy:updatePeriod` (and `sy:updateFrequency`) acts as a floor for the source's next revisit in a Continuous crawl: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+        ///
+        /// `revisit.site_hints.sy_update_period`.
+        pub const SY_UPDATE_PERIOD: crate::settings::Setting<bool> = crate::settings::Setting::new(
+            "revisit.site_hints.sy_update_period",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+
+        /// Whether an RSS feed's `<ttl>` element acts as a floor for the source's next revisit in a Continuous crawl: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+        ///
+        /// `revisit.site_hints.ttl`.
+        pub const TTL: crate::settings::Setting<bool> = crate::settings::Setting::new(
+            "revisit.site_hints.ttl",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
             ],
         );
 

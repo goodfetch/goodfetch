@@ -76,6 +76,10 @@ pub struct UntouchedDemand {
     /// document's hand-off to the CPU pool (issue 2189); the default, no
     /// format, for a crawl reading none.
     pub formats: FormatsRequest,
+    /// Whether `<link rel="alternate">` RSS and Atom feeds are discovered as a
+    /// stage of the Page analysis (`crawl.syndication.discover`, ADR 0139,
+    /// ADR 0140 F1): 0 work and 0 selector compilations when `false`.
+    pub discover_feeds: bool,
 }
 
 /// The readers of the untouched page, built once per Run for a Label.
@@ -86,6 +90,7 @@ pub struct UntouchedReaders {
     canonical: dom_query::Matcher,
     controls: dom_query::Matcher,
     robots: dom_query::Matcher,
+    feed_links: Option<dom_query::Matcher>,
     signals: SignalReaders,
     links: Vec<(String, Result<dom_query::Matcher, SelectorInvalid>)>,
     fields: Option<(Vec<FieldLocator>, Located)>,
@@ -172,6 +177,9 @@ struct StreamReaders {
     /// For each selector the Page check names, its selector, none for one
     /// the engine does not read.
     page_check: Vec<Option<StreamSelector>>,
+    /// `<link rel][href]>` selector for RSS/Atom feed discovery, compiled only
+    /// when `discover_feeds` is `true` (ADR 0140, F1).
+    feed_links: Option<StreamSelector>,
 }
 
 impl StreamReaders {
@@ -214,6 +222,11 @@ impl StreamReaders {
             .flat_map(|(_, matchers)| matchers)
             .map(|(selector, matcher)| each(selector, matcher.is_some()))
             .collect::<Option<_>>()?;
+        let feed_links = if readers.feed_links.is_some() {
+            Some(literal(FEED_LINK)?)
+        } else {
+            None
+        };
         Some(Self {
             streaming: Streaming::new(work),
             base: literal(BASE)?,
@@ -223,11 +236,12 @@ impl StreamReaders {
             links,
             fields,
             page_check,
+            feed_links,
         })
     }
 
     /// The queries of one pass, in [`StreamRead::of`]'s order, with where
-    /// its links' and its fields' answers end.
+    /// its links', fields', and `page_check` answers end.
     fn queries(&self) -> (Vec<Query<'_>>, Ends) {
         let all = |selector| Query {
             selector,
@@ -248,16 +262,28 @@ impl StreamReaders {
         queries.extend(self.fields.iter().flatten().map(first));
         let fields = queries.len();
         queries.extend(self.page_check.iter().flatten().map(first));
-        (queries, Ends { links, fields })
+        let page_check = queries.len();
+        if let Some(feed_links) = &self.feed_links {
+            queries.push(all(feed_links));
+        }
+        (
+            queries,
+            Ends {
+                links,
+                fields,
+                page_check,
+            },
+        )
     }
 }
 
-/// Where a pass's answers to its links' queries and to its fields' end,
+/// Where a pass's answers to its links', fields', and `page_check` queries end,
 /// those of its [`FIXED`] readers first.
 #[derive(Clone, Copy, Debug)]
 struct Ends {
     links: usize,
     fields: usize,
+    page_check: usize,
 }
 
 /// What the readers of the untouched page read of a document in one
@@ -271,6 +297,7 @@ pub(crate) struct StreamRead {
     links: Vec<Vec<Streamed>>,
     fields: Vec<Vec<Streamed>>,
     page_check: Vec<Vec<Streamed>>,
+    feed_links: Vec<Streamed>,
 }
 
 impl StreamRead {
@@ -288,7 +315,8 @@ impl StreamRead {
         );
         let links = next(ends.links - FIXED);
         let fields = next(ends.fields - ends.links);
-        let page_check = next(usize::MAX);
+        let page_check = next(ends.page_check - ends.fields);
+        let feed_links = read.next().unwrap_or_default();
         Self {
             base,
             refresh,
@@ -297,6 +325,7 @@ impl StreamRead {
             links,
             fields,
             page_check,
+            feed_links,
         }
     }
 
@@ -337,6 +366,7 @@ impl UntouchedReaders {
             signs,
             keeps,
             formats,
+            discover_feeds,
         } = demand;
         let page_check = page_check.map(|check| {
             let selectors = expected_page::selectors(&check)
@@ -350,6 +380,7 @@ impl UntouchedReaders {
             canonical: literal(canonical::LINK),
             controls: literal(CONTROLS),
             robots: literal(expected_page::ROBOTS),
+            feed_links: discover_feeds.then(|| literal(FEED_LINK)),
             signals: SignalReaders {
                 meta: literal(SignalReaders::META),
                 base: literal(SignalReaders::BASE),
@@ -418,15 +449,16 @@ impl UntouchedReaders {
 
     /// [`UntouchedReaders::read`] of a crawl request's own document, which
     /// the streaming path read as `streamed`: the document fetched at
-    /// `url`. It holds no Page signature and no `rel=canonical`, which
-    /// only a Run that learns reads, on the tree.
-    pub(crate) fn read_streamed(&self, streamed: StreamRead, url: &str) -> Read {
+    /// `url`, whose base URL is `base`. It holds no Page signature and no
+    /// `rel=canonical`, which only a Run that learns reads, on the tree.
+    pub(crate) fn read_streamed(&self, streamed: StreamRead, url: &str, base: &str) -> Read {
         let StreamRead {
             controls,
             robots,
             links: mut streamed_links,
             fields: streamed_fields,
             page_check: checked,
+            feed_links,
             ..
         } = streamed;
         let mut streamed_links = streamed_links.drain(..);
@@ -477,12 +509,24 @@ impl UntouchedReaders {
                 .collect();
             (check.clone(), verdict, robots)
         });
+        let discovered_feeds = if self.feed_links.is_some() {
+            extract_feed_links(
+                base,
+                feed_links.iter().filter_map(|link| {
+                    let own = link.held.first()?;
+                    Some((own.attr("rel"), own.attr("type"), own.attr("href")))
+                }),
+            )
+        } else {
+            Vec::new()
+        };
         Read {
             links,
             fields,
             page_check,
             canonical: None,
             signature: None,
+            discovered_feeds,
         }
     }
 
@@ -599,6 +643,28 @@ impl UntouchedReaders {
         } else {
             None
         };
+        let discovered_feeds = match &self.feed_links {
+            Some(matcher) => {
+                let selection = document.select_matcher(matcher);
+                let items: Vec<_> = selection
+                    .iter()
+                    .map(|node| {
+                        (
+                            node.attr("rel").map(|v| v.to_string()),
+                            node.attr("type").map(|v| v.to_string()),
+                            node.attr("href").map(|v| v.to_string()),
+                        )
+                    })
+                    .collect();
+                extract_feed_links(
+                    base,
+                    items
+                        .iter()
+                        .map(|(r, t, h)| (r.as_deref(), t.as_deref(), h.as_deref())),
+                )
+            }
+            None => Vec::new(),
+        };
         let (signature, kept) = match (self.signs, self.keeps) {
             (true, true) => (
                 Some(signed(work.copy_tree(Row::PageTreeCopies, &document))),
@@ -613,6 +679,7 @@ impl UntouchedReaders {
             page_check,
             canonical,
             signature,
+            discovered_feeds,
         };
         (read, kept)
     }
@@ -630,6 +697,48 @@ type Found = Result<Vec<Option<FieldElement>>, LocatorInvalid>;
 
 /// What a document's `<base>` is found by.
 const BASE: &str = "base[href]";
+
+/// What RSS/Atom feed discovery links are found by (`crawl.syndication.discover`).
+const FEED_LINK: &str = "link[rel][href]";
+
+/// Extracts resolved RSS and Atom feed URLs from `<link rel="alternate">`
+/// elements (`application/rss+xml` and `application/atom+xml`), deduplicated
+/// in document order (ADR 0139).
+fn extract_feed_links<'a>(
+    base: &str,
+    elements: impl IntoIterator<Item = (Option<&'a str>, Option<&'a str>, Option<&'a str>)>,
+) -> Vec<Url> {
+    let Ok(base_url) = Url::parse(base) else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    for (rel, mime, href) in elements {
+        let Some(rel) = rel else { continue };
+        if !rel
+            .split_ascii_whitespace()
+            .any(|token| token.eq_ignore_ascii_case("alternate"))
+        {
+            continue;
+        }
+        let Some(mime) = mime else { continue };
+        let essence = mime.split(';').next().unwrap_or("").trim();
+        if !essence.eq_ignore_ascii_case("application/rss+xml")
+            && !essence.eq_ignore_ascii_case("application/atom+xml")
+        {
+            continue;
+        }
+        let Some(href) = href.map(str::trim).filter(|h| !h.is_empty()) else {
+            continue;
+        };
+        let Ok(resolved) = base_url.join(href) else {
+            continue;
+        };
+        if matches!(resolved.scheme(), "http" | "https") && !found.contains(&resolved) {
+            found.push(resolved);
+        }
+    }
+    found
+}
 
 /// How many of the streaming path's queries every pass reads: the
 /// `<base>`, refresh, `aria-controls` and robots `meta` elements.
@@ -721,9 +830,17 @@ pub(crate) struct Read {
     canonical: Option<Url>,
     /// Its Page signature, while the Run learns.
     signature: Option<[u8; 32]>,
+    /// RSS and Atom feed URLs discovered via `<link rel="alternate">` when
+    /// `crawl.syndication.discover` is enabled (ADR 0139).
+    discovered_feeds: Vec<Url>,
 }
 
 impl Read {
+    /// RSS and Atom feed URLs discovered via `<link rel="alternate">` during
+    /// the Page analysis stage (empty when `crawl.syndication.discover` is off).
+    pub(crate) fn discovered_feeds(&self) -> &[Url] {
+        &self.discovered_feeds
+    }
     /// The links `selector` matched, when the Run asked for them.
     pub(crate) fn links(&self, selector: &str) -> Option<Result<Vec<Matched>, SelectorInvalid>> {
         self.links

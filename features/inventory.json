@@ -9842,6 +9842,26 @@
       ]
     },
     {
+      "id": "setting:crawl.syndication.discover",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:crawl.syndication.revisit",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:daemon.address",
       "kind": "setting",
       "area": 3,
@@ -11413,6 +11433,26 @@
     },
     {
       "id": "setting:revisit.site_hints.retry_after",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:revisit.site_hints.sy_update_period",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:revisit.site_hints.ttl",
       "kind": "setting",
       "area": 3,
       "milestone": null,

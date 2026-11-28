@@ -98,7 +98,7 @@ pub const KIND_PARTS: [&KindPart; 1] = [&foxhound::progress::CRAWL_RUN_PROGRESS]
 
 /// Every setting value that yields to another setting, which
 /// `config explain` names in its `yields_to` (#2418).
-pub const YIELDING: [&Yielding; 36] = [
+pub const YIELDING: [&Yielding; 39] = [
     &foxhound::continuous::REVISIT_POLICY_YIELDS_TO_BATCH,
     &foxhound::continuous::REVISIT_CHANGE_CHECK_YIELDS_TO_BATCH,
     &foxhound::continuous::REVISIT_ON_UNCHANGED_YIELDS_TO_BATCH,
@@ -110,11 +110,14 @@ pub const YIELDING: [&Yielding; 36] = [
     &foxhound::continuous::REVISIT_SITE_HINTS_CHANGEFREQ_YIELDS_TO_BATCH,
     &foxhound::continuous::REVISIT_SITE_HINTS_PRIORITY_YIELDS_TO_BATCH,
     &foxhound::continuous::REVISIT_SITE_HINTS_LASTMOD_YIELDS_TO_BATCH,
+    &foxhound::continuous::REVISIT_SITE_HINTS_TTL_YIELDS_TO_BATCH,
+    &foxhound::continuous::REVISIT_SITE_HINTS_SY_UPDATE_PERIOD_YIELDS_TO_BATCH,
     &foxhound::continuous::CRAWL_SITEMAP_LASTMOD_TRUST_MIN_CLAIMS_YIELDS_TO_BATCH,
     &foxhound::continuous::CRAWL_SITEMAP_LASTMOD_TRUST_MIN_PRECISION_YIELDS_TO_BATCH,
     &foxhound::continuous::CRAWL_SITEMAP_LASTMOD_TRUST_WINDOW_YIELDS_TO_BATCH,
     &foxhound::continuous::CRAWL_SITEMAP_NEWS_REVISIT_YIELDS_TO_BATCH,
     &foxhound::continuous::CRAWL_SITEMAP_REVISIT_YIELDS_TO_BATCH,
+    &foxhound::continuous::CRAWL_SYNDICATION_REVISIT_YIELDS_TO_BATCH,
     &foxhound::continuous::CRAWL_CONTINUOUS_MAX_ENTRY_AGE_YIELDS_TO_BATCH,
     &foxhound::continuous::CRAWL_CONTINUOUS_RETENTION_YIELDS_TO_BATCH,
     &foxhound::continuous::CRAWL_CONTINUOUS_MERGED_KEPT_YIELDS_TO_BATCH,

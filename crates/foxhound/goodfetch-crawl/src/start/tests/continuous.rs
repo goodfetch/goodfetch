@@ -3443,3 +3443,328 @@ fn lastmod_trust_honest_half_right_stamped_and_news_claims() {
         "expected news_false_claims for news.test: {freshness}"
     );
 }
+
+/// A Continuous crawl reads syndication feeds under `entry_rate` (clamped by
+/// validators and `<ttl>`/`sy:updatePeriod` floors), discovers feeds via
+/// `<link rel="alternate">` when `crawl.syndication.discover` is on (default
+/// in Continuous crawls, off in batch), and brings a visited URL's revisit
+/// forward when a feed entry's update date is later than `last_fetched_at`
+/// (ADR 0139; issue 1857).
+///
+/// Covers: setting:crawl.syndication.revisit, setting:crawl.syndication.discover, setting:revisit.site_hints.ttl, setting:revisit.site_hints.sy_update_period
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end continuous crawl test covering feed discovery, entry_rate, ttl floor, update date bring-forward, and batch yields_to"
+)]
+#[test]
+fn continuous_crawl_discovers_feeds_reads_by_entry_rate_and_brings_revisits_forward() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let env = TestEnv::new();
+    let feed_fetches = Arc::new(AtomicUsize::new(0));
+    let article_fetches = Arc::new(AtomicUsize::new(0));
+    let ttl_feed_fetches = Arc::new(AtomicUsize::new(0));
+
+    let feed_fetches_s = Arc::clone(&feed_fetches);
+    let article_fetches_s = Arc::clone(&article_fetches);
+    let ttl_feed_fetches_s = Arc::clone(&ttl_feed_fetches);
+
+    let site = Arc::new(ScriptedSite {
+        recorded: std::sync::Mutex::new(Vec::new()),
+        respond: Box::new(move |request| {
+            let url = request.url.as_str();
+            if request.url.path() == "/robots.txt" {
+                return (
+                    200,
+                    vec![("content-type".to_owned(), "text/plain".to_owned())],
+                    String::new(),
+                );
+            }
+            if url == "https://feeds.test/" {
+                return (
+                    200,
+                    vec![(
+                        "content-type".to_owned(),
+                        "text/html; charset=utf-8".to_owned(),
+                    )],
+                    r#"<!doctype html><html><head>
+                        <link rel="alternate" type="application/rss+xml" href="/rss.xml">
+                    </head><body><h1>Home</h1></body></html>"#
+                        .to_owned(),
+                );
+            }
+            if url == "https://feeds.test/rss.xml" {
+                let n = feed_fetches_s.fetch_add(1, Ordering::SeqCst) + 1;
+                // Generate 1000 recent entries dated near now? No: 1 entry + explicit
+                // `min = 5s, max = 30s` or standard `entry_rate` with validators!
+                // On fetch 1: article-1 dated 2026-01-01T00:00:00Z.
+                // On fetch 2+: article-1 updated to a timestamp > last_fetched_at,
+                // bringing article-1's revisit forward well before its 1h policy interval!
+                let body = if n == 1 {
+                    r#"<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>Feeds</title>
+  <item><link>https://feeds.test/article-1</link><pubDate>Mon, 05 Jan 2026 08:00:00 GMT</pubDate></item>
+</channel></rss>"#
+                        .to_owned()
+                } else {
+                    r#"<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>Feeds</title>
+  <item><link>https://feeds.test/article-1</link><pubDate>Mon, 05 Jan 2026 10:00:00 GMT</pubDate></item>
+  <item><link>https://feeds.test/article-2</link><pubDate>Mon, 05 Jan 2026 10:00:00 GMT</pubDate></item>
+</channel></rss>"#
+                        .to_owned()
+                };
+                return (
+                    200,
+                    vec![
+                        ("content-type".to_owned(), "application/rss+xml".to_owned()),
+                        ("etag".to_owned(), format!("\"v{n}\"")),
+                    ],
+                    body,
+                );
+            }
+            if url == "https://ttl.test/feed.xml" {
+                ttl_feed_fetches_s.fetch_add(1, Ordering::SeqCst);
+                // <ttl>120</ttl> = 2 hours floor, stronger than the 20s entry_rate max!
+                return (
+                    200,
+                    vec![
+                        ("content-type".to_owned(), "application/rss+xml".to_owned()),
+                        ("etag".to_owned(), "\"ttl-1\"".to_owned()),
+                    ],
+                    r#"<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:sy="http://purl.org/rss/1.0/modules/syndication/">
+  <channel>
+    <title>TTL Feed</title>
+    <ttl>120</ttl>
+    <sy:updatePeriod>hourly</sy:updatePeriod>
+    <item><link>https://ttl.test/p1</link></item>
+  </channel>
+</rss>"#
+                        .to_owned(),
+                );
+            }
+            if url == "https://feeds.test/article-1" {
+                let n = article_fetches_s.fetch_add(1, Ordering::SeqCst) + 1;
+                return (
+                    200,
+                    vec![(
+                        "content-type".to_owned(),
+                        "text/html; charset=utf-8".to_owned(),
+                    )],
+                    format!(
+                        "<html><body><main><h1>Article 1</h1><p>version {n}</p></main></body></html>"
+                    ),
+                );
+            }
+            (
+                200,
+                vec![(
+                    "content-type".to_owned(),
+                    "text/html; charset=utf-8".to_owned(),
+                )],
+                format!("<html><body><main><h1>{url}</h1></main></body></html>"),
+            )
+        }),
+    });
+    let engine = engine_with_site(Arc::clone(&site));
+    let mut handler = |_: &Value| Reply::Records(Vec::new());
+
+    let (explained, batch_report, cont_report) = super::crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            // 1. Batch crawl: config.explain marks syndication revisit & ttl/sy_update_period inactive.
+            let explained = client
+                .call(
+                    "config.explain",
+                    json!({
+                        "settings": {
+                            "crawl": {
+                                "continuous": { "enabled": false },
+                                "syndication": {
+                                    "revisit": { "kind": "entry_rate", "min": 900_000, "max": 86_400_000 }
+                                }
+                            },
+                            "revisit": {
+                                "site_hints": {
+                                    "ttl": true,
+                                    "sy_update_period": true
+                                }
+                            }
+                        }
+                    }),
+                    &mut handler,
+                )
+                .await;
+
+            // 2. Batch crawl with default `crawl.syndication.discover` (off) does NOT discover `/rss.xml`.
+            let batch_started = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "syndication-batch-off",
+                        "seeds": [{ "url": "https://feeds.test/", "label": "page" }],
+                        "labels": { "page": {} },
+                    }),
+                    &mut handler,
+                )
+                .await;
+            assert!(batch_started.get("error").is_none(), "{batch_started}");
+            let batch_report = client
+                .call(
+                    "run.report",
+                    json!({ "run_id": "syndication-batch-off" }),
+                    &mut handler,
+                )
+                .await;
+            assert_eq!(
+                feed_fetches.load(Ordering::SeqCst),
+                0,
+                "batch crawl must not discover feeds when crawl.syndication.discover is unset"
+            );
+
+            // 3. Continuous crawl: discovers `/rss.xml`, re-reads it under `entry_rate`
+            //    (with max=10s), brings `article-1` forward via its updated pubDate, and
+            //    respects `<ttl>120</ttl>` floor on `ttl.test/feed.xml` (so it is NOT re-read within 30s).
+            let started = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "syndication-continuous-1",
+                        "seeds": [
+                            { "url": "https://feeds.test/", "label": "page" },
+                            { "syndication": "https://ttl.test/feed.xml", "rules": [{ "pattern": "**", "label": "page" }] },
+                        ],
+                        "labels": {
+                            "page": {
+                                "settings": {
+                                    "revisit": {
+                                        "policy": {
+                                            "kind": "adaptive",
+                                            "initial": 3_600_000,
+                                            "min": 5_000,
+                                            "max": 3_600_000
+                                        },
+                                        "change_check": "signature"
+                                    }
+                                }
+                            }
+                        },
+                        "settings": {
+                            "crawl": {
+                                "continuous": {
+                                    "enabled": true,
+                                    "max_entry_age": null
+                                },
+                                "syndication": {
+                                    "revisit": { "kind": "entry_rate", "min": 5_000, "max": 10_000 },
+                                    "discover": true
+                                }
+                            },
+                            "revisit": {
+                                "site_hints": {
+                                    "ttl": true,
+                                    "sy_update_period": true
+                                }
+                            }
+                        }
+                    }),
+                    &mut handler,
+                )
+                .await;
+            assert!(started.get("error").is_none(), "{started}");
+
+            // Wait until initial crawl + discovered feed read settles idle.
+            let _ = progress_matching(
+                client,
+                "syndication-continuous-1",
+                |p| p["idle"] == json!(true),
+                &mut handler,
+            )
+            .await;
+
+            // Advance 12s: `/rss.xml` is re-read at t=10s (bringing `article-1` forward
+            // to t=10s + 5s = t=15s, well before its 1h initial interval!).
+            advance(Duration::from_secs(12)).await;
+            let _ = progress_matching(
+                client,
+                "syndication-continuous-1",
+                |p| p["idle"] == json!(true),
+                &mut handler,
+            )
+            .await;
+
+            // Advance another 10s so the brought-forward revisit of `article-1` runs.
+            // Meanwhile `ttl.test/feed.xml` has `<ttl>120</ttl>` (2h floor) so it is fetched only once!
+            advance(Duration::from_secs(10)).await;
+            let _ = progress_matching(
+                client,
+                "syndication-continuous-1",
+                |p| p["idle"] == json!(true),
+                &mut handler,
+            )
+            .await;
+
+            let cont_report = client
+                .call(
+                    "run.finish",
+                    json!({ "run_id": "syndication-continuous-1" }),
+                    &mut handler,
+                )
+                .await;
+            (explained, batch_report, cont_report)
+        },
+    )
+    .0;
+
+    // Verify yields_to on batch crawl.
+    let settings = explained["result"]["settings"]
+        .as_array()
+        .expect("config.explain settings");
+    for key in [
+        "crawl.syndication.revisit",
+        "revisit.site_hints.ttl",
+        "revisit.site_hints.sy_update_period",
+    ] {
+        let entry = settings
+            .iter()
+            .find(|s| s["key"] == key)
+            .unwrap_or_else(|| panic!("missing {key} in config.explain"));
+        assert_eq!(
+            entry["yields_to"]["key"], "crawl.continuous.enabled",
+            "expected {key} to yield to crawl.continuous.enabled: {entry}"
+        );
+    }
+
+    assert!(
+        batch_report["result"]["sources"]
+            .as_array()
+            .is_none_or(Vec::is_empty)
+    );
+    assert!(
+        feed_fetches.load(Ordering::SeqCst) >= 2,
+        "discovered feed should have been fetched and re-read under entry_rate: got {}",
+        feed_fetches.load(Ordering::SeqCst)
+    );
+    assert!(
+        article_fetches.load(Ordering::SeqCst) >= 2,
+        "article-1 should have been brought forward by updated pubDate before its 1h interval: got {}",
+        article_fetches.load(Ordering::SeqCst)
+    );
+    assert_eq!(
+        ttl_feed_fetches.load(Ordering::SeqCst),
+        1,
+        "<ttl>120</ttl> floor must prevent re-reading ttl.test/feed.xml within 25s"
+    );
+    let sources = cont_report["result"]["sources"]
+        .as_array()
+        .expect("continuous report sources");
+    assert!(
+        sources
+            .iter()
+            .any(|s| s["url"] == "https://feeds.test/rss.xml"),
+        "discovered feed must appear in report.sources: {sources:?}"
+    );
+}

@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[lock.crawl.sitemap]
+news_revisit = { kind = "entry_rate", max = 86400000, min = 900000 }

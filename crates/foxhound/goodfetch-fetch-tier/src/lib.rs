@@ -89,8 +89,8 @@ pub use sniffing::sniff;
 pub use tiers::calls::markup::compile_selectors as compile_served_call_selectors;
 pub use tiers::{
     Chosen, FetchTiers, FieldsFound, HandedOver, HttpTier, Judged, Lesson, LinksUnread,
-    PAGE_CHECK_CALL, PageFacts, Race, RaceEnd, ServedLinks, Signed, record_race, record_tier,
-    tier_provenance,
+    PAGE_CHECK_CALL, PageFacts, Race, RaceEnd, ServedLinks, Signed, SourceHeaders,
+    SyndicationFetched, record_race, record_tier, tier_provenance,
 };
 pub use transports::{
     AddressCheck, LocalSource, Reqwest, TransportConfig, TransportUnavailable, Wreq,

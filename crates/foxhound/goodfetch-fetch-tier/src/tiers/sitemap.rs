@@ -14,7 +14,62 @@ use url::Url;
 use super::HttpTier;
 use crate::chain::{Gating, HopGate, Skip, Stop, follow};
 use crate::driver::{FetchFailure, Hop, fetch};
-use crate::gate::HandOver;
+use crate::gate::{ConditionalRevisit, HandOver};
+
+/// Response headers of a syndication source fetch relevant to revisit
+/// scheduling (`ETag`, `Last-Modified`, caching floors; ADR 0139).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SourceHeaders {
+    /// `ETag` validator header, if returned.
+    pub etag: Option<String>,
+    /// `Last-Modified` validator header, if returned.
+    pub last_modified: Option<String>,
+    /// `Cache-Control` header, if returned.
+    pub cache_control: Option<String>,
+    /// `Expires` header, if returned.
+    pub expires: Option<String>,
+    /// `Retry-After` header, if returned.
+    pub retry_after: Option<String>,
+    /// `Date` header, if returned.
+    pub date: Option<String>,
+}
+
+impl SourceHeaders {
+    fn from_pairs(pairs: &[(String, String)]) -> Self {
+        let find = |target: &str| {
+            pairs
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case(target))
+                .map(|(_, value)| value.clone())
+        };
+        Self {
+            etag: find("etag"),
+            last_modified: find("last-modified"),
+            cache_control: find("cache-control"),
+            expires: find("expires"),
+            retry_after: find("retry-after"),
+            date: find("date"),
+        }
+    }
+}
+
+/// Outcome of fetching a syndication feed with optional conditional validators
+/// (ADR 0139).
+#[derive(Clone, Debug)]
+pub enum SyndicationFetched {
+    /// The server returned a 2xx feed body.
+    Modified {
+        /// The decoded feed body.
+        body: Bytes,
+        /// Response validators and caching floor headers.
+        headers: SourceHeaders,
+    },
+    /// The server answered `304 Not Modified` to our conditional request.
+    NotModified {
+        /// Updated validators / caching headers from the 304 response, if any.
+        headers: SourceHeaders,
+    },
+}
 
 impl HttpTier {
     /// Fetches the sitemap at `url` for `hand_over`'s Run (ADR 0093): a
@@ -35,11 +90,22 @@ impl HttpTier {
     ///
     /// Dropping the future closes the fetch's connection.
     pub async fn sitemap(&self, url: &Url, hand_over: &HandOver) -> Result<Bytes, FetchFailure> {
-        self.source_fetch("sitemap", url, hand_over).await
+        match self.source_fetch("sitemap", url, hand_over, None).await? {
+            SyndicationFetched::Modified { body, .. } => Ok(body),
+            SyndicationFetched::NotModified { .. } => Err(CallError::new(
+                &RESPONSE_NOT_OK,
+                "unexpected 304 Not Modified on a sitemap fetch",
+                &serde_json::json!({ "url": url.as_str() }),
+            )
+            .into()),
+        }
     }
 
     /// Fetches the syndication feed at `url` for `hand_over`'s Run (ADRs 0093
-    /// and 0139): same transport, redirect and Politeness rules as [`Self::sitemap`].
+    /// and 0139): same transport, redirect and Politeness rules as
+    /// [`Self::sitemap`], optionally sending `If-None-Match` /
+    /// `If-Modified-Since` from `conditional` and returning `304 Not Modified`
+    /// as [`SyndicationFetched::NotModified`].
     ///
     /// # Errors
     ///
@@ -53,8 +119,10 @@ impl HttpTier {
         &self,
         url: &Url,
         hand_over: &HandOver,
-    ) -> Result<Bytes, FetchFailure> {
-        self.source_fetch("syndication feed", url, hand_over).await
+        conditional: Option<&ConditionalRevisit>,
+    ) -> Result<SyndicationFetched, FetchFailure> {
+        self.source_fetch("syndication feed", url, hand_over, conditional)
+            .await
     }
 
     async fn source_fetch(
@@ -62,39 +130,62 @@ impl HttpTier {
         kind: &str,
         url: &Url,
         hand_over: &HandOver,
-    ) -> Result<Bytes, FetchFailure> {
+        conditional: Option<&ConditionalRevisit>,
+    ) -> Result<SyndicationFetched, FetchFailure> {
         let run = &hand_over.run().identity;
         let clock = run.clock();
         let gate = SitemapHops(hand_over);
-        let fetched = follow(
-            Hop::get(url.clone()),
+        let mut hop = Hop::get(url.clone());
+        if let Some(cond) = conditional {
+            if let Some(etag) = &cond.etag {
+                hop.headers.push(("if-none-match".to_owned(), etag.clone()));
+            }
+            if let Some(last_modified) = &cond.last_modified {
+                hop.headers
+                    .push(("if-modified-since".to_owned(), last_modified.clone()));
+            }
+        }
+        let fetched = match follow(
+            hop,
             &self.following,
             &gate,
             (&clock, run.owner(), run.metrics().counted_work()),
             |hop| async move { fetch(self.transport.as_ref(), &hop, &self.bounds, &clock).await },
         )
         .await
-        .map_err(|stop| match stop {
-            Stop::Failed(failure) => failure,
-            // The open gate skips no hop, and reads no robots.txt.
-            Stop::Skipped(Skip { message, .. }) | Stop::RobotsTxtUnreachable { message, .. } => {
-                CallError::new(
-                    &RESPONSE_NOT_OK,
-                    message,
-                    &serde_json::json!({ "url": url.as_str() }),
-                )
-                .into()
+        {
+            Ok(fetched) => fetched,
+            Err(Stop::NotModified { headers, .. }) if conditional.is_some() => {
+                return Ok(SyndicationFetched::NotModified {
+                    headers: SourceHeaders::from_pairs(&headers),
+                });
             }
-            Stop::NotModified { .. } => CallError::new(
-                &RESPONSE_NOT_OK,
-                format!("unexpected 304 Not Modified on a {kind} fetch"),
-                &serde_json::json!({ "url": url.as_str() }),
-            )
-            .into(),
-        })?;
+            Err(stop) => {
+                return Err(match stop {
+                    Stop::Failed(failure) => failure,
+                    // The open gate skips no hop, and reads no robots.txt.
+                    Stop::Skipped(Skip { message, .. })
+                    | Stop::RobotsTxtUnreachable { message, .. } => CallError::new(
+                        &RESPONSE_NOT_OK,
+                        message,
+                        &serde_json::json!({ "url": url.as_str() }),
+                    )
+                    .into(),
+                    Stop::NotModified { .. } => CallError::new(
+                        &RESPONSE_NOT_OK,
+                        format!("unexpected 304 Not Modified on a {kind} fetch"),
+                        &serde_json::json!({ "url": url.as_str() }),
+                    )
+                    .into(),
+                });
+            }
+        };
         let status = fetched.status;
         if (200..300).contains(&status) {
-            return Ok(fetched.body);
+            return Ok(SyndicationFetched::Modified {
+                body: fetched.body,
+                headers: SourceHeaders::from_pairs(&fetched.headers),
+            });
         }
         let details = serde_json::json!({ "url": fetched.url.as_str(), "status": status });
         let unavailable = status == 408 || status == 429 || (500..600).contains(&status);

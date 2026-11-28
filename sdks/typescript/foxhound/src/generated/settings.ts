@@ -439,7 +439,7 @@ export interface FoxhoundSettings {
        *
        * `crawl.sitemap.news_revisit`.
        */
-      readonly newsRevisit?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number };
+      readonly newsRevisit?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number } | { readonly kind: "entry_rate"; readonly max?: number; readonly min?: number };
       /**
        * Whether sitemap reads read `<lastmod>` and the `news:` extension (`<news:publication_date>`) in any crawl: `true` by default.
        *
@@ -451,7 +451,21 @@ export interface FoxhoundSettings {
        *
        * `crawl.sitemap.revisit`.
        */
-      readonly revisit?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number };
+      readonly revisit?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number } | { readonly kind: "entry_rate"; readonly max?: number; readonly min?: number };
+    };
+    readonly syndication?: {
+      /**
+       * Whether pages in scope that link an RSS or Atom feed via `<link rel="alternate" type="application/rss+xml|application/atom+xml">` add that feed as a syndication source. Unset (`null`, the default) is on in a Continuous crawl (`crawl.continuous.enabled: true`) and off elsewhere.
+       *
+       * `crawl.syndication.discover`.
+       */
+      readonly discover?: boolean | null;
+      /**
+       * Revisit policy for syndication sources (RSS and Atom feeds) in a Continuous crawl: `entry_rate` (one week divided by new entries per week, clamped to 15 minutes–24 hours with validators and 1 hour–24 hours without) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `crawl.syndication.revisit`.
+       */
+      readonly revisit?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number } | { readonly kind: "entry_rate"; readonly max?: number; readonly min?: number };
     };
   };
   readonly dataset?: {
@@ -1094,7 +1108,7 @@ export interface FoxhoundSettings {
      *
      * `revisit.policy`.
      */
-    readonly policy?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number };
+    readonly policy?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number } | { readonly kind: "entry_rate"; readonly max?: number; readonly min?: number };
     readonly siteHints?: {
       /**
        * Whether `Cache-Control: max-age` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
@@ -1132,6 +1146,18 @@ export interface FoxhoundSettings {
        * `revisit.site_hints.retry_after`.
        */
       readonly retryAfter?: boolean;
+      /**
+       * Whether an RSS feed's `sy:updatePeriod` (and `sy:updateFrequency`) acts as a floor for the source's next revisit in a Continuous crawl: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `revisit.site_hints.sy_update_period`.
+       */
+      readonly syUpdatePeriod?: boolean;
+      /**
+       * Whether an RSS feed's `<ttl>` element acts as a floor for the source's next revisit in a Continuous crawl: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `revisit.site_hints.ttl`.
+       */
+      readonly ttl?: boolean;
     };
   };
   readonly runState?: {
@@ -2021,7 +2047,7 @@ export interface CrawlSettings {
        *
        * `crawl.sitemap.news_revisit`.
        */
-      readonly newsRevisit?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number };
+      readonly newsRevisit?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number } | { readonly kind: "entry_rate"; readonly max?: number; readonly min?: number };
       /**
        * Whether sitemap reads read `<lastmod>` and the `news:` extension (`<news:publication_date>`) in any crawl: `true` by default.
        *
@@ -2033,7 +2059,21 @@ export interface CrawlSettings {
        *
        * `crawl.sitemap.revisit`.
        */
-      readonly revisit?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number };
+      readonly revisit?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number } | { readonly kind: "entry_rate"; readonly max?: number; readonly min?: number };
+    };
+    readonly syndication?: {
+      /**
+       * Whether pages in scope that link an RSS or Atom feed via `<link rel="alternate" type="application/rss+xml|application/atom+xml">` add that feed as a syndication source. Unset (`null`, the default) is on in a Continuous crawl (`crawl.continuous.enabled: true`) and off elsewhere.
+       *
+       * `crawl.syndication.discover`.
+       */
+      readonly discover?: boolean | null;
+      /**
+       * Revisit policy for syndication sources (RSS and Atom feeds) in a Continuous crawl: `entry_rate` (one week divided by new entries per week, clamped to 15 minutes–24 hours with validators and 1 hour–24 hours without) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `crawl.syndication.revisit`.
+       */
+      readonly revisit?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number } | { readonly kind: "entry_rate"; readonly max?: number; readonly min?: number };
     };
   };
   readonly dataset?: {
@@ -2676,7 +2716,7 @@ export interface CrawlSettings {
      *
      * `revisit.policy`.
      */
-    readonly policy?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number };
+    readonly policy?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number } | { readonly kind: "entry_rate"; readonly max?: number; readonly min?: number };
     readonly siteHints?: {
       /**
        * Whether `Cache-Control: max-age` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
@@ -2714,6 +2754,18 @@ export interface CrawlSettings {
        * `revisit.site_hints.retry_after`.
        */
       readonly retryAfter?: boolean;
+      /**
+       * Whether an RSS feed's `sy:updatePeriod` (and `sy:updateFrequency`) acts as a floor for the source's next revisit in a Continuous crawl: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `revisit.site_hints.sy_update_period`.
+       */
+      readonly syUpdatePeriod?: boolean;
+      /**
+       * Whether an RSS feed's `<ttl>` element acts as a floor for the source's next revisit in a Continuous crawl: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `revisit.site_hints.ttl`.
+       */
+      readonly ttl?: boolean;
     };
   };
   readonly runState?: {
@@ -3282,7 +3334,7 @@ export interface LabelSettings {
      *
      * `revisit.policy`.
      */
-    readonly policy?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number };
+    readonly policy?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number } | { readonly kind: "entry_rate"; readonly max?: number; readonly min?: number };
     readonly siteHints?: {
       /**
        * Whether `Cache-Control: max-age` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
@@ -3465,6 +3517,10 @@ const SPELLING: Spelling = {
       }],
       newsRevisit: { setting: "news_revisit", value: { fields: { "rate_changed": "rateChanged", "rate_unchanged": "rateUnchanged", "target_freshness": "targetFreshness" } } },
       readLastmod: "read_lastmod",
+      revisit: { setting: "revisit", value: { fields: { "rate_changed": "rateChanged", "rate_unchanged": "rateUnchanged", "target_freshness": "targetFreshness" } } },
+    }],
+    syndication: ["syndication", {
+      discover: "discover",
       revisit: { setting: "revisit", value: { fields: { "rate_changed": "rateChanged", "rate_unchanged": "rateUnchanged", "target_freshness": "targetFreshness" } } },
     }],
   }],
@@ -3719,6 +3775,8 @@ const SPELLING: Spelling = {
       lastmod: "lastmod",
       priority: "priority",
       retryAfter: "retry_after",
+      syUpdatePeriod: "sy_update_period",
+      ttl: "ttl",
     }],
   }],
   runState: ["run_state", {

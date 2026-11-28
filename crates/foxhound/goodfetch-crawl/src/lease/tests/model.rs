@@ -693,6 +693,7 @@ fn commit(
                 chosen: None,
                 revisit: None,
                 claim_judgement: None,
+                discovered_feeds: None,
                 ending: Ending::Commit {
                     commit,
                     refused: Box::new(|refused| panic!("a Record was refused: {refused:?}")),

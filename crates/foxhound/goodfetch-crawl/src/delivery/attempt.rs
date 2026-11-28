@@ -208,7 +208,7 @@ pub(super) enum Answer {
     HopsRobotsTxtUnreachable(String),
     /// A sitemap or syndication feed's fetch read its entries (ADRs 0093 and
     /// 0139): no handler ran.
-    SourceRead(crate::attempt_outcome::SourceDocument),
+    SourceRead(Box<crate::attempt_outcome::SourceDocument>),
     /// A Continuous crawl revisit found the page unchanged (304 or matching
     /// Page signature) under `revisit.on_unchanged: skip`: no handler ran and
     /// no Record was pushed (ADR 0139).
@@ -637,6 +637,9 @@ pub(super) struct Attempt {
     /// Validators, Page signature, and tier captured for a Continuous crawl
     /// revisit (ADR 0139).
     pub(super) revisit_meta: Option<RevisitMeta>,
+    /// RSS/Atom feed URLs discovered via `<link rel="alternate">` during the
+    /// untouched Page analysis stage (`crawl.syndication.discover`, ADR 0139).
+    pub(super) discovered_feeds: Vec<String>,
 }
 
 /// The answer of an attempt that needs the crawl's HTTP tier, which could
@@ -695,14 +698,18 @@ pub(super) async fn attempt(
     (tiering, (hand_over, code_free, hooks)): (Tiering, Handling),
     (in_flight, lessons): (SharedInFlight, &Lessons),
 ) -> Attempt {
-    let (document, sent_at) = (Mutex::new(None), Mutex::new(None));
-    let revisit_meta = Mutex::new(None);
-    let (moved, refused) = (OnceLock::new(), OnceLock::new());
-    let escalated = OnceLock::new();
+    let (document, sent_at, revisit_meta, discovered_feeds) = (
+        Mutex::new(None),
+        Mutex::new(None),
+        Mutex::new(None),
+        Mutex::new(Vec::new()),
+    );
+    let (moved, refused, escalated) = (OnceLock::new(), OnceLock::new(), OnceLock::new());
     let on = On {
         permit: tiering.permit.as_ref(),
         revisit: &tiering.revisit,
         revisit_meta: &revisit_meta,
+        discovered_feeds: &discovered_feeds,
         document: &document,
         escalated_to: &escalated,
         sent_at: &sent_at,
@@ -725,47 +732,7 @@ pub(super) async fn attempt(
     };
     // Boxed: the attempt's future is large, and the watch holds it only
     // while it runs.
-    let ran = watch
-        .ended(Box::pin(async {
-            let mut sampled = None;
-            // Its race's latency, and whether a transport's first request answered.
-            let mut raced = (None, false);
-            let answer = match (&tiering.plan, &tiering.http) {
-                (AttemptPlan::Sitemap, Some(http)) => on.sitemap(http).await,
-                (AttemptPlan::Sitemap, None) => without_http_tier("sitemap"),
-                (AttemptPlan::Syndication, Some(http)) => on.syndication(http).await,
-                (AttemptPlan::Syndication, None) => without_http_tier("syndication"),
-                (AttemptPlan::On(choice), _) if choice.tier == FetchTier::Browser => {
-                    on.browser(&tiering.tiers, choice, Chosen::AsChosen).await
-                }
-                (AttemptPlan::On(choice), Some(http)) => {
-                    on.http(&tiering, http, served_as(choice), None).await
-                }
-                (AttemptPlan::Replayed(replay), Some(http)) => {
-                    on.http(&tiering, http, &REPLAYED, Some(&replay.plan)).await
-                }
-                (AttemptPlan::Sample(sample), Some(http)) => {
-                    let (answer, weighed) =
-                        Box::pin(on.sample(&tiering, http, sample.browser_fetch)).await;
-                    sampled = weighed.map(|weighed| (sample.clone(), weighed));
-                    answer
-                }
-                (AttemptPlan::Race(race), Some(http)) => {
-                    let (answer, ran) = on.race(&tiering, http, race).await;
-                    raced = ran;
-                    answer
-                }
-                (
-                    AttemptPlan::On(_)
-                    | AttemptPlan::Replayed(_)
-                    | AttemptPlan::Sample(_)
-                    | AttemptPlan::Race(_),
-                    None,
-                ) => without_http_tier("request"),
-            };
-            (record_stage_once(&on, answer).await, sampled, raced)
-        }))
-        .await;
+    let ran = watch.ended(Box::pin(on.dispatch(&tiering))).await;
     let (answer, sampled, (raced, transport_answered), ran) = match ran {
         Ok((answer, sampled, raced)) => (answer, sampled, raced, true),
         // What the attempt met before it panicked says nothing of its site:
@@ -785,6 +752,11 @@ pub(super) async fn attempt(
         moved: ran && moved.into_inner().is_some(),
         refused: ran && refused.into_inner().is_some(),
         revisit_meta: revisit_meta.into_inner().filter(|_| ran),
+        discovered_feeds: if ran {
+            discovered_feeds.into_inner()
+        } else {
+            Vec::new()
+        },
         server,
         leased,
         _counted: counted,
@@ -959,6 +931,7 @@ struct On<'a> {
     revisit: &'a RevisitPlan,
     /// Validators, Page signature, and tier captured by this attempt.
     revisit_meta: &'a Mutex<Option<RevisitMeta>>,
+    discovered_feeds: &'a Mutex<Vec<String>>,
 }
 
 impl On<'_> {
@@ -1767,10 +1740,68 @@ impl On<'_> {
         let facts = tiers
             .facts(served.page_id())
             .expect("invariant: a served page is open while it is held");
+        self.record_discovered_feeds(&facts).await;
         if let Some(refused) = self.document_refusal(&facts.use_signals).await {
             return Err(refused.into());
         }
         Ok((served, facts))
+    }
+
+    async fn dispatch(
+        &self,
+        tiering: &Tiering,
+    ) -> (
+        Answer,
+        Option<(Sampled, Weighed)>,
+        (Option<(Raced, Duration)>, bool),
+    ) {
+        let mut sampled = None;
+        let mut raced = (None, false);
+        let answer = match (&tiering.plan, &tiering.http) {
+            (AttemptPlan::Sitemap, Some(http)) => self.sitemap(http).await,
+            (AttemptPlan::Sitemap, None) => without_http_tier("sitemap"),
+            (AttemptPlan::Syndication, Some(http)) => self.syndication(http).await,
+            (AttemptPlan::Syndication, None) => without_http_tier("syndication"),
+            (AttemptPlan::On(choice), _) if choice.tier == FetchTier::Browser => {
+                self.browser(&tiering.tiers, choice, Chosen::AsChosen).await
+            }
+            (AttemptPlan::On(choice), Some(http)) => {
+                self.http(tiering, http, served_as(choice), None).await
+            }
+            (AttemptPlan::Replayed(replay), Some(http)) => {
+                self.http(tiering, http, &REPLAYED, Some(&replay.plan))
+                    .await
+            }
+            (AttemptPlan::Sample(sample), Some(http)) => {
+                let (answer, weighed) =
+                    Box::pin(self.sample(tiering, http, sample.browser_fetch)).await;
+                sampled = weighed.map(|weighed| (sample.clone(), weighed));
+                answer
+            }
+            (AttemptPlan::Race(race), Some(http)) => {
+                let (answer, ran) = self.race(tiering, http, race).await;
+                raced = ran;
+                answer
+            }
+            (
+                AttemptPlan::On(_)
+                | AttemptPlan::Replayed(_)
+                | AttemptPlan::Sample(_)
+                | AttemptPlan::Race(_),
+                None,
+            ) => without_http_tier("request"),
+        };
+        (record_stage_once(self, answer).await, sampled, raced)
+    }
+
+    async fn record_discovered_feeds(&self, facts: &PageFacts) {
+        if !facts.discovered_feeds.is_empty() {
+            *self.discovered_feeds.lock().await = facts
+                .discovered_feeds
+                .iter()
+                .map(ToString::to_string)
+                .collect();
+        }
     }
 
     /// The handler request of the attempt on `tier`, given the page

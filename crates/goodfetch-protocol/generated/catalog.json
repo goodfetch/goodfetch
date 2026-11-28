@@ -7963,6 +7963,36 @@
               "kind"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Entry-rate schedule for syndication sources (ADR 0139): one week\ndivided by the source's new entries per week, clamped to `[min, max]`\nwith validators and `[max(min, 1 hour), max]` without.",
+            "properties": {
+              "kind": {
+                "const": "entry_rate",
+                "type": "string"
+              },
+              "max": {
+                "arrived_in": "0.1",
+                "default": 86400000,
+                "description": "Maximum revisit interval in milliseconds (default: 24 hours).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "min": {
+                "arrived_in": "0.1",
+                "default": 900000,
+                "description": "Minimum revisit interval in milliseconds when the source returns\nvalidators (default: 15 minutes).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -8145,6 +8175,251 @@
                 "description": "Target expected freshness, strictly in `(0, 1)` (default: 0.9).",
                 "format": "double",
                 "type": "number"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Entry-rate schedule for syndication sources (ADR 0139): one week\ndivided by the source's new entries per week, clamped to `[min, max]`\nwith validators and `[max(min, 1 hour), max]` without.",
+            "properties": {
+              "kind": {
+                "const": "entry_rate",
+                "type": "string"
+              },
+              "max": {
+                "arrived_in": "0.1",
+                "default": 86400000,
+                "description": "Maximum revisit interval in milliseconds (default: 24 hours).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "min": {
+                "arrived_in": "0.1",
+                "default": 900000,
+                "description": "Minimum revisit interval in milliseconds when the source returns\nvalidators (default: 15 minutes).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "Whether pages in scope that link an RSS or Atom feed via `<link rel=\"alternate\" type=\"application/rss+xml|application/atom+xml\">` add that feed as a syndication source. Unset (`null`, the default) is on in a Continuous crawl (`crawl.continuous.enabled: true`) and off elsewhere.",
+      "fixed_for_run": false,
+      "name": "crawl.syndication.discover",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": {
+        "kind": "entry_rate",
+        "max": 86400000,
+        "min": 900000
+      },
+      "deprecated": null,
+      "description": "Revisit policy for syndication sources (RSS and Atom feeds) in a Continuous crawl: `entry_rate` (one week divided by new entries per week, clamped to 15 minutes–24 hours with validators and 1 hour–24 hours without) by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+      "fixed_for_run": false,
+      "name": "crawl.syndication.revisit",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "description": "How a Continuous crawl schedules revisits of a URL (`revisit.policy`, ADR 0139).",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Never revisit the URL after its first visit, such as articles.",
+            "properties": {
+              "kind": {
+                "const": "never",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Revisit at a fixed interval, in whole milliseconds (at least 1).",
+            "properties": {
+              "interval": {
+                "arrived_in": "0.1",
+                "description": "Interval between revisits in milliseconds (at least 1).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
+                "const": "every",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "interval"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Multiplicative adaptive schedule (Nutch / `StormCrawler`, ADR 0139):\nshrinks by `rate_changed` after a change and grows by `rate_unchanged`\nafter none, clamped to `[min, max]`. Default for pages.",
+            "properties": {
+              "initial": {
+                "arrived_in": "0.1",
+                "default": 86400000,
+                "description": "Initial revisit interval in milliseconds (default: 1 day).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
+                "const": "adaptive",
+                "type": "string"
+              },
+              "max": {
+                "arrived_in": "0.1",
+                "default": 2592000000,
+                "description": "Maximum revisit interval in milliseconds (default: 30 days).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "min": {
+                "arrived_in": "0.1",
+                "default": 3600000,
+                "description": "Minimum revisit interval in milliseconds (default: 1 hour).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "rate_changed": {
+                "arrived_in": "0.1",
+                "default": 0.5,
+                "description": "Fractional shrink applied after a changed visit, in `(0, 1]` (default: 0.5).",
+                "format": "double",
+                "type": "number"
+              },
+              "rate_unchanged": {
+                "arrived_in": "0.1",
+                "default": 0.5,
+                "description": "Fractional growth applied after an unchanged visit, in `(0, 1]` (default: 0.5).",
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Change-rate estimator schedule (Cho and Garcia-Molina, ADR 0139):\nestimates change rate from visits and changes starting from a prior of\ntwo intervals of `initial`, and schedules to reach `target_freshness`,\nclamped to `[min, max]`.",
+            "properties": {
+              "initial": {
+                "arrived_in": "0.1",
+                "default": 86400000,
+                "description": "Prior interval in milliseconds (default: 1 day).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
+                "const": "estimated",
+                "type": "string"
+              },
+              "max": {
+                "arrived_in": "0.1",
+                "default": 2592000000,
+                "description": "Maximum revisit interval in milliseconds (default: 30 days).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "min": {
+                "arrived_in": "0.1",
+                "default": 3600000,
+                "description": "Minimum revisit interval in milliseconds (default: 1 hour).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "target_freshness": {
+                "arrived_in": "0.1",
+                "default": 0.9,
+                "description": "Target expected freshness, strictly in `(0, 1)` (default: 0.9).",
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Entry-rate schedule for syndication sources (ADR 0139): one week\ndivided by the source's new entries per week, clamped to `[min, max]`\nwith validators and `[max(min, 1 hour), max]` without.",
+            "properties": {
+              "kind": {
+                "const": "entry_rate",
+                "type": "string"
+              },
+              "max": {
+                "arrived_in": "0.1",
+                "default": 86400000,
+                "description": "Maximum revisit interval in milliseconds (default: 24 hours).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "min": {
+                "arrived_in": "0.1",
+                "default": 900000,
+                "description": "Minimum revisit interval in milliseconds when the source returns\nvalidators (default: 15 minutes).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "required": [
@@ -12405,6 +12680,36 @@
               "kind"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Entry-rate schedule for syndication sources (ADR 0139): one week\ndivided by the source's new entries per week, clamped to `[min, max]`\nwith validators and `[max(min, 1 hour), max]` without.",
+            "properties": {
+              "kind": {
+                "const": "entry_rate",
+                "type": "string"
+              },
+              "max": {
+                "arrived_in": "0.1",
+                "default": 86400000,
+                "description": "Maximum revisit interval in milliseconds (default: 24 hours).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "min": {
+                "arrived_in": "0.1",
+                "default": 900000,
+                "description": "Minimum revisit interval in milliseconds when the source returns\nvalidators (default: 15 minutes).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -12552,6 +12857,52 @@
         "connection",
         "run",
         "label"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "deprecated": null,
+      "description": "Whether an RSS feed's `sy:updatePeriod` (and `sy:updateFrequency`) acts as a floor for the source's next revisit in a Continuous crawl: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+      "fixed_for_run": false,
+      "name": "revisit.site_hints.sy_update_period",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "deprecated": null,
+      "description": "Whether an RSS feed's `<ttl>` element acts as a floor for the source's next revisit in a Continuous crawl: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+      "fixed_for_run": false,
+      "name": "revisit.site_hints.ttl",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "boolean"

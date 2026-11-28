@@ -64,6 +64,29 @@ const fn default_target_freshness() -> f64 {
     REVISIT_ESTIMATED_DEFAULT_TARGET_FRESHNESS
 }
 
+/// Default minimum interval for `crawl.syndication.revisit` (`entry_rate`, with validators): 15 minutes (ADR 0139).
+pub const SYNDICATION_DEFAULT_MIN_MS: u64 = 900_000;
+/// Default minimum interval for `entry_rate` when a syndication source sends no validators: 1 hour (ADR 0139).
+pub const SYNDICATION_NO_VALIDATORS_MIN_MS: u64 = 3_600_000;
+/// Default maximum interval for `crawl.syndication.revisit` (`entry_rate`): 24 hours (ADR 0139).
+pub const SYNDICATION_DEFAULT_MAX_MS: u64 = 86_400_000;
+
+const fn default_entry_rate_min() -> u64 {
+    SYNDICATION_DEFAULT_MIN_MS
+}
+
+const fn default_entry_rate_max() -> u64 {
+    SYNDICATION_DEFAULT_MAX_MS
+}
+
+fn entry_rate_default_policy() -> Value {
+    json!({
+        "kind": "entry_rate",
+        "min": SYNDICATION_DEFAULT_MIN_MS,
+        "max": SYNDICATION_DEFAULT_MAX_MS,
+    })
+}
+
 /// Default initial interval for `crawl.sitemap.news_revisit`: 1 hour (ADR 0139).
 pub const SITEMAP_NEWS_DEFAULT_INITIAL_MS: u64 = 3_600_000;
 /// Default minimum interval for `crawl.sitemap.news_revisit`: 15 minutes (ADR 0139).
@@ -513,6 +536,20 @@ pub enum RevisitPolicy {
         #[schemars(extend("arrived_in" = "0.1"))]
         target_freshness: f64,
     },
+    /// Entry-rate schedule for syndication sources (ADR 0139): one week
+    /// divided by the source's new entries per week, clamped to `[min, max]`
+    /// with validators and `[max(min, 1 hour), max]` without.
+    EntryRate {
+        /// Minimum revisit interval in milliseconds when the source returns
+        /// validators (default: 15 minutes).
+        #[serde(default = "default_entry_rate_min")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        min: u64,
+        /// Maximum revisit interval in milliseconds (default: 24 hours).
+        #[serde(default = "default_entry_rate_max")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        max: u64,
+    },
 }
 
 impl SettingJson for RevisitPolicy {
@@ -535,6 +572,16 @@ impl RevisitPolicy {
         }
     }
 
+    /// Default Revisit policy for syndication sources: `entry_rate` with 15
+    /// minutes min (1 hour without validators) and 24 hours max (ADR 0139).
+    #[must_use]
+    pub const fn default_entry_rate() -> Self {
+        Self::EntryRate {
+            min: SYNDICATION_DEFAULT_MIN_MS,
+            max: SYNDICATION_DEFAULT_MAX_MS,
+        }
+    }
+
     /// Parses a [`RevisitPolicy`] from a JSON setting value.
     ///
     /// # Errors
@@ -545,7 +592,7 @@ impl RevisitPolicy {
     pub fn read(value: &Value) -> Result<Self, String> {
         let policy: Self = serde_json::from_value(value.clone()).map_err(|error| {
             format!(
-                "`revisit.policy` must be `never`, `every`, `adaptive`, or `estimated`: {error}"
+                "`revisit.policy` must be `never`, `every`, `adaptive`, `estimated`, or `entry_rate`: {error}"
             )
         })?;
         match policy {
@@ -589,6 +636,20 @@ impl RevisitPolicy {
                         "`revisit.policy` `estimated.target_freshness` must be in (0, 1)"
                             .to_owned(),
                     );
+                }
+                Ok(policy)
+            }
+            Self::EntryRate { min, max } => {
+                if min == 0 || max == 0 {
+                    return Err(
+                        "`revisit.policy` `entry_rate` durations (`min`, `max`) must be at least 1 ms"
+                            .to_owned(),
+                    );
+                }
+                if min > max {
+                    return Err(format!(
+                        "`revisit.policy` `entry_rate` `min` ({min}) must not exceed `max` ({max})"
+                    ));
                 }
                 Ok(policy)
             }
@@ -638,6 +699,7 @@ pub const REVISIT_POLICY_SHAPE: ValueShape = ValueShape {
                 "max": REVISIT_DEFAULT_MAX_MS,
                 "target_freshness": REVISIT_ESTIMATED_DEFAULT_TARGET_FRESHNESS,
             }),
+            entry_rate_default_policy(),
         ]
     },
 };
@@ -1402,6 +1464,96 @@ pub const CRAWL_SITEMAP_LASTMOD_TRUST_WINDOW_YIELDS_TO_BATCH: Yielding = Yieldin
     reason: "a batch crawl does not revisit URLs",
 };
 
+/// `crawl.syndication.revisit` (ADR 0139).
+pub const CRAWL_SYNDICATION_REVISIT: Setting = Setting {
+    name: "crawl.syndication.revisit",
+    description: "Revisit policy for syndication sources (RSS and Atom feeds) in a Continuous crawl: `entry_rate` (one week divided by new entries per week, clamped to 15 minutes–24 hours with validators and 1 hour–24 hours without) by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Shape(&REVISIT_POLICY_SHAPE),
+    default: entry_rate_default_policy,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.syndication.discover` (ADR 0139).
+pub const CRAWL_SYNDICATION_DISCOVER: Setting = Setting {
+    name: "crawl.syndication.discover",
+    description: "Whether pages in scope that link an RSS or Atom feed via `<link rel=\"alternate\" type=\"application/rss+xml|application/atom+xml\">` add that feed as a syndication source. Unset (`null`, the default) is on in a Continuous crawl (`crawl.continuous.enabled: true`) and off elsewhere.",
+    kind: ValueKind::Boolean,
+    default: none,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `revisit.site_hints.ttl` (ADR 0139).
+pub const REVISIT_SITE_HINTS_TTL: Setting = Setting {
+    name: "revisit.site_hints.ttl",
+    description: "Whether an RSS feed's `<ttl>` element acts as a floor for the source's next revisit in a Continuous crawl: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `revisit.site_hints.sy_update_period` (ADR 0139).
+pub const REVISIT_SITE_HINTS_SY_UPDATE_PERIOD: Setting = Setting {
+    name: "revisit.site_hints.sy_update_period",
+    description: "Whether an RSS feed's `sy:updatePeriod` (and `sy:updateFrequency`) acts as a floor for the source's next revisit in a Continuous crawl: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.syndication.revisit` yields to `crawl.continuous = false`.
+pub const CRAWL_SYNDICATION_REVISIT_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &CRAWL_SYNDICATION_REVISIT,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl does not revisit sources",
+};
+
+/// `revisit.site_hints.ttl` yields to `crawl.continuous = false`.
+pub const REVISIT_SITE_HINTS_TTL_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &REVISIT_SITE_HINTS_TTL,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl does not revisit sources",
+};
+
+/// `revisit.site_hints.sy_update_period` yields to `crawl.continuous = false`.
+pub const REVISIT_SITE_HINTS_SY_UPDATE_PERIOD_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &REVISIT_SITE_HINTS_SY_UPDATE_PERIOD,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl does not revisit sources",
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -1423,6 +1575,8 @@ pub const ENTRIES: Entries = Entries {
         CRAWL_SITEMAP_LASTMOD_TRUST_WINDOW,
         CRAWL_SITEMAP_NEWS_REVISIT,
         CRAWL_SITEMAP_REVISIT,
+        CRAWL_SYNDICATION_REVISIT,
+        CRAWL_SYNDICATION_DISCOVER,
         REVISIT_POLICY,
         REVISIT_CHANGE_CHECK,
         REVISIT_ON_UNCHANGED,
@@ -1434,6 +1588,8 @@ pub const ENTRIES: Entries = Entries {
         REVISIT_SITE_HINTS_CHANGEFREQ,
         REVISIT_SITE_HINTS_PRIORITY,
         REVISIT_SITE_HINTS_LASTMOD,
+        REVISIT_SITE_HINTS_TTL,
+        REVISIT_SITE_HINTS_SY_UPDATE_PERIOD,
         CRAWL_REVISIT_ORDER,
         CRAWL_REVISIT_DOMAIN_SHARE,
     ],

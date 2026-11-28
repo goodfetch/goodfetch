@@ -76,14 +76,22 @@ pub(crate) struct LastmodClaimConfig {
     pub(crate) run_hint: LastmodHint,
 }
 
-/// Parameters for scheduling a standing sitemap source's next re-read in a
-/// Continuous crawl (ADR 0139).
+/// Parameters for scheduling a standing sitemap or syndication source's next
+/// re-read in a Continuous crawl (ADR 0139).
 #[derive(Clone, Debug)]
 pub(crate) struct SourceRevisitPlan {
     /// `crawl.sitemap.revisit` policy (adaptive 24h / 1h..30d by default).
     pub(crate) sitemap_policy: RevisitPolicy,
     /// `crawl.sitemap.news_revisit` policy (adaptive 1h / 15m..24h by default).
     pub(crate) news_policy: RevisitPolicy,
+    /// `crawl.syndication.revisit` policy (`entry_rate` 15m..24h by default).
+    pub(crate) syndication_policy: RevisitPolicy,
+    /// HTTP caching header floor switches (`revisit.site_hints.*`).
+    pub(crate) site_hints: revisit::SiteHintSwitches,
+    /// `revisit.site_hints.ttl` (`true` by default).
+    pub(crate) use_ttl: bool,
+    /// `revisit.site_hints.sy_update_period` (`true` by default).
+    pub(crate) use_sy_update_period: bool,
     /// Current wall-clock time in milliseconds since the Unix epoch.
     pub(crate) now_ms: u64,
     /// The source's URL.
@@ -119,7 +127,24 @@ pub(crate) struct ClaimJudgement {
 /// feed).
 pub(crate) enum SourceDocument {
     Sitemap(sitemap::Document),
-    Syndication(goodfetch_frontier::syndication::FeedDocument),
+    Syndication {
+        document: goodfetch_frontier::syndication::FeedDocument,
+        headers: goodfetch_fetch_tier::SourceHeaders,
+    },
+    SyndicationUnchanged {
+        headers: goodfetch_fetch_tier::SourceHeaders,
+    },
+}
+
+/// Feeds discovered via `<link rel="alternate">` on a committed page, admitted
+/// in the same Run-state batch transaction (`crawl.syndication.discover`,
+/// ADR 0139, ADR 0140 F2).
+pub(crate) struct DiscoveredFeeds {
+    pub(crate) feeds: Vec<String>,
+    pub(crate) label: String,
+    pub(crate) egress: Arc<Policy>,
+    pub(crate) invariants: Arc<goodfetch_frontier::Invariants>,
+    pub(crate) keys: Keys,
 }
 
 /// An attempt's outcome, written in one job.
@@ -135,6 +160,8 @@ pub(crate) struct Outcome {
     /// `<lastmod>` / `news:publication_date` claim judgement written in the
     /// same transaction as the outcome (0 extra transactions, ADR 0140 F2).
     pub(crate) claim_judgement: Option<ClaimJudgement>,
+    /// RSS/Atom feeds discovered on a committed page (`crawl.syndication.discover`).
+    pub(crate) discovered_feeds: Option<DiscoveredFeeds>,
     pub(crate) ending: Ending,
 }
 
@@ -190,6 +217,7 @@ impl Outcome {
             chosen,
             revisit,
             claim_judgement,
+            discovered_feeds,
             ending,
         } = self;
         if !scored.is_empty() {
@@ -203,9 +231,20 @@ impl Outcome {
             Ending::Commit { commit, refused } => {
                 let (attempt, ended_at) = (commit.attempt().owned(), *commit.ended_at());
                 match commit.write(connection, &mut changed)? {
-                    Some(Ok(committed)) => {
+                    Some(Ok(mut committed)) => {
                         if let Some(row) = revisit {
                             write_revisit_and_claim(connection, &row, claim_judgement)?;
+                        }
+                        if let Some(discovered) = discovered_feeds {
+                            let added = work_items::admit_discovered_feeds(
+                                connection,
+                                &discovered.invariants,
+                                &discovered.egress,
+                                &discovered.feeds,
+                                &discovered.label,
+                                (&discovered.keys, &mut changed),
+                            )?;
+                            committed.keyed.extend(added);
                         }
                         Ended::Committed(committed)
                     }
@@ -379,19 +418,33 @@ fn write_source(
                 None => (None, None, Vec::new(), false),
             }
         }
-        SourceDocument::Syndication(document) => (
-            work_items::read_syndication(
+        SourceDocument::Syndication { document, headers } => write_syndication_source(
+            connection,
+            attempt,
+            egress,
+            invariants,
+            document,
+            headers,
+            options,
+            (keys, work, changed),
+        )?,
+        SourceDocument::SyndicationUnchanged { headers } => {
+            if work_items::read_syndication_unchanged(
                 connection,
-                invariants,
-                egress,
                 (&attempt.work_item, attempt.lease_epoch),
-                document,
-                (keys, work, changed),
-            )?,
-            None,
-            Vec::new(),
-            false,
-        ),
+                changed,
+            )? {
+                let row = options.revisit.map(|plan| {
+                    schedule_syndication_revisit(&attempt.work_item, plan, None, headers, None)
+                });
+                if let Some(row) = &row {
+                    revisit::upsert(connection, row)?;
+                }
+                (Some(Vec::new()), row.map(Box::new), Vec::new(), false)
+            } else {
+                (None, None, Vec::new(), false)
+            }
+        }
     };
     Ok(Ended::SitemapRead {
         added: read
@@ -401,6 +454,62 @@ fn write_source(
         brought_forward,
         lastmod_generated,
     })
+}
+
+type SourceWriteParts = (
+    Option<Vec<goodfetch_engine::admission::Waiting>>,
+    Option<Box<RevisitRow>>,
+    Vec<RevisitRow>,
+    bool,
+);
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "internal helper splitting syndication handling out of write_source"
+)]
+fn write_syndication_source(
+    connection: &Connection,
+    attempt: &AttemptKey<String>,
+    egress: &Policy,
+    invariants: &goodfetch_frontier::Invariants,
+    document: &goodfetch_frontier::syndication::FeedDocument,
+    headers: &goodfetch_fetch_tier::SourceHeaders,
+    options: SourceReadOptions,
+    (keys, work, changed): (&Keys, &CountedWork, &mut Changed),
+) -> rusqlite::Result<SourceWriteParts> {
+    let read = work_items::read_syndication(
+        connection,
+        invariants,
+        egress,
+        (&attempt.work_item, attempt.lease_epoch),
+        document,
+        options.sitemap,
+        (keys, work, changed),
+    )?;
+    match read {
+        Some((added, outcome)) => {
+            let brought = match options.revisit.as_ref() {
+                Some(plan) if !plan.let_finish => {
+                    apply_syndication_update_claims(connection, document, plan)?
+                }
+                _ => Vec::new(),
+            };
+            let row = options.revisit.map(|plan| {
+                schedule_syndication_revisit(
+                    &attempt.work_item,
+                    plan,
+                    Some(document),
+                    headers,
+                    Some(outcome),
+                )
+            });
+            if let Some(row) = &row {
+                revisit::upsert(connection, row)?;
+            }
+            Ok((Some(added), row.map(Box::new), brought, false))
+        }
+        None => Ok((None, None, Vec::new(), false)),
+    }
 }
 
 /// Evaluates `<lastmod>` and `<news:publication_date>` claims on already-visited
@@ -492,6 +601,207 @@ fn apply_sitemap_lastmod_claims(
         }
     }
     Ok((brought_forward, stamped))
+}
+
+/// Evaluates feed entry update dates on already-visited URLs in a syndication
+/// feed, bringing revisits forward without `<lastmod>` learning while tracking
+/// false claims per host (ADR 0139, spec #1836).
+fn apply_syndication_update_claims(
+    connection: &Connection,
+    document: &goodfetch_frontier::syndication::FeedDocument,
+    plan: &SourceRevisitPlan,
+) -> rusqlite::Result<Vec<RevisitRow>> {
+    let Some(lastmod_cfg) = plan.lastmod.as_deref() else {
+        return Ok(Vec::new());
+    };
+    let base = goodfetch_frontier::Url::parse(&plan.url).ok();
+    let mut brought_forward = Vec::new();
+    for entry in &document.entries {
+        let Some(updated) = entry.updated_at else {
+            continue;
+        };
+        let resolved = match &base {
+            Some(base) => base.join(&entry.link).ok(),
+            None => goodfetch_frontier::Url::parse(&entry.link).ok(),
+        };
+        let Some(url) = resolved else {
+            continue;
+        };
+        let Some(mut row) = revisit::get_by_identity(connection, url.as_str())? else {
+            continue;
+        };
+        let Some(last_fetched) = row.last_fetched_at else {
+            continue;
+        };
+        if !lastmod_trust::is_claim_later(updated, last_fetched, plan.now_ms) {
+            continue;
+        }
+        let host = url.host_str().unwrap_or("");
+        if host.is_empty() {
+            continue;
+        }
+        let label = work_items::label_of(connection, &row.work_item)?.unwrap_or_default();
+        let policy = lastmod_cfg
+            .labels
+            .revisit_policy(&label, &lastmod_cfg.run_policy);
+        lastmod_trust::open_claim(
+            connection,
+            &row.work_item,
+            host,
+            &row.domain_key,
+            ClaimKind::News,
+            plan.now_ms,
+        )?;
+        if let Some(due) =
+            lastmod_trust::brought_forward_due(plan.now_ms, last_fetched, row.floor_at_ms, policy)
+            && row.next_visit_at.is_some_and(|cur| due < cur)
+        {
+            row.next_visit_at = Some(due);
+            revisit::upsert(connection, &row)?;
+            brought_forward.push(row);
+        }
+    }
+    Ok(brought_forward)
+}
+
+fn syndication_site_hints(
+    plan: &SourceRevisitPlan,
+    document: Option<&goodfetch_frontier::syndication::FeedDocument>,
+    headers: &goodfetch_fetch_tier::SourceHeaders,
+    outcome: Option<goodfetch_frontier::syndication::ReadOutcome>,
+    has_validators: bool,
+) -> revisit::SiteHints {
+    let mut hints = revisit::SiteHints::from_headers(
+        headers.cache_control.as_deref(),
+        headers.expires.as_deref(),
+        headers.retry_after.as_deref(),
+        headers.date.as_deref(),
+        plan.site_hints,
+        plan.now_ms,
+    );
+    if let Some(doc) = document
+        && let Some(feed_floor_ms) = doc.floor_duration_ms(plan.use_ttl, plan.use_sy_update_period)
+    {
+        let feed_floor_at = plan.now_ms.saturating_add(feed_floor_ms);
+        hints.floor_at_ms = Some(
+            hints
+                .floor_at_ms
+                .map_or(feed_floor_at, |cur| cur.max(feed_floor_at)),
+        );
+    }
+    hints.has_validators = has_validators;
+    hints.entries_per_week = document.and_then(|doc| {
+        if let Some(count) = doc.entries_in_last_week(plan.now_ms) {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "entry counts fit well within f64 precision"
+            )]
+            return Some(count as f64);
+        }
+        let added = outcome.map_or(0, |o| o.added);
+        let prev_fetched = plan.previous.as_ref().and_then(|r| r.last_fetched_at)?;
+        let elapsed = plan.now_ms.saturating_sub(prev_fetched);
+        if added > 0 && elapsed > 0 {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "elapsed duration and entry counts fit within f64 precision"
+            )]
+            Some(added as f64 * (revisit::ONE_WEEK_MS as f64 / elapsed as f64))
+        } else {
+            None
+        }
+    });
+    hints
+}
+
+/// Computes the next standing-source [`RevisitRow`] for a syndication feed read
+/// (or 304 Not Modified) in a Continuous crawl under `crawl.syndication.revisit`
+/// (`entry_rate` by default) with HTTP caching headers, `<ttl>`, and
+/// `sy:updatePeriod` as floors (ADR 0139).
+fn schedule_syndication_revisit(
+    work_item: &str,
+    plan: SourceRevisitPlan,
+    document: Option<&goodfetch_frontier::syndication::FeedDocument>,
+    headers: &goodfetch_fetch_tier::SourceHeaders,
+    outcome: Option<goodfetch_frontier::syndication::ReadOutcome>,
+) -> RevisitRow {
+    let previous = plan
+        .previous
+        .as_ref()
+        .map_or_else(revisit::PreviousState::default, |row| {
+            revisit::PreviousState {
+                interval_ms: row.interval_ms,
+                visits: row.visits,
+                changes: row.changes,
+            }
+        });
+    let changed = outcome.is_some_and(|o| o.changed);
+    let visit_result = if changed {
+        revisit::VisitResult::Changed
+    } else {
+        revisit::VisitResult::Unchanged
+    };
+    let is_304 = document.is_none();
+    let etag = if is_304 {
+        headers
+            .etag
+            .clone()
+            .or_else(|| plan.previous.as_ref().and_then(|r| r.etag.clone()))
+    } else {
+        headers.etag.clone()
+    };
+    let last_modified = if is_304 {
+        headers
+            .last_modified
+            .clone()
+            .or_else(|| plan.previous.as_ref().and_then(|r| r.last_modified.clone()))
+    } else {
+        headers.last_modified.clone()
+    };
+    let hints = syndication_site_hints(
+        &plan,
+        document,
+        headers,
+        outcome,
+        etag.is_some() || last_modified.is_some(),
+    );
+    let scheduled = if plan.let_finish {
+        None
+    } else {
+        revisit::next_visit(
+            &plan.syndication_policy,
+            previous,
+            visit_result,
+            hints,
+            plan.now_ms,
+        )
+    };
+    RevisitRow {
+        work_item: work_item.to_owned(),
+        identity: plan.url,
+        domain_key: plan.domain_key,
+        next_visit_at: scheduled.map(|s| s.next_visit_at),
+        interval_ms: scheduled.map(|s| s.interval_ms),
+        last_fetched_at: Some(plan.now_ms),
+        last_changed_at: if changed {
+            Some(plan.now_ms)
+        } else {
+            plan.previous.as_ref().and_then(|r| r.last_changed_at)
+        },
+        signature: None,
+        etag,
+        last_modified,
+        visits: previous.visits.saturating_add(1),
+        changes: if changed {
+            previous.changes.saturating_add(1)
+        } else {
+            previous.changes
+        },
+        consecutive_gone: 0,
+        last_tier: Some("source".to_owned()),
+        at_min_floor: scheduled.is_some_and(|s| s.clamped_at_min),
+        floor_at_ms: hints.floor_at_ms,
+    }
 }
 
 /// Computes the next standing-source [`RevisitRow`] for a sitemap read in a

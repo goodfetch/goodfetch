@@ -27,6 +27,7 @@ mod domain_key;
 mod forms;
 mod identity;
 mod invariants;
+pub mod lastmod_trust;
 mod learn;
 pub mod payload;
 mod politeness;
@@ -109,6 +110,7 @@ pub fn contribution() -> Contribution {
         .with_run_state_tables(rules::TABLES)
         .with_run_state_tables(payload::TABLES)
         .with_run_state_tables(revisit::TABLES)
+        .with_run_state_tables(lastmod_trust::TABLES)
         .with_politeness_tables(politeness::TABLES)
         .with_politeness_tables(robots_txt::TABLES)
         .with_admission_gates(Arc::new(queues::DomainGates))

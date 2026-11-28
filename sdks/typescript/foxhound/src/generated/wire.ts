@@ -44,6 +44,7 @@ export type FoxhoundWireType =
   | "HandlerFailedDetails"
   | "HeldDomain"
   | "InFlightRequest"
+  | "LastmodTrustHost"
   | "LearnedRule"
   | "NotAddedAtCommit"
   | "PayloadInvalidDetails"
@@ -115,10 +116,11 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "ExportStreamed": { fields: { "run_epoch": "runEpoch" } },
     "FailedRequests": { fields: { "requests": ["requests", { items: { type: "CrawlRequestOutcome" } }] } },
     "FoundRecord": { fields: { "run_id": "runId" } },
-    "FreshnessReport": { fields: { "domains": ["domains", { items: { type: "DomainFreshness" } }], "largest_lag": "largestLag", "median_lag": "medianLag", "trusted_lastmod_hosts": "trustedLastmodHosts" } },
+    "FreshnessReport": { fields: { "domains": ["domains", { items: { type: "DomainFreshness" } }], "largest_lag": "largestLag", "lastmod_trust": ["lastmodTrust", { items: { type: "LastmodTrustHost" } }], "median_lag": "medianLag", "news_false_claims": "newsFalseClaims", "trusted_lastmod_hosts": "trustedLastmodHosts" } },
     "HandlerFailedDetails": { fields: { "exception_message": "exceptionMessage", "exception_stack": "exceptionStack", "exception_type": "exceptionType" } },
     "HeldDomain": { fields: { "next_admitted_at": ["nextAdmittedAt", "time"] } },
     "InFlightRequest": { fields: { "request_id": "requestId", "started_at": ["startedAt", "time"] } },
+    "LastmodTrustHost": { fields: { "claims_judged": "claimsJudged", "false_claims": "falseClaims" } },
     "LearnedRule": { fields: { "merged_total": "mergedTotal" } },
     "NotAddedAtCommit": { fields: { "duplicate_of": "duplicateOf" } },
     "PayloadInvalidDetails": { fields: { "max_size": "maxSize" } },

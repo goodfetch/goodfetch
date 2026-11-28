@@ -2194,9 +2194,21 @@ export interface FreshnessReport {
    */
   largestLag?: Milliseconds | null;
   /**
+   * Per-host `<lastmod>` trust ledger entries (confirmed, false claims,
+   * misses, and current trust status), sorted by host (ADR 0139, spec #1836).
+   */
+  lastmodTrust?: LastmodTrustHost[];
+  /**
    * Median lag across overdue revisits; absent when none are overdue.
    */
   medianLag?: Milliseconds | null;
+  /**
+   * False claims per host from unlearned freshness hints
+   * (`news:publication_date` and feed update dates, ADR 0139, spec #1836).
+   */
+  newsFalseClaims?: {
+    [k: string]: number;
+  };
   /**
    * How many scheduled revisits are currently overdue.
    */
@@ -2249,6 +2261,40 @@ export interface DomainFreshness {
    * How many revisits on this domain ended `unchanged`.
    */
   unchanged: number;
+}
+/**
+ * Per-host `<lastmod>` trust counts in a Continuous crawl's Freshness report
+ * (ADR 0139, spec #1836).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "LastmodTrustHost".
+ */
+export interface LastmodTrustHost {
+  /**
+   * Total `<lastmod>` claims judged for this host.
+   */
+  claimsJudged: number;
+  /**
+   * Claims confirmed by a content change on the next revisit.
+   */
+  confirmed: number;
+  /**
+   * Claims disproved by an unchanged revisit.
+   */
+  falseClaims: number;
+  /**
+   * Host name whose `<lastmod>` claims were judged.
+   */
+  host: string;
+  /**
+   * Content changes observed on revisits with no open `<lastmod>` claim
+   * (counted and reported, never counted against trust).
+   */
+  misses: number;
+  /**
+   * Whether this host's `<lastmod>` claims are currently trusted.
+   */
+  trusted: boolean;
 }
 /**
  * A URL rule the Frontier learned from the pages it fetched (ADRs 0005

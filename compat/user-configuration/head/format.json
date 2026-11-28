@@ -756,6 +756,28 @@
               "sitemap": {
                 "additionalProperties": false,
                 "properties": {
+                  "lastmod_trust": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "min_claims": {
+                        "description": "Minimum number of judged `<lastmod>` claims before a host can earn trust in a Continuous crawl: `10` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "min_precision": {
+                        "description": "Minimum share of confirmed `<lastmod>` claims in the rolling window required for a host to earn and keep trust in a Continuous crawl, in `(0, 1]`: `0.9` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+                        "exclusiveMinimum": 0.0,
+                        "maximum": 1.0,
+                        "type": "number"
+                      },
+                      "window": {
+                        "description": "Rolling window size of recent judged `<lastmod>` claims over which a host's precision is measured in a Continuous crawl: `20` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "news_revisit": {
                     "description": "Revisit policy for Google News sitemaps in a Continuous crawl: `adaptive` (initial 1 hour, 15 minutes to 24 hours) by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
                     "oneOf": [
@@ -3102,6 +3124,14 @@
                   "expires": {
                     "description": "Whether `Expires` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
                     "type": "boolean"
+                  },
+                  "lastmod": {
+                    "description": "How a Continuous crawl treats sitemap `<lastmod>` claims, set for the Run or for one of its Labels: `learned` (the default) trusts a host once its claims earn trust, `always` brings revisits forward without waiting for trust, and `off` ignores `<lastmod>` claims. Accepted on a batch crawl, where `config explain` marks it inactive.",
+                    "enum": [
+                      "learned",
+                      "always",
+                      "off"
+                    ]
                   },
                   "priority": {
                     "description": "Whether a sitemap entry's `<priority>` steers its queue priority in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.",

@@ -11,7 +11,8 @@ use crate::catalog::{Authority, Setting, SettingScope};
 use crate::foxhound::continuous::{
     REVISIT_CHANGE_CHECK, REVISIT_GONE_AFTER, REVISIT_ON_ERROR, REVISIT_ON_UNCHANGED,
     REVISIT_POLICY, REVISIT_SITE_HINTS_CACHE_CONTROL, REVISIT_SITE_HINTS_CHANGEFREQ,
-    REVISIT_SITE_HINTS_EXPIRES, REVISIT_SITE_HINTS_PRIORITY, REVISIT_SITE_HINTS_RETRY_AFTER,
+    REVISIT_SITE_HINTS_EXPIRES, REVISIT_SITE_HINTS_LASTMOD, REVISIT_SITE_HINTS_PRIORITY,
+    REVISIT_SITE_HINTS_RETRY_AFTER,
 };
 use crate::foxhound::crawl::{CRAWL_CONTENT_TYPES, CRAWL_RETRY_HANDLER_FAILED};
 use crate::foxhound::fetch::{
@@ -58,7 +59,7 @@ const SESSION_SETTINGS: [&Setting; 9] = [
 /// is refused every other key: the Run's proxy, Politeness and bounds
 /// always, and the rest of ADR 0093's Label settings until this engine
 /// applies them (issue 1472).
-pub const LABEL_SETTINGS: [&Setting; 21] = [
+pub const LABEL_SETTINGS: [&Setting; 22] = [
     &FETCH_TIER,
     &FETCH_HTTP_FROM,
     &FETCH_ENCODING,
@@ -76,6 +77,7 @@ pub const LABEL_SETTINGS: [&Setting; 21] = [
     &REVISIT_SITE_HINTS_RETRY_AFTER,
     &REVISIT_SITE_HINTS_CHANGEFREQ,
     &REVISIT_SITE_HINTS_PRIORITY,
+    &REVISIT_SITE_HINTS_LASTMOD,
     &CONTENT_EXTRACTOR,
     &TIMEOUT_HOOK,
     &SESSION_PAGE_CHECK,

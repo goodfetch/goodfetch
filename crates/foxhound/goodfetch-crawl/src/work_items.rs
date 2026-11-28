@@ -1626,7 +1626,7 @@ pub(crate) fn leasable_revisits(
     )?;
     let mut prev_stmt = connection.prepare_cached(
         "SELECT interval_ms, last_fetched_at, last_changed_at, signature, etag, last_modified,
-                visits, changes, consecutive_gone, last_tier, at_min_floor
+                visits, changes, consecutive_gone, last_tier, at_min_floor, floor_at_ms
          FROM revisits WHERE work_item = ?1",
     )?;
     let mut rows = leased_rows(connection, &mut statement, ids)?;
@@ -1654,6 +1654,7 @@ pub(crate) fn leasable_revisits(
                     consecutive_gone: u32::try_from(r.get::<_, i64>(8)?).unwrap_or(0),
                     last_tier: r.get(9)?,
                     at_min_floor: r.get::<_, i64>(10)? != 0,
+                    floor_at_ms: opt_u64(11)?,
                 })
             })
             .optional()?
@@ -2278,6 +2279,14 @@ fn write_outcome(write: &mut EndWrite<'_>, id: &str, ending: Ending) -> rusqlite
             ))
         })?;
     Ok(())
+}
+
+/// Reads the Label name of work item `id`, if present.
+pub(crate) fn label_of(connection: &Connection, id: &str) -> rusqlite::Result<Option<String>> {
+    connection
+        .prepare_cached("SELECT label FROM work_items WHERE id = ?1")?
+        .query_row([id], |row| row.get(0))
+        .optional()
 }
 
 /// Removes earlier outcome rows for `id`, keeping only the latest outcome row

@@ -692,6 +692,7 @@ fn commit(
                 scored: goodfetch_session_pool::Changes::default(),
                 chosen: None,
                 revisit: None,
+                claim_judgement: None,
                 ending: Ending::Commit {
                     commit,
                     refused: Box::new(|refused| panic!("a Record was refused: {refused:?}")),

@@ -407,6 +407,11 @@ read_lastmod = true
 news_revisit = { kind = "never" }
 revisit = { kind = "never" }
 
+[settings.crawl.sitemap.lastmod_trust]
+min_claims = 4
+min_precision = 0.9
+window = 4
+
 [settings.crawl.revisit]
 order = ["sources", "first_visits", "revisits"]
 domain_share = 0.5
@@ -440,6 +445,7 @@ expires = true
 retry_after = true
 changefreq = true
 priority = true
+lastmod = "learned"
 
 [settings.fetch]
 tier = "auto"

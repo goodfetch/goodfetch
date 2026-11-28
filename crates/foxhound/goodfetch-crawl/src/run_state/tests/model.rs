@@ -1517,6 +1517,7 @@ impl Subject {
             scored: goodfetch_session_pool::Changes::default(),
             chosen: None,
             revisit: None,
+            claim_judgement: None,
             ending,
         };
         let stored = crawl.stored();
@@ -1885,6 +1886,7 @@ fn a_work_item_readmitted_before_its_failed_attempt_settles_stays_pending() {
         scored: goodfetch_session_pool::Changes::default(),
         chosen: None,
         revisit: None,
+        claim_judgement: None,
         ending: Ending::End {
             work_item: leased.crawl_request.id.clone(),
             lease_epoch: leased.lease_epoch,

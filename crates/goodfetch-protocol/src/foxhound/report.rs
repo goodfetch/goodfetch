@@ -6,6 +6,7 @@
 //! Completeness reasons a crawl adds to every Run's (ADRs 0005, 0045,
 //! 0048, 0107, 0118 and 0120), each named by its setting or its cause.
 
+use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime};
 
 use schemars::JsonSchema;
@@ -75,6 +76,11 @@ pub const REVISIT_DOMAIN_BEHIND: &str = "revisit_domain_behind";
 /// The warning that a Continuous crawl has no Sink configured, so committed
 /// Records remain in its run file and the file will keep growing (ADR 0139).
 pub const CONTINUOUS_NO_SINK: &str = "continuous_no_sink";
+
+/// The warning that a sitemap file of at least 10 entries carried the same
+/// `<lastmod>` on at least 90 % of its entries, so its dates were ignored as
+/// generated at build time (ADR 0139, spec #1836).
+pub const LASTMOD_GENERATED: &str = "lastmod_generated";
 
 /// The Completeness reason of the URLs learned traps refused (ADR 0005).
 pub const TRAP_PATH: &str = "trap_path";
@@ -185,10 +191,45 @@ pub struct FreshnessReport {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub trusted_lastmod_hosts: Vec<String>,
+    /// Per-host `<lastmod>` trust ledger entries (confirmed, false claims,
+    /// misses, and current trust status), sorted by host (ADR 0139, spec #1836).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lastmod_trust: Vec<LastmodTrustHost>,
+    /// False claims per host from unlearned freshness hints
+    /// (`news:publication_date` and feed update dates, ADR 0139, spec #1836).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub news_false_claims: BTreeMap<String, u64>,
     /// The same Freshness metrics broken down per domain, sorted by domain.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub domains: Vec<DomainFreshness>,
+}
+
+/// Per-host `<lastmod>` trust counts in a Continuous crawl's Freshness report
+/// (ADR 0139, spec #1836).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LastmodTrustHost {
+    /// Host name whose `<lastmod>` claims were judged.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub host: String,
+    /// Whether this host's `<lastmod>` claims are currently trusted.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub trusted: bool,
+    /// Total `<lastmod>` claims judged for this host.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub claims_judged: u64,
+    /// Claims confirmed by a content change on the next revisit.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub confirmed: u64,
+    /// Claims disproved by an unchanged revisit.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub false_claims: u64,
+    /// Content changes observed on revisits with no open `<lastmod>` claim
+    /// (counted and reported, never counted against trust).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub misses: u64,
 }
 
 /// Freshness metrics for one domain in a Continuous crawl (ADR 0139).

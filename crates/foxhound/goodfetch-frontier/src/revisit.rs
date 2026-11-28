@@ -43,7 +43,8 @@ pub const TABLES: RunStateTables = RunStateTables {
             changes INTEGER NOT NULL,
             consecutive_gone INTEGER NOT NULL DEFAULT 0,
             last_tier TEXT,
-            at_min_floor INTEGER NOT NULL DEFAULT 0
+            at_min_floor INTEGER NOT NULL DEFAULT 0,
+            floor_at_ms INTEGER
         ) STRICT",
         "CREATE INDEX IF NOT EXISTS revisits_due
             ON revisits (domain_key, next_visit_at, work_item)
@@ -51,6 +52,8 @@ pub const TABLES: RunStateTables = RunStateTables {
         "CREATE INDEX IF NOT EXISTS revisits_next_due
             ON revisits (next_visit_at, domain_key, work_item)
             WHERE next_visit_at IS NOT NULL",
+        "CREATE INDEX IF NOT EXISTS revisits_by_identity
+            ON revisits (identity)",
     ],
 };
 
@@ -89,6 +92,11 @@ pub struct RevisitRow {
     /// Whether the URL is changing faster than its policy's `min` interval allows
     /// and was clamped to `min` (ADR 0139).
     pub at_min_floor: bool,
+    /// Earliest wall-clock timestamp (ms since Unix epoch) allowed by site
+    /// caching headers from the latest fetch (`Cache-Control: max-age`,
+    /// `Expires`, `Retry-After`), so a trusted `<lastmod>` claim never beats
+    /// a site floor (ADR 0139, spec #1836).
+    pub floor_at_ms: Option<u64>,
 }
 
 /// Previous schedule-relevant state of a URL before computing its next due date.
@@ -429,8 +437,8 @@ pub fn upsert(connection: &Connection, row: &RevisitRow) -> rusqlite::Result<()>
         "INSERT INTO revisits (
              work_item, identity, domain_key, next_visit_at, interval_ms,
              last_fetched_at, last_changed_at, signature, etag, last_modified,
-             visits, changes, consecutive_gone, last_tier, at_min_floor
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+             visits, changes, consecutive_gone, last_tier, at_min_floor, floor_at_ms
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
          ON CONFLICT (work_item) DO UPDATE SET
              identity = excluded.identity,
              domain_key = excluded.domain_key,
@@ -445,7 +453,8 @@ pub fn upsert(connection: &Connection, row: &RevisitRow) -> rusqlite::Result<()>
              changes = excluded.changes,
              consecutive_gone = excluded.consecutive_gone,
              last_tier = excluded.last_tier,
-             at_min_floor = excluded.at_min_floor",
+             at_min_floor = excluded.at_min_floor,
+             floor_at_ms = excluded.floor_at_ms",
     )?;
     statement.execute(params![
         row.work_item,
@@ -463,6 +472,7 @@ pub fn upsert(connection: &Connection, row: &RevisitRow) -> rusqlite::Result<()>
         i64::from(row.consecutive_gone),
         row.last_tier,
         i64::from(row.at_min_floor),
+        row.floor_at_ms.map(u64_to_i64),
     ])?;
     Ok(())
 }
@@ -476,10 +486,28 @@ pub fn get(connection: &Connection, work_item: &str) -> rusqlite::Result<Option<
     let mut statement = connection.prepare_cached(
         "SELECT work_item, identity, domain_key, next_visit_at, interval_ms,
                 last_fetched_at, last_changed_at, signature, etag, last_modified,
-                visits, changes, consecutive_gone, last_tier, at_min_floor
+                visits, changes, consecutive_gone, last_tier, at_min_floor, floor_at_ms
          FROM revisits WHERE work_item = ?1",
     )?;
     statement.query_row([work_item], decode_row).optional()
+}
+
+/// Reads one URL's revisit row by normalized URL `identity`, if present.
+///
+/// # Errors
+///
+/// Returns SQLite errors from reading the row.
+pub fn get_by_identity(
+    connection: &Connection,
+    identity: &str,
+) -> rusqlite::Result<Option<RevisitRow>> {
+    let mut statement = connection.prepare_cached(
+        "SELECT work_item, identity, domain_key, next_visit_at, interval_ms,
+                last_fetched_at, last_changed_at, signature, etag, last_modified,
+                visits, changes, consecutive_gone, last_tier, at_min_floor, floor_at_ms
+         FROM revisits WHERE identity = ?1 LIMIT 1",
+    )?;
+    statement.query_row([identity], decode_row).optional()
 }
 
 /// Reads all revisit rows from `connection` on Run open/resume so the Run state
@@ -492,7 +520,7 @@ pub fn read_all(connection: &Connection) -> rusqlite::Result<Vec<RevisitRow>> {
     let mut statement = connection.prepare_cached(
         "SELECT work_item, identity, domain_key, next_visit_at, interval_ms,
                 last_fetched_at, last_changed_at, signature, etag, last_modified,
-                visits, changes, consecutive_gone, last_tier, at_min_floor
+                visits, changes, consecutive_gone, last_tier, at_min_floor, floor_at_ms
          FROM revisits ORDER BY work_item",
     )?;
     let rows = statement.query_map([], decode_row)?;
@@ -678,11 +706,13 @@ pub fn freshness(connection: &Connection, now_ms: u64) -> rusqlite::Result<Fresh
         }
     }
 
+    let mut trust = crate::lastmod_trust::summary(connection)?;
     let (median_lag, largest_lag) = lag_stats(&mut overall.lags);
     let domains = by_domain
         .into_iter()
         .map(|(domain, mut accum)| {
             let (median_lag, largest_lag) = lag_stats(&mut accum.lags);
+            let trusted_lastmod_hosts = trust.trusted_by_domain.remove(&domain).unwrap_or_default();
             DomainFreshness {
                 domain,
                 overdue: accum.overdue,
@@ -691,7 +721,7 @@ pub fn freshness(connection: &Connection, now_ms: u64) -> rusqlite::Result<Fresh
                 unchanged: accum.unchanged,
                 gone: accum.gone,
                 changed: accum.changed,
-                trusted_lastmod_hosts: Vec::new(),
+                trusted_lastmod_hosts,
             }
         })
         .collect();
@@ -703,7 +733,9 @@ pub fn freshness(connection: &Connection, now_ms: u64) -> rusqlite::Result<Fresh
         unchanged: overall.unchanged,
         gone: overall.gone,
         changed: overall.changed,
-        trusted_lastmod_hosts: Vec::new(),
+        trusted_lastmod_hosts: trust.trusted_hosts,
+        lastmod_trust: trust.hosts,
+        news_false_claims: trust.news_false_claims,
         domains,
     })
 }
@@ -743,6 +775,7 @@ fn decode_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RevisitRow> {
         consecutive_gone: u32::try_from(row.get::<_, i64>(12)?).unwrap_or(u32::MAX),
         last_tier: row.get(13)?,
         at_min_floor: row.get::<_, i64>(14)? != 0,
+        floor_at_ms: row.get::<_, Option<i64>>(15)?.map(i64_to_u64),
     })
 }
 

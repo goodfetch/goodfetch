@@ -85,6 +85,17 @@ CREATE TABLE effect_journal (entry INTEGER PRIMARY KEY AUTOINCREMENT, namespace 
 CREATE TABLE effect_secret (id INTEGER PRIMARY KEY CHECK (id = 1), secret BLOB NOT NULL) STRICT;
 CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
 INSERT INTO "format" VALUES('run-state','0.1');
+CREATE TABLE host_lastmod_trust (
+            host TEXT NOT NULL PRIMARY KEY,
+            domain_key TEXT NOT NULL,
+            trusted INTEGER NOT NULL DEFAULT 0,
+            claims_judged INTEGER NOT NULL DEFAULT 0,
+            confirmed INTEGER NOT NULL DEFAULT 0,
+            false_claims INTEGER NOT NULL DEFAULT 0,
+            misses INTEGER NOT NULL DEFAULT 0,
+            news_false_claims INTEGER NOT NULL DEFAULT 0,
+            window_outcomes TEXT NOT NULL DEFAULT ''
+        ) STRICT, WITHOUT ROWID;
 CREATE TABLE key_values (key TEXT NOT NULL PRIMARY KEY, value TEXT, content BLOB, content_type TEXT, file INTEGER, CHECK ((value IS NULL) <> (content_type IS NULL)), CHECK (content_type IS NULL OR ((content IS NULL) <> (file IS NULL)))) STRICT;
 CREATE TABLE labels (
             name TEXT NOT NULL PRIMARY KEY,
@@ -137,6 +148,13 @@ CREATE TABLE learned_rules (
 INSERT INTO "learned_rules" VALUES(1,'no_effect_parameter','list.test','','ref','','3 pairs of URLs differing only by `ref` served pages of matching signatures, and no pair pages of differing ones: https://list.test/items?n=1 and https://list.test/items?n=1&ref=a; https://list.test/items?n=2 and https://list.test/items?n=2&ref=b; https://list.test/items?n=3 and https://list.test/items?n=3&ref=c.',NULL);
 INSERT INTO "learned_rules" VALUES(2,'equivalent_form','list.test','','','trailing_slash','https://list.test/guide redirected to https://list.test/guide/, which differs from it only by a trailing slash.','https://list.test/guide and https://list.test/guide/, both fetched and neither redirected, served pages of differing signatures.');
 INSERT INTO "learned_rules" VALUES(3,'cursor_pagination','list.test','/rows','offset','','`offset` steps by 20 on https://list.test/rows (https://list.test/rows?offset=0, https://list.test/rows?offset=20, https://list.test/rows?offset=40), and three of its pages each link one value of `after` of their own: https://list.test/rows?offset=0 links https://list.test/rows?after=r20/sale, https://list.test/rows?offset=20 links https://list.test/rows?after=r40/sale, and https://list.test/rows?offset=40 links https://list.test/rows?after=r60/sale.',NULL);
+CREATE TABLE open_lastmod_claims (
+            work_item TEXT NOT NULL PRIMARY KEY,
+            host TEXT NOT NULL,
+            domain_key TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            claimed_at_ms INTEGER NOT NULL
+        ) STRICT, WITHOUT ROWID;
 CREATE TABLE outcomes (
             position INTEGER NOT NULL PRIMARY KEY,
             work_item TEXT NOT NULL,
@@ -320,7 +338,8 @@ CREATE TABLE revisits (
             changes INTEGER NOT NULL,
             consecutive_gone INTEGER NOT NULL DEFAULT 0,
             last_tier TEXT,
-            at_min_floor INTEGER NOT NULL DEFAULT 0
+            at_min_floor INTEGER NOT NULL DEFAULT 0,
+            floor_at_ms INTEGER
         ) STRICT;
 CREATE TABLE robots_txt_copies (location TEXT NOT NULL PRIMARY KEY, status INTEGER, body BLOB, unreachable TEXT, CHECK ((status IS NULL) = (body IS NULL)), CHECK ((status IS NULL) <> (unreachable IS NULL))) STRICT;
 CREATE TABLE rules_canonicals (
@@ -736,6 +755,8 @@ INSERT INTO "work_items" VALUES('25',25,'https://outlet.test/sale','GET',NULL,NU
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
 CREATE INDEX pool_sessions_open ON pool_sessions (pool, position)
             WHERE retired_because IS NULL;
+CREATE INDEX revisits_by_identity
+            ON revisits (identity);
 CREATE INDEX revisits_due
             ON revisits (domain_key, next_visit_at, work_item)
             WHERE next_visit_at IS NOT NULL;

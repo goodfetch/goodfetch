@@ -3127,3 +3127,319 @@ fn continuous_growth_no_sink_warning_latest_outcomes_and_forget_after() {
         "after forget_after, re-seeding must add as new: {added_after}"
     );
 }
+
+/// Per-host `<lastmod>` trust learning, stamped-sitemap `lastmod_generated`,
+/// `news:publication_date` direct bring-forward + false-claim counting, and
+/// `config.explain` yielding on batch crawls (issue 1855, ADR 0139, spec #1836).
+///
+/// Covers: setting:revisit.site_hints.lastmod, setting:crawl.sitemap.lastmod_trust.min_claims, setting:crawl.sitemap.lastmod_trust.min_precision, setting:crawl.sitemap.lastmod_trust.window
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end test covering honest, half-right, stamped, and news sitemap hosts"
+)]
+fn lastmod_trust_honest_half_right_stamped_and_news_claims() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use tokio::time::advance;
+
+    let env = TestEnv::new();
+    let round = Arc::new(AtomicU32::new(0));
+    let round_http = Arc::clone(&round);
+    let honest_early_visits = Arc::new(AtomicU32::new(0));
+    let honest_early_http = Arc::clone(&honest_early_visits);
+    let half_early_visits = Arc::new(AtomicU32::new(0));
+    let half_early_http = Arc::clone(&half_early_visits);
+
+    let site = Arc::new(ScriptedSite {
+        recorded: std::sync::Mutex::new(Vec::new()),
+        respond: Box::new(move |hop| {
+            let host = hop.url.host_str().unwrap_or("");
+            let path = hop.url.path();
+            if path == "/robots.txt" {
+                return (
+                    200,
+                    vec![("content-type".to_owned(), "text/plain".to_owned())],
+                    String::new(),
+                );
+            }
+            let r = round_http.load(Ordering::SeqCst);
+            if path == "/sitemap.xml" {
+                let body = match host {
+                    "honest.test" => {
+                        let ts = format!("2026-01-05T{:02}:00:00Z", 9 + r);
+                        format!(
+                            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
+                             <urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\
+                             <url><loc>https://honest.test/p1</loc><lastmod>{ts}</lastmod></url>\
+                             <url><loc>https://honest.test/p2</loc><lastmod>{ts}</lastmod></url>\
+                             </urlset>"
+                        )
+                    }
+                    "half.test" => {
+                        let ts = format!("2026-01-05T{:02}:00:00Z", 9 + r);
+                        format!(
+                            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
+                             <urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\
+                             <url><loc>https://half.test/p1</loc><lastmod>{ts}</lastmod></url>\
+                             <url><loc>https://half.test/p2</loc><lastmod>{ts}</lastmod></url>\
+                             </urlset>"
+                        )
+                    }
+                    "stamped.test" => {
+                        use std::fmt::Write as _;
+                        let mut xml = String::from(
+                            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
+                             <urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">",
+                        );
+                        for i in 1..=10 {
+                            let _ = write!(
+                                xml,
+                                "<url><loc>https://stamped.test/p{i}</loc><lastmod>2026-01-05T10:00:00Z</lastmod></url>"
+                            );
+                        }
+                        xml.push_str("</urlset>");
+                        xml
+                    }
+                    "news.test" => {
+                        let ts = format!("2026-01-05T{:02}:00:00Z", 9 + r);
+                        format!(
+                            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
+                             <urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\" \
+                                     xmlns:news=\"http://www.google.com/schemas/sitemap-news/0.9\">\
+                             <url><loc>https://news.test/story</loc>\
+                             <news:news><news:publication_date>{ts}</news:publication_date></news:news></url>\
+                             </urlset>"
+                        )
+                    }
+                    _ => String::new(),
+                };
+                return (
+                    200,
+                    vec![("content-type".to_owned(), "application/xml".to_owned())],
+                    body,
+                );
+            }
+            // Page responses:
+            // - honest.test/p1 & p2 always change each round
+            // - half.test/p1 changes each round, half.test/p2 never changes (50% precision)
+            // - news.test/story never changes (produces a news false claim when brought forward)
+            if host == "honest.test" && r >= 2 {
+                honest_early_http.fetch_add(1, Ordering::SeqCst);
+            }
+            if host == "half.test" && r >= 2 {
+                half_early_http.fetch_add(1, Ordering::SeqCst);
+            }
+            let body = match (host, path) {
+                ("honest.test", _) | ("half.test", "/p1") => {
+                    format!("<html><body><p>{host}{path}-r{r}</p></body></html>")
+                }
+                _ => format!("<html><body><p>{host}{path}-static</p></body></html>"),
+            };
+            (
+                200,
+                vec![(
+                    "content-type".to_owned(),
+                    "text/html; charset=utf-8".to_owned(),
+                )],
+                body,
+            )
+        }),
+    });
+    let engine = engine_with_site(Arc::clone(&site));
+    let mut handler = |_: &Value| Reply::Records(Vec::new());
+
+    let (explained, report) = super::crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            // 1. Batch crawl marks all 4 settings inactive via config.explain.
+            let explained = client
+                .call(
+                    "config.explain",
+                    json!({
+                        "settings": {
+                            "crawl": {
+                                "continuous": { "enabled": false },
+                                "sitemap": {
+                                    "lastmod_trust": {
+                                        "min_claims": 10,
+                                        "min_precision": 0.9,
+                                        "window": 20
+                                    }
+                                }
+                            },
+                            "revisit": {
+                                "site_hints": { "lastmod": "learned" }
+                            }
+                        }
+                    }),
+                    &mut handler,
+                )
+                .await;
+
+            // 2. Continuous crawl with min_claims = 2, min_precision = 0.9, window = 4:
+            //    - sitemaps re-read every 10s
+            //    - pages revisit every 1h (adaptive min = 5s, initial = 3_600_000, max = 3_600_000)
+            //      wait: first 2 claims need to be judged on natural revisit, so use initial = 25s
+            //      for round 1? Even simpler: every 30s for pages, min = 5s (adaptive initial 30s,
+            //      min 5s, max 30s) -> after 2 claims judged at 30s, honest.test earns trust!
+            let started = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "lastmod-trust-1",
+                        "seeds": [
+                            { "sitemap": "https://honest.test/sitemap.xml", "rules": [{ "pattern": "**", "label": "page" }] },
+                            { "sitemap": "https://half.test/sitemap.xml", "rules": [{ "pattern": "**", "label": "page" }] },
+                            { "sitemap": "https://stamped.test/sitemap.xml", "rules": [{ "pattern": "**", "label": "page" }] },
+                            { "sitemap": "https://news.test/sitemap.xml", "rules": [{ "pattern": "**", "label": "page" }] },
+                        ],
+                        "labels": {
+                            "page": {
+                                "settings": {
+                                    "revisit": {
+                                        "policy": {
+                                            "kind": "adaptive",
+                                            "initial": 1_800_000,
+                                            "min": 5_000,
+                                            "max": 3_600_000
+                                        },
+                                        "change_check": "signature",
+                                        "site_hints": { "lastmod": "learned" }
+                                    }
+                                }
+                            }
+                        },
+                        "settings": {
+                            "crawl": {
+                                "continuous": { "enabled": true },
+                                "sitemap": {
+                                    "read_lastmod": true,
+                                    "revisit": { "kind": "every", "interval": 10_000 },
+                                    "news_revisit": { "kind": "every", "interval": 10_000 },
+                                    "lastmod_trust": {
+                                        "min_claims": 2,
+                                        "min_precision": 0.9,
+                                        "window": 4
+                                    }
+                                }
+                            }
+                        }
+                    }),
+                    &mut handler,
+                )
+                .await;
+            assert!(started["result"].is_object(), "start failed: {started}");
+            let _ = progress_matching(
+                client,
+                "lastmod-trust-1",
+                |p| p["idle"] == json!(true),
+                &mut handler,
+            )
+            .await;
+
+            // Round 1: sitemaps advance <lastmod> -> opens claims on honest.test (2 pages)
+            // and half.test (2 pages), and brings news.test/story forward immediately!
+            round.store(1, Ordering::SeqCst);
+            advance(Duration::from_secs(12)).await;
+            let _ = progress_matching(
+                client,
+                "lastmod-trust-1",
+                |p| p["idle"] == json!(true),
+                &mut handler,
+            )
+            .await;
+
+            // Advance 31 minutes so honest.test and half.test natural revisits run and judge
+            // their 2 open claims each (honest.test: 2/2 -> trusted; half.test: 1/2 -> untrusted).
+            advance(Duration::from_mins(31)).await;
+            let _ = progress_matching(
+                client,
+                "lastmod-trust-1",
+                |p| p["idle"] == json!(true),
+                &mut handler,
+            )
+            .await;
+
+            // Round 2: sitemaps advance <lastmod> again; advance ONLY 15s (well under the 15-30m
+            // adaptive interval!) -> honest.test IS visited early, half.test is NOT!
+            round.store(2, Ordering::SeqCst);
+            advance(Duration::from_secs(15)).await;
+            let _ = progress_matching(
+                client,
+                "lastmod-trust-1",
+                |p| p["idle"] == json!(true),
+                &mut handler,
+            )
+            .await;
+
+            let report = client
+                .call("run.finish", json!({ "run_id": "lastmod-trust-1" }), &mut handler)
+                .await;
+            (explained, report)
+        },
+    )
+    .0;
+
+    // 1. Batch crawl yields_to checks for all 4 settings.
+    let settings = explained["result"]["settings"]
+        .as_array()
+        .expect("config.explain settings");
+    for key in [
+        "revisit.site_hints.lastmod",
+        "crawl.sitemap.lastmod_trust.min_claims",
+        "crawl.sitemap.lastmod_trust.min_precision",
+        "crawl.sitemap.lastmod_trust.window",
+    ] {
+        let entry = settings
+            .iter()
+            .find(|s| s["key"] == key)
+            .unwrap_or_else(|| panic!("missing {key} in config.explain"));
+        assert_eq!(
+            entry["yields_to"]["key"], "crawl.continuous.enabled",
+            "expected {key} to yield to crawl.continuous.enabled: {entry}"
+        );
+    }
+
+    // 2. Stamped sitemap warning.
+    let warnings = report["result"]["warnings"]
+        .as_array()
+        .expect("report warnings");
+    assert!(
+        warnings.iter().any(|w| w["code"] == "lastmod_generated"),
+        "expected lastmod_generated warning for stamped.test: {warnings:?}"
+    );
+
+    // 3. Honest host earned trust & was visited early; half-right was NOT.
+    let freshness = &report["result"]["freshness"];
+    let trusted: Vec<&str> = freshness["trusted_lastmod_hosts"]
+        .as_array()
+        .expect("trusted_lastmod_hosts")
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert_eq!(
+        trusted,
+        vec!["honest.test"],
+        "only honest.test should be trusted: {freshness}"
+    );
+    assert!(
+        honest_early_visits.load(Ordering::SeqCst) >= 2,
+        "honest.test should have been visited early on round 2: got {}",
+        honest_early_visits.load(Ordering::SeqCst)
+    );
+    assert_eq!(
+        half_early_visits.load(Ordering::SeqCst),
+        0,
+        "half.test must not be visited early while untrusted"
+    );
+
+    // 4. news:publication_date false claim was counted for news.test.
+    assert!(
+        freshness["news_false_claims"]["news.test"]
+            .as_u64()
+            .is_some_and(|n| n >= 1),
+        "expected news_false_claims for news.test: {freshness}"
+    );
+}

@@ -535,6 +535,14 @@ impl RunState {
         self.revisits.drop_unleased();
     }
 
+    /// Updates an already-tracked revisit row in memory when a trusted
+    /// `<lastmod>` or `news:publication_date` claim brings its due time forward
+    /// (ADR 0139, spec #1836).
+    pub(crate) fn bring_revisit_forward(&mut self, row: RevisitRow, committed: u64) {
+        self.revisits
+            .bring_forward(row, committed, || self.stored.frontier_bytes());
+    }
+
     /// Removes forgotten work items from the in-memory revisit schedule
     /// (`crawl.continuous.forget_after`, ADR 0139).
     pub(crate) fn forget_revisits(&mut self, work_items: &[String]) {

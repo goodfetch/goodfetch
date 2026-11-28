@@ -478,6 +478,28 @@ impl RevisitTracker {
         self.active.retain(|_, active| active.in_flight);
     }
 
+    /// Updates an already-tracked revisit row's due time in memory when a
+    /// trusted `<lastmod>` or `news:publication_date` claim brings it forward
+    /// (ADR 0139, spec #1836).
+    pub(super) fn bring_forward(
+        &mut self,
+        row: RevisitRow,
+        committed: u64,
+        beside: impl FnOnce() -> u64,
+    ) {
+        if !self.enabled {
+            return;
+        }
+        let id = row.work_item.clone();
+        if let Some(whole) = &mut self.whole
+            && !whole.insert(row.clone(), beside())
+        {
+            self.whole = None;
+            self.templates.clear();
+        }
+        self.unwritten.insert(id, (row, committed));
+    }
+
     /// Removes forgotten work items from the in-memory revisit schedule
     /// (`crawl.continuous.forget_after`, ADR 0139).
     pub(super) fn forget(&mut self, work_items: &[String]) {

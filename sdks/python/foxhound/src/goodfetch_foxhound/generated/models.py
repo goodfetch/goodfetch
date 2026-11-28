@@ -62,6 +62,7 @@ from goodfetch_foxhound.generated.open_values import (
     SkipReason,
 )
 from pydantic import BaseModel, ConfigDict, Field, RootModel
+from typing_extensions import TypeAliasType
 
 
 class FoxhoundTypes(BaseModel):
@@ -956,34 +957,9 @@ class FoundRecord(BaseModel):
     """The Record, as JSON."""
 
 
-class FreshnessReport(BaseModel):
-    """
-    Freshness metrics of a Continuous crawl (ADR 0139): revisits overdue,
-    median and largest lag across overdue revisits, counts of `unchanged`,
-    `gone` and changed revisits, and trusted `<lastmod>` hosts, overall
-    and per domain.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        arbitrary_types_allowed=True,
-    )
-    changed: Annotated[int, Field(ge=0)]
-    """How many revisits observed a change (excluding first visits)."""
-    domains: list[DomainFreshness] | None = None
-    """The same Freshness metrics broken down per domain, sorted by domain."""
-    gone: Annotated[int, Field(ge=0)]
-    """How many URLs ended `gone`."""
-    largest_lag: Duration | None = None
-    """Largest lag across overdue revisits; absent when none are overdue."""
-    median_lag: Duration | None = None
-    """Median lag across overdue revisits; absent when none are overdue."""
-    overdue: Annotated[int, Field(ge=0)]
-    """How many scheduled revisits are currently overdue."""
-    trusted_lastmod_hosts: list[str] | None = None
-    """Hosts whose sitemap `<lastmod>` claims are currently trusted, sorted."""
-    unchanged: Annotated[int, Field(ge=0)]
-    """How many revisits ended `unchanged`."""
+NewsFalseClaimsAdditionalProperty = TypeAliasType(
+    "NewsFalseClaimsAdditionalProperty", Annotated[int, Field(ge=0)]
+)
 
 
 class GuaranteeClass(StrEnum):
@@ -1186,6 +1162,32 @@ class LabelUnknownDetails(BaseModel):
     """The names of the Labels the crawl declares, in order."""
     label: str
     """The Label's name."""
+
+
+class LastmodTrustHost(BaseModel):
+    """
+    Per-host `<lastmod>` trust counts in a Continuous crawl's Freshness report
+    (ADR 0139, spec #1836).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    claims_judged: Annotated[int, Field(ge=0)]
+    """Total `<lastmod>` claims judged for this host."""
+    confirmed: Annotated[int, Field(ge=0)]
+    """Claims confirmed by a content change on the next revisit."""
+    false_claims: Annotated[int, Field(ge=0)]
+    """Claims disproved by an unchanged revisit."""
+    host: str
+    """Host name whose `<lastmod>` claims were judged."""
+    misses: Annotated[int, Field(ge=0)]
+    """
+    Content changes observed on revisits with no open `<lastmod>` claim
+    (counted and reported, never counted against trust).
+    """
+    trusted: bool
+    """Whether this host's `<lastmod>` claims are currently trusted."""
 
 
 class LearnedRuleKind(StrEnum):
@@ -3034,6 +3036,46 @@ class FailedRequests(BaseModel):
     )
     requests: list[CrawlRequestOutcome]
     """The latest outcome of each such request, in commit order."""
+
+
+class FreshnessReport(BaseModel):
+    """
+    Freshness metrics of a Continuous crawl (ADR 0139): revisits overdue,
+    median and largest lag across overdue revisits, counts of `unchanged`,
+    `gone` and changed revisits, and trusted `<lastmod>` hosts, overall
+    and per domain.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    changed: Annotated[int, Field(ge=0)]
+    """How many revisits observed a change (excluding first visits)."""
+    domains: list[DomainFreshness] | None = None
+    """The same Freshness metrics broken down per domain, sorted by domain."""
+    gone: Annotated[int, Field(ge=0)]
+    """How many URLs ended `gone`."""
+    largest_lag: Duration | None = None
+    """Largest lag across overdue revisits; absent when none are overdue."""
+    lastmod_trust: list[LastmodTrustHost] | None = None
+    """
+    Per-host `<lastmod>` trust ledger entries (confirmed, false claims,
+    misses, and current trust status), sorted by host (ADR 0139, spec #1836).
+    """
+    median_lag: Duration | None = None
+    """Median lag across overdue revisits; absent when none are overdue."""
+    news_false_claims: dict[str, NewsFalseClaimsAdditionalProperty] | None = None
+    """
+    False claims per host from unlearned freshness hints
+    (`news:publication_date` and feed update dates, ADR 0139, spec #1836).
+    """
+    overdue: Annotated[int, Field(ge=0)]
+    """How many scheduled revisits are currently overdue."""
+    trusted_lastmod_hosts: list[str] | None = None
+    """Hosts whose sitemap `<lastmod>` claims are currently trusted, sorted."""
+    unchanged: Annotated[int, Field(ge=0)]
+    """How many revisits ended `unchanged`."""
 
 
 class InvalidRecord(BaseModel):

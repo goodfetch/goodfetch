@@ -954,8 +954,34 @@ fn seed_paused_state(
         "2",
         goodfetch_frontier::trap_links::Mark::Hidden,
     )?;
-    // A scheduled revisit row for a Continuous crawl (#1839).
-    goodfetch_frontier::revisit::upsert(connection, &sample_revisit())
+    // A scheduled revisit row for a Continuous crawl (#1839), plus sample
+    // `<lastmod>` trust and open-claim rows (#1855).
+    goodfetch_frontier::revisit::upsert(connection, &sample_revisit())?;
+    goodfetch_frontier::lastmod_trust::open_claim(
+        connection,
+        "1",
+        "shop.test",
+        "shop.test",
+        goodfetch_frontier::lastmod_trust::ClaimKind::Lastmod,
+        1_790_000_010_000,
+    )?;
+    goodfetch_frontier::lastmod_trust::judge_visit(
+        connection,
+        "1",
+        "shop.test",
+        "shop.test",
+        true,
+        true,
+        goodfetch_frontier::lastmod_trust::TrustThresholds::default(),
+    )?;
+    goodfetch_frontier::lastmod_trust::open_claim(
+        connection,
+        "2",
+        "shop.test",
+        "shop.test",
+        goodfetch_frontier::lastmod_trust::ClaimKind::Lastmod,
+        1_790_000_020_000,
+    )
 }
 
 fn sample_revisit() -> goodfetch_frontier::revisit::RevisitRow {
@@ -975,6 +1001,7 @@ fn sample_revisit() -> goodfetch_frontier::revisit::RevisitRow {
         consecutive_gone: 0,
         last_tier: Some("http".to_owned()),
         at_min_floor: false,
+        floor_at_ms: Some(1_790_000_030_000),
     }
 }
 

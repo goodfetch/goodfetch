@@ -13,8 +13,10 @@ use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::Keys;
 use goodfetch_engine::egress::Policy;
+use goodfetch_frontier::lastmod_trust::{self, ClaimKind, TrustThresholds};
 use goodfetch_frontier::revisit::{self, RevisitRow};
 use goodfetch_frontier::sitemap;
+use goodfetch_protocol::foxhound::continuous::{LastmodHint, RevisitPolicy};
 use goodfetch_session_pool::Changes;
 use rusqlite::Connection;
 
@@ -62,14 +64,26 @@ pub(crate) struct SourceReadOptions {
     pub(crate) revisit: Option<SourceRevisitPlan>,
 }
 
+/// Parameters for evaluating `<lastmod>` and `news:publication_date` claims
+/// during a standing sitemap read (ADR 0139, spec #1836).
+#[derive(Clone, Debug)]
+pub(crate) struct LastmodClaimConfig {
+    /// Per-Label settings (for `revisit.policy` and `revisit.site_hints.lastmod`).
+    pub(crate) labels: Arc<goodfetch_fetch_tier::LabelSettings>,
+    /// Run-level fallback `revisit.policy`.
+    pub(crate) run_policy: RevisitPolicy,
+    /// Run-level fallback `revisit.site_hints.lastmod`.
+    pub(crate) run_hint: LastmodHint,
+}
+
 /// Parameters for scheduling a standing sitemap source's next re-read in a
 /// Continuous crawl (ADR 0139).
 #[derive(Clone, Debug)]
 pub(crate) struct SourceRevisitPlan {
     /// `crawl.sitemap.revisit` policy (adaptive 24h / 1h..30d by default).
-    pub(crate) sitemap_policy: goodfetch_protocol::foxhound::continuous::RevisitPolicy,
+    pub(crate) sitemap_policy: RevisitPolicy,
     /// `crawl.sitemap.news_revisit` policy (adaptive 1h / 15m..24h by default).
-    pub(crate) news_policy: goodfetch_protocol::foxhound::continuous::RevisitPolicy,
+    pub(crate) news_policy: RevisitPolicy,
     /// Current wall-clock time in milliseconds since the Unix epoch.
     pub(crate) now_ms: u64,
     /// The source's URL.
@@ -80,6 +94,25 @@ pub(crate) struct SourceRevisitPlan {
     pub(crate) previous: Option<RevisitRow>,
     /// Whether `run.finish()` has been requested (schedule no further re-read).
     pub(crate) let_finish: bool,
+    /// Per-Label policies and `<lastmod>` hint switches for claim evaluation.
+    pub(crate) lastmod: Option<Arc<LastmodClaimConfig>>,
+}
+
+/// Parameters for judging an open `<lastmod>` / `news:publication_date` claim
+/// (or recording a miss) inside the outcome's Run-state batch transaction
+/// (ADR 0139, ADR 0140 F2, spec #1836).
+#[derive(Clone, Debug)]
+pub(crate) struct ClaimJudgement {
+    /// URL host name.
+    pub(crate) host: String,
+    /// URL domain key.
+    pub(crate) domain_key: String,
+    /// Whether the visit observed a content change (`true`) or was unchanged (`false`).
+    pub(crate) changed: bool,
+    /// Whether this was a revisit (`visits > 1`), as opposed to a first visit.
+    pub(crate) is_revisit: bool,
+    /// Configured `crawl.sitemap.lastmod_trust.*` thresholds.
+    pub(crate) thresholds: TrustThresholds,
 }
 
 /// The parsed document of a non-handler source fetch (sitemap or syndication
@@ -99,6 +132,9 @@ pub(crate) struct Outcome {
     /// Updated Continuous crawl revisit row written in the same transaction
     /// when the attempt commits (ADR 0139, ADR 0140); `None` on batch crawls.
     pub(crate) revisit: Option<RevisitRow>,
+    /// `<lastmod>` / `news:publication_date` claim judgement written in the
+    /// same transaction as the outcome (0 extra transactions, ADR 0140 F2).
+    pub(crate) claim_judgement: Option<ClaimJudgement>,
     pub(crate) ending: Ending,
 }
 
@@ -119,10 +155,15 @@ pub(crate) enum Ended {
     },
     /// Its sitemap was read, when its lease still held: each work item
     /// its read added, keyed, in order, as its first lease takes it, plus
-    /// the updated standing-source [`RevisitRow`] in a Continuous crawl.
+    /// the updated standing-source [`RevisitRow`] in a Continuous crawl,
+    /// any visited URLs whose revisits were brought forward by trusted
+    /// `<lastmod>` or `news:publication_date` claims, and whether the file
+    /// was flagged `lastmod_generated`.
     SitemapRead {
         added: Option<Vec<Leased>>,
         revisit: Option<Box<RevisitRow>>,
+        brought_forward: Vec<RevisitRow>,
+        lastmod_generated: bool,
     },
 }
 
@@ -148,6 +189,7 @@ impl Outcome {
             scored,
             chosen,
             revisit,
+            claim_judgement,
             ending,
         } = self;
         if !scored.is_empty() {
@@ -163,15 +205,7 @@ impl Outcome {
                 match commit.write(connection, &mut changed)? {
                     Some(Ok(committed)) => {
                         if let Some(row) = revisit {
-                            revisit::upsert(connection, &row)?;
-                            work_items::prune_old_outcomes(connection, &row.work_item)?;
-                            if let Some(seen_at_ms) = row.last_fetched_at {
-                                goodfetch_frontier::touch_visited(
-                                    connection,
-                                    &row.work_item,
-                                    seen_at_ms,
-                                )?;
-                            }
+                            write_revisit_and_claim(connection, &row, claim_judgement)?;
                         }
                         Ended::Committed(committed)
                     }
@@ -205,11 +239,7 @@ impl Outcome {
                 if matches!(ended, Ended::Unsuccessful { ended: true, .. })
                     && let Some(row) = revisit
                 {
-                    revisit::upsert(connection, &row)?;
-                    work_items::prune_old_outcomes(connection, &row.work_item)?;
-                    if let Some(seen_at_ms) = row.last_fetched_at {
-                        goodfetch_frontier::touch_visited(connection, &row.work_item, seen_at_ms)?;
-                    }
+                    write_revisit_and_claim(connection, &row, claim_judgement)?;
                 }
                 ended
             }
@@ -236,6 +266,33 @@ impl Outcome {
             changed: changed.with_sitemaps(connection)?,
         })
     }
+}
+
+/// Upserts `row`, prunes older outcomes for the URL, stamps `visited.last_seen_at`,
+/// and judges any open `<lastmod>` / `news:publication_date` claim in the same
+/// Run-state batch transaction (0 extra transactions, ADR 0139 / ADR 0140 F2).
+fn write_revisit_and_claim(
+    connection: &Connection,
+    row: &RevisitRow,
+    claim_judgement: Option<ClaimJudgement>,
+) -> rusqlite::Result<()> {
+    revisit::upsert(connection, row)?;
+    work_items::prune_old_outcomes(connection, &row.work_item)?;
+    if let Some(seen_at_ms) = row.last_fetched_at {
+        goodfetch_frontier::touch_visited(connection, &row.work_item, seen_at_ms)?;
+    }
+    if let Some(judge) = claim_judgement {
+        lastmod_trust::judge_visit(
+            connection,
+            &row.work_item,
+            &judge.host,
+            &judge.domain_key,
+            judge.changed,
+            judge.is_revisit,
+            judge.thresholds,
+        )?;
+    }
+    Ok(())
 }
 
 /// Ends `attempt` `unsuccessful` as `write` says, as [`work_items::end`]
@@ -292,7 +349,7 @@ fn write_source(
             unwritten.forget(&identities);
         }
     }
-    let (read, source_revisit) = match document {
+    let (read, source_revisit, brought_forward, lastmod_generated) = match document {
         SourceDocument::Sitemap(document) => {
             let read = work_items::read_sitemap(
                 connection,
@@ -305,15 +362,21 @@ fn write_source(
             )?;
             match read {
                 Some((added, outcome)) => {
+                    let (brought, stamped) = match options.revisit.as_ref() {
+                        Some(plan) if options.sitemap.read_lastmod && !plan.let_finish => {
+                            apply_sitemap_lastmod_claims(connection, document, plan)?
+                        }
+                        _ => (Vec::new(), false),
+                    };
                     let row = options
                         .revisit
                         .map(|plan| schedule_sitemap_revisit(&attempt.work_item, plan, outcome));
                     if let Some(row) = &row {
                         revisit::upsert(connection, row)?;
                     }
-                    (Some(added), row.map(Box::new))
+                    (Some(added), row.map(Box::new), brought, stamped)
                 }
-                None => (None, None),
+                None => (None, None, Vec::new(), false),
             }
         }
         SourceDocument::Syndication(document) => (
@@ -326,6 +389,8 @@ fn write_source(
                 (keys, work, changed),
             )?,
             None,
+            Vec::new(),
+            false,
         ),
     };
     Ok(Ended::SitemapRead {
@@ -333,7 +398,100 @@ fn write_source(
             .map(|added| work_items::leasable_added(connection, &added))
             .transpose()?,
         revisit: source_revisit,
+        brought_forward,
+        lastmod_generated,
     })
+}
+
+/// Evaluates `<lastmod>` and `<news:publication_date>` claims on already-visited
+/// URLs in a sitemap urlset, opening claims and bringing trusted revisits
+/// forward in the same Run-state batch transaction (ADR 0139, spec #1836).
+fn apply_sitemap_lastmod_claims(
+    connection: &Connection,
+    document: &sitemap::Document,
+    plan: &SourceRevisitPlan,
+) -> rusqlite::Result<(Vec<RevisitRow>, bool)> {
+    let sitemap::Document::Entries { entries, .. } = document else {
+        return Ok((Vec::new(), false));
+    };
+    let Some(lastmod_cfg) = plan.lastmod.as_deref() else {
+        return Ok((Vec::new(), false));
+    };
+    let stamped = lastmod_trust::is_stamped_sitemap(entries);
+    let base = goodfetch_frontier::Url::parse(&plan.url).ok();
+    let mut brought_forward = Vec::new();
+    for entry in entries {
+        if entry.news_publication_date.is_none() && (stamped || entry.lastmod.is_none()) {
+            continue;
+        }
+        let resolved = match &base {
+            Some(base) => base.join(&entry.loc).ok(),
+            None => goodfetch_frontier::Url::parse(&entry.loc).ok(),
+        };
+        let Some(url) = resolved else {
+            continue;
+        };
+        let Some(mut row) = revisit::get_by_identity(connection, url.as_str())? else {
+            continue;
+        };
+        let Some(last_fetched) = row.last_fetched_at else {
+            continue;
+        };
+        let label = work_items::label_of(connection, &row.work_item)?.unwrap_or_default();
+        let policy = lastmod_cfg
+            .labels
+            .revisit_policy(&label, &lastmod_cfg.run_policy);
+        let hint = lastmod_cfg
+            .labels
+            .revisit_site_hints_lastmod(&label, lastmod_cfg.run_hint);
+        let host = url.host_str().unwrap_or("");
+        if host.is_empty() {
+            continue;
+        }
+        let bring = if let Some(news_date) = entry.news_publication_date
+            && lastmod_trust::is_claim_later(news_date, last_fetched, plan.now_ms)
+        {
+            lastmod_trust::open_claim(
+                connection,
+                &row.work_item,
+                host,
+                &row.domain_key,
+                ClaimKind::News,
+                plan.now_ms,
+            )?;
+            true
+        } else if !stamped
+            && let Some(lastmod_date) = entry.lastmod
+            && hint != LastmodHint::Off
+            && lastmod_trust::is_claim_later(lastmod_date, last_fetched, plan.now_ms)
+        {
+            lastmod_trust::open_claim(
+                connection,
+                &row.work_item,
+                host,
+                &row.domain_key,
+                ClaimKind::Lastmod,
+                plan.now_ms,
+            )?;
+            hint == LastmodHint::Always || lastmod_trust::is_host_trusted(connection, host)?
+        } else {
+            false
+        };
+        if bring
+            && let Some(due) = lastmod_trust::brought_forward_due(
+                plan.now_ms,
+                last_fetched,
+                row.floor_at_ms,
+                policy,
+            )
+            && row.next_visit_at.is_some_and(|cur| due < cur)
+        {
+            row.next_visit_at = Some(due);
+            revisit::upsert(connection, &row)?;
+            brought_forward.push(row);
+        }
+    }
+    Ok((brought_forward, stamped))
 }
 
 /// Computes the next standing-source [`RevisitRow`] for a sitemap read in a
@@ -398,6 +556,7 @@ fn schedule_sitemap_revisit(
         consecutive_gone: 0,
         last_tier: Some("source".to_owned()),
         at_min_floor: scheduled.is_some_and(|s| s.clamped_at_min),
+        floor_at_ms: None,
     }
 }
 

@@ -467,6 +467,45 @@ pub mod crawl {
                 ::goodfetch_protocol::catalog::SettingScope::Run,
             ],
         );
+
+        /// The `crawl.sitemap.lastmod_trust.*` settings.
+        pub mod lastmod_trust {
+
+            /// Minimum number of judged `<lastmod>` claims before a host can earn trust in a Continuous crawl: `10` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+            ///
+            /// `crawl.sitemap.lastmod_trust.min_claims`.
+            pub const MIN_CLAIMS: crate::settings::Setting<u64> = crate::settings::Setting::new(
+                "crawl.sitemap.lastmod_trust.min_claims",
+                &[
+                    ::goodfetch_protocol::catalog::SettingScope::Connection,
+                    ::goodfetch_protocol::catalog::SettingScope::Run,
+                ],
+            );
+
+            /// Minimum share of confirmed `<lastmod>` claims in the rolling window required for a host to earn and keep trust in a Continuous crawl, in `(0, 1]`: `0.9` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+            ///
+            /// `crawl.sitemap.lastmod_trust.min_precision`.
+            pub const MIN_PRECISION: crate::settings::Setting<
+                ::goodfetch_protocol::foxhound::continuous::LastmodTrustMinPrecision,
+            > = crate::settings::Setting::new(
+                "crawl.sitemap.lastmod_trust.min_precision",
+                &[
+                    ::goodfetch_protocol::catalog::SettingScope::Connection,
+                    ::goodfetch_protocol::catalog::SettingScope::Run,
+                ],
+            );
+
+            /// Rolling window size of recent judged `<lastmod>` claims over which a host's precision is measured in a Continuous crawl: `20` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+            ///
+            /// `crawl.sitemap.lastmod_trust.window`.
+            pub const WINDOW: crate::settings::Setting<u64> = crate::settings::Setting::new(
+                "crawl.sitemap.lastmod_trust.window",
+                &[
+                    ::goodfetch_protocol::catalog::SettingScope::Connection,
+                    ::goodfetch_protocol::catalog::SettingScope::Run,
+                ],
+            );
+        }
     }
 }
 
@@ -1303,6 +1342,18 @@ pub mod revisit {
             ],
         );
 
+        /// How a Continuous crawl treats sitemap `<lastmod>` claims, set for the Run or for one of its Labels: `learned` (the default) trusts a host once its claims earn trust, `always` brings revisits forward without waiting for trust, and `off` ignores `<lastmod>` claims. Accepted on a batch crawl, where `config explain` marks it inactive.
+        ///
+        /// `revisit.site_hints.lastmod`.
+        pub const LASTMOD: crate::settings::Setting<Lastmod> = crate::settings::Setting::new(
+            "revisit.site_hints.lastmod",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+                ::goodfetch_protocol::catalog::SettingScope::Label,
+            ],
+        );
+
         /// Whether a sitemap entry's `<priority>` steers its queue priority in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.
         ///
         /// `revisit.site_hints.priority`.
@@ -1326,6 +1377,27 @@ pub mod revisit {
                 ::goodfetch_protocol::catalog::SettingScope::Label,
             ],
         );
+
+        /// A word a setting of this module takes, as the catalog spells it.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        pub enum Lastmod {
+            /// `learned`.
+            Learned,
+            /// `always`.
+            Always,
+            /// `off`.
+            Off,
+        }
+
+        impl ::goodfetch_protocol::catalog::SettingWord for Lastmod {
+            fn word(&self) -> &'static str {
+                match self {
+                    Self::Learned => "learned",
+                    Self::Always => "always",
+                    Self::Off => "off",
+                }
+            }
+        }
     }
 }
 

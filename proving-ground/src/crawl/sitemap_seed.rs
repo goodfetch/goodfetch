@@ -53,8 +53,24 @@ const PARTNER: &str = "sitemap-partner.test";
 /// The host a crawl's domain policy can refuse.
 const BLOCKED: &str = "sitemap-blocked.test";
 
+/// A host whose sitemap `<lastmod>` dates honestly match content changes (ADR 0139, spec #1836).
+pub(super) const LASTMOD_HONEST: &str = "lastmod-honest.test";
+
+/// A host whose sitemap `<lastmod>` dates are right only half the time (ADR 0139, spec #1836).
+pub(super) const LASTMOD_HALF: &str = "lastmod-half.test";
+
+/// A host whose sitemap stamps all 10 entries with one generation date (ADR 0139, spec #1836).
+pub(super) const LASTMOD_STAMPED: &str = "lastmod-stamped.test";
+
 /// Every host name of the family.
-pub(super) const HOSTS: [&str; 3] = [HOST, PARTNER, BLOCKED];
+pub(super) const HOSTS: [&str; 6] = [
+    HOST,
+    PARTNER,
+    BLOCKED,
+    LASTMOD_HONEST,
+    LASTMOD_HALF,
+    LASTMOD_STAMPED,
+];
 
 /// The generator place of the family's values.
 const FAMILY_PLACE: u64 = 34;
@@ -147,6 +163,9 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
         ),
         (PARTNER, "/cross.xml") => urlset(&[on(HOST, "/books/4"), on(PARTNER, "/books/5")]),
         (BLOCKED, "/sitemap.xml") => urlset(&[on(HOST, "/books/7")]),
+        (LASTMOD_HONEST | LASTMOD_HALF | LASTMOD_STAMPED, path) => {
+            respond_lastmod(request.host, &port, visit.seed, path)
+        }
         (_, path) => page(visit.seed, path),
     }
 }
@@ -274,4 +293,55 @@ fn atom1(entries: &[String]) -> Page {
     }
     text.push_str("</feed>\n");
     Page::text("application/atom+xml; charset=utf-8", text)
+}
+
+/// Responds to requests on the `lastmod-*` Proving ground hosts (spec #1836).
+fn respond_lastmod(host: &str, port: &str, seed: u64, path: &str) -> Page {
+    if path == "/sitemap.xml" {
+        return lastmod_urlset(
+            host,
+            port,
+            &["2026-01-05T10:00:00Z"; 10],
+            host == LASTMOD_STAMPED,
+        );
+    }
+    lastmod_page(host, seed, path)
+}
+
+/// A sitemap of 10 `/items/<n>` entries with `<lastmod>` dates (spec #1836).
+/// When `stamped` is true all 10 share one timestamp; otherwise each entry gets
+/// a distinct offset so it is not flagged `lastmod_generated`.
+fn lastmod_urlset(host: &str, port: &str, dates: &[&str; 10], stamped: bool) -> Page {
+    let mut text = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n",
+    );
+    for (i, base_date) in dates.iter().enumerate() {
+        let n = i + 1;
+        let lastmod = if stamped {
+            (*base_date).to_owned()
+        } else {
+            format!("2026-01-05T10:{i:02}:00Z")
+        };
+        writeln!(
+            text,
+            "<url><loc>http://{host}{port}/items/{n}</loc><lastmod>{lastmod}</lastmod></url>"
+        )
+        .expect("invariant: writing to a String succeeds");
+    }
+    text.push_str("</urlset>\n");
+    xml(text)
+}
+
+/// An item page for the `lastmod-*` Proving ground hosts (`/items/<n>`, else 404).
+fn lastmod_page(host: &str, seed: u64, path: &str) -> Page {
+    let Some(number) = path.strip_prefix("/items/").and_then(canonical_number) else {
+        return Page::not_found();
+    };
+    let title = name(seed, &[FAMILY_PLACE, 100 + number]);
+    Page::ok(document(
+        &title,
+        &format!(
+            "<main>\n<article class=\"entry\" data-host=\"{host}\" data-id=\"LM-{number}\">\n<h1 class=\"title\">{title}</h1>\n</article>\n</main>\n"
+        ),
+    ))
 }

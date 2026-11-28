@@ -414,6 +414,26 @@ export interface FoxhoundSettings {
       readonly strategy?: "same_hostname" | "same_domain" | "same_origin" | "all";
     };
     readonly sitemap?: {
+      readonly lastmodTrust?: {
+        /**
+         * Minimum number of judged `<lastmod>` claims before a host can earn trust in a Continuous crawl: `10` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+         *
+         * `crawl.sitemap.lastmod_trust.min_claims`.
+         */
+        readonly minClaims?: number;
+        /**
+         * Minimum share of confirmed `<lastmod>` claims in the rolling window required for a host to earn and keep trust in a Continuous crawl, in `(0, 1]`: `0.9` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+         *
+         * `crawl.sitemap.lastmod_trust.min_precision`.
+         */
+        readonly minPrecision?: number;
+        /**
+         * Rolling window size of recent judged `<lastmod>` claims over which a host's precision is measured in a Continuous crawl: `20` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+         *
+         * `crawl.sitemap.lastmod_trust.window`.
+         */
+        readonly window?: number;
+      };
       /**
        * Revisit policy for Google News sitemaps in a Continuous crawl: `adaptive` (initial 1 hour, 15 minutes to 24 hours) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
        *
@@ -1094,6 +1114,12 @@ export interface FoxhoundSettings {
        * `revisit.site_hints.expires`.
        */
       readonly expires?: boolean;
+      /**
+       * How a Continuous crawl treats sitemap `<lastmod>` claims, set for the Run or for one of its Labels: `learned` (the default) trusts a host once its claims earn trust, `always` brings revisits forward without waiting for trust, and `off` ignores `<lastmod>` claims. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `revisit.site_hints.lastmod`.
+       */
+      readonly lastmod?: "learned" | "always" | "off";
       /**
        * Whether a sitemap entry's `<priority>` steers its queue priority in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.
        *
@@ -1970,6 +1996,26 @@ export interface CrawlSettings {
       readonly strategy?: "same_hostname" | "same_domain" | "same_origin" | "all";
     };
     readonly sitemap?: {
+      readonly lastmodTrust?: {
+        /**
+         * Minimum number of judged `<lastmod>` claims before a host can earn trust in a Continuous crawl: `10` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+         *
+         * `crawl.sitemap.lastmod_trust.min_claims`.
+         */
+        readonly minClaims?: number;
+        /**
+         * Minimum share of confirmed `<lastmod>` claims in the rolling window required for a host to earn and keep trust in a Continuous crawl, in `(0, 1]`: `0.9` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+         *
+         * `crawl.sitemap.lastmod_trust.min_precision`.
+         */
+        readonly minPrecision?: number;
+        /**
+         * Rolling window size of recent judged `<lastmod>` claims over which a host's precision is measured in a Continuous crawl: `20` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+         *
+         * `crawl.sitemap.lastmod_trust.window`.
+         */
+        readonly window?: number;
+      };
       /**
        * Revisit policy for Google News sitemaps in a Continuous crawl: `adaptive` (initial 1 hour, 15 minutes to 24 hours) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
        *
@@ -2651,6 +2697,12 @@ export interface CrawlSettings {
        */
       readonly expires?: boolean;
       /**
+       * How a Continuous crawl treats sitemap `<lastmod>` claims, set for the Run or for one of its Labels: `learned` (the default) trusts a host once its claims earn trust, `always` brings revisits forward without waiting for trust, and `off` ignores `<lastmod>` claims. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `revisit.site_hints.lastmod`.
+       */
+      readonly lastmod?: "learned" | "always" | "off";
+      /**
        * Whether a sitemap entry's `<priority>` steers its queue priority in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.
        *
        * `revisit.site_hints.priority`.
@@ -3251,6 +3303,12 @@ export interface LabelSettings {
        */
       readonly expires?: boolean;
       /**
+       * How a Continuous crawl treats sitemap `<lastmod>` claims, set for the Run or for one of its Labels: `learned` (the default) trusts a host once its claims earn trust, `always` brings revisits forward without waiting for trust, and `off` ignores `<lastmod>` claims. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `revisit.site_hints.lastmod`.
+       */
+      readonly lastmod?: "learned" | "always" | "off";
+      /**
        * Whether a sitemap entry's `<priority>` steers its queue priority in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.
        *
        * `revisit.site_hints.priority`.
@@ -3400,6 +3458,11 @@ const SPELLING: Spelling = {
       strategy: "strategy",
     }],
     sitemap: ["sitemap", {
+      lastmodTrust: ["lastmod_trust", {
+        minClaims: "min_claims",
+        minPrecision: "min_precision",
+        window: "window",
+      }],
       newsRevisit: { setting: "news_revisit", value: { fields: { "rate_changed": "rateChanged", "rate_unchanged": "rateUnchanged", "target_freshness": "targetFreshness" } } },
       readLastmod: "read_lastmod",
       revisit: { setting: "revisit", value: { fields: { "rate_changed": "rateChanged", "rate_unchanged": "rateUnchanged", "target_freshness": "targetFreshness" } } },
@@ -3653,6 +3716,7 @@ const SPELLING: Spelling = {
       cacheControl: "cache_control",
       changefreq: "changefreq",
       expires: "expires",
+      lastmod: "lastmod",
       priority: "priority",
       retryAfter: "retry_after",
     }],

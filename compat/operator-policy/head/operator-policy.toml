@@ -407,6 +407,11 @@ read_lastmod = true
 news_revisit = { kind = "never" }
 revisit = { kind = "never" }
 
+[settings.crawl.sitemap.lastmod_trust]
+min_claims = 4
+min_precision = 0.9
+window = 4
+
 [settings.crawl.revisit]
 order = ["sources", "first_visits", "revisits"]
 domain_share = 0.5
@@ -440,6 +445,7 @@ expires = true
 retry_after = true
 changefreq = true
 priority = true
+lastmod = "learned"
 
 [settings.fetch]
 tier = "auto"
@@ -923,6 +929,11 @@ read_lastmod = true
 news_revisit = { kind = "never" }
 revisit = { kind = "never" }
 
+[lock.crawl.sitemap.lastmod_trust]
+min_claims = 4
+min_precision = 0.9
+window = 4
+
 [lock.crawl.revisit]
 order = ["sources", "first_visits", "revisits"]
 domain_share = 0.5
@@ -956,6 +967,7 @@ expires = true
 retry_after = true
 changefreq = true
 priority = true
+lastmod = "learned"
 
 [lock.fetch]
 tier = "auto"
@@ -1201,6 +1213,10 @@ max_entry_age = 30000
 retention = 30000
 merged_kept = 4
 forget_after = 30000
+
+[cap.crawl.sitemap.lastmod_trust]
+min_claims = 4
+window = 4
 
 [cap.crawl.retry]
 max = 4

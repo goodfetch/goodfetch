@@ -75,6 +75,18 @@ CREATE TABLE effect_secret (id INTEGER PRIMARY KEY CHECK (id = 1), secret BLOB N
 INSERT INTO "effect_secret" VALUES(1,X'00356A9FD4093E73A8DD12477CB1E61B5085BAEF24598EC3F82D6297CC01366B');
 CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
 INSERT INTO "format" VALUES('run-state','0.1');
+CREATE TABLE host_lastmod_trust (
+            host TEXT NOT NULL PRIMARY KEY,
+            domain_key TEXT NOT NULL,
+            trusted INTEGER NOT NULL DEFAULT 0,
+            claims_judged INTEGER NOT NULL DEFAULT 0,
+            confirmed INTEGER NOT NULL DEFAULT 0,
+            false_claims INTEGER NOT NULL DEFAULT 0,
+            misses INTEGER NOT NULL DEFAULT 0,
+            news_false_claims INTEGER NOT NULL DEFAULT 0,
+            window_outcomes TEXT NOT NULL DEFAULT ''
+        ) STRICT, WITHOUT ROWID;
+INSERT INTO "host_lastmod_trust" VALUES('shop.test','shop.test',0,1,1,0,0,0,'1');
 CREATE TABLE key_values (key TEXT NOT NULL PRIMARY KEY, value TEXT, content BLOB, content_type TEXT, file INTEGER, CHECK ((value IS NULL) <> (content_type IS NULL)), CHECK (content_type IS NULL OR ((content IS NULL) <> (file IS NULL)))) STRICT;
 CREATE TABLE labels (
             name TEXT NOT NULL PRIMARY KEY,
@@ -106,6 +118,14 @@ CREATE TABLE learned_rules (
             contradiction TEXT,
             UNIQUE (kind, host, path, parameter, form)
         ) STRICT;
+CREATE TABLE open_lastmod_claims (
+            work_item TEXT NOT NULL PRIMARY KEY,
+            host TEXT NOT NULL,
+            domain_key TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            claimed_at_ms INTEGER NOT NULL
+        ) STRICT, WITHOUT ROWID;
+INSERT INTO "open_lastmod_claims" VALUES('2','shop.test','shop.test','lastmod',1790000020000);
 CREATE TABLE outcomes (
             position INTEGER NOT NULL PRIMARY KEY,
             work_item TEXT NOT NULL,
@@ -216,9 +236,10 @@ CREATE TABLE revisits (
             changes INTEGER NOT NULL,
             consecutive_gone INTEGER NOT NULL DEFAULT 0,
             last_tier TEXT,
-            at_min_floor INTEGER NOT NULL DEFAULT 0
+            at_min_floor INTEGER NOT NULL DEFAULT 0,
+            floor_at_ms INTEGER
         ) STRICT;
-INSERT INTO "revisits" VALUES('1','https://shop.test/','shop.test',1790000060000,60000,1790000000000,1790000000000,'sha256:0000','"v1"','Mon, 05 Jan 2026 09:00:00 GMT',1,1,0,'http',0);
+INSERT INTO "revisits" VALUES('1','https://shop.test/','shop.test',1790000060000,60000,1790000000000,1790000000000,'sha256:0000','"v1"','Mon, 05 Jan 2026 09:00:00 GMT',1,1,0,'http',0,1790000030000);
 CREATE TABLE robots_txt_copies (location TEXT NOT NULL PRIMARY KEY, status INTEGER, body BLOB, unreachable TEXT, CHECK ((status IS NULL) = (body IS NULL)), CHECK ((status IS NULL) <> (unreachable IS NULL))) STRICT;
 INSERT INTO "robots_txt_copies" VALUES('https://shop.test/robots.txt',200,X'557365722D6167656E743A202A0A446973616C6C6F773A202F636172742F0A',NULL);
 INSERT INTO "robots_txt_copies" VALUES('https://down.test/robots.txt',NULL,NULL,'the navigation to https://down.test/robots.txt failed: net::ERR_CONNECTION_REFUSED');
@@ -485,6 +506,8 @@ CREATE TABLE work_items (
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
 CREATE INDEX pool_sessions_open ON pool_sessions (pool, position)
             WHERE retired_because IS NULL;
+CREATE INDEX revisits_by_identity
+            ON revisits (identity);
 CREATE INDEX revisits_due
             ON revisits (domain_key, next_visit_at, work_item)
             WHERE next_visit_at IS NOT NULL;

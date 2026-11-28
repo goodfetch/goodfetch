@@ -96,18 +96,23 @@ use goodfetch_fetch_tier::{
     UntouchedReaders,
 };
 use goodfetch_frontier::Bounds;
+use goodfetch_frontier::lastmod_trust::TrustThresholds;
 use goodfetch_frontier::revisit::{self, RevisitRow, SiteHintSwitches, SiteHints, VisitResult};
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
 use goodfetch_protocol::foxhound::continuous::{
     CRAWL_CONTINUOUS, CRAWL_CONTINUOUS_FORGET_AFTER, CRAWL_CONTINUOUS_MAX_ENTRY_AGE,
-    CRAWL_CONTINUOUS_RETENTION, CRAWL_SITEMAP_NEWS_REVISIT, CRAWL_SITEMAP_READ_LASTMOD,
-    CRAWL_SITEMAP_REVISIT, REVISIT_ADAPTIVE_DEFAULT_RATE_CHANGED,
+    CRAWL_CONTINUOUS_RETENTION, CRAWL_SITEMAP_LASTMOD_TRUST_MIN_CLAIMS,
+    CRAWL_SITEMAP_LASTMOD_TRUST_MIN_PRECISION, CRAWL_SITEMAP_LASTMOD_TRUST_WINDOW,
+    CRAWL_SITEMAP_NEWS_REVISIT, CRAWL_SITEMAP_READ_LASTMOD, CRAWL_SITEMAP_REVISIT,
+    LASTMOD_TRUST_DEFAULT_MIN_CLAIMS, LASTMOD_TRUST_DEFAULT_MIN_PRECISION,
+    LASTMOD_TRUST_DEFAULT_WINDOW, LastmodHint, REVISIT_ADAPTIVE_DEFAULT_RATE_CHANGED,
     REVISIT_ADAPTIVE_DEFAULT_RATE_UNCHANGED, REVISIT_CHANGE_CHECK, REVISIT_GONE_AFTER,
     REVISIT_ON_ERROR, REVISIT_ON_UNCHANGED, REVISIT_POLICY, REVISIT_SITE_HINTS_CACHE_CONTROL,
-    REVISIT_SITE_HINTS_CHANGEFREQ, REVISIT_SITE_HINTS_EXPIRES, REVISIT_SITE_HINTS_PRIORITY,
-    REVISIT_SITE_HINTS_RETRY_AFTER, RevisitChangeCheck, RevisitOnUnchanged, RevisitPolicy,
-    SITEMAP_NEWS_DEFAULT_INITIAL_MS, SITEMAP_NEWS_DEFAULT_MAX_MS, SITEMAP_NEWS_DEFAULT_MIN_MS,
+    REVISIT_SITE_HINTS_CHANGEFREQ, REVISIT_SITE_HINTS_EXPIRES, REVISIT_SITE_HINTS_LASTMOD,
+    REVISIT_SITE_HINTS_PRIORITY, REVISIT_SITE_HINTS_RETRY_AFTER, RevisitChangeCheck,
+    RevisitOnUnchanged, RevisitPolicy, SITEMAP_NEWS_DEFAULT_INITIAL_MS,
+    SITEMAP_NEWS_DEFAULT_MAX_MS, SITEMAP_NEWS_DEFAULT_MIN_MS,
 };
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_CONTENT_TYPES, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_LOST,
@@ -121,8 +126,9 @@ use goodfetch_protocol::foxhound::frontier::FRONTIER_LEARNING;
 use goodfetch_protocol::foxhound::hook::CrawlHookDeclaration;
 use goodfetch_protocol::foxhound::outcomes::{OutcomeKind, SkipReason};
 use goodfetch_protocol::foxhound::report::{
-    BLOCK_CLASSIFICATION_OFF, CONTINUOUS_NO_SINK, LEARNING_OFF, LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK,
-    PROVENANCE_OFF, RECORDS_OFF, REVISIT_BROWSER_SIGNATURE, REVISIT_DOMAIN_BEHIND,
+    BLOCK_CLASSIFICATION_OFF, CONTINUOUS_NO_SINK, LASTMOD_GENERATED, LEARNING_OFF,
+    LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK, PROVENANCE_OFF, RECORDS_OFF, REVISIT_BROWSER_SIGNATURE,
+    REVISIT_DOMAIN_BEHIND,
 };
 use goodfetch_protocol::foxhound::settings::{
     DATASET_RECORDS, FETCH_BLOCK_CLASSIFICATION, PROVENANCE_LOG,
@@ -474,6 +480,8 @@ struct SitemapReadConfig {
     read_lastmod: bool,
     changefreq: bool,
     priority: bool,
+    lastmod_hint: LastmodHint,
+    lastmod_trust: TrustThresholds,
     revisit: RevisitPolicy,
     news_revisit: RevisitPolicy,
     max_entry_age: Option<u64>,
@@ -481,10 +489,34 @@ struct SitemapReadConfig {
 
 impl SitemapReadConfig {
     fn of(resolved: &Resolved) -> Self {
+        let lastmod_hint = resolved
+            .value(&REVISIT_SITE_HINTS_LASTMOD)
+            .as_str()
+            .map_or(LastmodHint::Learned, LastmodHint::from_setting);
+        let min_claims = resolved
+            .value(&CRAWL_SITEMAP_LASTMOD_TRUST_MIN_CLAIMS)
+            .as_u64()
+            .unwrap_or(LASTMOD_TRUST_DEFAULT_MIN_CLAIMS);
+        let min_precision = resolved
+            .value(&CRAWL_SITEMAP_LASTMOD_TRUST_MIN_PRECISION)
+            .as_f64()
+            .unwrap_or(LASTMOD_TRUST_DEFAULT_MIN_PRECISION);
+        let window = resolved
+            .value(&CRAWL_SITEMAP_LASTMOD_TRUST_WINDOW)
+            .as_u64()
+            .and_then(|v| usize::try_from(v).ok())
+            .filter(|&v| v >= 1)
+            .unwrap_or(usize::try_from(LASTMOD_TRUST_DEFAULT_WINDOW).unwrap_or(20));
         Self {
             read_lastmod: resolved.get(&CRAWL_SITEMAP_READ_LASTMOD),
             changefreq: resolved.get(&REVISIT_SITE_HINTS_CHANGEFREQ),
             priority: resolved.get(&REVISIT_SITE_HINTS_PRIORITY),
+            lastmod_hint,
+            lastmod_trust: TrustThresholds {
+                min_claims,
+                min_precision,
+                window,
+            },
             revisit: RevisitPolicy::read(resolved.value(&CRAWL_SITEMAP_REVISIT))
                 .unwrap_or_else(|_| RevisitPolicy::default_adaptive()),
             news_revisit: RevisitPolicy::read(resolved.value(&CRAWL_SITEMAP_NEWS_REVISIT))
@@ -2017,6 +2049,8 @@ async fn settled(
                 .retries_handler_failed(&attempt.leased.crawl_request.label),
         );
         let revisit_row = planned_revisit(run, read, state, fetching, &attempt, now_ms);
+        let claim_judgement =
+            planned_claim_judgement(read, fetching, &attempt, revisit_row.as_ref());
         let source_options = source_read_options(run, read, state, fetching, &attempt, now_ms);
         queued.push(
             queue_outcome(
@@ -2024,7 +2058,7 @@ async fn settled(
                 policy,
                 held,
                 attempt,
-                (scored, revisit_row, source_options),
+                (scored, revisit_row, claim_judgement, source_options),
             )
             .await,
         );
@@ -2081,6 +2115,11 @@ fn source_read_options(
         domain_key: attempt.leased.waiting.key.clone(),
         previous,
         let_finish: run.end.is_let_finish(),
+        lastmod: Some(std::sync::Arc::new(attempt_outcome::LastmodClaimConfig {
+            labels: std::sync::Arc::clone(&hints.labels),
+            run_policy: read.run_revisit_policy,
+            run_hint: cfg.lastmod_hint,
+        })),
     });
     Some(attempt_outcome::SourceReadOptions {
         sitemap,
@@ -2162,7 +2201,41 @@ fn preserved_revisit_row(
             .and_then(|m| m.tier.map(|t| t.as_str().to_owned()))
             .or_else(|| prev_row.and_then(|r| r.last_tier.clone())),
         at_min_floor,
+        floor_at_ms: prev_row.and_then(|r| r.floor_at_ms),
     }
+}
+
+/// Builds the `<lastmod>` / `news:publication_date` claim judgement for a
+/// completed Continuous page visit (ADR 0139, spec #1836).
+fn planned_claim_judgement(
+    read: Read,
+    fetching: &Fetching<'_>,
+    attempt: &Attempt,
+    revisit_row: Option<&RevisitRow>,
+) -> Option<attempt_outcome::ClaimJudgement> {
+    if !read.continuous {
+        return None;
+    }
+    let row = revisit_row?;
+    let changed = match &attempt.answer {
+        Answer::Handled(handled) if handled.skipped.is_none() => true,
+        Answer::Unchanged => false,
+        _ => return None,
+    };
+    let host = goodfetch_frontier::Url::parse(&attempt.leased.crawl_request.url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_owned))
+        .unwrap_or_default();
+    if host.is_empty() {
+        return None;
+    }
+    Some(attempt_outcome::ClaimJudgement {
+        host,
+        domain_key: row.domain_key.clone(),
+        changed,
+        is_revisit: row.visits > 1,
+        thresholds: fetching.sitemap.lastmod_trust,
+    })
 }
 
 /// Computes the updated [`RevisitRow`] for a revisit ending `gone` or `failed`
@@ -2337,6 +2410,7 @@ fn planned_revisit(
         consecutive_gone: 0,
         last_tier,
         at_min_floor: scheduled.is_some_and(|s| s.clamped_at_min),
+        floor_at_ms: hints.floor_at_ms,
     })
 }
 
@@ -2358,6 +2432,7 @@ async fn completed(
 ) {
     let mut again = Vec::with_capacity(finished.len());
     let mut keyed = Vec::new();
+    let mut lastmod_generated = false;
     for (outcome, settling) in finished.into_iter().zip(&settlings) {
         servers[settling.server].in_flight -= 1;
         if let Some((revisit_row, outcome_kind)) = outcome.revisit {
@@ -2370,10 +2445,25 @@ async fn completed(
         } else if outcome.leased.is_revisit {
             state.revisit_unsuccessful(&outcome.leased.crawl_request.id);
         }
+        for row in outcome.brought_forward {
+            state.bring_revisit_forward(row, outcome.commits);
+        }
+        lastmod_generated |= outcome.lastmod_generated;
         state.settled(outcome.leased, outcome.again, outcome.commits);
         keyed.extend(state.added(outcome.keyed, outcome.commits));
         again.push(outcome.again);
         state.changed(outcome.changed);
+    }
+    if lastmod_generated {
+        let _ = run
+            .warnings
+            .warn_once_deferred(RunWarning {
+                code: LASTMOD_GENERATED.to_owned(),
+                message: "At least one sitemap file carried the same <lastmod> date on 90 % or more of its entries (at least 10 entries), so its dates were ignored as generated at build time.".to_owned(),
+                sessions: Vec::new(),
+                folder: None,
+            })
+            .await;
     }
     let ended = settlings
         .iter()
@@ -2961,6 +3051,8 @@ struct Finished {
     changed: Changed,
     commits: u64,
     revisit: Option<(RevisitRow, crate::work_items::CountedAs)>,
+    brought_forward: Vec<RevisitRow>,
+    lastmod_generated: bool,
 }
 
 /// Queues `attempt`'s outcome as one job of the run state's writer (ADR
@@ -2971,14 +3063,19 @@ struct Finished {
 /// failure's site asked for a time further away than the Run waits
 /// (`held`), or its sitemap's entries admitted and keyed, the fetch ended
 /// with no outcome (ADR 0093).
+#[expect(
+    clippy::too_many_lines,
+    reason = "maps every Answer variant into its Run-state writer Ending"
+)]
 async fn queue_outcome(
     (run, file): (&std::sync::Arc<CrawlRun>, &Stored),
     policy: CrawlPolicy,
     held: bool,
     attempt: Attempt,
-    (scored, revisit, source_options): (
+    (scored, revisit, claim_judgement, source_options): (
         Scored,
         Option<RevisitRow>,
+        Option<attempt_outcome::ClaimJudgement>,
         Option<attempt_outcome::SourceReadOptions>,
     ),
 ) -> QueuedOutcome {
@@ -3020,7 +3117,7 @@ async fn queue_outcome(
                 document,
                 source_options.unwrap_or_default(),
             );
-            return queued(on, (leased, lease), (scored, None, ending), false).await;
+            return queued(on, (leased, lease), (scored, None, None, ending), false).await;
         }
         Answer::Unchanged => Unsuccessful::Unchanged,
         Answer::Gone => Unsuccessful::Gone,
@@ -3040,7 +3137,13 @@ async fn queue_outcome(
                         });
                     let ending = attempt_outcome::Ending::Commit { commit, refused };
                     let revisit = revisit.map(|row| (row, (OutcomeKind::Succeeded, String::new())));
-                    return queued(on, (leased, lease), (scored, revisit, ending), commits).await;
+                    return queued(
+                        on,
+                        (leased, lease),
+                        (scored, revisit, claim_judgement, ending),
+                        commits,
+                    )
+                    .await;
                 }
                 Err(_) => failure(
                     Failure::new(LEASE_LOST.name, LEASE_LOST.description),
@@ -3071,7 +3174,13 @@ async fn queue_outcome(
         unsuccessful,
         ended_at: run.identity.point_in_time(),
     };
-    queued(on, (leased, lease), (scored, revisit, ending), commits).await
+    queued(
+        on,
+        (leased, lease),
+        (scored, revisit, claim_judgement, ending),
+        commits,
+    )
+    .await
 }
 
 fn unsuccessful_from_failed(
@@ -3114,9 +3223,10 @@ fn unsuccessful_revisit_outcome(
 async fn queued(
     (run, file, policy): (&std::sync::Arc<CrawlRun>, &Stored, CrawlPolicy),
     (leased, lease): (Leased, WorkItemLease),
-    (scored, revisit, ending): (
+    (scored, revisit, claim_judgement, ending): (
         Scored,
         Option<(RevisitRow, crate::work_items::CountedAs)>,
+        Option<attempt_outcome::ClaimJudgement>,
         attempt_outcome::Ending,
     ),
     commits: bool,
@@ -3125,6 +3235,7 @@ async fn queued(
         scored: scored.changes,
         chosen: scored.chosen,
         revisit: revisit.as_ref().map(|(row, _)| row.clone()),
+        claim_judgement,
         ending,
     };
     let written = file.end(outcome).await;
@@ -3146,6 +3257,10 @@ impl QueuedOutcome {
     /// ended with counted in its Run's outcomes. A job that failed ends
     /// its attempt as one whose outcome was not written, in a job of its
     /// own ([`outcome_lost`]): its work item never stays leased.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "handles every Ended variant and releases the attempt lease"
+    )]
     async fn finished(self, stored: &Stored) -> Finished {
         let Self {
             leased,
@@ -3181,6 +3296,8 @@ impl QueuedOutcome {
                     changed,
                     commits,
                     revisit: None,
+                    brought_forward: Vec::new(),
+                    lastmod_generated: false,
                 };
             }
         };
@@ -3191,6 +3308,8 @@ impl QueuedOutcome {
             changed: written.answer.changed,
             commits: written.commits,
             revisit: None,
+            brought_forward: Vec::new(),
+            lastmod_generated: false,
         };
         match written.answer.ended {
             attempt_outcome::Ended::Committed(committed) => {
@@ -3233,12 +3352,19 @@ impl QueuedOutcome {
                     tracing::debug!(run_id = %run.identity.id(), work_item = %leased.crawl_request.id, "an attempt past its lease commits nothing");
                 }
             }
-            attempt_outcome::Ended::SitemapRead { added, revisit } => {
+            attempt_outcome::Ended::SitemapRead {
+                added,
+                revisit,
+                brought_forward,
+                lastmod_generated,
+            } => {
                 lease.release();
                 if let Some(keyed) = added {
                     finished.keyed = keyed;
                     finished.revisit =
                         revisit.map(|row| (*row, (OutcomeKind::Succeeded, String::new())));
+                    finished.brought_forward = brought_forward;
+                    finished.lastmod_generated = lastmod_generated;
                 } else {
                     tracing::debug!(run_id = %run.identity.id(), work_item = %leased.crawl_request.id, "a sitemap's fetch past its lease reads nothing");
                 }

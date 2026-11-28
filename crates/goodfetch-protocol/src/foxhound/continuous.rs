@@ -1164,6 +1164,244 @@ pub const CRAWL_CONTINUOUS_FORGET_AFTER_YIELDS_TO_BATCH: Yielding = Yielding {
     reason: "a batch crawl never forgets visited identities",
 };
 
+/// Allowed values of `revisit.site_hints.lastmod` (ADR 0139).
+pub const REVISIT_SITE_HINTS_LASTMOD_VALUES: &[&str] = &["learned", "always", "off"];
+
+/// Default `crawl.sitemap.lastmod_trust.min_claims` (spec #1836).
+pub const LASTMOD_TRUST_DEFAULT_MIN_CLAIMS: u64 = 10;
+
+/// Default `crawl.sitemap.lastmod_trust.min_precision` (spec #1836).
+pub const LASTMOD_TRUST_DEFAULT_MIN_PRECISION: f64 = 0.9;
+
+/// Default `crawl.sitemap.lastmod_trust.window` (spec #1836).
+pub const LASTMOD_TRUST_DEFAULT_WINDOW: u64 = 20;
+
+/// How a Label treats sitemap `<lastmod>` claims (`revisit.site_hints.lastmod`,
+/// ADR 0139).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LastmodHint {
+    /// Trust a host's `<lastmod>` once it has earned trust from confirmed claims.
+    #[default]
+    Learned,
+    /// Always bring revisits forward on `<lastmod>` claims without waiting for trust.
+    Always,
+    /// Ignore `<lastmod>` claims for this Label.
+    Off,
+}
+
+impl LastmodHint {
+    /// Parses a [`LastmodHint`] from its setting string.
+    #[must_use]
+    pub fn from_setting(value: &str) -> Self {
+        match value {
+            "always" => Self::Always,
+            "off" => Self::Off,
+            _ => Self::Learned,
+        }
+    }
+}
+
+fn default_lastmod_hint() -> Value {
+    json!("learned")
+}
+
+fn default_lastmod_min_claims() -> Value {
+    json!(LASTMOD_TRUST_DEFAULT_MIN_CLAIMS)
+}
+
+fn default_lastmod_min_precision() -> Value {
+    json!(LASTMOD_TRUST_DEFAULT_MIN_PRECISION)
+}
+
+fn default_lastmod_window() -> Value {
+    json!(LASTMOD_TRUST_DEFAULT_WINDOW)
+}
+
+/// Minimum share of confirmed `<lastmod>` claims in the rolling window
+/// (`crawl.sitemap.lastmod_trust.min_precision`, ADR 0139, spec #1836): a
+/// finite number in `(0.0, 1.0]`, defaulting to `0.9`.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "f64", into = "f64")]
+pub struct LastmodTrustMinPrecision(f64);
+
+/// A number outside `(0.0, 1.0]` for [`LastmodTrustMinPrecision`].
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, thiserror::Error)]
+#[error("`{0}` is not a finite precision in (0.0, 1.0]")]
+pub struct InvalidLastmodTrustMinPrecision(pub f64);
+
+impl Default for LastmodTrustMinPrecision {
+    fn default() -> Self {
+        Self(LASTMOD_TRUST_DEFAULT_MIN_PRECISION)
+    }
+}
+
+impl LastmodTrustMinPrecision {
+    /// Validates `precision` as a finite number in `(0.0, 1.0]`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidLastmodTrustMinPrecision`] when `precision` is not
+    /// finite or outside `(0.0, 1.0]`.
+    pub fn new(precision: f64) -> Result<Self, InvalidLastmodTrustMinPrecision> {
+        if precision.is_finite() && precision > 0.0 && precision <= 1.0 {
+            Ok(Self(precision))
+        } else {
+            Err(InvalidLastmodTrustMinPrecision(precision))
+        }
+    }
+
+    /// The numeric precision in `(0.0, 1.0]`.
+    #[must_use]
+    pub const fn get(self) -> f64 {
+        self.0
+    }
+}
+
+impl TryFrom<f64> for LastmodTrustMinPrecision {
+    type Error = InvalidLastmodTrustMinPrecision;
+
+    fn try_from(value: f64) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl From<LastmodTrustMinPrecision> for f64 {
+    fn from(value: LastmodTrustMinPrecision) -> Self {
+        value.0
+    }
+}
+
+impl SettingJson for LastmodTrustMinPrecision {
+    fn into_setting_json(self) -> Value {
+        shape_json(self)
+    }
+}
+
+/// Validates `crawl.sitemap.lastmod_trust.min_precision`: a finite number in `(0.0, 1.0]`.
+pub const LASTMOD_TRUST_MIN_PRECISION_SHAPE: ValueShape = ValueShape {
+    name: "LastmodTrustMinPrecision",
+    check: |value| {
+        let Some(number) = value.as_f64() else {
+            return Err(format!(
+                "`crawl.sitemap.lastmod_trust.min_precision` must be a number in (0, 1], found `{value}`"
+            ));
+        };
+        LastmodTrustMinPrecision::new(number)
+            .map(drop)
+            .map_err(|error| error.to_string())
+    },
+    schema: || {
+        json!({
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "maximum": 1.0
+        })
+    },
+    examples: || vec![json!(0.9), json!(0.8)],
+};
+
+/// `revisit.site_hints.lastmod` (ADR 0139).
+pub const REVISIT_SITE_HINTS_LASTMOD: Setting = Setting {
+    name: "revisit.site_hints.lastmod",
+    description: "How a Continuous crawl treats sitemap `<lastmod>` claims, set for the Run or for one of its Labels: `learned` (the default) trusts a host once its claims earn trust, `always` brings revisits forward without waiting for trust, and `off` ignores `<lastmod>` claims. Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Choice(REVISIT_SITE_HINTS_LASTMOD_VALUES),
+    default: default_lastmod_hint,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.sitemap.lastmod_trust.min_claims` (ADR 0139, spec #1836).
+pub const CRAWL_SITEMAP_LASTMOD_TRUST_MIN_CLAIMS: Setting = Setting {
+    name: "crawl.sitemap.lastmod_trust.min_claims",
+    description: "Minimum number of judged `<lastmod>` claims before a host can earn trust in a Continuous crawl: `10` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Count,
+    default: default_lastmod_min_claims,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.sitemap.lastmod_trust.min_precision` (ADR 0139, spec #1836).
+pub const CRAWL_SITEMAP_LASTMOD_TRUST_MIN_PRECISION: Setting = Setting {
+    name: "crawl.sitemap.lastmod_trust.min_precision",
+    description: "Minimum share of confirmed `<lastmod>` claims in the rolling window required for a host to earn and keep trust in a Continuous crawl, in `(0, 1]`: `0.9` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Shape(&LASTMOD_TRUST_MIN_PRECISION_SHAPE),
+    default: default_lastmod_min_precision,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.sitemap.lastmod_trust.window` (ADR 0139, spec #1836).
+pub const CRAWL_SITEMAP_LASTMOD_TRUST_WINDOW: Setting = Setting {
+    name: "crawl.sitemap.lastmod_trust.window",
+    description: "Rolling window size of recent judged `<lastmod>` claims over which a host's precision is measured in a Continuous crawl: `20` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Count,
+    default: default_lastmod_window,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `revisit.site_hints.lastmod` yields to `crawl.continuous = false`.
+pub const REVISIT_SITE_HINTS_LASTMOD_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &REVISIT_SITE_HINTS_LASTMOD,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl does not revisit URLs",
+};
+
+/// `crawl.sitemap.lastmod_trust.min_claims` yields to `crawl.continuous = false`.
+pub const CRAWL_SITEMAP_LASTMOD_TRUST_MIN_CLAIMS_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &CRAWL_SITEMAP_LASTMOD_TRUST_MIN_CLAIMS,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl does not revisit URLs",
+};
+
+/// `crawl.sitemap.lastmod_trust.min_precision` yields to `crawl.continuous = false`.
+pub const CRAWL_SITEMAP_LASTMOD_TRUST_MIN_PRECISION_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &CRAWL_SITEMAP_LASTMOD_TRUST_MIN_PRECISION,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl does not revisit URLs",
+};
+
+/// `crawl.sitemap.lastmod_trust.window` yields to `crawl.continuous = false`.
+pub const CRAWL_SITEMAP_LASTMOD_TRUST_WINDOW_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &CRAWL_SITEMAP_LASTMOD_TRUST_WINDOW,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl does not revisit URLs",
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -1180,6 +1418,9 @@ pub const ENTRIES: Entries = Entries {
         CRAWL_CONTINUOUS_MERGED_KEPT,
         CRAWL_CONTINUOUS_FORGET_AFTER,
         CRAWL_SITEMAP_READ_LASTMOD,
+        CRAWL_SITEMAP_LASTMOD_TRUST_MIN_CLAIMS,
+        CRAWL_SITEMAP_LASTMOD_TRUST_MIN_PRECISION,
+        CRAWL_SITEMAP_LASTMOD_TRUST_WINDOW,
         CRAWL_SITEMAP_NEWS_REVISIT,
         CRAWL_SITEMAP_REVISIT,
         REVISIT_POLICY,
@@ -1192,6 +1433,7 @@ pub const ENTRIES: Entries = Entries {
         REVISIT_SITE_HINTS_RETRY_AFTER,
         REVISIT_SITE_HINTS_CHANGEFREQ,
         REVISIT_SITE_HINTS_PRIORITY,
+        REVISIT_SITE_HINTS_LASTMOD,
         CRAWL_REVISIT_ORDER,
         CRAWL_REVISIT_DOMAIN_SHARE,
     ],

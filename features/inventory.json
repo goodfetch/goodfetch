@@ -9782,6 +9782,36 @@
       ]
     },
     {
+      "id": "setting:crawl.sitemap.lastmod_trust.min_claims",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:crawl.sitemap.lastmod_trust.min_precision",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:crawl.sitemap.lastmod_trust.window",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:crawl.sitemap.news_revisit",
       "kind": "setting",
       "area": 3,
@@ -11353,6 +11383,16 @@
     },
     {
       "id": "setting:revisit.site_hints.expires",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:revisit.site_hints.lastmod",
       "kind": "setting",
       "area": 3,
       "milestone": null,

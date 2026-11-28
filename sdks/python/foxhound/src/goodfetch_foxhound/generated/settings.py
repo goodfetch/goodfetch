@@ -382,6 +382,28 @@ class ConnectionCrawlScopeSettings(TypedDict):
     """
 
 
+class ConnectionCrawlSitemapLastmodTrustSettings(TypedDict):
+    """The `crawl.sitemap.lastmod_trust` settings of `FoxhoundSettings`."""
+
+    min_claims: NotRequired[int]
+    """Minimum number of judged `<lastmod>` claims before a host can earn trust in a Continuous crawl: `10` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.sitemap.lastmod_trust.min_claims`.
+    """
+
+    min_precision: NotRequired[float]
+    """Minimum share of confirmed `<lastmod>` claims in the rolling window required for a host to earn and keep trust in a Continuous crawl, in `(0, 1]`: `0.9` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.sitemap.lastmod_trust.min_precision`.
+    """
+
+    window: NotRequired[int]
+    """Rolling window size of recent judged `<lastmod>` claims over which a host's precision is measured in a Continuous crawl: `20` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.sitemap.lastmod_trust.window`.
+    """
+
+
 class CrawlSitemapNewsRevisitNever(TypedDict):
     """Never revisit the URL after its first visit, such as articles."""
 
@@ -506,6 +528,8 @@ class CrawlSitemapRevisitEstimated(TypedDict):
 
 class ConnectionCrawlSitemapSettings(TypedDict):
     """The `crawl.sitemap` settings of `FoxhoundSettings`."""
+
+    lastmod_trust: NotRequired[ConnectionCrawlSitemapLastmodTrustSettings]
 
     news_revisit: NotRequired[CrawlSitemapNewsRevisitNever | CrawlSitemapNewsRevisitEvery | CrawlSitemapNewsRevisitAdaptive | CrawlSitemapNewsRevisitEstimated]
     """Revisit policy for Google News sitemaps in a Continuous crawl: `adaptive` (initial 1 hour, 15 minutes to 24 hours) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
@@ -1470,6 +1494,12 @@ class ConnectionRevisitSiteHintsSettings(TypedDict):
     """Whether `Expires` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
 
     `revisit.site_hints.expires`.
+    """
+
+    lastmod: NotRequired[Literal["learned", "always", "off"]]
+    """How a Continuous crawl treats sitemap `<lastmod>` claims, set for the Run or for one of its Labels: `learned` (the default) trusts a host once its claims earn trust, `always` brings revisits forward without waiting for trust, and `off` ignores `<lastmod>` claims. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.site_hints.lastmod`.
     """
 
     priority: NotRequired[bool]
@@ -2791,8 +2821,32 @@ class RunCrawlScopeSettings(TypedDict):
     """
 
 
+class RunCrawlSitemapLastmodTrustSettings(TypedDict):
+    """The `crawl.sitemap.lastmod_trust` settings of `CrawlSettings`."""
+
+    min_claims: NotRequired[int]
+    """Minimum number of judged `<lastmod>` claims before a host can earn trust in a Continuous crawl: `10` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.sitemap.lastmod_trust.min_claims`.
+    """
+
+    min_precision: NotRequired[float]
+    """Minimum share of confirmed `<lastmod>` claims in the rolling window required for a host to earn and keep trust in a Continuous crawl, in `(0, 1]`: `0.9` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.sitemap.lastmod_trust.min_precision`.
+    """
+
+    window: NotRequired[int]
+    """Rolling window size of recent judged `<lastmod>` claims over which a host's precision is measured in a Continuous crawl: `20` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.sitemap.lastmod_trust.window`.
+    """
+
+
 class RunCrawlSitemapSettings(TypedDict):
     """The `crawl.sitemap` settings of `CrawlSettings`."""
+
+    lastmod_trust: NotRequired[RunCrawlSitemapLastmodTrustSettings]
 
     news_revisit: NotRequired[CrawlSitemapNewsRevisitNever | CrawlSitemapNewsRevisitEvery | CrawlSitemapNewsRevisitAdaptive | CrawlSitemapNewsRevisitEstimated]
     """Revisit policy for Google News sitemaps in a Continuous crawl: `adaptive` (initial 1 hour, 15 minutes to 24 hours) by default. Accepted on a batch crawl, where `config explain` marks it inactive.
@@ -3670,6 +3724,12 @@ class RunRevisitSiteHintsSettings(TypedDict):
     `revisit.site_hints.expires`.
     """
 
+    lastmod: NotRequired[Literal["learned", "always", "off"]]
+    """How a Continuous crawl treats sitemap `<lastmod>` claims, set for the Run or for one of its Labels: `learned` (the default) trusts a host once its claims earn trust, `always` brings revisits forward without waiting for trust, and `off` ignores `<lastmod>` claims. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.site_hints.lastmod`.
+    """
+
     priority: NotRequired[bool]
     """Whether a sitemap entry's `<priority>` steers its queue priority in a Continuous crawl, set for the Run or for one of its Labels: `false` by default (search engines ignore it). Accepted on a batch crawl, where `config explain` marks it inactive.
 
@@ -4408,6 +4468,12 @@ class LabelRevisitSiteHintsSettings(TypedDict):
     """Whether `Expires` on a response acts as a floor for the URL's next revisit in a Continuous crawl, set for the Run or for one of its Labels: `true` by default. Accepted on a batch crawl, where `config explain` marks it inactive.
 
     `revisit.site_hints.expires`.
+    """
+
+    lastmod: NotRequired[Literal["learned", "always", "off"]]
+    """How a Continuous crawl treats sitemap `<lastmod>` claims, set for the Run or for one of its Labels: `learned` (the default) trusts a host once its claims earn trust, `always` brings revisits forward without waiting for trust, and `off` ignores `<lastmod>` claims. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.site_hints.lastmod`.
     """
 
     priority: NotRequired[bool]

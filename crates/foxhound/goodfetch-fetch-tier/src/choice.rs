@@ -17,11 +17,11 @@ use encoding_rs::Encoding;
 use goodfetch_engine::{CallError, named};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_protocol::foxhound::continuous::{
-    REVISIT_CHANGE_CHECK, REVISIT_CHANGE_CHECK_VALUES, REVISIT_GONE_AFTER, REVISIT_ON_ERROR,
-    REVISIT_ON_UNCHANGED, REVISIT_ON_UNCHANGED_VALUES, REVISIT_POLICY,
+    LastmodHint, REVISIT_CHANGE_CHECK, REVISIT_CHANGE_CHECK_VALUES, REVISIT_GONE_AFTER,
+    REVISIT_ON_ERROR, REVISIT_ON_UNCHANGED, REVISIT_ON_UNCHANGED_VALUES, REVISIT_POLICY,
     REVISIT_SITE_HINTS_CACHE_CONTROL, REVISIT_SITE_HINTS_CHANGEFREQ, REVISIT_SITE_HINTS_EXPIRES,
-    REVISIT_SITE_HINTS_PRIORITY, REVISIT_SITE_HINTS_RETRY_AFTER, RevisitChangeCheck,
-    RevisitOnUnchanged, RevisitPolicy,
+    REVISIT_SITE_HINTS_LASTMOD, REVISIT_SITE_HINTS_LASTMOD_VALUES, REVISIT_SITE_HINTS_PRIORITY,
+    REVISIT_SITE_HINTS_RETRY_AFTER, RevisitChangeCheck, RevisitOnUnchanged, RevisitPolicy,
 };
 use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CRAWL_CONTENT_TYPES, CRAWL_RETRY_HANDLER_FAILED, LabelDeclaration,
@@ -82,6 +82,7 @@ pub struct LabelSettings {
     revisit_site_hints_retry_after: BTreeMap<String, bool>,
     revisit_site_hints_changefreq: BTreeMap<String, bool>,
     revisit_site_hints_priority: BTreeMap<String, bool>,
+    revisit_site_hints_lastmod: BTreeMap<String, LastmodHint>,
 }
 
 /// How a request's tier is chosen.
@@ -194,6 +195,7 @@ impl LabelSettings {
             revisit_site_hints_retry_after: BTreeMap::new(),
             revisit_site_hints_changefreq: BTreeMap::new(),
             revisit_site_hints_priority: BTreeMap::new(),
+            revisit_site_hints_lastmod: BTreeMap::new(),
         };
         for (name, declaration) in labels {
             let mut keys = Vec::new();
@@ -332,6 +334,25 @@ impl LabelSettings {
         } else if key == REVISIT_SITE_HINTS_PRIORITY.name {
             self.revisit_site_hints_priority
                 .insert(name.to_owned(), boolean(name, key, value)?);
+        } else if key == REVISIT_SITE_HINTS_LASTMOD.name {
+            let Some(raw) = value.as_str() else {
+                return Err(invalid(
+                    name,
+                    key,
+                    value,
+                    "is not one of `learned`, `always`, `off`",
+                ));
+            };
+            if !REVISIT_SITE_HINTS_LASTMOD_VALUES.contains(&raw) {
+                return Err(invalid(
+                    name,
+                    key,
+                    value,
+                    "is not one of `learned`, `always`, `off`",
+                ));
+            }
+            self.revisit_site_hints_lastmod
+                .insert(name.to_owned(), LastmodHint::from_setting(raw));
         } else {
             return Ok(false);
         }
@@ -411,6 +432,16 @@ impl LabelSettings {
     #[must_use]
     pub fn revisit_site_hints_priority(&self, label: &str, run: bool) -> bool {
         self.revisit_site_hints_priority
+            .get(label)
+            .copied()
+            .unwrap_or(run)
+    }
+
+    /// The `revisit.site_hints.lastmod` mode of `label`, falling back to `run`
+    /// when the Label sets none (ADR 0139, spec #1836).
+    #[must_use]
+    pub fn revisit_site_hints_lastmod(&self, label: &str, run: LastmodHint) -> LastmodHint {
+        self.revisit_site_hints_lastmod
             .get(label)
             .copied()
             .unwrap_or(run)

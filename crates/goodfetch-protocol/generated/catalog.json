@@ -7735,6 +7735,79 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": 10,
+      "deprecated": null,
+      "description": "Minimum number of judged `<lastmod>` claims before a host can earn trust in a Continuous crawl: `10` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+      "fixed_for_run": false,
+      "name": "crawl.sitemap.lastmod_trust.min_claims",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 0.9,
+      "deprecated": null,
+      "description": "Minimum share of confirmed `<lastmod>` claims in the rolling window required for a host to earn and keep trust in a Continuous crawl, in `(0, 1]`: `0.9` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+      "fixed_for_run": false,
+      "name": "crawl.sitemap.lastmod_trust.min_precision",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "exclusiveMinimum": 0.0,
+        "maximum": 1.0,
+        "type": "number"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 20,
+      "deprecated": null,
+      "description": "Rolling window size of recent judged `<lastmod>` claims over which a host's precision is measured in a Continuous crawl: `20` by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+      "fixed_for_run": false,
+      "name": "crawl.sitemap.lastmod_trust.window",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": {
         "initial": 3600000,
         "kind": "adaptive",
@@ -12406,6 +12479,34 @@
       ],
       "value": {
         "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "learned",
+      "deprecated": null,
+      "description": "How a Continuous crawl treats sitemap `<lastmod>` claims, set for the Run or for one of its Labels: `learned` (the default) trusts a host once its claims earn trust, `always` brings revisits forward without waiting for trust, and `off` ignores `<lastmod>` claims. Accepted on a batch crawl, where `config explain` marks it inactive.",
+      "fixed_for_run": false,
+      "name": "revisit.site_hints.lastmod",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "label"
+      ],
+      "value": {
+        "enum": [
+          "learned",
+          "always",
+          "off"
+        ]
       },
       "weakening": null,
       "weakens": false

@@ -1,0 +1,45 @@
+#:schema ./journey.schema.json
+id = "J-044"
+title = "Run the same SDK program on an Attached engine, then an Exposed Daemon by two variables"
+goal = """
+A developer runs the same SDK program with `engine` left at `auto`: first on \
+the local engine (an Attached engine in TypeScript and Python, the linked \
+engine in Rust), and then on an Exposed Daemon by setting `GOODFETCH_URL` and \
+`GOODFETCH_TOKEN`, with no code change. Both runs MUST produce identical \
+results; on the second, `EngineInfo` MUST report `kind` as `remote`, the \
+address reached (`url`), the engine's Product, Product version and protocol \
+version, and a Secret canary in `GOODFETCH_TOKEN` MUST appear nowhere in \
+`EngineInfo`, logs, or outputs (ADRs 0049, 0078, 0083, 0092, 0095; CL-06)."""
+area = 13
+product = "collie"
+status = "active"
+covers = ["story:14-62", "row:CL-06"]
+
+[proving_ground]
+seed = 44
+
+[surfaces]
+sdk-rust = "M4"
+sdk-typescript = "M4"
+sdk-python = "M4"
+
+[[steps]]
+text = "Start an Exposed Daemon in a separate Goodfetch home on loopback port 0 with a planted Secret canary as its persistent token"
+
+[[steps]]
+text = "Run the SDK program with `engine` left at `auto` and neither `GOODFETCH_URL` nor `GOODFETCH_TOKEN` set, reading seeded Proving ground input, storing and reading values in the Run's Key-value store, explaining settings, and finishing the Run"
+
+[[steps]]
+text = "Run the exact same SDK program with `GOODFETCH_URL` pointing at the Exposed Daemon and `GOODFETCH_TOKEN` carrying the Secret canary, with no code change"
+
+[[steps]]
+text = "Stop the Exposed Daemon cleanly and collect its logs"
+
+[[expect]]
+text = "The program returned identical results on the local engine and on the Exposed Daemon"
+
+[[expect]]
+text = "On the Exposed Daemon, `EngineInfo` reported `kind` as `remote`, the `url` reached, Product `collie`, the executable's Product version, and protocol version `0.1`, with no home, engine path, or fallback"
+
+[[expect]]
+text = "The Secret canary in `GOODFETCH_TOKEN` appeared nowhere in `EngineInfo`, SDK logs, Exposed Daemon logs, or program outputs"

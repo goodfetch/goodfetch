@@ -183,6 +183,15 @@ form = "constant"
 
 [[member]]
 crate = "goodfetch-foxhound"
+receiver = "executable"
+member = "DEPLOY_TEMPLATES"
+entry = "none"
+reason = "The deployment templates Foxhound's executable embeds, which its `main` passes to Collie's executable entry for `init --deploy`, behind the `executable` feature."
+words = ["deploy", "templates"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-foxhound"
 receiver = "Foxhound"
 member = "connect"
 entry = "none"

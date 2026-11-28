@@ -142,7 +142,54 @@ const runAnswer = parserOf<RunAnswer>({
         metrics: {
           type: "object",
           additionalProperties: false,
-          properties: { cdp_commands: { type: "integer", minimum: 0 } },
+          properties: {
+            cdp_commands: { type: "integer", minimum: 0 },
+            cost_usage: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                model: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["id", "input_tokens", "output_tokens"],
+                  properties: {
+                    id: { type: "string", minLength: 1 },
+                    input_tokens: { type: "integer", minimum: 0 },
+                    output_tokens: { type: "integer", minimum: 0 },
+                  },
+                },
+                proxy: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["tier"],
+                  properties: {
+                    tier: { type: "string", minLength: 1 },
+                    bytes: { type: "number", minimum: 0 },
+                    requests: { type: "integer", minimum: 0 },
+                  },
+                },
+                captcha: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["kind", "solves"],
+                  properties: {
+                    kind: { type: "string", minLength: 1 },
+                    solves: { type: "integer", minimum: 0 },
+                  },
+                },
+                hosted_browser: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["vendor", "minutes"],
+                  properties: {
+                    vendor: { type: "string", minLength: 1 },
+                    minutes: { type: "number", minimum: 0 },
+                  },
+                },
+                human_seconds: { type: "number", minimum: 0 },
+              },
+            },
+          },
         },
       },
     },
@@ -303,6 +350,7 @@ async function attempt(input: {
   }
   return ended({
     status: judgement.outcome,
+    tool_status: answer.status,
     generation,
     judgement,
     adapter_metrics: metrics,

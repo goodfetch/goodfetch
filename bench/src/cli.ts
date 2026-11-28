@@ -8,6 +8,7 @@
 //   node bench/src/cli.ts provider-check [--junit <path>]
 //   node bench/src/cli.ts eval-pr|eval-nightly|eval-weekly [--proving-ground <address>]
 //   node bench/src/cli.ts skills
+import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { BenchError } from "./errors.ts";
 import {
@@ -23,12 +24,14 @@ import {
   loadModelsManifest,
   runProviderCheck,
 } from "./provider-check.ts";
+import { evaluateReleaseGate, type ReleaseGateInput } from "./release-gate.ts";
 import { runCampaign } from "./runner.ts";
 import { createPromptfooTrialRunner, runSkillEvaluations } from "./skill-evals.ts";
 
 const usage = [
   "usage:",
   "  node bench/src/cli.ts run <campaign.json> --proving-ground <address> --out <folder>",
+  "  node bench/src/cli.ts release-gate <input.json>",
   "  node bench/src/cli.ts live-gate --job <job> [--models <m1,m2>] [--trials <n>] [--max-input-tokens <n>] [--max-output-tokens <n>]",
   "  node bench/src/cli.ts provider-check [--junit <path>]",
   "  node bench/src/cli.ts eval-pr|eval-nightly|eval-weekly",
@@ -161,6 +164,16 @@ async function main(argv: readonly string[]): Promise<number> {
   try {
     if (command === "live-gate") {
       return runLiveGateCommand(values);
+    }
+    if (command === "release-gate") {
+      if (campaignPath === undefined) {
+        process.stderr.write(usage);
+        return 2;
+      }
+      const parsed: ReleaseGateInput = JSON.parse(readFileSync(campaignPath, "utf8"));
+      const decision = evaluateReleaseGate(parsed);
+      process.stdout.write(`${JSON.stringify(decision)}\n`);
+      return decision.decision === "pass" ? 0 : 1;
     }
     if (command === "provider-check") {
       const caps = loadCapsTable();

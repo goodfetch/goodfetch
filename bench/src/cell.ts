@@ -6,15 +6,40 @@
 import type { AttemptStatus, BenchErrorCode } from "./errors.ts";
 import type { Measure, MetricBook, MetricId, Reading } from "./metrics.ts";
 import { quantile } from "./order.ts";
-import type { Judgement } from "./proving-ground.ts";
+import type { Judgement, ToolStatus } from "./proving-ground.ts";
 import type { TreeUsage } from "./resources.ts";
 
 /** A cell's phase: its gate, its warmup and its measured attempts. */
 export type Phase = "conformance" | "warmup" | "measure";
 
+/** Per-attempt billable usage reported by an adapter for the cost model (ADR 0025). */
+export interface AttemptCostUsage {
+  readonly model?: {
+    readonly id: string;
+    readonly input_tokens: number;
+    readonly output_tokens: number;
+  };
+  readonly proxy?: {
+    readonly tier: string;
+    readonly bytes?: number;
+    readonly requests?: number;
+  };
+  readonly captcha?: {
+    readonly kind: string;
+    readonly solves: number;
+  };
+  readonly hosted_browser?: {
+    readonly vendor: string;
+    readonly minutes: number;
+  };
+  /** Human intervention time in seconds; reported in its own column, never folded into dollars. */
+  readonly human_seconds?: number;
+}
+
 /** What an adapter reports of its own work on one task. */
 export interface AdapterMetrics {
   readonly cdp_commands?: number;
+  readonly cost_usage?: AttemptCostUsage;
 }
 
 /** One attempt, as `attempts.jsonl` writes it. */
@@ -28,6 +53,8 @@ export interface Attempt {
   /** Its place in the cell: the conformance attempt is 0, the warmup follows, then the measured attempts. */
   readonly index: number;
   readonly status: AttemptStatus;
+  /** What the tool itself reported (`success`, `needs-review`, `failure`), or `null` if it did not answer. */
+  readonly tool_status?: ToolStatus | null;
   readonly error_code: BenchErrorCode | null;
   readonly reason: string | null;
   readonly timing: {

@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "claims": [
+    {
+      "id": "RG-http-crawl",
+      "family": "http-crawl",
+      "product": "foxhound",
+      "primary_metric": "verified_tasks_per_second",
+      "delta": null,
+      "delta_approved_by_owner": false,
+      "declared_at": "2026-11-28T00:00:00.000Z",
+      "notes": "Delta awaits reference host run-to-run spread (ADR 0076)."
+    },
+    {
+      "id": "RG-rendered-crawl",
+      "family": "rendered-crawl",
+      "product": "foxhound",
+      "primary_metric": "verified_tasks_per_second",
+      "delta": null,
+      "delta_approved_by_owner": false,
+      "declared_at": "2026-11-28T00:00:00.000Z",
+      "notes": "Delta awaits reference host run-to-run spread (ADR 0076)."
+    },
+    {
+      "id": "RG-extraction",
+      "family": "extraction",
+      "product": "collie",
+      "primary_metric": "task_p50_ms_verified",
+      "delta": null,
+      "delta_approved_by_owner": false,
+      "declared_at": "2026-11-28T00:00:00.000Z",
+      "notes": "Delta awaits reference host run-to-run spread (ADR 0076)."
+    },
+    {
+      "id": "RG-scripted-actions",
+      "family": "scripted-actions",
+      "product": "collie",
+      "primary_metric": "task_p50_ms_verified",
+      "delta": null,
+      "delta_approved_by_owner": false,
+      "declared_at": "2026-11-28T00:00:00.000Z",
+      "notes": "Delta awaits reference host run-to-run spread (ADR 0076)."
+    },
+    {
+      "id": "RG-remote-browser",
+      "family": "remote-browser",
+      "product": "collie",
+      "primary_metric": "task_p50_ms_verified",
+      "delta": null,
+      "delta_approved_by_owner": false,
+      "declared_at": "2026-11-28T00:00:00.000Z",
+      "notes": "Delta awaits reference host run-to-run spread (ADR 0076)."
+    },
+    {
+      "id": "RG-ai",
+      "family": "ai",
+      "product": "collie",
+      "primary_metric": "task_p50_ms_verified",
+      "delta": null,
+      "delta_approved_by_owner": false,
+      "declared_at": "2026-11-28T00:00:00.000Z",
+      "notes": "Delta awaits reference host run-to-run spread (ADR 0076)."
+    },
+    {
+      "id": "RG-repeated-runs-drift",
+      "family": "repeated-runs-drift",
+      "product": "collie",
+      "primary_metric": "task_p50_ms_verified",
+      "delta": null,
+      "delta_approved_by_owner": false,
+      "declared_at": "2026-11-28T00:00:00.000Z",
+      "notes": "Delta awaits reference host run-to-run spread (ADR 0076)."
+    },
+    {
+      "id": "RG-incident-recovery",
+      "family": "incident-recovery",
+      "product": "foxhound",
+      "primary_metric": "task_p50_ms_verified",
+      "delta": null,
+      "delta_approved_by_owner": false,
+      "declared_at": "2026-11-28T00:00:00.000Z",
+      "notes": "Delta awaits reference host run-to-run spread (ADR 0076)."
+    },
+    {
+      "id": "RG-startup-binding",
+      "family": "startup-binding",
+      "product": "collie",
+      "primary_metric": "startup_ms",
+      "delta": null,
+      "delta_approved_by_owner": false,
+      "declared_at": "2026-11-28T00:00:00.000Z",
+      "notes": "Runs on each Product executable; delta awaits reference host run-to-run spread (ADR 0076)."
+    },
+    {
+      "id": "RG-control-cost",
+      "family": "control-cost",
+      "product": "collie",
+      "primary_metric": "task_p50_ms_verified",
+      "delta": null,
+      "delta_approved_by_owner": false,
+      "declared_at": "2026-11-28T00:00:00.000Z",
+      "notes": "Delta awaits reference host run-to-run spread (ADR 0076)."
+    },
+    {
+      "id": "RG-access",
+      "family": "access",
+      "product": "collie",
+      "primary_metric": "failure_rate",
+      "delta": null,
+      "delta_approved_by_owner": false,
+      "declared_at": "2026-11-28T00:00:00.000Z",
+      "notes": "Delta awaits reference host run-to-run spread (ADR 0076)."
+    }
+  ]
+}

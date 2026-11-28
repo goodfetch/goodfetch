@@ -218,6 +218,34 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
     }
 }
 
+/// The engine's Chromium launch arguments for the Chromium build gate's WPT
+/// runs (ADR 0074; ticket #395): generated directly from [`arguments`] with
+/// default engine settings, stripping only the per-process transport,
+/// user-data directory and initial URL flags that `wptrunner`/`chromedriver`
+/// supplies itself.
+pub(crate) fn wpt_base_arguments() -> Vec<String> {
+    let resolve = HostMapping::default();
+    let built = arguments(&Launch {
+        data_folder: Path::new(""),
+        headless: false,
+        headless_shell: false,
+        resolve: &resolve,
+        shared_memory: None,
+        proxy_script: None,
+        sandbox: true,
+        relay_authority: None,
+    });
+    built
+        .command_line
+        .into_iter()
+        .filter(|arg| {
+            arg != "--remote-debugging-pipe"
+                && !arg.starts_with("--user-data-dir=")
+                && arg != "about:blank"
+        })
+        .collect()
+}
+
 /// The size of `/dev/shm` in bytes, read from its `size=` option in
 /// `mounts`, a mount table as `/proc/self/mounts` lists it; `None` when it
 /// is not mounted on its own or names no size.

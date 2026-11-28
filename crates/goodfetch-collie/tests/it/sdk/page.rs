@@ -9,12 +9,15 @@
 
 use std::collections::BTreeMap;
 
-use goodfetch_collie::settings::{Settings, proxy};
+use goodfetch_collie::settings::{Settings, browser, network, proxy};
 use goodfetch_collie::{
     Collie, Error, ErrorCode, FieldLocator, FieldTransform, PageField, Response, UnreadField,
     UnreadReason, ValueField, blocking,
 };
 use goodfetch_conformance::{ClientCaseRun, RustMode};
+use goodfetch_protocol::page::emulation::{
+    DeviceScaleFactor, Geolocation, NetworkThrottle, Viewport,
+};
 use goodfetch_protocol::page::route::UrlMatcher;
 use goodfetch_protocol::page::{
     FormatsRequest, MarkdownContent, MarkdownFormat, MarkdownOptions, RedirectLimit,
@@ -716,5 +719,143 @@ fn back_and_forward_answer_the_documents_response_and_none_past_the_history() {
             (url(back), url(forward), past.is_none()),
             (Some(first), Some(then), true)
         );
+    });
+}
+
+/// The Session browser-setup settings observed by
+/// `session_browser_setup_is_observed_on_a_proving_ground_page`.
+fn browser_setup_settings() -> Settings {
+    Settings::new()
+        .set(
+            browser::VIEWPORT,
+            Some(Viewport {
+                width: 800,
+                height: 600,
+            }),
+        )
+        .set(
+            browser::DEVICE_SCALE_FACTOR,
+            DeviceScaleFactor::new(2.0).unwrap(),
+        )
+        .set(browser::LOCALE, Some("fr-FR".to_owned()))
+        .set(browser::TIMEZONE_ID, Some("Europe/Paris".to_owned()))
+        .set(browser::COLOR_SCHEME, browser::ColorScheme::Dark)
+        .set(
+            browser::GEOLOCATION,
+            Some(Geolocation {
+                latitude: 48.8566,
+                longitude: 2.3522,
+                accuracy: Some(10.0),
+            }),
+        )
+        .set(
+            browser::PERMISSIONS,
+            vec![browser::PermissionsItem::Geolocation],
+        )
+        .set(browser::HEADLESS, true)
+        .set(
+            browser::BLOCK_RESOURCES,
+            vec![browser::BlockResourcesItem::Image],
+        )
+        .set(browser::SERVICE_WORKERS, browser::ServiceWorkers::Block)
+        .set(
+            network::THROTTLE,
+            Some(NetworkThrottle {
+                offline: false,
+                latency: 40,
+                download_bytes_per_second: Some(500_000),
+                upload_bytes_per_second: Some(250_000),
+            }),
+        )
+}
+
+/// Browser setup settings given where a Session opens are observed on a
+/// Proving ground page (viewport, scale factor, locale, time zone, colour
+/// scheme, permissions and network throttle; issue 1305).
+/// Covers: story:11-89, setting:browser.viewport, setting:browser.device_scale_factor, setting:browser.locale, setting:browser.timezone_id, setting:browser.color_scheme, setting:browser.geolocation, setting:browser.permissions, setting:browser.headless, setting:browser.block_resources, setting:browser.service_workers, setting:network.throttle
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+#[test]
+fn session_browser_setup_is_observed_on_a_proving_ground_page() {
+    let mut case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "session-browser-setup-observed-on-a-page",
+        RustMode::Linked,
+    )
+    .unwrap();
+    let env = TestEnv::new();
+    let proving_ground = proving_ground(&env);
+    let product = proving_ground.start_url("catalog/2").unwrap();
+    let (observed, offline_failed) = real_time_runtime().block_on(async {
+        let collie = Collie::connect(options(&env)).await.unwrap();
+        let run = collie.start().await.unwrap();
+        let session = run
+            .new_session()
+            .settings(browser_setup_settings())
+            .await
+            .unwrap();
+        let page = session.new_page().await.unwrap();
+        page.goto(&product).await.unwrap();
+
+        let observed: Value = page
+            .evaluate(
+                r#"async () => ({
+                  width: window.innerWidth,
+                  height: window.innerHeight,
+                  dpr: window.devicePixelRatio,
+                  locale: navigator.language,
+                  timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                  dark: window.matchMedia("(prefers-color-scheme: dark)").matches,
+                  geoPermission: (await navigator.permissions.query({ name: "geolocation" })).state,
+                })"#,
+            )
+            .await
+            .unwrap()
+            .expect("evaluate returns observed object");
+
+        let offline_session = run
+            .new_session()
+            .settings(Settings::new().set(
+                network::THROTTLE,
+                Some(NetworkThrottle {
+                    offline: true,
+                    latency: 0,
+                    download_bytes_per_second: None,
+                    upload_bytes_per_second: None,
+                }),
+            ))
+            .await
+            .unwrap();
+        let offline_page = offline_session.new_page().await.unwrap();
+        let offline_failed = offline_page.goto(&product).await.is_err();
+
+        offline_session.close().await.unwrap();
+        session.close().await.unwrap();
+        run.finish().await.unwrap();
+        collie.close().await.unwrap();
+        (observed, offline_failed)
+    });
+
+    case.check(
+        "viewport, scale factor, locale, time zone, colour scheme and permissions are observed",
+        || {
+            assert_eq!(
+                observed,
+                json!({
+                    "width": 800,
+                    "height": 600,
+                    "dpr": 2,
+                    "locale": "fr-FR",
+                    "timeZone": "Europe/Paris",
+                    "dark": true,
+                    "geoPermission": "granted",
+                })
+            );
+        },
+    );
+    case.check("network.throttle offline prevents navigation", || {
+        assert!(offline_failed, "offline navigation must fail");
     });
 }

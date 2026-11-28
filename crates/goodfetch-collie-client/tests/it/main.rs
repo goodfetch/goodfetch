@@ -8,6 +8,7 @@
 
 #[cfg(unix)]
 mod attached;
+mod browser_setup;
 mod call_cancelled;
 mod caller_secret_resolution;
 mod calls_in_flight;

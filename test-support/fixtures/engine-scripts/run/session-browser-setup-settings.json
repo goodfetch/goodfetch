@@ -1,0 +1,101 @@
+{
+  "description": "TypeScript Collie SDK (attached): `run.newSession` sends all 12 browser setup settings in `SessionSettings`, closes the Session, and finishes the Run (`session-browser-setup-settings`, issue 1305).",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "form": "typescript",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "log_level": "off"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    { "expect": { "method": "run.start", "params": {} } },
+    {
+      "reply": {
+        "result": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "lifecycle": "running",
+          "needs": "collie",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.new_session",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "settings": {
+            "browser": {
+              "viewport": { "width": 800, "height": 600 },
+              "device_scale_factor": 1.5,
+              "locale": "fr-FR",
+              "timezone_id": "Europe/Paris",
+              "color_scheme": "dark",
+              "java_script_enabled": false,
+              "geolocation": { "latitude": 48.8566, "longitude": 2.3522, "accuracy": 10.5 },
+              "permissions": ["geolocation"],
+              "headless": true,
+              "block_resources": ["image"],
+              "service_workers": "block"
+            },
+            "network": {
+              "throttle": {
+                "offline": false,
+                "latency": 40,
+                "download_bytes_per_second": 500000,
+                "upload_bytes_per_second": 250000
+              }
+            }
+          }
+        }
+      }
+    },
+    { "reply": { "result": { "session_id": "session-2" } } },
+    { "expect": { "method": "session.close", "params": { "session_id": "session-2" } } },
+    { "reply": { "result": {} } },
+    { "expect": { "method": "run.finish", "params": { "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc" } } },
+    {
+      "reply": {
+        "result": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "lifecycle": "finished",
+          "verdict": "verified",
+          "completeness": "complete",
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:00Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0,
+              "input_tokens": 0,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "reasoning_tokens": 0,
+              "price": null
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 0
+          }
+        }
+      }
+    }
+  ]
+}

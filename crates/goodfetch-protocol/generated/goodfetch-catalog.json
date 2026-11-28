@@ -30302,7 +30302,8 @@
         ],
         "scopes": [
           "connection",
-          "run"
+          "run",
+          "session"
         ],
         "value": {
           "type": "boolean"

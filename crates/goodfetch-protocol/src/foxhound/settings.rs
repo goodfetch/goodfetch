@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 
 use crate::catalog::{
     Authority, Entries, ProtocolVersion, Setting, SharedType, SharedTypeValue, ValueKind,
+    WeakeningDirection,
 };
 use crate::foxhound::fetch::FETCH_HTTP_FROM;
 pub use crate::politeness::POLITENESS_WEAKENED;
@@ -223,11 +224,11 @@ pub const DELIVERY_REPORT_GUARANTEE_CLASS: Setting = Setting {
 /// `politeness.domain.concurrency` (ADRs 0053 and 0086).
 pub const POLITENESS_DOMAIN_CONCURRENCY: Setting = Setting {
     name: "politeness.domain.concurrency",
-    description: "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder.",
+    description: "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder; a Client acting for a model never sets a value harder than 1 and the layers below.",
     kind: ValueKind::Count,
     default: one,
     clearable: true,
-    authority: Authority::Every,
+    authority: Authority::NotWeakenedByModel(WeakeningDirection::Higher),
     weakens: Some(more_than_one),
     fixed_for_run: false,
     unbuilt: None,
@@ -238,11 +239,11 @@ pub const POLITENESS_DOMAIN_CONCURRENCY: Setting = Setting {
 /// `politeness.domain.delay` (ADRs 0053 and 0086).
 pub const POLITENESS_DOMAIN_DELAY: Setting = Setting {
     name: "politeness.domain.delay",
-    description: "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder.",
+    description: "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder; a Client acting for a model never sets a value shorter than 1 s (or `null`) and shorter than the layers below.",
     kind: ValueKind::Duration,
     default: one_second,
     clearable: true,
-    authority: Authority::Every,
+    authority: Authority::NotWeakenedByModel(WeakeningDirection::Lower),
     weakens: Some(under_a_second),
     fixed_for_run: false,
     unbuilt: None,
@@ -321,11 +322,11 @@ pub const POLITENESS_DOMAIN_BURST: Setting = Setting {
 /// `politeness.backoff.enabled` (ADRs 0021, 0023 and 0086).
 pub const POLITENESS_BACKOFF_ENABLED: Setting = Setting {
     name: "politeness.backoff.enabled",
-    description: "Whether a domain that answers 429, 502, 503 or 504, or does not answer in time, is backed off, and its `Retry-After` waited out, for every run of the user that shares Politeness. Off, the run ignores both, and it is listed in the run's result.",
+    description: "Whether a domain that answers 429, 502, 503 or 504, or does not answer in time, is backed off, and its `Retry-After` waited out, for every run of the user that shares Politeness. Off, the run ignores both, and it is listed in the run's result; a Client acting for a model never switches it off unless the layers below already do.",
     kind: ValueKind::Boolean,
     default: yes,
     clearable: false,
-    authority: Authority::Every,
+    authority: Authority::NotWeakenedByModel(WeakeningDirection::Equal),
     weakens: Some(switched_off),
     fixed_for_run: false,
     unbuilt: None,
@@ -336,11 +337,11 @@ pub const POLITENESS_BACKOFF_ENABLED: Setting = Setting {
 /// `politeness.backoff.initial` (ADRs 0021, 0086 and 0118).
 pub const POLITENESS_BACKOFF_INITIAL: Setting = Setting {
     name: "politeness.backoff.initial",
-    description: "The shortest wait of a domain's backoff: each wait is drawn at random between it and three times the previous wait (the first between it and three times it), never above `politeness.backoff.max`: 2 s. A shorter value is listed in the run's result.",
+    description: "The shortest wait of a domain's backoff: each wait is drawn at random between it and three times the previous wait (the first between it and three times it), never above `politeness.backoff.max`: 2 s. A shorter value is listed in the run's result; a Client acting for a model never sets a value shorter than 2 s and shorter than the layers below.",
     kind: ValueKind::Duration,
     default: two_seconds,
     clearable: false,
-    authority: Authority::Every,
+    authority: Authority::NotWeakenedByModel(WeakeningDirection::Lower),
     weakens: Some(initial_shortened),
     fixed_for_run: false,
     unbuilt: None,
@@ -351,11 +352,11 @@ pub const POLITENESS_BACKOFF_INITIAL: Setting = Setting {
 /// `politeness.backoff.max` (ADRs 0021, 0086 and 0118).
 pub const POLITENESS_BACKOFF_MAX: Setting = Setting {
     name: "politeness.backoff.max",
-    description: "The longest wait of a domain's backoff: 60 s. A `Retry-After` may hold the domain longer, up to `politeness.retry_after.max`. A shorter value is listed in the run's result.",
+    description: "The longest wait of a domain's backoff: 60 s. A `Retry-After` may hold the domain longer, up to `politeness.retry_after.max`. A shorter value is listed in the run's result; a Client acting for a model never sets a value shorter than 60 s and shorter than the layers below.",
     kind: ValueKind::Duration,
     default: a_minute,
     clearable: false,
-    authority: Authority::Every,
+    authority: Authority::NotWeakenedByModel(WeakeningDirection::Lower),
     weakens: Some(max_shortened),
     fixed_for_run: false,
     unbuilt: None,
@@ -387,11 +388,11 @@ fn set(value: &Value) -> bool {
 /// `site_preferences.robots_txt_user_agent` (ADRs 0086 and 0090).
 pub const SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT: Setting = Setting {
     name: "site_preferences.robots_txt_user_agent",
-    description: "The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder.",
+    description: "The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder; a Client acting for a model never sets it.",
     kind: ValueKind::Text,
     default: null,
     clearable: true,
-    authority: Authority::Every,
+    authority: Authority::NotByModel,
     weakens: Some(set),
     fixed_for_run: false,
     unbuilt: None,
@@ -402,11 +403,11 @@ pub const SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT: Setting = Setting {
 /// `site_preferences.respect_robots_txt` (ADRs 0016 and 0086).
 pub const SITE_PREFERENCES_RESPECT_ROBOTS_TXT: Setting = Setting {
     name: "site_preferences.respect_robots_txt",
-    description: "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder.",
+    description: "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder; a Client acting for a model never switches it off unless the layers below already do.",
     kind: ValueKind::Boolean,
     default: yes,
     clearable: false,
-    authority: Authority::Every,
+    authority: Authority::NotWeakenedByModel(WeakeningDirection::Equal),
     weakens: Some(switched_off),
     fixed_for_run: false,
     unbuilt: None,

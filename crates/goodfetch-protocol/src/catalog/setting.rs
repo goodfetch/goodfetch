@@ -399,6 +399,12 @@ pub enum Authority {
     /// configuration and an Operator policy set any value, as
     /// `consent.handling: off` (#2434).
     NotWeakenedByRecipeOrModel,
+    /// Every layer, but a Client acting for a model never gives a value the
+    /// key's `weakens` names that presses harder in [`WeakeningDirection`]
+    /// than the value the layers below give, which is `setting_locked`; the
+    /// program's own code, configuration, a Recipe and an Operator policy
+    /// set any value (#2446).
+    NotWeakenedByModel(WeakeningDirection),
     /// No layer: an honesty guarantee that stays at its built-in value
     /// whatever the layer (ADR 0028).
     Fixed,
@@ -424,9 +430,28 @@ impl Authority {
             Self::NotByModelRecipeAllowedBy(_) => "not_by_model_recipe_allowed_by_operator_policy",
             Self::HostsNarrowedByRecipeOrModel(_) => "hosts_narrowed_by_recipe_or_model",
             Self::NotWeakenedByRecipeOrModel => "not_weakened_by_recipe_or_model",
+            Self::NotWeakenedByModel(_) => "not_weakened_by_model",
             Self::Fixed => "fixed",
         }
     }
+}
+
+/// Which way a setting of [`Authority::NotWeakenedByModel`] weakens
+/// (presses a site harder), comparing a model's weakening value against
+/// the value the layers below give (#2446).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WeakeningDirection {
+    /// A larger count or `null` (no cap) presses harder, as
+    /// `politeness.domain.concurrency`.
+    Higher,
+    /// A shorter duration or `null` (no delay) presses harder, as
+    /// `politeness.domain.delay`, `politeness.backoff.initial` and
+    /// `politeness.backoff.max`.
+    Lower,
+    /// No order among values: a weakening value is refused unless the
+    /// layers below already give it, as `politeness.backoff.enabled` and
+    /// `site_preferences.respect_robots_txt`.
+    Equal,
 }
 
 /// What a list of hosts of [`Authority::HostsNarrowedByRecipeOrModel`]

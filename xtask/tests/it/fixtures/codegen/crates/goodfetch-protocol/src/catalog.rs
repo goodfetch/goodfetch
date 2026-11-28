@@ -17,7 +17,7 @@ mod setting;
 pub(crate) use setting::shape_json;
 pub use setting::{
     Authority, HostList, PriceValue, SettingJson, SettingScope, SettingWord, ValueKind, ValueShape,
-    wire_millis,
+    WeakeningDirection, wire_millis,
 };
 
 /// The protocol's version, `major.minor` (ADR 0030), written on the wire as

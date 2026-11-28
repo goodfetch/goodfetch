@@ -16,7 +16,9 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use goodfetch_test_client::Attached;
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::Surface;
+use goodfetch_test_client::{Attached, Hello};
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv, cli};
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -461,5 +463,105 @@ fn a_browser_tier_record_fetched_against_robots_txt_is_marked_ignored_in_its_pro
                 ("/private/catalog/1".to_owned(), json!("ignored")),
             ],
         )
+    );
+}
+
+/// #2446 through the protocol: on a Connection whose `hello` surface is
+/// `mcp`, `politeness.domain.concurrency: 16` with nothing set below is
+/// refused with `setting_locked` naming the key; the same Connection's
+/// `concurrency: 1` and `delay: 5000` start and finish the crawl; and the
+/// program's own `null` over configured `concurrency: 4` starts the crawl,
+/// lists `politeness.domain.concurrency` in `weakened` and writes
+/// `politeness_weakened`.
+///
+/// Covers: story:4-117, error:setting_locked, setting:politeness.domain.concurrency, setting:politeness.domain.delay
+#[test]
+fn an_mcp_client_cannot_press_harder_while_gentle_values_and_programs_null_work() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let ip = proving_ground.address().ip().to_string();
+    env.user_configuration(&format!(
+        "network.resolve.\"{HOST}\" = [\"{ip}\"]\negress.private_ranges = [\"{HOST}\"]\n"
+    ));
+
+    let mut mcp = crate::opened_by(
+        Attached::start(&env, FOXHOUND),
+        Hello::needing(Product::Foxhound).surface(Surface::Mcp),
+    );
+    let refused = mcp.call(
+        "start-hard",
+        "crawl.start",
+        &json!({
+            "run_id": "mcp-hard",
+            "seeds": [{ "url": proving_ground.url(HOST, "/catalog/1"), "label": "page" }],
+            "settings": {
+                "fetch": { "tier": "http" },
+                "politeness": { "domain": { "concurrency": 16 } },
+            },
+            "datasets": [{ "name": "pages" }],
+            "labels": { "page": {} },
+        }),
+        &mut |_| None,
+    );
+    assert_eq!(
+        (
+            refused["error"]["data"]["code"].as_str(),
+            refused["error"]["data"]["key"].as_str(),
+        ),
+        (
+            Some("setting_locked"),
+            Some("politeness.domain.concurrency")
+        ),
+        "{refused}"
+    );
+
+    let gentle = crawl(
+        &mut mcp,
+        &proving_ground,
+        "mcp-gentle",
+        &["/catalog/1"],
+        &json!({
+            "fetch": { "tier": "http" },
+            "politeness": { "domain": { "concurrency": 1, "delay": 5_000 } },
+        }),
+    );
+    assert!(mcp.finished());
+    assert_eq!(
+        weakened_politeness(&gentle),
+        Vec::<Value>::new(),
+        "{gentle}"
+    );
+
+    let program_env = TestEnv::new();
+    program_env.user_configuration(&format!(
+        "network.resolve.\"{HOST}\" = [\"{ip}\"]\negress.private_ranges = [\"{HOST}\"]\npoliteness.domain.concurrency = 4\n"
+    ));
+    let mut program = crate::site::engine_on(&program_env, &proving_ground);
+    let cleared = crawl(
+        &mut program,
+        &proving_ground,
+        "program-null",
+        &["/catalog/1"],
+        &json!({
+            "fetch": { "tier": "http" },
+            "politeness": { "domain": { "concurrency": null } },
+        }),
+    );
+    assert!(program.finished());
+
+    assert_eq!(
+        (
+            weakened_politeness(&cleared),
+            politeness_weakened(&program_env)
+        ),
+        (
+            vec![json!(["politeness.domain.concurrency", null, "run"])],
+            vec![json!([
+                "program-null",
+                "run",
+                { "setting": "politeness.domain.concurrency", "value": null, "default": 1 },
+            ])],
+        ),
+        "{cleared}"
     );
 }

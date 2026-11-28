@@ -819,19 +819,19 @@ export interface FoxhoundSettings {
   readonly politeness?: {
     readonly backoff?: {
       /**
-       * Whether a domain that answers 429, 502, 503 or 504, or does not answer in time, is backed off, and its `Retry-After` waited out, for every run of the user that shares Politeness. Off, the run ignores both, and it is listed in the run's result.
+       * Whether a domain that answers 429, 502, 503 or 504, or does not answer in time, is backed off, and its `Retry-After` waited out, for every run of the user that shares Politeness. Off, the run ignores both, and it is listed in the run's result; a Client acting for a model never switches it off unless the layers below already do.
        *
        * `politeness.backoff.enabled`.
        */
       readonly enabled?: boolean;
       /**
-       * The shortest wait of a domain's backoff: each wait is drawn at random between it and three times the previous wait (the first between it and three times it), never above `politeness.backoff.max`: 2 s. A shorter value is listed in the run's result.
+       * The shortest wait of a domain's backoff: each wait is drawn at random between it and three times the previous wait (the first between it and three times it), never above `politeness.backoff.max`: 2 s. A shorter value is listed in the run's result; a Client acting for a model never sets a value shorter than 2 s and shorter than the layers below.
        *
        * `politeness.backoff.initial`.
        */
       readonly initial?: number;
       /**
-       * The longest wait of a domain's backoff: 60 s. A `Retry-After` may hold the domain longer, up to `politeness.retry_after.max`. A shorter value is listed in the run's result.
+       * The longest wait of a domain's backoff: 60 s. A `Retry-After` may hold the domain longer, up to `politeness.retry_after.max`. A shorter value is listed in the run's result; a Client acting for a model never sets a value shorter than 60 s and shorter than the layers below.
        *
        * `politeness.backoff.max`.
        */
@@ -857,13 +857,13 @@ export interface FoxhoundSettings {
        */
       readonly burst?: number;
       /**
-       * How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder.
+       * How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder; a Client acting for a model never sets a value harder than 1 and the layers below.
        *
        * `politeness.domain.concurrency`.
        */
       readonly concurrency?: number | null;
       /**
-       * How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder.
+       * How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder; a Client acting for a model never sets a value shorter than 1 s (or `null`) and shorter than the layers below.
        *
        * `politeness.domain.delay`.
        */
@@ -1256,7 +1256,7 @@ export interface FoxhoundSettings {
      */
     readonly readRobotsTxtForNavigation?: boolean;
     /**
-     * Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder.
+     * Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder; a Client acting for a model never switches it off unless the layers below already do.
      *
      * `site_preferences.respect_robots_txt`.
      */
@@ -1268,7 +1268,7 @@ export interface FoxhoundSettings {
      */
     readonly respectUseSignals?: boolean;
     /**
-     * The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder.
+     * The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder; a Client acting for a model never sets it.
      *
      * `site_preferences.robots_txt_user_agent`.
      */
@@ -2251,19 +2251,19 @@ export interface CrawlSettings {
   readonly politeness?: {
     readonly backoff?: {
       /**
-       * Whether a domain that answers 429, 502, 503 or 504, or does not answer in time, is backed off, and its `Retry-After` waited out, for every run of the user that shares Politeness. Off, the run ignores both, and it is listed in the run's result.
+       * Whether a domain that answers 429, 502, 503 or 504, or does not answer in time, is backed off, and its `Retry-After` waited out, for every run of the user that shares Politeness. Off, the run ignores both, and it is listed in the run's result; a Client acting for a model never switches it off unless the layers below already do.
        *
        * `politeness.backoff.enabled`.
        */
       readonly enabled?: boolean;
       /**
-       * The shortest wait of a domain's backoff: each wait is drawn at random between it and three times the previous wait (the first between it and three times it), never above `politeness.backoff.max`: 2 s. A shorter value is listed in the run's result.
+       * The shortest wait of a domain's backoff: each wait is drawn at random between it and three times the previous wait (the first between it and three times it), never above `politeness.backoff.max`: 2 s. A shorter value is listed in the run's result; a Client acting for a model never sets a value shorter than 2 s and shorter than the layers below.
        *
        * `politeness.backoff.initial`.
        */
       readonly initial?: number;
       /**
-       * The longest wait of a domain's backoff: 60 s. A `Retry-After` may hold the domain longer, up to `politeness.retry_after.max`. A shorter value is listed in the run's result.
+       * The longest wait of a domain's backoff: 60 s. A `Retry-After` may hold the domain longer, up to `politeness.retry_after.max`. A shorter value is listed in the run's result; a Client acting for a model never sets a value shorter than 60 s and shorter than the layers below.
        *
        * `politeness.backoff.max`.
        */
@@ -2289,13 +2289,13 @@ export interface CrawlSettings {
        */
       readonly burst?: number;
       /**
-       * How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder.
+       * How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder; a Client acting for a model never sets a value harder than 1 and the layers below.
        *
        * `politeness.domain.concurrency`.
        */
       readonly concurrency?: number | null;
       /**
-       * How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder.
+       * How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder; a Client acting for a model never sets a value shorter than 1 s (or `null`) and shorter than the layers below.
        *
        * `politeness.domain.delay`.
        */
@@ -2688,7 +2688,7 @@ export interface CrawlSettings {
      */
     readonly readRobotsTxtForNavigation?: boolean;
     /**
-     * Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder.
+     * Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder; a Client acting for a model never switches it off unless the layers below already do.
      *
      * `site_preferences.respect_robots_txt`.
      */
@@ -2700,7 +2700,7 @@ export interface CrawlSettings {
      */
     readonly respectUseSignals?: boolean;
     /**
-     * The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder.
+     * The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder; a Client acting for a model never sets it.
      *
      * `site_preferences.robots_txt_user_agent`.
      */

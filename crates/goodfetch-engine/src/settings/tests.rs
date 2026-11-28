@@ -2532,6 +2532,167 @@ fn an_operator_policy_switches_a_security_control_off(
     assert_eq!(weakened, [(key.to_owned(), SettingsLayer::OperatorPolicy)]);
 }
 
+/// What `key` resolves to when user configuration optionally sets it to
+/// `configured` and `layer` gives `value`, from a Client acting for a model
+/// where `for_model`: the value taken, or the refusal's code and key.
+fn over_optional_configuration(
+    key: &str,
+    configured: Option<&Value>,
+    layer: SettingsLayer,
+    for_model: bool,
+    value: &Value,
+) -> Result<Value, (&'static str, String)> {
+    let mut layers = only(layer, key, value);
+    if let Some(configured) = configured
+        && layer != SettingsLayer::UserConfiguration
+    {
+        layers.user_configuration =
+            values(SettingsLayer::UserConfiguration, json!({ key: configured }));
+    }
+    if for_model {
+        layers.run = layers.run.from_model();
+        layers.project_configuration = layers.project_configuration.from_model();
+    }
+    over_layers(&layers, key)
+}
+
+/// #2446 (owner, 2026-11-10 and 2026-11-11): a Client acting for a model
+/// never presses a site harder than ADR 0086's built-in default and the
+/// layers below on the six politeness and robots.txt keys, and never sets
+/// `site_preferences.robots_txt_user_agent` at all; `null` on a clearable
+/// cap counts as pressing harder unless the layers below already give
+/// `null`, each duration compares in its own direction (shorter presses
+/// harder), every other layer including a Recipe sets them as before,
+/// `politeness.sharing` is outside the rule, and the person's own-data
+/// switches stay open to a model.
+/// Covers: story:4-117, error:setting_locked, setting:politeness.domain.concurrency, setting:politeness.domain.delay, setting:politeness.backoff.enabled, setting:politeness.backoff.initial, setting:politeness.backoff.max, setting:site_preferences.respect_robots_txt, setting:site_preferences.robots_txt_user_agent, setting:politeness.sharing, setting:run_state.durability, setting:provenance.log, setting:frontier.learning
+#[rstest]
+#[case::concurrency_16_with_nothing_below("politeness.domain.concurrency", None, SettingsLayer::Run, true, json!(16), locked("politeness.domain.concurrency"))]
+#[case::concurrency_1_with_nothing_below("politeness.domain.concurrency", None, SettingsLayer::Run, true, json!(1), Ok(json!(1)))]
+#[case::concurrency_null_with_nothing_below(
+    "politeness.domain.concurrency",
+    None,
+    SettingsLayer::Run,
+    true,
+    Value::Null,
+    locked("politeness.domain.concurrency")
+)]
+#[case::concurrency_2_under_configured_4("politeness.domain.concurrency", Some(json!(4)), SettingsLayer::Run, true, json!(2), Ok(json!(2)))]
+#[case::concurrency_8_over_configured_4("politeness.domain.concurrency", Some(json!(4)), SettingsLayer::Run, true, json!(8), locked("politeness.domain.concurrency"))]
+#[case::concurrency_null_over_configured_4("politeness.domain.concurrency", Some(json!(4)), SettingsLayer::Run, true, Value::Null, locked("politeness.domain.concurrency"))]
+#[case::concurrency_null_over_configured_null(
+    "politeness.domain.concurrency",
+    Some(Value::Null),
+    SettingsLayer::Run,
+    true,
+    Value::Null,
+    Ok(Value::Null)
+)]
+#[case::concurrency_16_over_configured_null("politeness.domain.concurrency", Some(Value::Null), SettingsLayer::Run, true, json!(16), Ok(json!(16)))]
+#[case::concurrency_16_from_models_project_configuration("politeness.domain.concurrency", None, SettingsLayer::ProjectConfiguration, true, json!(16), locked("politeness.domain.concurrency"))]
+#[case::delay_5s_with_nothing_below("politeness.domain.delay", None, SettingsLayer::Run, true, json!(5_000), Ok(json!(5_000)))]
+#[case::delay_500ms_with_nothing_below("politeness.domain.delay", None, SettingsLayer::Run, true, json!(500), locked("politeness.domain.delay"))]
+#[case::delay_null_with_nothing_below(
+    "politeness.domain.delay",
+    None,
+    SettingsLayer::Run,
+    true,
+    Value::Null,
+    locked("politeness.domain.delay")
+)]
+#[case::delay_null_over_configured_2s("politeness.domain.delay", Some(json!(2_000)), SettingsLayer::Run, true, Value::Null, locked("politeness.domain.delay"))]
+#[case::delay_null_over_configured_null(
+    "politeness.domain.delay",
+    Some(Value::Null),
+    SettingsLayer::Run,
+    true,
+    Value::Null,
+    Ok(Value::Null)
+)]
+#[case::delay_500ms_over_configured_200ms("politeness.domain.delay", Some(json!(200)), SettingsLayer::Run, true, json!(500), Ok(json!(500)))]
+#[case::delay_100ms_over_configured_200ms("politeness.domain.delay", Some(json!(200)), SettingsLayer::Run, true, json!(100), locked("politeness.domain.delay"))]
+#[case::delay_1500ms_over_configured_2s("politeness.domain.delay", Some(json!(2_000)), SettingsLayer::Run, true, json!(1_500), Ok(json!(1_500)))]
+#[case::backoff_off_with_nothing_below("politeness.backoff.enabled", None, SettingsLayer::Run, true, json!(false), locked("politeness.backoff.enabled"))]
+#[case::backoff_off_over_configured_off("politeness.backoff.enabled", Some(json!(false)), SettingsLayer::Run, true, json!(false), Ok(json!(false)))]
+#[case::backoff_initial_1500ms_over_configured_1s("politeness.backoff.initial", Some(json!(1_000)), SettingsLayer::Run, true, json!(1_500), Ok(json!(1_500)))]
+#[case::backoff_initial_500ms_over_configured_1s("politeness.backoff.initial", Some(json!(1_000)), SettingsLayer::Run, true, json!(500), locked("politeness.backoff.initial"))]
+#[case::backoff_max_30s_over_configured_10s("politeness.backoff.max", Some(json!(10_000)), SettingsLayer::Run, true, json!(30_000), Ok(json!(30_000)))]
+#[case::backoff_max_5s_over_configured_10s("politeness.backoff.max", Some(json!(10_000)), SettingsLayer::Run, true, json!(5_000), locked("politeness.backoff.max"))]
+#[case::robots_txt_off_with_nothing_below("site_preferences.respect_robots_txt", None, SettingsLayer::Run, true, json!(false), locked("site_preferences.respect_robots_txt"))]
+#[case::robots_txt_off_over_configured_off("site_preferences.respect_robots_txt", Some(json!(false)), SettingsLayer::Run, true, json!(false), Ok(json!(false)))]
+#[case::robots_txt_ua_from_model("site_preferences.robots_txt_user_agent", None, SettingsLayer::Run, true, json!("model-bot"), locked("site_preferences.robots_txt_user_agent"))]
+#[case::robots_txt_ua_repeated_by_model("site_preferences.robots_txt_user_agent", Some(json!("operator-bot")), SettingsLayer::Run, true, json!("operator-bot"), locked("site_preferences.robots_txt_user_agent"))]
+#[case::robots_txt_ua_null_from_model(
+    "site_preferences.robots_txt_user_agent",
+    None,
+    SettingsLayer::Run,
+    true,
+    Value::Null,
+    locked("site_preferences.robots_txt_user_agent")
+)]
+#[case::concurrency_16_from_programs_code("politeness.domain.concurrency", None, SettingsLayer::Run, false, json!(16), Ok(json!(16)))]
+#[case::concurrency_null_from_programs_code_over_4("politeness.domain.concurrency", Some(json!(4)), SettingsLayer::Run, false, Value::Null, Ok(Value::Null))]
+#[case::concurrency_16_from_recipe("politeness.domain.concurrency", None, SettingsLayer::Recipe, false, json!(16), Ok(json!(16)))]
+#[case::concurrency_16_from_operator_policy("politeness.domain.concurrency", None, SettingsLayer::OperatorPolicy, false, json!(16), Ok(json!(16)))]
+#[case::robots_txt_off_from_recipe("site_preferences.respect_robots_txt", None, SettingsLayer::Recipe, false, json!(false), Ok(json!(false)))]
+#[case::robots_txt_ua_from_recipe("site_preferences.robots_txt_user_agent", None, SettingsLayer::Recipe, false, json!("recipe-bot"), Ok(json!("recipe-bot")))]
+#[case::politeness_sharing_stays_open_to_model("politeness.sharing", None, SettingsLayer::Run, true, json!("run"), Ok(json!("run")))]
+#[case::durability_stays_open_to_model("run_state.durability", None, SettingsLayer::Run, true, json!("off"), Ok(json!("off")))]
+#[case::provenance_log_stays_open_to_model("provenance.log", None, SettingsLayer::Run, true, json!(false), Ok(json!(false)))]
+#[case::frontier_learning_stays_open_to_model("frontier.learning", None, SettingsLayer::Run, true, json!(false), Ok(json!(false)))]
+fn a_model_never_presses_a_site_harder_than_built_in_and_layers_below(
+    #[case] key: &str,
+    #[case] configured: Option<Value>,
+    #[case] layer: SettingsLayer,
+    #[case] for_model: bool,
+    #[case] value: Value,
+    #[case] expected: Result<Value, (&'static str, String)>,
+) {
+    let resolved = over_optional_configuration(key, configured.as_ref(), layer, for_model, &value);
+
+    assert_eq!(resolved, expected);
+}
+
+/// #2446 (owner, 2026-11-11): the program's own `null` over configured
+/// `politeness.domain.concurrency: 4` resolves and lists the key in
+/// `weakened`; a crawl that sets neither per-domain cap lists neither.
+/// Covers: story:4-117, setting:politeness.domain.concurrency, setting:politeness.domain.delay
+#[test]
+fn clearing_a_politeness_cap_from_code_weakens_and_unset_defaults_do_not() {
+    let mut cleared = only(
+        SettingsLayer::Run,
+        "politeness.domain.concurrency",
+        &Value::Null,
+    );
+    cleared.user_configuration = values(
+        SettingsLayer::UserConfiguration,
+        json!({ "politeness": { "domain": { "concurrency": 4 } } }),
+    );
+    let politeness_weakened = |resolved: &Resolved| -> Vec<(String, Value, SettingsLayer)> {
+        resolved
+            .weakened()
+            .into_iter()
+            .filter(|weakened| weakened.key.starts_with("politeness."))
+            .map(|weakened| (weakened.key, weakened.value, weakened.layer))
+            .collect()
+    };
+
+    assert_eq!(
+        (
+            politeness_weakened(&resolved(&cleared)),
+            politeness_weakened(&resolved(&Layers::default())),
+        ),
+        (
+            vec![(
+                "politeness.domain.concurrency".to_owned(),
+                Value::Null,
+                SettingsLayer::Run,
+            )],
+            vec![],
+        )
+    );
+}
+
 /// Story 4-4: `egress.private_ranges`, the third key of the domain policy,
 /// is never a model's even when it lists fewer ranges than configuration
 /// does; the same narrower value from the program's own code is taken

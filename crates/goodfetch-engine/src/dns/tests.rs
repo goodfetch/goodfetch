@@ -7,9 +7,10 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use goodfetch_protocol::dns::NameResolver;
+use hickory_resolver::config::ProtocolConfig;
 use rstest::rstest;
 
 use super::{AnsweredBy, Dns, HostMapping, LookupError, Resolution, ResolverConfiguration, Route};
@@ -157,6 +158,28 @@ fn the_systems_resolver_configuration_reads() {
     let configuration = ResolverConfiguration::system();
 
     assert!(configuration.is_ok(), "{configuration:?}");
+}
+
+/// `over_tcp` keeps only the TCP connection of each name server, preserving
+/// its address and port.
+#[test]
+fn over_tcp_keeps_only_tcp_connections_with_their_ports() {
+    let address = SocketAddr::new(PINNED, 5353);
+
+    let configuration = ResolverConfiguration::name_servers([address]).over_tcp();
+
+    let connections: Vec<_> = configuration
+        .config
+        .name_servers()
+        .iter()
+        .flat_map(|server| {
+            server
+                .connections
+                .iter()
+                .map(move |connection| (server.ip, connection.port, connection.protocol.clone()))
+        })
+        .collect();
+    assert_eq!(connections, [(PINNED, 5353, ProtocolConfig::Tcp)]);
 }
 
 /// The system resolver's lookup never waits for a thread of Tokio's

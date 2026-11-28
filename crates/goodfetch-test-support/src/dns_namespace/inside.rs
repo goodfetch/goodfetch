@@ -12,14 +12,14 @@
 )]
 #![expect(
     clippy::disallowed_types,
-    reason = "the namespace's relay opens its own UDP sockets, outside the engine's transport (ADR 0067)"
+    reason = "the namespace's relay opens its own UDP and TCP sockets, outside the engine's transport (ADR 0067)"
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::ffi::{CString, OsString};
 use std::fmt;
-use std::io;
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
+use std::io::{self, Read as _, Write as _};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::os::fd::AsRawFd as _;
 use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
@@ -31,8 +31,15 @@ use std::str::FromStr;
 /// bounded); past it, the oldest waiting query is forgotten.
 const PENDING_LIMIT: usize = 1024;
 
-/// The largest DNS message relayed over UDP.
+/// The largest DNS message relayed over UDP or TCP.
 const MESSAGE_LIMIT: usize = 65_535;
+
+/// The largest buffered TCP frame (two-byte length prefix plus message).
+const TCP_BUFFER_LIMIT: usize = 2 + MESSAGE_LIMIT;
+
+/// The most concurrent TCP clients accepted inside the namespace (STYLE.md:
+/// every buffer is bounded).
+const TCP_CLIENT_LIMIT: usize = 64;
 
 /// The namespace's second IPv4 address, on `lo:1`, which is not
 /// `127.0.0.1` and so counts as an IPv4 address of the host.
@@ -101,12 +108,19 @@ impl Inside {
         })
         .and_then(|socket| socket.connect(self.dns).map(|()| socket))
         .map_err(step("the socket to the DNS fixture"))?;
+        let fixture_tcp = if self.child.is_empty() {
+            None
+        } else {
+            TcpStream::connect(self.dns).ok()
+        };
         self.unshare()?;
         mount_private()?;
         mount_files(&self.etc)?;
         loopback_up()?;
         let nameserver = UdpSocket::bind((Ipv4Addr::LOCALHOST, 53))
             .map_err(step("the nameserver on 127.0.0.1:53"))?;
+        let nameserver_tcp = TcpListener::bind((Ipv4Addr::LOCALHOST, 53))
+            .map_err(step("the TCP nameserver on 127.0.0.1:53"))?;
         let Some((program, args)) = self.child.split_first() else {
             return Ok(0);
         };
@@ -131,7 +145,7 @@ impl Inside {
             });
         }
         let child = command.spawn().map_err(step("the child"))?;
-        relay(&fixture, &nameserver, child)
+        relay(&fixture, &nameserver, fixture_tcp, &nameserver_tcp, child)
     }
 
     fn unshare(&self) -> io::Result<()> {
@@ -294,30 +308,46 @@ fn interface_request(name: &[u8]) -> libc::ifreq {
     request
 }
 
-/// Relays queries from the namespace's nameserver to the fixture, and
-/// answers back to whoever asked, until the child exits.
-fn relay(fixture: &UdpSocket, nameserver: &UdpSocket, mut child: Child) -> io::Result<i32> {
+/// Relays UDP and TCP queries from the namespace's nameserver to the fixture,
+/// and answers back to whoever asked, until the child exits.
+fn relay(
+    fixture: &UdpSocket,
+    nameserver: &UdpSocket,
+    fixture_tcp: Option<TcpStream>,
+    nameserver_tcp: &TcpListener,
+    mut child: Child,
+) -> io::Result<i32> {
     for socket in [fixture, nameserver] {
         socket.set_nonblocking(true).map_err(step("the relay"))?;
     }
-    // Each waiting query by its ID: who asked, and the query itself.
+    nameserver_tcp
+        .set_nonblocking(true)
+        .map_err(step("the TCP relay"))?;
+    let mut tcp = TcpRelay::new(fixture_tcp).map_err(step("the TCP relay"))?;
+    // Each waiting UDP query by its ID: who asked, and the query itself.
     let mut pending: BTreeMap<u16, (SocketAddr, Vec<u8>)> = BTreeMap::new();
     let mut order: Vec<u16> = Vec::new();
     let mut buffer = vec![0_u8; MESSAGE_LIMIT];
+    let mut pollfds = Vec::new();
     loop {
         if let Some(status) = child.try_wait().map_err(step("waiting for the child"))? {
             return Ok(status
                 .code()
                 .unwrap_or_else(|| 128 + status.signal().unwrap_or(0)));
         }
-        let mut sockets = [fixture, nameserver].map(|socket| libc::pollfd {
-            fd: socket.as_raw_fd(),
-            events: libc::POLLIN,
-            revents: 0,
-        });
-        // SAFETY: `sockets` is an array of `pollfd`s on this frame, of the
-        // length passed.
-        let ready = unsafe { libc::poll(sockets.as_mut_ptr(), 2, POLL_MILLISECONDS) };
+        pollfds.clear();
+        for socket in [fixture, nameserver] {
+            pollfds.push(libc::pollfd {
+                fd: socket.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            });
+        }
+        tcp.push_pollfds(&mut pollfds, nameserver_tcp);
+        let count =
+            libc::nfds_t::try_from(pollfds.len()).expect("invariant: poll fd count fits nfds_t");
+        // SAFETY: `pollfds` is a contiguous slice of `pollfd`s of `count` elements.
+        let ready = unsafe { libc::poll(pollfds.as_mut_ptr(), count, POLL_MILLISECONDS) };
         if ready < 0 {
             let error = io::Error::last_os_error();
             if error.kind() == io::ErrorKind::Interrupted {
@@ -361,7 +391,332 @@ fn relay(fixture: &UdpSocket, nameserver: &UdpSocket, mut child: Child) -> io::R
                 Err(_) => break,
             }
         }
+        tcp.step(nameserver_tcp);
     }
+}
+
+struct TcpClient {
+    stream: TcpStream,
+    read_buf: Vec<u8>,
+    write_buf: Vec<u8>,
+    write_offset: usize,
+    eof: bool,
+}
+
+/// Non-blocking RFC 1035 TCP DNS relay multiplexing namespace clients onto the
+/// single pre-connected fixture stream opened before `unshare`.
+struct TcpRelay {
+    fixture: Option<TcpStream>,
+    fixture_read: Vec<u8>,
+    fixture_write: Vec<u8>,
+    fixture_write_offset: usize,
+    /// In-flight queries sent to `fixture`, in FIFO order: `(client_id, query)`.
+    pending: VecDeque<(u64, Vec<u8>)>,
+    clients: BTreeMap<u64, TcpClient>,
+    next_client: u64,
+}
+
+impl TcpRelay {
+    fn new(fixture: Option<TcpStream>) -> io::Result<Self> {
+        if let Some(stream) = &fixture {
+            stream.set_nonblocking(true)?;
+            let _ = stream.set_nodelay(true);
+        }
+        Ok(Self {
+            fixture,
+            fixture_read: Vec::new(),
+            fixture_write: Vec::new(),
+            fixture_write_offset: 0,
+            pending: VecDeque::new(),
+            clients: BTreeMap::new(),
+            next_client: 0,
+        })
+    }
+
+    fn push_pollfds(&self, pollfds: &mut Vec<libc::pollfd>, nameserver_tcp: &TcpListener) {
+        pollfds.push(libc::pollfd {
+            fd: nameserver_tcp.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        });
+        if let Some(fixture) = &self.fixture {
+            let mut events = libc::POLLIN;
+            if self.fixture_write_offset < self.fixture_write.len() {
+                events |= libc::POLLOUT;
+            }
+            pollfds.push(libc::pollfd {
+                fd: fixture.as_raw_fd(),
+                events,
+                revents: 0,
+            });
+        }
+        for client in self.clients.values() {
+            let mut events = if client.eof { 0 } else { libc::POLLIN };
+            if client.write_offset < client.write_buf.len() {
+                events |= libc::POLLOUT;
+            }
+            if events != 0 {
+                pollfds.push(libc::pollfd {
+                    fd: client.stream.as_raw_fd(),
+                    events,
+                    revents: 0,
+                });
+            }
+        }
+    }
+
+    fn step(&mut self, nameserver_tcp: &TcpListener) {
+        self.accept_clients(nameserver_tcp);
+        self.read_clients();
+        self.write_fixture();
+        self.read_fixture();
+        self.write_clients();
+    }
+
+    fn accept_clients(&mut self, nameserver_tcp: &TcpListener) {
+        while let Ok((stream, _)) = nameserver_tcp.accept() {
+            if stream.set_nonblocking(true).is_err() {
+                continue;
+            }
+            let _ = stream.set_nodelay(true);
+            if self.clients.len() >= TCP_CLIENT_LIMIT
+                && let Some(oldest) = self.clients.keys().next().copied()
+            {
+                self.clients.remove(&oldest);
+            }
+            let id = self.next_client;
+            self.next_client += 1;
+            self.clients.insert(
+                id,
+                TcpClient {
+                    stream,
+                    read_buf: Vec::new(),
+                    write_buf: Vec::new(),
+                    write_offset: 0,
+                    eof: false,
+                },
+            );
+        }
+    }
+
+    fn read_clients(&mut self) {
+        let ids: Vec<u64> = self.clients.keys().copied().collect();
+        let mut scratch = [0_u8; 4096];
+        for id in ids {
+            let mut broken = false;
+            let mut queries = Vec::new();
+            if let Some(client) = self.clients.get_mut(&id) {
+                while !client.eof {
+                    match client.stream.read(&mut scratch) {
+                        Ok(0) => {
+                            client.eof = true;
+                            break;
+                        }
+                        Ok(read) => {
+                            client.read_buf.extend_from_slice(&scratch[..read]);
+                            if client.read_buf.len() > TCP_BUFFER_LIMIT {
+                                broken = true;
+                                break;
+                            }
+                        }
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                        Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                        Err(_) => {
+                            broken = true;
+                            break;
+                        }
+                    }
+                }
+                if !broken {
+                    loop {
+                        match take_frame(&mut client.read_buf) {
+                            Frame::Complete(body) => queries.push(body),
+                            Frame::Incomplete => break,
+                            Frame::Invalid => {
+                                broken = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if broken {
+                self.clients.remove(&id);
+                continue;
+            }
+            for query in queries {
+                if message_id(&query).is_none() {
+                    continue;
+                }
+                if self.fixture.is_some() && self.pending.len() < PENDING_LIMIT {
+                    push_frame(&mut self.fixture_write, &query);
+                    self.pending.push_back((id, query));
+                } else if let Some(client) = self.clients.get_mut(&id) {
+                    push_frame(&mut client.write_buf, &server_failure(&query));
+                }
+            }
+        }
+    }
+
+    fn write_fixture(&mut self) {
+        let mut failed = false;
+        if let Some(fixture) = &mut self.fixture {
+            while self.fixture_write_offset < self.fixture_write.len() {
+                match fixture.write(&self.fixture_write[self.fixture_write_offset..]) {
+                    Ok(0) => {
+                        failed = true;
+                        break;
+                    }
+                    Ok(wrote) => self.fixture_write_offset += wrote,
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                    Err(_) => {
+                        failed = true;
+                        break;
+                    }
+                }
+            }
+            if self.fixture_write_offset == self.fixture_write.len() {
+                self.fixture_write.clear();
+                self.fixture_write_offset = 0;
+            }
+        }
+        if failed {
+            self.fail_fixture();
+        }
+    }
+
+    fn read_fixture(&mut self) {
+        let mut failed = false;
+        let mut scratch = [0_u8; 4096];
+        if let Some(fixture) = &mut self.fixture {
+            loop {
+                match fixture.read(&mut scratch) {
+                    Ok(0) => {
+                        failed = true;
+                        break;
+                    }
+                    Ok(read) => {
+                        self.fixture_read.extend_from_slice(&scratch[..read]);
+                        if self.fixture_read.len() > TCP_BUFFER_LIMIT {
+                            failed = true;
+                            break;
+                        }
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                    Err(_) => {
+                        failed = true;
+                        break;
+                    }
+                }
+            }
+        }
+        loop {
+            match take_frame(&mut self.fixture_read) {
+                Frame::Complete(reply) => {
+                    if let Some((client_id, _)) = self.pending.pop_front()
+                        && let Some(client) = self.clients.get_mut(&client_id)
+                    {
+                        push_frame(&mut client.write_buf, &reply);
+                    }
+                }
+                Frame::Incomplete => break,
+                Frame::Invalid => {
+                    failed = true;
+                    break;
+                }
+            }
+        }
+        if failed {
+            self.fail_fixture();
+        }
+    }
+
+    fn write_clients(&mut self) {
+        let ids: Vec<u64> = self.clients.keys().copied().collect();
+        for id in ids {
+            let mut remove = false;
+            if let Some(client) = self.clients.get_mut(&id) {
+                while client.write_offset < client.write_buf.len() {
+                    match client
+                        .stream
+                        .write(&client.write_buf[client.write_offset..])
+                    {
+                        Ok(0) => {
+                            remove = true;
+                            break;
+                        }
+                        Ok(wrote) => client.write_offset += wrote,
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                        Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                        Err(_) => {
+                            remove = true;
+                            break;
+                        }
+                    }
+                }
+                if client.write_offset == client.write_buf.len() {
+                    client.write_buf.clear();
+                    client.write_offset = 0;
+                }
+                if client.eof
+                    && client.write_buf.is_empty()
+                    && !self.pending.iter().any(|(pending_id, _)| *pending_id == id)
+                {
+                    remove = true;
+                }
+            }
+            if remove {
+                self.clients.remove(&id);
+            }
+        }
+    }
+
+    fn fail_fixture(&mut self) {
+        self.fixture = None;
+        self.fixture_read.clear();
+        self.fixture_write.clear();
+        self.fixture_write_offset = 0;
+        for (client_id, query) in self.pending.drain(..) {
+            if let Some(client) = self.clients.get_mut(&client_id) {
+                push_frame(&mut client.write_buf, &server_failure(&query));
+            }
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Frame {
+    Complete(Vec<u8>),
+    Incomplete,
+    Invalid,
+}
+
+/// Extracts one RFC 1035 two-byte length-prefixed DNS message from `buffer`.
+fn take_frame(buffer: &mut Vec<u8>) -> Frame {
+    if buffer.len() < 2 {
+        return Frame::Incomplete;
+    }
+    let length = usize::from(u16::from_be_bytes([buffer[0], buffer[1]]));
+    if length == 0 {
+        return Frame::Invalid;
+    }
+    if buffer.len() < 2 + length {
+        return Frame::Incomplete;
+    }
+    let body = buffer[2..2 + length].to_vec();
+    buffer.drain(..2 + length);
+    Frame::Complete(body)
+}
+
+/// Appends `message` prefixed with its RFC 1035 two-byte big-endian length.
+fn push_frame(buffer: &mut Vec<u8>, message: &[u8]) {
+    let Ok(length) = u16::try_from(message.len()) else {
+        return;
+    };
+    buffer.extend_from_slice(&length.to_be_bytes());
+    buffer.extend_from_slice(message);
 }
 
 /// A DNS message's ID, its first two bytes.
@@ -381,4 +736,35 @@ fn server_failure(query: &[u8]) -> Vec<u8> {
         *flags = 0x80 | 0x02;
     }
     answer
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn take_frame_reads_back_to_back_messages_and_waits_for_partial_ones() {
+        let mut buffer = Vec::new();
+        push_frame(&mut buffer, b"\x12\x34first");
+        push_frame(&mut buffer, b"\x56\x78second");
+        buffer.extend_from_slice(&[0x00, 0x05, 0xaa]);
+
+        assert_eq!(
+            take_frame(&mut buffer),
+            Frame::Complete(b"\x12\x34first".to_vec())
+        );
+        assert_eq!(
+            take_frame(&mut buffer),
+            Frame::Complete(b"\x56\x78second".to_vec())
+        );
+        assert_eq!(take_frame(&mut buffer), Frame::Incomplete);
+        assert_eq!(buffer, [0x00, 0x05, 0xaa]);
+    }
+
+    #[test]
+    fn take_frame_rejects_a_zero_length_prefix() {
+        let mut buffer = vec![0x00, 0x00];
+
+        assert_eq!(take_frame(&mut buffer), Frame::Invalid);
+    }
 }

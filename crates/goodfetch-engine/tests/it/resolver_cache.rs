@@ -48,7 +48,7 @@ fn lookups(proving_ground: &ProvingGround, name: &str, after: &[Duration]) -> Ve
         let clock = Clock::paused(SystemTime::UNIX_EPOCH);
         let dns = Dns::new(
             HostMapping::default(),
-            ResolverConfiguration::name_servers([fixture]),
+            ResolverConfiguration::name_servers([fixture]).over_tcp(),
             clock,
         );
         let mut looked = Vec::new();
@@ -188,7 +188,7 @@ mod linux {
             let clock = Clock::paused(SystemTime::UNIX_EPOCH);
             let dns = Dns::new(
                 HostMapping::default(),
-                ResolverConfiguration::system().unwrap(),
+                ResolverConfiguration::system().unwrap().over_tcp(),
                 clock,
             );
             let mut looked = Vec::new();

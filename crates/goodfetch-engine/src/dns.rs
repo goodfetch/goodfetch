@@ -43,8 +43,8 @@ use goodfetch_protocol::dns::{
 use goodfetch_protocol::settings::NETWORK_RESOLVE;
 use hickory_resolver::TokioResolver;
 use hickory_resolver::config::{
-    ConnectionConfig, LookupIpStrategy, NameServerConfig, ResolveHosts, ResolverConfig,
-    ResolverOpts,
+    ConnectionConfig, LookupIpStrategy, NameServerConfig, ProtocolConfig, ResolveHosts,
+    ResolverConfig, ResolverOpts,
 };
 use hickory_resolver::net::runtime::TokioRuntimeProvider;
 use hickory_resolver::net::{DnsError, NetError, NoRecords};
@@ -189,6 +189,23 @@ impl ResolverConfiguration {
             config: ResolverConfig::from_name_servers(name_servers),
             options,
         }
+    }
+
+    /// The same configuration, asking each name server over TCP alone.
+    #[must_use]
+    pub fn over_tcp(mut self) -> Self {
+        let (domain, search, name_servers) = self.config.into_parts();
+        let name_servers = name_servers
+            .into_iter()
+            .map(|mut name_server| {
+                name_server
+                    .connections
+                    .retain(|connection| connection.protocol == ProtocolConfig::Tcp);
+                name_server
+            })
+            .collect();
+        self.config = ResolverConfig::from_parts(domain, search, name_servers);
+        self
     }
 }
 

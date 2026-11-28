@@ -230,3 +230,53 @@ fn each_query_is_recorded_with_the_address_it_came_from() {
         [(json!("1.catalog.test"), json!("AAAA"), address("127.0.0.1"))]
     );
 }
+
+/// RFC 1035 section 4.2.2: the DNS fixture answers on TCP at the same
+/// address as UDP, handling multiple length-prefixed queries on one
+/// connection and recording each in the connection record.
+#[test]
+fn the_dns_fixture_answers_multiple_queries_on_one_tcp_connection_and_records_them() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let answers = clients::dns_queries_over_tcp(
+        &proving_ground.dns(),
+        &[(ALTERNATING, RecordType::A), (ALTERNATING, RecordType::A)],
+    );
+
+    assert_eq!(
+        answers,
+        [
+            DnsAnswer {
+                rcode: 0,
+                answers: vec![(0, address("93.184.215.14"))],
+                negative_ttl: None,
+            },
+            DnsAnswer {
+                rcode: 0,
+                answers: vec![(0, address("127.0.0.1"))],
+                negative_ttl: None,
+            },
+        ]
+    );
+    let observations = proving_ground.observations();
+    let recorded: Vec<_> = observations["dns_queries"]
+        .as_array()
+        .expect("the record lists the DNS queries")
+        .iter()
+        .map(|query| {
+            let source: std::net::SocketAddr = query["source"].as_str().unwrap().parse().unwrap();
+            (
+                query["name"].clone(),
+                query["record_type"].clone(),
+                source.ip(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        recorded,
+        [
+            (json!(ALTERNATING), json!("A"), address("127.0.0.1")),
+            (json!(ALTERNATING), json!("A"), address("127.0.0.1")),
+        ]
+    );
+}

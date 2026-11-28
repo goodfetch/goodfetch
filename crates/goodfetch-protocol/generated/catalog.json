@@ -1269,6 +1269,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A third-party Plugin recorded in the Run's state now has a different digest in the Plugin store than when the Run used it, so the resume was refused rather than switching third-party code silently. Pass `--accept-plugin-change <name>` (`accept_plugin_change`) to accept the change and record it in run state and the Audit log, or restore the previous Plugin digest.",
+      "details": {
+        "$ref": "#/$defs/PluginChangedDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "plugin_changed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The process Plugin crashed while it held the call, and restarts with backoff. A read or an idempotent write fails with it and is retried under its lease; an Effect with no check is never retried blindly, but reported uncertain for Reconciliation instead. Repeated crashes quarantine the Plugin.",
       "exit_code": null,
       "group": "unavailable",
@@ -16828,6 +16841,13 @@
       "name": "plugin_calls",
       "product": "collie",
       "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A caller accepted a changed third-party Plugin digest on resume via `--accept-plugin-change`: the Run, the Plugin, the previous digest and the new digest.",
+      "name": "plugin_change_accepted",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

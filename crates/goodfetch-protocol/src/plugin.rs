@@ -358,6 +358,38 @@ pub const PLUGIN_LIMIT_EXCEEDED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A third-party Plugin whose digest changed before a Run resumed (ADR 0033).
+pub const PLUGIN_CHANGED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "plugin_changed",
+    description: "A third-party Plugin recorded in the Run's state now has a different digest in the Plugin store than when the Run used it, so the resume was refused rather than switching third-party code silently. Pass `--accept-plugin-change <name>` (`accept_plugin_change`) to accept the change and record it in run state and the Audit log, or restore the previous Plugin digest.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `plugin_changed` details (ADR 0033).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PluginChangedDetails {
+    /// The Run's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: crate::run::RunId,
+    /// The third-party Plugin's name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub plugin: String,
+    /// The multi-platform image index digest recorded when the Run used it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub recorded_digest: String,
+    /// The digest currently installed in the Plugin store, or absent when
+    /// the Plugin is no longer installed or carries no recorded digest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub current_digest: Option<String>,
+    /// How to accept the change on resume.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
 /// Which resource limit a process Plugin exceeded (ADR 0033).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -443,6 +475,7 @@ pub const ENTRIES: Entries = Entries {
         PLUGIN_PROTOCOL_UNSUPPORTED,
         PLUGIN_CRASHED,
         PLUGIN_LIMIT_EXCEEDED,
+        PLUGIN_CHANGED,
         PLUGIN_QUARANTINED,
         CONFINEMENT_UNAVAILABLE,
     ],

@@ -743,7 +743,7 @@ fn record_plugin(connection: &Connection, plugin: &PluginRun) -> rusqlite::Resul
 
 /// Every Plugin recorded in the Run's `run_plugins` table, in name order;
 /// `None` when none ran.
-fn run_plugins(connection: &Connection) -> rusqlite::Result<Option<Vec<PluginRun>>> {
+pub(super) fn run_plugins(connection: &Connection) -> rusqlite::Result<Option<Vec<PluginRun>>> {
     let mut statement = connection.prepare_cached(
         "SELECT name, form, origin, digest, network_level, confinement, confinement_missing \
          FROM run_plugins ORDER BY name",
@@ -767,6 +767,32 @@ fn run_plugins(connection: &Connection) -> rusqlite::Result<Option<Vec<PluginRun
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok((!rows.is_empty()).then_some(rows))
+}
+
+/// Records an accepted third-party Plugin digest change in the Run's state
+/// and updates `run_plugins` to the accepted digest (ADR 0033).
+pub(super) fn record_plugin_change_acceptance(
+    connection: &Connection,
+    run_epoch: u64,
+    plugin: &str,
+    previous_digest: &str,
+    new_digest: Option<&str>,
+    accepted_at: &str,
+) -> rusqlite::Result<()> {
+    let epoch = i64::try_from(run_epoch).unwrap_or(i64::MAX);
+    connection
+        .prepare_cached(
+            "INSERT OR REPLACE INTO plugin_change_acceptances \
+             (run_epoch, plugin, previous_digest, new_digest, accepted_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+        )
+        .and_then(|mut cached| {
+            cached.execute((epoch, plugin, previous_digest, new_digest, accepted_at))
+        })?;
+    connection
+        .prepare_cached("UPDATE run_plugins SET digest = ?1 WHERE name = ?2")
+        .and_then(|mut cached| cached.execute((new_digest, plugin)))?;
+    Ok(())
 }
 
 /// Persists started Plugins into a live Run's [`RunState`] so

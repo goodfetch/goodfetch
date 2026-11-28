@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Literal, TypeAlias
 
-AuditKind: TypeAlias = Literal["audit_log_anchor", "audit_log_pruned", "certificate_any_used", "certificate_change_accepted", "certificate_exceptions_used", "certificate_pin_forgotten", "certificate_pinned", "consent_domain_allowed", "effect_reconciled", "endpoint_authentication_failed", "endpoint_refusals_folded", "exposed_daemon_set_up", "fingerprint_method_chosen", "lent_page_attached", "operator_policy_written", "plugin_approved", "plugin_direct_started", "plugin_index_imported", "plugin_permission_used", "plugin_quarantined", "plugin_reduced_confinement", "plugin_removed", "plugin_revoked", "plugin_secret_value_released", "pressing_harder_value_set", "private_addresses_allowed", "raw_cdp_attached", "refetch_domain_removed", "run_rolled_back", "secret_reference_used", "security_switch_turned_off", "session_exported", "session_imported", "tls_terminated_upstream", "user_configuration_written", "wall_domain_denied"] | str
+AuditKind: TypeAlias = Literal["audit_log_anchor", "audit_log_pruned", "certificate_any_used", "certificate_change_accepted", "certificate_exceptions_used", "certificate_pin_forgotten", "certificate_pinned", "consent_domain_allowed", "effect_reconciled", "endpoint_authentication_failed", "endpoint_refusals_folded", "exposed_daemon_set_up", "fingerprint_method_chosen", "lent_page_attached", "operator_policy_written", "plugin_approved", "plugin_change_accepted", "plugin_direct_started", "plugin_index_imported", "plugin_permission_used", "plugin_quarantined", "plugin_reduced_confinement", "plugin_removed", "plugin_revoked", "plugin_secret_value_released", "pressing_harder_value_set", "private_addresses_allowed", "raw_cdp_attached", "refetch_domain_removed", "run_rolled_back", "secret_reference_used", "security_switch_turned_off", "session_exported", "session_imported", "tls_terminated_upstream", "user_configuration_written", "wall_domain_denied"] | str
 """A `audit_kind`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
@@ -29,6 +29,7 @@ received (ADR 0079).
 - `lent_page_attached`: A page was lent to the program's own Playwright client (ADR 0089).
 - `operator_policy_written`: A person wrote the Operator policy through `config.policy_write`, with its digest before and after and each key's values before and after.
 - `plugin_approved`: A person approved a Plugin through `plugin.add`, which wrote `plugins.<name>` into the Operator policy: its name, its digest and each permission approved, with what it lets the Plugin do and what the engine cannot check.
+- `plugin_change_accepted`: A caller accepted a changed third-party Plugin digest on resume via `--accept-plugin-change`: the Run, the Plugin, the previous digest and the new digest.
 - `plugin_direct_started`: A Plugin started at network level `direct`: its name, origin (`first_party`, `third_party` or `private`), digest when known, and Run.
 - `plugin_index_imported`: A person imported a fresh signed Plugin index verified offline against the bundled trust root: its freshness version and expiry.
 - `plugin_permission_used`: A Plugin performed an action under an Operator-approved permission (`effects`, `page_script` or `session_credentials`) on a domain: the Plugin, the permission, the domain, the method and the Run.

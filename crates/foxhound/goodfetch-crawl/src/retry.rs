@@ -154,6 +154,8 @@ async fn reopened(
             settings: Some(settings.clone()),
             retry_failed: true,
             redeclared: redeclared.holds(&run_id).await,
+            accept_plugin_change: Vec::new(),
+            accepted_by: None,
         })
         .await
         .map_err(|error| run_error(error, &context))?;

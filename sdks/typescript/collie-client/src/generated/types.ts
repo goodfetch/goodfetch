@@ -8440,6 +8440,27 @@ export interface PluginAttestationInvalidDetails {
   reason: AttestationFailureReason;
 }
 /**
+ * What `plugin_changed` details (ADR 0033).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginChangedDetails".
+ */
+export interface PluginChangedDetails {
+  /**
+   * The digest currently installed in the Plugin store, or absent when
+   * the Plugin is no longer installed or carries no recorded digest.
+   */
+  currentDigest?: string | null;
+  /**
+   * The third-party Plugin's name.
+   */
+  plugin: string;
+  /**
+   * The multi-platform image index digest recorded when the Run used it.
+   */
+  recordedDigest: string;
+}
+/**
  * What `plugin_digest_mismatch` details.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema

@@ -182,6 +182,16 @@ const SCHEMA: &[&str] = &[
         confinement TEXT NOT NULL DEFAULT 'full',
         confinement_missing TEXT NOT NULL DEFAULT '[]'
     ) STRICT",
+    // Each third-party Plugin digest change accepted on a resume via
+    // `--accept-plugin-change` (ADR 0033).
+    "CREATE TABLE IF NOT EXISTS plugin_change_acceptances (
+        run_epoch INTEGER NOT NULL,
+        plugin TEXT NOT NULL,
+        previous_digest TEXT NOT NULL,
+        new_digest TEXT,
+        accepted_at TEXT NOT NULL,
+        PRIMARY KEY (run_epoch, plugin)
+    ) STRICT",
 ];
 
 /// The statement that sets the "unclean" mark of a run file at `off` (ADR

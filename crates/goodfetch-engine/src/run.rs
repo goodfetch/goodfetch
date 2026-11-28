@@ -55,8 +55,9 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
-use goodfetch_protocol::connection::NOT_IN_PRODUCT;
+use goodfetch_protocol::connection::{NOT_IN_PRODUCT, PERSON_REQUIRED, PersonRequiredDetails};
 use goodfetch_protocol::daemon::{DAEMON_DRAINING, DaemonDrainingDetails};
+use goodfetch_protocol::plugin::{PLUGIN_CHANGED, PluginChangedDetails};
 use goodfetch_protocol::secrets::{
     RUN_KEY_MISMATCH, RUN_STATE_KEY_REFERENCE, RunKeyMismatchDetails,
 };
@@ -693,6 +694,28 @@ fn checkpoint_behind(behind: Behind) -> CallError {
     )
 }
 
+/// `plugin_changed` for a third-party Plugin whose digest changed before a
+/// resume without `--accept-plugin-change` (ADR 0033).
+fn plugin_changed(changed: crate::runs::PluginChanged) -> CallError {
+    CallError::new(
+        &PLUGIN_CHANGED,
+        format!(
+            "The third-party Plugin `{}` recorded in Run `{}` changed digest since the Run used it, so the resume was refused rather than switching third-party code silently.",
+            changed.plugin, changed.run_id
+        ),
+        &PluginChangedDetails {
+            fix: format!(
+                "Pass `--accept-plugin-change {}` on `run start` to accept the changed Plugin on resume, or restore `{}`.",
+                changed.plugin, changed.recorded_digest
+            ),
+            run_id: changed.run_id,
+            plugin: changed.plugin,
+            recorded_digest: changed.recorded_digest,
+            current_digest: changed.current_digest,
+        },
+    )
+}
+
 /// The Error code a Run's failure answers `context`'s call with.
 pub fn run_error(error: RunError, context: &CallContext) -> CallError {
     match error {
@@ -745,6 +768,7 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
         RunError::ReopenRefused(refused) => *refused,
         RunError::BoundToMachine(run_id) => bound_to_machine(run_id),
         RunError::Behind(behind) => checkpoint_behind(behind),
+        RunError::PluginChanged(changed) => plugin_changed(changed),
         RunError::WriteFailed {
             run_id,
             folder,
@@ -1099,6 +1123,18 @@ async fn check_run_extractor_known(
 }
 
 async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarted, CallError> {
+    if !params.accept_plugin_change.is_empty() && context.surface().acts_for_model() {
+        let executable = context.identity().product.executable_name();
+        return Err(CallError::new(
+            &PERSON_REQUIRED,
+            "`accept_plugin_change` is kept off agent surfaces: accept a third-party Plugin change as a person or from your program.",
+            &PersonRequiredDetails {
+                fix: format!(
+                    "Run `{executable} run start --run-id <id> --accept-plugin-change <name>` as a person."
+                ),
+            },
+        ));
+    }
     let run_id = run_id(params.run_id.as_deref())?;
     client_tags(&params.tags)?;
     // A `timeout` of 0 is refused before any Run starts; one given is the
@@ -1161,7 +1197,16 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
         },
         // The resumed Run counts its timeout on a fresh clock (ADR 0102).
         Started::Interrupted(run_id) => {
-            resume_run(&context, run_id, None, settings, timeout, true).await?
+            resume_run(
+                &context,
+                run_id,
+                None,
+                settings,
+                timeout,
+                true,
+                params.accept_plugin_change,
+            )
+            .await?
         }
         Started::Ended(ended) => ended,
     };
@@ -1363,6 +1408,7 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
         settings,
         timeout,
         false,
+        Vec::new(),
     )
     .await
 }
@@ -1387,7 +1433,20 @@ pub async fn resume_run(
     settings: RunSettings,
     timeout: Option<std::time::Duration>,
     redeclared: bool,
+    accept_plugin_change: Vec<String>,
 ) -> Result<RunStarted, CallError> {
+    let accepted_by = (!accept_plugin_change.is_empty()).then(|| RollbackBy {
+        actor: if context.answers_as_a_person() {
+            Actor::Person {
+                name: context.person(),
+            }
+        } else {
+            Actor::ClientSurface {
+                surface: context.surface(),
+            }
+        },
+        surface: context.surface(),
+    });
     let resumed = context
         .runs()
         .resume(Resume {
@@ -1398,6 +1457,8 @@ pub async fn resume_run(
             settings: Some(settings.clone()),
             retry_failed: false,
             redeclared,
+            accept_plugin_change,
+            accepted_by,
         })
         .await
         .map_err(|error| run_error(error, context))?;

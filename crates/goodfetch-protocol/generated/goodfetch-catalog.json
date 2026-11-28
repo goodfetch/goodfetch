@@ -14384,6 +14384,46 @@
       ],
       "type": "object"
     },
+    "PluginChangedDetails": {
+      "description": "What `plugin_changed` details (ADR 0033).",
+      "properties": {
+        "current_digest": {
+          "arrived_in": "0.1",
+          "description": "The digest currently installed in the Plugin store, or absent when\nthe Plugin is no longer installed or carries no recorded digest.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "How to accept the change on resume.",
+          "type": "string"
+        },
+        "plugin": {
+          "arrived_in": "0.1",
+          "description": "The third-party Plugin's name.",
+          "type": "string"
+        },
+        "recorded_digest": {
+          "arrived_in": "0.1",
+          "description": "The multi-platform image index digest recorded when the Run used it.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "plugin",
+        "recorded_digest",
+        "fix"
+      ],
+      "type": "object"
+    },
     "PluginConfinement": {
       "description": "How a Plugin that ran in a Run was confined (ADRs 0016 and 0033).",
       "oneOf": [
@@ -26751,6 +26791,19 @@
         "group": "refused",
         "json_rpc_class": -32002,
         "name": "plugin_call_back_refused",
+        "product": "collie",
+        "retryable": false
+      },
+      {
+        "arrived_in": "0.1",
+        "description": "A third-party Plugin recorded in the Run's state now has a different digest in the Plugin store than when the Run used it, so the resume was refused rather than switching third-party code silently. Pass `--accept-plugin-change <name>` (`accept_plugin_change`) to accept the change and record it in run state and the Audit log, or restore the previous Plugin digest.",
+        "details": {
+          "$ref": "#/$defs/PluginChangedDetails"
+        },
+        "exit_code": null,
+        "group": "refused",
+        "json_rpc_class": -32002,
+        "name": "plugin_changed",
         "product": "collie",
         "retryable": false
       },
@@ -42315,6 +42368,13 @@
         "name": "plugin_calls",
         "product": "collie",
         "type": "usage_kind"
+      },
+      {
+        "arrived_in": "0.1",
+        "description": "A caller accepted a changed third-party Plugin digest on resume via `--accept-plugin-change`: the Run, the Plugin, the previous digest and the new digest.",
+        "name": "plugin_change_accepted",
+        "product": "collie",
+        "type": "audit_kind"
       },
       {
         "arrived_in": "0.1",

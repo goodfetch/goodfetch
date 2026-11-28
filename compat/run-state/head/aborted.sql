@@ -120,6 +120,15 @@ CREATE TABLE payloads (
             request TEXT NOT NULL PRIMARY KEY,
             payload TEXT NOT NULL
         ) STRICT, WITHOUT ROWID;
+CREATE TABLE plugin_change_acceptances (
+        run_epoch INTEGER NOT NULL,
+        plugin TEXT NOT NULL,
+        previous_digest TEXT NOT NULL,
+        new_digest TEXT,
+        accepted_at TEXT NOT NULL,
+        PRIMARY KEY (run_epoch, plugin)
+    ) STRICT;
+INSERT INTO "plugin_change_acceptances" VALUES(2,'pager','sha256:0000000000000000000000000000000000000000000000000000000000000000','sha256:0000000000000000000000000000000000000000000000000000000000000001','2026-01-05T09:00:04Z');
 CREATE TABLE pool_blocked_address_blocks (
             domain_key TEXT NOT NULL,
             block TEXT NOT NULL,

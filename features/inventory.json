@@ -2363,6 +2363,17 @@
       ]
     },
     {
+      "id": "error:plugin_changed",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:plugin_crashed",
       "kind": "error",
       "area": 7,

@@ -488,6 +488,12 @@ pub const PLUGIN_REDUCED_CONFINEMENT: SharedTypeValue = kind(
     "A first-party Plugin started under `plugins.<name>.reduced_confinement` on a host that could not provide full confinement: its name, digest when known, network level, the confinement parts that were not confined, and the Run.",
 );
 
+/// A caller accepted a changed third-party Plugin digest on resume (ADR 0033, issue 1036).
+pub const PLUGIN_CHANGE_ACCEPTED: SharedTypeValue = kind(
+    "plugin_change_accepted",
+    "A caller accepted a changed third-party Plugin digest on resume via `--accept-plugin-change`: the Run, the Plugin, the previous digest and the new digest.",
+);
+
 /// The module's entries.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -505,6 +511,7 @@ pub const ENTRIES: Entries = Entries {
         PLUGIN_PERMISSION_USED,
         PLUGIN_DIRECT_STARTED,
         PLUGIN_REDUCED_CONFINEMENT,
+        PLUGIN_CHANGE_ACCEPTED,
     ],
 };
 

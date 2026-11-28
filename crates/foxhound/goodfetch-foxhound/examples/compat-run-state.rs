@@ -402,6 +402,15 @@ async fn effects(params: Value, context: CallContext) -> Result<Value, CallError
                  'direct', 'full', '[]')",
                 [],
             )?;
+            connection.execute(
+                "INSERT OR REPLACE INTO plugin_change_acceptances \
+                 (run_epoch, plugin, previous_digest, new_digest, accepted_at) \
+                 VALUES (2, 'pager', \
+                 'sha256:0000000000000000000000000000000000000000000000000000000000000000', \
+                 'sha256:0000000000000000000000000000000000000000000000000000000000000001', \
+                 '2026-01-05T09:00:04Z')",
+                [],
+            )?;
             Ok(())
         })
         .await

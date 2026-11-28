@@ -3338,6 +3338,23 @@ class PluginApprovalsRemoval(
     """What happened to the Plugin's approvals in the Operator policy on removal."""
 
 
+class PluginChangedDetails(BaseModel):
+    """What `plugin_changed` details (ADR 0033)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    current_digest: str | None = None
+    """
+    The digest currently installed in the Plugin store, or absent when
+    the Plugin is no longer installed or carries no recorded digest.
+    """
+    plugin: str
+    """The third-party Plugin's name."""
+    recorded_digest: str
+    """The multi-platform image index digest recorded when the Run used it."""
+
+
 class PluginConfinement(StrEnum):
     """How a Plugin that ran in a Run was confined (ADRs 0016 and 0033)."""
 

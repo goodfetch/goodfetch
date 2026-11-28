@@ -47,6 +47,7 @@ mod plugin_approvals;
 mod plugin_effects;
 mod plugin_index;
 mod plugin_manage;
+mod plugin_resume;
 mod plugin_secret;
 mod plugin_spend;
 mod preamble;

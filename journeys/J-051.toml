@@ -1,0 +1,36 @@
+#:schema ./journey.schema.json
+id = "J-051"
+title = "Resume a run whose third-party Plugin changed, refused then accepted with `--accept-plugin-change`"
+goal = """
+A person starts a run that uses a third-party Plugin, pauses it, and replaces \
+the third-party Plugin with a build carrying a different multi-platform image \
+index digest. Resuming the run without `--accept-plugin-change` MUST be refused \
+with `plugin_changed` naming `--accept-plugin-change` in its `fix`. Resuming \
+again with `run start --run-id <id> --accept-plugin-change <name>` MUST resume \
+the run and record the accepted change in both run state and the Audit log \
+(ADR 0033)."""
+area = 7
+product = "collie"
+status = "active"
+covers = ["story:7-98"]
+
+[surfaces]
+cli = "M4"
+
+[[steps]]
+text = "Install and approve a third-party Plugin, start a run that uses it, and pause the run"
+
+[[steps]]
+text = "Replace the third-party Plugin in the store with a version carrying a different image index digest"
+
+[[steps]]
+text = "Try to resume the run with `run start --run-id <id>`"
+
+[[steps]]
+text = "Resume the run with `run start --run-id <id> --accept-plugin-change <name>` and finish it"
+
+[[expect]]
+text = "The first resume is refused with `plugin_changed` whose `fix` names `--accept-plugin-change`"
+
+[[expect]]
+text = "The second resume succeeds and records the accepted change in the run's state and in the Audit log (`plugin_change_accepted`)"

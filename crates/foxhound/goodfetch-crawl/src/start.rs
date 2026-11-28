@@ -339,7 +339,8 @@ async fn start(
             // checked as no start's (ADR 0104's note of #2912).
             let kept = redeclared.keep(&run_id, kept, hooks, &crawls).await;
             let timeout = settings.resolved().get(&TIMEOUT_RUN);
-            let resumed = resume_run(&context, run_id, None, settings, timeout, kept).await?;
+            let resumed =
+                resume_run(&context, run_id, None, settings, timeout, kept, Vec::new()).await?;
             limits.give(&resumed, &context).await?;
             Ok(resumed)
         }

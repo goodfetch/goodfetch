@@ -546,8 +546,12 @@ struct Opening {
     /// The owner its writer runs under.
     writer: Arc<TaskOwner>,
     events: Events,
-    /// The Audit log a resume's roll-back is recorded in first.
+    /// The Audit log a resume's roll-back or accepted Plugin change is
+    /// recorded in first.
     audit: AuditLog,
+    /// The Goodfetch home's Plugin store folder, read on resume to verify
+    /// third-party Plugin digests (ADR 0033).
+    plugins_folder: PathBuf,
 }
 
 impl Registry {
@@ -591,6 +595,7 @@ impl Registry {
             writer: Arc::new(self.owner.child_for(OwnerKind::Run)),
             events: self.setup.events.clone(),
             audit: self.setup.engine.audit().clone(),
+            plugins_folder: self.setup.engine.home().plugins(),
         }
     }
 
@@ -1238,6 +1243,8 @@ impl Opening {
             settings,
             retry_failed,
             redeclared,
+            accept_plugin_change,
+            accepted_by,
         } = resume;
         let (decided, held) = self
             .may_resume(
@@ -1250,7 +1257,10 @@ impl Opening {
         let Some(lifecycle) = decided else {
             return Ok(Resumed::unchanged(run_id, &held));
         };
-        let (lock, state) = self.reopen(&held, checkpoint, redeclared).await?;
+        let acceptance = (&accept_plugin_change[..], accepted_by.as_ref());
+        let (lock, state) = self
+            .reopen_checked(&held, checkpoint, redeclared, acceptance)
+            .await?;
         let recorded = self.disk.recorded().await?;
         let id = run_id.clone();
         self.decisions
@@ -1321,4 +1331,203 @@ impl Opening {
             listed,
         })
     }
+
+    /// Checks recorded third-party Plugins against the store, reopens the Run,
+    /// and records any accepted Plugin digest changes in the Audit log and
+    /// run state (ADR 0033).
+    async fn reopen_checked(
+        &mut self,
+        held: &checkpoint::Held,
+        checkpoint: Option<FromCheckpoint>,
+        redeclared: bool,
+        (accept_plugin_change, accepted_by): (&[String], Option<&super::RollbackBy>),
+    ) -> Result<(File, RunState), RunError> {
+        let accepted = self
+            .check_recorded_plugins(
+                checkpoint.as_ref().map(|from| from.path.as_path()),
+                accept_plugin_change,
+            )
+            .await?;
+        let (lock, state) = self.reopen(held, checkpoint, redeclared).await?;
+        self.record_accepted_plugin_changes(&state, &accepted, accepted_by)
+            .await?;
+        Ok((lock, state))
+    }
+
+    /// Checks every third-party process Plugin recorded in `run_plugins`
+    /// against the Plugin store before resuming (ADR 0033): first-party
+    /// Plugins follow the engine's version and never block a resume; a
+    /// third-party Plugin whose recorded digest differs from the installed
+    /// digest refuses with [`RunError::PluginChanged`] unless named in
+    /// `accept_plugin_change`, in which case it is returned to be recorded
+    /// in run state and the Audit log once the Run reopens.
+    async fn check_recorded_plugins(
+        &self,
+        checkpoint: Option<&Path>,
+        accept_plugin_change: &[String],
+    ) -> Result<Vec<AcceptedPluginChange>, RunError> {
+        let recorded = self.read_recorded_plugins(checkpoint).await?;
+        if recorded.is_empty() {
+            return Ok(Vec::new());
+        }
+        let plugins_folder = self.plugins_folder.clone();
+        let run_id = self.disk.run_id.clone();
+        let accepted_names: Vec<String> = accept_plugin_change.to_vec();
+        self.disk
+            .owner
+            .blocking(move || {
+                let store = crate::plugin_store::PluginStore::new(plugins_folder);
+                let mut accepted = Vec::new();
+                for plugin in recorded {
+                    if plugin.form != goodfetch_protocol::run::PluginForm::Process {
+                        continue;
+                    }
+                    if plugin.origin
+                        == Some(goodfetch_protocol::plugin::approvals::Origin::FirstParty)
+                    {
+                        continue;
+                    }
+                    let Some(recorded_digest) = plugin.digest else {
+                        continue;
+                    };
+                    let current_digest = store
+                        .installed(&plugin.name)
+                        .ok()
+                        .and_then(|installed| installed.digest);
+                    if current_digest.as_deref() == Some(recorded_digest.as_str()) {
+                        continue;
+                    }
+                    if accepted_names.iter().any(|name| name == &plugin.name) {
+                        accepted.push(AcceptedPluginChange {
+                            plugin: plugin.name,
+                            previous_digest: recorded_digest,
+                            new_digest: current_digest,
+                        });
+                    } else {
+                        return Err(RunError::PluginChanged(super::PluginChanged {
+                            run_id,
+                            plugin: plugin.name,
+                            recorded_digest,
+                            current_digest,
+                        }));
+                    }
+                }
+                Ok(accepted)
+            })
+            .await
+    }
+
+    /// Reads the `run_plugins` table from `checkpoint` when given, else from
+    /// this Run's run file; returns empty when the table has no rows or does
+    /// not exist in an older run file.
+    async fn read_recorded_plugins(
+        &self,
+        checkpoint: Option<&Path>,
+    ) -> Result<Vec<goodfetch_protocol::run::PluginRun>, RunError> {
+        let path = checkpoint.map_or_else(|| self.disk.folder.join(RUN_FILE), Path::to_owned);
+        let vfs = if checkpoint.is_some() {
+            None
+        } else {
+            self.disk.vfs.clone()
+        };
+        let is_checkpoint = checkpoint.is_some();
+        let run_id = self.disk.run_id.clone();
+        let folder = self.disk.folder.clone();
+        self.disk
+            .owner
+            .blocking(move || {
+                let connection = if is_checkpoint {
+                    checkpoint::open_checkpoint(&path)
+                } else {
+                    run_state::open_reader(&path, vfs.as_deref())
+                }
+                .map_err(|error| RunError::of_state(&run_id, &folder, error))?;
+                match super::report::run_plugins(&connection) {
+                    Ok(Some(plugins)) => Ok(plugins),
+                    Ok(None) => Ok(Vec::new()),
+                    Err(rusqlite::Error::SqliteFailure(_, Some(ref msg)))
+                        if msg.contains("no such table") =>
+                    {
+                        Ok(Vec::new())
+                    }
+                    Err(error) => Err(RunError::Unavailable {
+                        run_id,
+                        folder,
+                        error: format!("cannot read recorded Plugins: {error}"),
+                    }),
+                }
+            })
+            .await
+    }
+
+    /// Records every accepted third-party Plugin digest change in the Audit
+    /// log and in the reopened Run's state (ADR 0033).
+    async fn record_accepted_plugin_changes(
+        &self,
+        state: &RunState,
+        changes: &[AcceptedPluginChange],
+        by: Option<&super::RollbackBy>,
+    ) -> Result<(), RunError> {
+        if changes.is_empty() {
+            return Ok(());
+        }
+        let run_id = &self.disk.run_id;
+        let epoch = state.epoch();
+        let origin = Origin {
+            actor: by.map_or(goodfetch_protocol::audit::Actor::Engine, |by| {
+                by.actor.clone()
+            }),
+            surface: by.map(|by| by.surface),
+            layer: None,
+            run_id: Some(run_id.clone()),
+        };
+        for change in changes {
+            let now = self.disk.clock.timestamp();
+            let accepted_at = now.to_string();
+            self.audit
+                .record(
+                    &origin,
+                    &goodfetch_protocol::plugin::approvals::PLUGIN_CHANGE_ACCEPTED,
+                    json!({
+                        "plugin": change.plugin,
+                        "previous_digest": change.previous_digest,
+                        "new_digest": change.new_digest,
+                    }),
+                    now,
+                )
+                .await
+                .map(drop)
+                .map_err(|error| RunError::Unavailable {
+                    run_id: run_id.clone(),
+                    folder: self.disk.folder.clone(),
+                    error: format!(
+                        "the Audit log cannot record the accepted Plugin change: {error}"
+                    ),
+                })?;
+            let plugin = change.plugin.clone();
+            let previous_digest = change.previous_digest.clone();
+            let new_digest = change.new_digest.clone();
+            state
+                .write(move |connection| {
+                    super::report::record_plugin_change_acceptance(
+                        connection,
+                        epoch,
+                        &plugin,
+                        &previous_digest,
+                        new_digest.as_deref(),
+                        &accepted_at,
+                    )
+                })
+                .await
+                .map_err(|error| RunError::of_state(run_id, &self.disk.folder, error))?;
+        }
+        Ok(())
+    }
+}
+
+/// A third-party Plugin digest change explicitly accepted on resume.
+struct AcceptedPluginChange {
+    plugin: String,
+    previous_digest: String,
+    new_digest: Option<String>,
 }

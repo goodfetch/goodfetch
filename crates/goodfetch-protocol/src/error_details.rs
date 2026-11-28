@@ -193,6 +193,7 @@ details! {
     crate::page::route::PageHandlerFailedDetails => ErrorCode::PAGE_HANDLER_FAILED,
     crate::page::route::RouteAlreadyHandledDetails => ErrorCode::ROUTE_ALREADY_HANDLED,
     crate::plugin::ConfinementUnavailableDetails => ErrorCode::CONFINEMENT_UNAVAILABLE,
+    crate::plugin::PluginChangedDetails => ErrorCode::PLUGIN_CHANGED,
     crate::plugin::PluginLimitExceededDetails => ErrorCode::PLUGIN_LIMIT_EXCEEDED,
     crate::plugin::add::PluginAttestationInvalidDetails => ErrorCode::PLUGIN_ATTESTATION_INVALID,
     crate::plugin::add::PluginDigestMismatchDetails => ErrorCode::PLUGIN_DIGEST_MISMATCH,

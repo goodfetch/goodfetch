@@ -401,6 +401,25 @@ pub struct Resume {
     /// so its kind's [`Driving::reopen_check`] is not run: a start's
     /// resume, or `run.retry_failed` after one.
     pub redeclared: bool,
+    /// Third-party Plugins whose changed digest this resume accepts (ADR 0033).
+    pub accept_plugin_change: Vec<String>,
+    /// Who asked to accept any third-party Plugin digest change on resume,
+    /// as the Audit log records them.
+    pub accepted_by: Option<RollbackBy>,
+}
+
+/// A third-party Plugin recorded in a Run's state whose installed digest
+/// changed before a resume without `--accept-plugin-change` (ADR 0033).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PluginChanged {
+    /// The Run ID.
+    pub run_id: RunId,
+    /// The third-party Plugin's name.
+    pub plugin: String,
+    /// The multi-platform image index digest recorded when the Run used it.
+    pub recorded_digest: String,
+    /// The digest currently installed in the Plugin store, or none.
+    pub current_digest: Option<String>,
 }
 
 /// The Checkpoint a resume makes the Run's run file here (ADR 0002).
@@ -944,6 +963,10 @@ pub enum RunError {
     /// note of #2322).
     #[error("the Checkpoint of `{}` is behind its run file here", .0.run_id)]
     Behind(Behind),
+    /// A third-party Plugin recorded in the Run's state changed digest before
+    /// the resume and was not named in `accept_plugin_change` (ADR 0033).
+    #[error("the third-party Plugin `{}` of `{}` changed digest", .0.plugin, .0.run_id)]
+    PluginChanged(PluginChanged),
     /// Its kind's [`Driving::reopen_check`] refused a reopen no start
     /// under the Run's ID declared again, with the error it carries.
     #[error("the reopen was refused: {0}")]

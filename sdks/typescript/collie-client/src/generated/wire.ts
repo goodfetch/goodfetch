@@ -151,6 +151,7 @@ export type CollieWireType =
   | "PlanReport"
   | "PluginAdded"
   | "PluginAttestationInvalidDetails"
+  | "PluginChangedDetails"
   | "PluginIndex"
   | "PluginIndexImportParams"
   | "PluginIndexImported"
@@ -419,6 +420,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "PlanReport": { fields: { "steps_changed": "stepsChanged" } },
     "PluginAdded": { fields: { "network_level": "networkLevel", "permissions": ["permissions", { items: { type: "StatedPermission" } }], "spend": ["spend", { values: { type: "Spend" } }] } },
     "PluginAttestationInvalidDetails": { fields: { "expected_signer": "expectedSigner", "found_signer": "foundSigner" } },
+    "PluginChangedDetails": { fields: { "current_digest": "currentDigest", "recorded_digest": "recordedDigest" } },
     "PluginIndex": { fields: { "expires_at": "expiresAt", "plugins": ["plugins", { items: { type: "IndexEntry" } }], "revocations": ["revocations", { items: { type: "Revocation" } }], "signed_at": "signedAt" } },
     "PluginIndexImportParams": { fields: { "bundle": ["bundle", { type: "SignedBundle" }] } },
     "PluginIndexImported": { fields: { "expires_at": "expiresAt", "signed_at": "signedAt" } },

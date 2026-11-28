@@ -203,6 +203,16 @@ reason = "CodeQL reads the sources without building them (`build-mode: none`) an
 job = "proving-ground-online.yml#deploy"
 reason = "It builds the Proving ground at a release tag and ships it, with Anubis and cloudflared, to the online copy's host over SSH and BotID's page to Vercel (#168, ADR 0032); it runs none of the product."
 
+# The docs site (ADRs 0030 and 0068): its build runs xtask's render and
+# Docusaurus, none of the product.
+[[outside]]
+job = "docs.yml#deploy"
+reason = "It builds the docs site, deploys it to Vercel and runs the Live check docs-deploy-smoke through goodfetch.dev/docs; it runs none of the product."
+
+[[outside]]
+job = "docs.yml#external-links"
+reason = "It builds the docs site and runs the Live check docs-external-links, which reaches every site the docs link to; it runs none of the product."
+
 # The nightly tier (ADRs 0061 and 0064). The Release suite's rerun is its own
 # release-suite.yml run; this job only dispatches and watches it.
 [[outside]]

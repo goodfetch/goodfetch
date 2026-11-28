@@ -73,7 +73,7 @@ async fn verify_seeds_and_resume(foxhound: &Foxhound, site: &ProvingGround) {
             let entered = Arc::clone(&entered_in);
             async move {
                 entered.notify_one();
-                tokio::time::sleep(Duration::from_millis(250)).await;
+                std::future::pending::<()>().await;
                 Ok(())
             }
         })
@@ -110,11 +110,11 @@ async fn verify_seeds_and_resume(foxhound: &Foxhound, site: &ProvingGround) {
         }
     ));
 
-    let (served, stop_report) = tokio::join!(crawl.serve(&run), async {
-        entered.notified().await;
-        run.stop().await.unwrap()
-    });
-    served.unwrap();
+    tokio::select! {
+        served = crawl.serve(&run) => panic!("crawl ended unexpectedly before stop: {served:?}"),
+        () = entered.notified() => {}
+    }
+    let stop_report = run.stop().await.unwrap().into_inner();
     assert_eq!(stop_report.report.lifecycle, Lifecycle::Stopped);
 
     // Resume under the same Run ID: `seeds()` returns the same 3 original answers.

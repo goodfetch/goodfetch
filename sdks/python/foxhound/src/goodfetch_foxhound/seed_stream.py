@@ -107,7 +107,7 @@ class SeedStreamReading:
         self.received: collections.deque[Enqueued] = collections.deque()
         self.ended = False
         self.closed = False
-        self.failure: BaseGoodfetchError | None = None
+        self.failure: BaseException | None = None
         self._changed = anyio.Event()
 
     async def changed(self) -> None:
@@ -226,7 +226,7 @@ class SeedStreamReading:
                     payload["end"] = True
                 with anyio.CancelScope(shield=True):
                     await self._connection.notify(SEEDS, payload)
-        except BaseGoodfetchError as error:
+        except Exception as error:
             if not self.closed and self.failure is None:
                 self.failure = error
                 call.cancel()

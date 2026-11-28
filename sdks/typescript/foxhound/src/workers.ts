@@ -138,6 +138,13 @@ export async function prepareWorkers(
   };
 }
 
+/** Copies parent `process.execArgv`, stripping only debugger/inspector flags that bind ports. */
+function workerExecArgv(): string[] {
+  return process.execArgv.filter(
+    (arg) => !arg.startsWith("--inspect") && !arg.startsWith("--debug"),
+  );
+}
+
 /**
  * Forks `plan.count - 1` Node worker processes, imports the Crawl module, and
  * connects each worker to `target` so they are ready to join immediately after
@@ -145,6 +152,7 @@ export async function prepareWorkers(
  */
 export async function spawnWorkers(plan: WorkerPlan, target: WorkerTarget): Promise<WorkerPool> {
   const children: ChildProcess[] = [];
+  const execArgv = workerExecArgv();
   const initMessage: ParentToWorkerMessage = {
     type: "init",
     module: plan.module,
@@ -156,7 +164,7 @@ export async function spawnWorkers(plan: WorkerPlan, target: WorkerTarget): Prom
     const connected: Promise<void>[] = [];
     for (let i = 1; i < plan.count; i += 1) {
       const child = fork(WORKER_ENTRY_PATH, [], {
-        execArgv: [],
+        execArgv,
         stdio: ["ignore", "ignore", "pipe", "ipc"],
       });
       children.push(child);
@@ -177,6 +185,11 @@ export async function spawnWorkers(plan: WorkerPlan, target: WorkerTarget): Prom
       } catch (error) {
         await stopChildren(children);
         throw error;
+      }
+      // Drain stderr after the startup handshakes complete so workers logging
+      // past the OS pipe buffer never block on write(2).
+      for (const child of children) {
+        child.stderr?.resume();
       }
     },
     stop() {

@@ -72,7 +72,7 @@ class Reads(Protocol[_Item]):
         ...
 
     @property
-    def failure(self) -> BaseGoodfetchError | None:
+    def failure(self) -> BaseException | None:
         """What ended it, unless the program stopped reading first."""
         ...
 

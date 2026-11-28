@@ -252,12 +252,13 @@ impl Stream for AddSeeds {
         loop {
             if let Some(answer) = this.answers.pop_front() {
                 // Keep pumping credits/batches opportunistically when the answer buffer is low.
+                // Surface any client-side source error only after buffered answers drain.
                 if this.answers.len() < SEED_BATCH_MAX
+                    && this.terminal.is_none()
                     && let Err(error) = this.pump_source(context)
                 {
-                    this.done = true;
+                    this.terminal = Some(Err(error));
                     this.feed = None;
-                    return Poll::Ready(Some(Err(error)));
                 }
                 return Poll::Ready(Some(Ok(answer)));
             }

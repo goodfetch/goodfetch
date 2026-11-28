@@ -62,17 +62,14 @@ describe("Seeds of a running crawl (Attached engine)", () => {
       try {
         // 1. Mixed valid, duplicate, and invalid seeds + resume preserves `seeds()` with no round trip.
         const runId = "ts-live-seeds-resume-1494";
-        let enteredResolve: (() => void) | undefined;
-        const entered = new Promise<void>((resolve) => {
-          enteredResolve = resolve;
-        });
+        const { promise: entered, resolve: markEntered } = Promise.withResolvers<void>();
+        const { promise: releaseHandler, resolve: letHandlerFinish } =
+          Promise.withResolvers<void>();
         const crawl = new Crawl();
         const page = crawl.label("page");
         crawl.handle(page, async () => {
-          enteredResolve?.();
-          await new Promise<void>((resolve) => {
-            setTimeout(resolve, 250);
-          });
+          markEntered();
+          await releaseHandler;
         });
 
         const run = await foxhound.startCrawl(crawl, {
@@ -87,7 +84,10 @@ describe("Seeds of a running crawl (Attached engine)", () => {
         expect(initialSeeds[2]).toMatchObject({ kind: "not_added", reason: "invalid_url" });
 
         await entered;
-        const stopped = await run.stop();
+        const stopping = run.stop();
+        await run.keyValueStore.get("__stop_barrier");
+        letHandlerFinish();
+        const stopped = await stopping;
         expect(stopped.lifecycle).toBe("stopped");
         await run.close();
 

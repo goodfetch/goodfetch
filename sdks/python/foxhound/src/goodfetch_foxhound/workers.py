@@ -345,13 +345,15 @@ def _worker_main(
             pipe.close()
 
 
-async def _run_async_worker(
+async def _drive_worker(
     product: ProductPackage,
-    crawl: AsyncCrawl,
+    crawl: AsyncCrawl | Crawl,
     target: WorkerTarget,
     pipe: MpConnection,
+    *,
+    loop: PrivateLoop | None = None,
 ) -> None:
-    from goodfetch_foxhound.crawl_run import AsyncCrawlRun, CrawlRuns
+    from goodfetch_foxhound.crawl_run import AsyncCrawlRun, CrawlRun, CrawlRuns
 
     connection = await open_worker_connection(product, target)
     try:
@@ -369,7 +371,8 @@ async def _run_async_worker(
             started_as="resumed",
             needs=Product.foxhound,
         )
-        run = AsyncCrawlRun(connection, started, crawl, crawls, detached=True)
+        async_run = AsyncCrawlRun(connection, started, crawl, crawls, detached=True)
+        sync_run = CrawlRun(loop, async_run) if loop is not None else None
         ops = AsyncFoxhoundOperations(connection)
 
         async with anyio.create_task_group() as group:
@@ -395,10 +398,20 @@ async def _run_async_worker(
             await anyio.lowlevel.checkpoint()
             pipe.send(("ready", os.getpid()))
 
-        await run.close()
+        await async_run.close()
+        del sync_run
     finally:
         with suppress(BaseException):
             await connection.close()
+
+
+async def _run_async_worker(
+    product: ProductPackage,
+    crawl: AsyncCrawl,
+    target: WorkerTarget,
+    pipe: MpConnection,
+) -> None:
+    await _drive_worker(product, crawl, target, pipe)
 
 
 def _run_sync_worker(
@@ -407,63 +420,8 @@ def _run_sync_worker(
     target: WorkerTarget,
     pipe: MpConnection,
 ) -> None:
-    from goodfetch_foxhound.crawl_run import AsyncCrawlRun, CrawlRun, CrawlRuns
-
     loop = PrivateLoop()
     try:
-
-        async def _drive() -> None:
-            connection = await open_worker_connection(product, target)
-            try:
-                pipe.send(("connected", os.getpid()))
-                cmd, run_id = await anyio.to_thread.run_sync(
-                    _wait_pipe_command, pipe, abandon_on_cancel=True
-                )
-                if cmd != "serve" or run_id is None:
-                    return
-                crawls = CrawlRuns(connection)
-                started = RunStarted.model_construct(
-                    None,
-                    run_id=RunId(run_id),
-                    lifecycle=Lifecycle.running,
-                    started_as="resumed",
-                    needs=Product.foxhound,
-                )
-                async_run = AsyncCrawlRun(
-                    connection, started, crawl, crawls, detached=True
-                )
-                _sync_run = CrawlRun(loop, async_run)
-                ops = AsyncFoxhoundOperations(connection)
-
-                async with anyio.create_task_group() as group:
-
-                    async def watch_stop() -> None:
-                        await anyio.to_thread.run_sync(
-                            _wait_pipe_command, pipe, abandon_on_cancel=True
-                        )
-                        group.cancel_scope.cancel()
-
-                    async def serve_crawl() -> None:
-                        try:
-                            await ops.crawl_serve(RunParams(run_id=RunId(run_id)))
-                        except BaseException as error:
-                            logging.getLogger("goodfetch.client").debug(
-                                "worker crawl.serve ended: %s", error
-                            )
-                        finally:
-                            group.cancel_scope.cancel()
-
-                    group.start_soon(watch_stop)
-                    group.start_soon(serve_crawl)
-                    await anyio.lowlevel.checkpoint()
-                    pipe.send(("ready", os.getpid()))
-
-                await async_run.close()
-                del _sync_run
-            finally:
-                with suppress(BaseException):
-                    await connection.close()
-
-        loop.call(_drive)
+        loop.call(lambda: _drive_worker(product, crawl, target, pipe, loop=loop))
     finally:
         loop.stop()

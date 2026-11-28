@@ -356,15 +356,47 @@ pub(crate) struct Adding<'a> {
     pub(crate) depth: u32,
 }
 
-/// Checks `headers` on a seed or enqueue: refuses ADR 0033's forbidden
-/// headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method overrides)
-/// with `header_forbidden`, and CR/LF/NUL values with `header_value_invalid`.
+/// Whether `byte` is an RFC 9110 / RFC 7230 HTTP header name token byte (`tchar`).
+fn is_http_token_byte(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'!' | b'#'
+            | b'$'
+            | b'%'
+            | b'&'
+            | b'\''
+            | b'*'
+            | b'+'
+            | b'-'
+            | b'.'
+            | b'^'
+            | b'_'
+            | b'`'
+            | b'|'
+            | b'~'
+            | b'0'..=b'9'
+            | b'A'..=b'Z'
+            | b'a'..=b'z'
+    )
+}
+
+/// Checks `headers` on a seed or enqueue: refuses invalid HTTP header names,
+/// ADR 0033's forbidden headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`,
+/// method overrides) with `header_forbidden`, and CR/LF/NUL characters with
+/// `header_value_invalid`.
 ///
 /// # Errors
 ///
-/// `header_forbidden` or `header_value_invalid`.
+/// `header_value_invalid`, `invalid_params`, or `header_forbidden`.
 pub(crate) fn check_request_headers(headers: &BTreeMap<String, String>) -> Result<(), CallError> {
     for (name, value) in headers {
+        hostile_input::check_header_value(name, name).map_err(|invalid| invalid.error())?;
+        if name.is_empty() || !name.bytes().all(is_http_token_byte) {
+            return Err(CallError::protocol(
+                goodfetch_protocol::jsonrpc::ProtocolFailure::InvalidParams,
+                format!("The header name `{name}` is not a valid HTTP header token."),
+            ));
+        }
         if is_forbidden_request_header(name) {
             return Err(CallError::new(
                 &HEADER_FORBIDDEN,

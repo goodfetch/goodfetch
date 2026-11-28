@@ -880,6 +880,83 @@ describe("a Crawl's wiring mistakes", () => {
       expect(peakHeapDelta).toBeLessThan(64 * 1024 * 1024);
     },
   );
+
+  test(
+    "export and saveAs protocol-count snapshot (ADR 0071)",
+    { tags: ["operation:run.export", "operation:export.save_as"] },
+    async () => {
+      const engine = seedEngine(true);
+      const foxhound = await connectOver(engine.transport);
+      const c = new Crawl();
+      const page = c.label("page");
+      const items = c.dataset("items");
+      c.handle(page, async () => undefined);
+      const run = await foxhound.startCrawl(c, {
+        seeds: [seed("https://shop.test/0", page)],
+      });
+      const exported = await run.export(items, { format: "jsonl" });
+      const saved = await exported.saveAs("/tmp/export-snapshot.jsonl");
+      const counts = protocolCounts(engine.messages);
+      await foxhound.close();
+
+      expect(exported.id).toBe("exp-1");
+      expect(saved.size).toBe(12);
+      expect(counts).toMatchInlineSnapshot(`
+        {
+          "answers": 4,
+          "events": 0,
+          "replies": 0,
+          "requests": [
+            "hello",
+            "crawl.start",
+            "run.export",
+            "export.save_as",
+            "$/credit",
+          ],
+          "served": [],
+        }
+      `);
+    },
+  );
+
+  test(
+    "outcomes() open and retryFailed protocol-count snapshots (ADR 0071)",
+    { tags: ["operation:run.outcomes", "operation:run.retry_failed"] },
+    async () => {
+      const engine = seedEngine(true);
+      const foxhound = await connectOver(engine.transport);
+      const c = new Crawl();
+      const page = c.label("page");
+      c.handle(page, async () => undefined);
+      const run = await foxhound.startCrawl(c, {
+        seeds: [seed("https://shop.test/0", page)],
+      });
+      const seen: string[] = [];
+      for await (const outcome of run.outcomes()) {
+        seen.push(outcome.kind);
+      }
+      const retried = await run.retryFailed();
+      const counts = protocolCounts(engine.messages);
+      await foxhound.close();
+
+      expect(seen).toEqual(["failed"]);
+      expect(retried).toBe(1);
+      expect(counts).toMatchInlineSnapshot(`
+        {
+          "answers": 4,
+          "events": 0,
+          "replies": 0,
+          "requests": [
+            "hello",
+            "crawl.start",
+            "run.outcomes",
+            "run.retry_failed",
+          ],
+          "served": [],
+        }
+      `);
+    },
+  );
 });
 
 /** Type guard for a JSON object parsed from a wire line. */
@@ -1001,6 +1078,77 @@ function seedEngine(recordMessages: boolean) {
           result: { added: totalAdded, not_added: 0 },
         });
       }
+      return;
+    }
+    if (method === "run.export") {
+      emit({
+        jsonrpc: "2.0",
+        id,
+        result: {
+          export_id: "exp-1",
+          format: "jsonl",
+          compression: "none",
+          records: 1,
+          last_number: 1,
+          size: 12,
+          sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          run_epoch: 1,
+        },
+      });
+      return;
+    }
+    if (method === "export.save_as") {
+      emit({
+        jsonrpc: "2.0",
+        id,
+        result: {
+          size: 12,
+          sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          run_epoch: 1,
+          written: true,
+        },
+      });
+      return;
+    }
+    if (method === "run.outcomes") {
+      emit({
+        jsonrpc: "2.0",
+        id,
+        result: {
+          outcomes: [
+            {
+              position: 1,
+              kind: "failed",
+              request: {
+                id: "r-0",
+                url: "https://shop.test/0",
+                label: "page",
+                method: "GET",
+                depth: 0,
+              },
+              attempts: 1,
+              errors: [
+                {
+                  attempt: 1,
+                  code: "handler_failed",
+                  message: "boom",
+                  retryable: true,
+                },
+              ],
+            },
+          ],
+          next: 1,
+          ended: true,
+        },
+      });
+      return;
+    }
+    if (method === "run.retry_failed") {
+      emit({
+        jsonrpc: "2.0",
+        id,
+        result: { readmitted: 1 },
+      });
       return;
     }
     if (method === "run.abort") {

@@ -466,6 +466,12 @@ impl Foxhound {
     /// least one second between starts (`politeness.domain.delay: 1s`);
     /// pressing harder is set explicitly and recorded in the Run report's
     /// `weakened` and a warning (ADR 0086).
+    ///
+    /// Close the Run on `SIGINT` and `SIGTERM` so the engine checkpoints in-flight
+    /// work cleanly instead of losing the process mid-attempt. If a process dies
+    /// before closing, leased attempts are marked `handler_lost` and retried on
+    /// resume against `crawl.retry.max`; raise `crawl.retry.max` or call
+    /// [`CrawlRun::retry_failed`] to retry items that hit the cap.
     pub fn start_crawl(
         &self,
         crawl: impl crate::CrawlTarget,

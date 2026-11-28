@@ -195,7 +195,7 @@ fn request_headers_survive_checkpoint_and_resume() {
         let foxhound = Foxhound::connect(tier_options(&env, &site, fetch::Tier::Http))
             .await
             .unwrap();
-        let enqueued_child = Arc::new(Notify::new());
+        let child_entered = Arc::new(Notify::new());
         let child_seen: Arc<Mutex<Option<BTreeMap<String, String>>>> = Arc::default();
 
         let mut crawl = Crawl::new();
@@ -204,33 +204,30 @@ fn request_headers_survive_checkpoint_and_resume() {
 
         let child_label = child.clone();
         let child_for_root = child_url.clone();
-        let enqueued_notify = Arc::clone(&enqueued_child);
         crawl
             .handle(&root, move |ctx: CrawlContext<()>| {
                 let child_label = child_label.clone();
                 let child_for_root = child_for_root.clone();
-                let enqueued_notify = Arc::clone(&enqueued_notify);
                 async move {
                     let ans = ctx
                         .enqueue(&child_for_root, &child_label, ())
                         .header("X-Resume-Header", "kept-across-stop")
                         .await?;
                     assert!(matches!(ans, Enqueued::Added { .. }), "{ans:?}");
-                    enqueued_notify.notify_one();
-                    // Wait briefly so run.stop() reaches the engine before root commits,
-                    // ensuring the engine checkpoints with child pending.
-                    tokio::time::sleep(Duration::from_millis(200)).await;
                     Ok(())
                 }
             })
             .unwrap();
 
-        let seen_slot = Arc::clone(&child_seen);
+        let child_entered_h = Arc::clone(&child_entered);
         crawl
-            .handle(&child, move |ctx: CrawlContext<()>| {
-                let seen_slot = Arc::clone(&seen_slot);
+            .handle(&child, move |_ctx: CrawlContext<()>| {
+                let child_entered_h = Arc::clone(&child_entered_h);
                 async move {
-                    *seen_slot.lock().unwrap() = Some(ctx.headers().clone());
+                    // Park deterministically while leased so `run.stop()` cancels
+                    // `child` cleanly and keeps it pending with its persisted header.
+                    child_entered_h.notify_one();
+                    std::future::pending::<()>().await;
                     Ok(())
                 }
             })
@@ -242,12 +239,11 @@ fn request_headers_survive_checkpoint_and_resume() {
             .settings(Settings::new().set(politeness::domain::CONCURRENCY, 1))
             .await
             .unwrap();
-        let stop_handle = run.clone();
-        let (stopped, _) = tokio::join!(crawl.serve(&run), async move {
-            enqueued_child.notified().await;
-            stop_handle.stop().await.unwrap()
-        });
-        let stopped = stopped.unwrap();
+        tokio::select! {
+            served = crawl.serve(&run) => panic!("crawl ended unexpectedly before stop: {served:?}"),
+            () = child_entered.notified() => {}
+        }
+        let stopped = run.stop().await.unwrap().into_inner();
         assert_eq!(stopped.report.lifecycle, Lifecycle::Stopped);
         assert!(
             child_seen.lock().unwrap().is_none(),
@@ -255,13 +251,29 @@ fn request_headers_survive_checkpoint_and_resume() {
         );
 
         // Resume with the same Run ID and seed; the pending child executes and delivers its header.
+        let mut resumed_crawl = Crawl::new();
+        let resumed_root = resumed_crawl.label::<()>("root").unwrap();
+        let resumed_child = resumed_crawl.label::<()>("child").unwrap();
+        resumed_crawl
+            .handle(&resumed_root, |_ctx: CrawlContext<()>| async { Ok(()) })
+            .unwrap();
+        let seen_slot = Arc::clone(&child_seen);
+        resumed_crawl
+            .handle(&resumed_child, move |ctx: CrawlContext<()>| {
+                let seen_slot = Arc::clone(&seen_slot);
+                async move {
+                    *seen_slot.lock().unwrap() = Some(ctx.headers().clone());
+                    Ok(())
+                }
+            })
+            .unwrap();
         let resumed = foxhound
-            .start_crawl(&crawl, [Seed::new(&root_url, &root, ())])
+            .start_crawl(&resumed_crawl, [Seed::new(&root_url, &resumed_root, ())])
             .run_id(&run_id)
             .await
             .unwrap();
         assert_eq!(resumed.started_as(), StartedAs::Resumed);
-        let finished = crawl.serve(&resumed).await.unwrap();
+        let finished = resumed_crawl.serve(&resumed).await.unwrap();
         assert_eq!(finished.report.lifecycle, Lifecycle::Finished);
         foxhound.close().await.unwrap();
 

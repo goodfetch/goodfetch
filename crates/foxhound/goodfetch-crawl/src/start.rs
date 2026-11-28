@@ -520,7 +520,7 @@ async fn schema_unchanged(
             let changed = declared.schema_changed(connection, |label| {
                 work_items::pending_of(connection, label)
             })?;
-            let seeds = goodfetch_frontier::seeds::answers(connection).unwrap_or_default();
+            let seeds = goodfetch_frontier::seeds::read(connection)?;
             Ok((began, Began::read(connection)?, pending, changed, seeds))
         })
         .await

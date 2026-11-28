@@ -157,13 +157,16 @@ describe("workers: one crawl across Node processes", () => {
           expect(committedUrls.length).toBeGreaterThanOrEqual(6);
           expect(new Set(committedUrls).size).toBe(committedUrls.length);
 
-          let sawRetriedAfterKill = false;
+          let sawClientGoneRetry = false;
           for await (const outcome of recoveryRun.outcomes()) {
-            if (outcome.attempts > 1) {
-              sawRetriedAfterKill = true;
+            if (
+              outcome.attempts > 1 &&
+              outcome.errors.some((error) => error.code === "client_gone")
+            ) {
+              sawClientGoneRetry = true;
             }
           }
-          expect(sawRetriedAfterKill).toBe(true);
+          expect(sawClientGoneRetry).toBe(true);
         } finally {
           await recoveryRun.close();
         }

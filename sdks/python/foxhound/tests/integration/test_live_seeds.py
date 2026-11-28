@@ -90,13 +90,14 @@ async def test_seeds_keep_alive_staging_and_streaming_async(
         # 1. Valid/duplicate/invalid seeds + resume preserves `seeds()` without RPC.
         run_id = "py-live-seeds-resume-1494"
         entered = anyio.Event()
+        release = anyio.Event()
         crawl = AsyncCrawl()
         page = crawl.label("page")
 
         @crawl.handle(page)
         async def _on_page(_ctx: AsyncCrawlContext[None]) -> None:
             entered.set()
-            await anyio.sleep(0.25)
+            await release.wait()
 
         async with await foxhound.start_crawl(
             crawl,
@@ -115,8 +116,17 @@ async def test_seeds_keep_alive_staging_and_streaming_async(
             assert initial_seeds[1].root.kind == "not_added"
             assert initial_seeds[2].root.kind == "not_added"
             await entered.wait()
-            stopped = await run.stop()
-            assert stopped.lifecycle == "stopped"
+            stopped_box: list[str] = []
+
+            async def _do_stop() -> None:
+                report = await run.stop()
+                stopped_box.append(report.lifecycle)
+
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(_do_stop)
+                await run.key_value_store.get("__stop_barrier")
+                release.set()
+            assert stopped_box == ["stopped"]
 
         resumed_crawl = AsyncCrawl()
         resumed_page = resumed_crawl.label("page")

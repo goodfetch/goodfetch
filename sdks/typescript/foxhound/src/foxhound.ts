@@ -141,8 +141,8 @@ export type CodeFreeCrawl =
   | (CrawlDeclaration & { readonly extraction?: never })
   | { readonly extraction: CrawlExtraction; readonly labels?: never };
 
-/** What starting a code-free crawl takes: a crawl's options, and whether its Run outlives its program (ADR 0102). */
-export interface StartCodeFreeCrawlOptions extends StartCrawlOptions {
+/** What starting a code-free crawl takes: a crawl's options (without `workers`), and whether its Run outlives its program (ADR 0102). */
+export interface StartCodeFreeCrawlOptions extends Omit<StartCrawlOptions, "workers"> {
   /**
    * Whether the Run outlives its program, on a Daemon: closing its value
    * then frees only the value, `finish()` waits for its end and `stop()`
@@ -332,11 +332,20 @@ export class Foxhound implements Connection {
   startCrawl(crawl: CodeFreeCrawl, options: StartCodeFreeCrawlOptions): Promise<CrawlRun>;
   async startCrawl(
     target: Crawl | CodeFreeCrawl,
-    options: StartCodeFreeCrawlOptions,
+    options: StartCrawlOptions & StartCodeFreeCrawlOptions,
   ): Promise<CrawlRun> {
     warnEntry(foxhoundOperations, "crawl.start");
     const crawl = target instanceof Crawl ? target : undefined;
     const workerPlan = await prepareWorkers(options.workers);
+    if (crawl === undefined && workerPlan !== undefined) {
+      throw new CrawlNotImportableError(
+        "a code-free crawl runs inside the engine and cannot be spread across worker processes",
+        {
+          fix: "Omit `workers` (or set `workers: 1`) when starting a CrawlDeclaration or CrawlExtraction.",
+          details: { module: workerPlan.module, export: workerPlan.exportName },
+        },
+      );
+    }
     const workerTarget = workerPlan === undefined ? undefined : this.#connection.workerTarget();
     if (workerPlan !== undefined && workerTarget === undefined) {
       throw new CrawlNotImportableError(

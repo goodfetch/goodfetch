@@ -235,12 +235,14 @@ async def test_workers_across_processes_async(
                 assert len(committed_urls) >= 6
                 assert len(set(committed_urls)) == len(committed_urls)
 
-                saw_retried = False
+                saw_client_gone_retry = False
                 async for outcome in recovery_run.outcomes():
-                    attempts = outcome.model_dump().get("attempts")
-                    if isinstance(attempts, int) and attempts > 1:
-                        saw_retried = True
-                assert saw_retried is True
+                    inner = outcome.root
+                    if inner.attempts > 1 and any(
+                        error.code == "client_gone" for error in inner.errors
+                    ):
+                        saw_client_gone_retry = True
+                assert saw_client_gone_retry is True
 
             # 4. Workers exit when the starter closes an active keep_alive Run.
             keep_run = await foxhound.start_crawl(

@@ -257,10 +257,10 @@ fn build_outcomes_crawl(
 fn outcomes_filter_stalled_reader_and_retry_failed_supersedes_by_request_id() {
     let env = TestEnv::new();
     let site = ProvingGround::start(&env, SEED).unwrap();
-    let ok_url = site.url("shop.test", "/book?case=ok");
-    let skip_url = site.url("shop.test", "/book?case=skip");
-    let fail_url = site.url("shop.test", "/book?case=fail");
-    let block_url = site.url("shop.test", "/book?case=block");
+    let ok_url = site.url("access.test", "/corpus/article/1");
+    let skip_url = site.url("access.test", "/corpus/article/2");
+    let fail_url = site.url("access.test", "/corpus/article/3");
+    let block_url = site.url("access.test", "/corpus/article/4");
     let run_id = RunId::parse("rust-outcomes-retry").unwrap();
 
     let retry_entered = Arc::new(tokio::sync::Notify::new());
@@ -292,10 +292,17 @@ fn outcomes_filter_stalled_reader_and_retry_failed_supersedes_by_request_id() {
             .await
             .unwrap();
 
-        // Open a reader that never polls while the crawl runs: must not slow or stall it.
-        let _stalled = run.outcomes();
-        let report = crawl.serve(&run).await.unwrap();
+        // Open a reader on the wire, read one outcome, then stop polling while
+        // the rest of the crawl runs: a stalled reader must not slow or stall it.
+        let mut stalled = run.outcomes();
+        let (report, first_stalled) = tokio::join!(crawl.serve(&run), stalled.next());
+        let report = report.unwrap();
+        assert!(
+            first_stalled.transpose().unwrap().is_some(),
+            "stalled reader must open on the wire and receive an outcome"
+        );
         assert_eq!(report.report.lifecycle, Lifecycle::Finished);
+        drop(stalled);
 
         let (last_before, fail_request_id) = assert_initial_outcomes(
             &run,

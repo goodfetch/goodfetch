@@ -105,6 +105,7 @@ impl Transport for Site {
                 reused: false,
                 decoded: false,
                 certificate_exception: None,
+                custom_tls: false,
                 origin: None,
             })
         })
@@ -655,4 +656,185 @@ async fn a_recording_http_tier_captures_whole_and_cut_responses_and_bypasses_cac
     .unwrap();
     assert_eq!(hit.body.as_ref(), b"live-1");
     assert_eq!(site.received().len(), 3);
+}
+
+/// A response fetched under `tls.trusted_cas`, `tls.client_certificates` or
+/// `tls.accept_invalid_certs` (`custom_tls == true`) is never stored in the
+/// Response cache, and a deferred store discarded after a Block cause or
+/// failed Page check never enters the cache while a committed one is served
+/// (ADRs 0006, 0046; issue 795).
+/// Covers: story:6-40
+#[tokio::test]
+async fn custom_tls_and_discarded_deferred_stores_never_enter_the_cache() {
+    use super::{DeferredStores, over_deferred};
+
+    struct CustomTlsSite(Arc<Site>);
+
+    impl Transport for CustomTlsSite {
+        fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent> {
+            Box::pin(async move {
+                let mut sent = self.0.send(hop, reuse).await?;
+                sent.custom_tls = true;
+                Ok(sent)
+            })
+        }
+    }
+
+    let env = TestEnv::new();
+    let cache = ResponseCache::of(
+        env.home().join("0.1").join("response-cache"),
+        None,
+        Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+        CountedWork::default(),
+    );
+    let clock = Clock::paused(
+        goodfetch_protocol::point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap(),
+    );
+    let bounds = FetchBounds {
+        first_byte: Deadline::given(&TIMEOUT_FIRST_BYTE, 30_000, SettingsLayer::Run),
+        navigation: Deadline::given(&TIMEOUT_NAVIGATION, 30_000, SettingsLayer::Run),
+        limits: Limits::default(),
+    };
+    let caching = Caching::of(
+        ResponseSource::of(&cache, CacheMode::Replay),
+        "ada",
+        RunId::parse("http-custom-tls").unwrap(),
+        clock,
+    )
+    .unwrap();
+
+    // Custom TLS (trusted_cas / client_certificates / accept_invalid_certs): never stored.
+    let tls_site = Site::answering(vec![minute(b"tls-1"), minute(b"tls-2")]);
+    let tls_transport = over(
+        &caching,
+        Arc::new(CustomTlsSite(Arc::clone(&tls_site))) as Arc<dyn Transport>,
+    );
+    let tls_url = Url::parse("https://cache.test/custom-tls").unwrap();
+    let first = fetch(
+        tls_transport.as_ref(),
+        &Hop::get(tls_url.clone()),
+        &bounds,
+        &clock,
+    )
+    .await
+    .unwrap();
+    let second = fetch(tls_transport.as_ref(), &Hop::get(tls_url), &bounds, &clock)
+        .await
+        .unwrap();
+    assert_eq!(
+        (first.body.as_ref(), second.body.as_ref()),
+        (b"tls-1".as_slice(), b"tls-2".as_slice())
+    );
+    assert_eq!(tls_site.received().len(), 2);
+
+    // Deferred store marked kept_out (e.g., Block cause or failed Page check): never stored.
+    let deferred_site = Site::answering(vec![minute(b"bad-page"), minute(b"good-page")]);
+    let kept_out_deferred = DeferredStores::default();
+    let deferred_transport = over_deferred(
+        &caching,
+        Arc::clone(&deferred_site) as Arc<dyn Transport>,
+        kept_out_deferred.clone(),
+    );
+    let deferred_url = Url::parse("https://cache.test/deferred-check").unwrap();
+    let first = fetch(
+        deferred_transport.as_ref(),
+        &Hop::get(deferred_url.clone()),
+        &bounds,
+        &clock,
+    )
+    .await
+    .unwrap();
+    assert_eq!(first.body.as_ref(), b"bad-page");
+    kept_out_deferred.keep_out();
+    kept_out_deferred.commit().await;
+
+    // Next fetch reaches the site and, once committed, is served from cache.
+    let ok_deferred = DeferredStores::default();
+    let ok_transport = over_deferred(
+        &caching,
+        Arc::clone(&deferred_site) as Arc<dyn Transport>,
+        ok_deferred.clone(),
+    );
+    let second = fetch(
+        ok_transport.as_ref(),
+        &Hop::get(deferred_url.clone()),
+        &bounds,
+        &clock,
+    )
+    .await
+    .unwrap();
+    assert_eq!(second.body.as_ref(), b"good-page");
+    ok_deferred.commit().await;
+
+    let third = fetch(
+        ok_transport.as_ref(),
+        &Hop::get(deferred_url),
+        &bounds,
+        &clock,
+    )
+    .await
+    .unwrap();
+    assert_eq!(third.body.as_ref(), b"good-page");
+    assert_eq!(deferred_site.received().len(), 2);
+}
+
+/// On the HTTP tier, a request carrying a resolved secret in its headers is
+/// never stored in the Response cache (ADRs 0016 and 0046; issue 795).
+/// Covers: story:6-40
+#[tokio::test]
+async fn an_http_request_carrying_a_resolved_secret_is_never_stored() {
+    use goodfetch_engine::mask::{Masks, Reach, Redaction};
+    use secrecy::SecretString;
+
+    let env = TestEnv::new();
+    let cache = ResponseCache::of(
+        env.home().join("0.1").join("response-cache"),
+        None,
+        Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+        CountedWork::default(),
+    );
+    let clock = Clock::paused(
+        goodfetch_protocol::point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap(),
+    );
+    let bounds = FetchBounds {
+        first_byte: Deadline::given(&TIMEOUT_FIRST_BYTE, 30_000, SettingsLayer::Run),
+        navigation: Deadline::given(&TIMEOUT_NAVIGATION, 30_000, SettingsLayer::Run),
+        limits: Limits::default(),
+    };
+    let masks = Masks::default();
+    let mask = masks.for_run(Redaction::On);
+    let secret = "gf-secret-token-for-http-tier-test";
+    mask.join(
+        "api_key",
+        &SecretString::from(secret.to_owned()),
+        Reach::Value,
+    );
+
+    let caching = Caching::of(
+        ResponseSource::of(&cache, CacheMode::Replay),
+        "ada",
+        RunId::parse("http-secret").unwrap(),
+        clock,
+    )
+    .unwrap()
+    .with_masks(masks);
+
+    let site = Site::answering(vec![minute(b"s1"), minute(b"s2")]);
+    let transport = over(&caching, Arc::clone(&site) as Arc<dyn Transport>);
+    let mut hop = Hop::get(Url::parse("https://cache.test/secret-api").unwrap());
+    hop.headers
+        .push(("x-api-key".to_owned(), secret.to_owned()));
+
+    let first = fetch(transport.as_ref(), &hop, &bounds, &clock)
+        .await
+        .unwrap();
+    let second = fetch(transport.as_ref(), &hop, &bounds, &clock)
+        .await
+        .unwrap();
+    assert_eq!(
+        (first.body.as_ref(), second.body.as_ref()),
+        (b"s1".as_slice(), b"s2".as_slice())
+    );
+    assert_eq!(site.received().len(), 2);
+    drop(mask);
 }

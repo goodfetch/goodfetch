@@ -481,9 +481,29 @@ pub(super) struct PageState {
     on_document: Option<Arc<dyn OnDocument>>,
     /// Its Session's [`SessionInterception::caching`].
     caching: Option<Arc<Caching>>,
+    /// Main-frame navigation response held in memory until Block
+    /// classification, Page check and consent handling pass (ADRs 0006, 0046,
+    /// 0048; issue 795).
+    pending_cache: Mutex<Option<PendingCacheStore>>,
+    /// `Set-Cookie` values reported by `Network.responseReceivedExtraInfo`,
+    /// keyed by CDP `requestId` and bounded so Chromium's omission of
+    /// `Set-Cookie` from `Fetch.requestPaused.responseHeaders` never leaks a
+    /// cookie-setting response into the `public` Response cache partition
+    /// (ADR 0046; issue 795).
+    set_cookie_headers: Mutex<std::collections::BTreeMap<String, Vec<String>>>,
     /// Its Product's Block classifier, which keeps blocked responses out of
     /// the Response cache (ADR 0046).
     blocks: Arc<dyn BlockClassifier>,
+}
+
+/// A main-frame navigation response waiting for post-load checks (Block
+/// classification, Page check, consent wall) before entering the Response
+/// cache (ADR 0046).
+pub(super) struct PendingCacheStore {
+    pub(super) network_id: Option<String>,
+    pub(super) request: goodfetch_engine::response_cache::CacheRequest,
+    pub(super) head: goodfetch_engine::response_cache::ResponseHead,
+    pub(super) body: bytes::Bytes,
 }
 
 /// What a crawl request's own document fetch sends in place of the
@@ -505,6 +525,38 @@ impl PageState {
         let mut url = url::Url::parse(url).ok()?;
         url.set_fragment(None);
         (url == own.url).then(|| own.overrides.clone())
+    }
+
+    /// Records `Set-Cookie` headers delivered by
+    /// `Network.responseReceivedExtraInfo` for `network_id`, attaching them
+    /// immediately to any matching pending main-frame cache store or keeping
+    /// them (bounded to 256 entries) for `answered_from_store`.
+    pub(super) fn note_set_cookie(&self, network_id: String, values: Vec<String>) {
+        if let Some(pending) = lock(&self.pending_cache).as_mut()
+            && pending.network_id.as_deref() == Some(network_id.as_str())
+        {
+            for value in values {
+                pending.head.headers.push(("set-cookie".to_owned(), value));
+            }
+            return;
+        }
+        let mut map = lock(&self.set_cookie_headers);
+        if map.len() >= 256
+            && let Some(oldest) = map.keys().next().cloned()
+        {
+            map.remove(&oldest);
+        }
+        map.entry(network_id).or_default().extend(values);
+    }
+
+    /// Takes any `Set-Cookie` values recorded for `network_id`.
+    pub(super) fn take_set_cookie(&self, network_id: Option<&str>) -> Vec<String> {
+        let Some(network_id) = network_id else {
+            return Vec::new();
+        };
+        lock(&self.set_cookie_headers)
+            .remove(network_id)
+            .unwrap_or_default()
     }
 }
 
@@ -904,6 +956,8 @@ impl Interception {
             },
             on_document,
             caching: session.caching.clone(),
+            pending_cache: Mutex::new(None),
+            set_cookie_headers: Mutex::new(std::collections::BTreeMap::new()),
             blocks: self.shared.blocks(),
         });
         (state, session.lookups.clone())
@@ -1054,6 +1108,8 @@ impl Interception {
                         },
                         on_document: None,
                         caching: session.caching.clone(),
+                        pending_cache: Mutex::new(None),
+                        set_cookie_headers: Mutex::new(std::collections::BTreeMap::new()),
                         blocks: shared.blocks(),
                     });
                     let context = Arc::new(
@@ -1263,6 +1319,33 @@ impl PageInterception {
     pub(crate) fn lists_blocked(&self) -> u64 {
         self.held()
             .map_or(0, |state| state.lists_blocked.load(Ordering::Acquire))
+    }
+
+    /// Commits any main-frame navigation response held in memory to the
+    /// Session's Response cache once Block classification, Page check and
+    /// consent handling all passed (ADR 0046, issue 795).
+    pub(crate) async fn commit_cached_navigation(&self) {
+        let Some(state) = self.held() else {
+            return;
+        };
+        let pending = lock(&state.pending_cache).take();
+        if let (Some(caching), Some(mut pending)) = (state.caching.as_ref(), pending) {
+            for value in state.take_set_cookie(pending.network_id.as_deref()) {
+                pending.head.headers.push(("set-cookie".to_owned(), value));
+            }
+            caching
+                .store(&pending.request, &pending.head, pending.body)
+                .await;
+        }
+    }
+
+    /// Drops any main-frame navigation response held in memory when Block
+    /// classification, Page check or consent handling failed so it never
+    /// enters the Response cache (ADR 0046, issue 795).
+    pub(crate) fn discard_cached_navigation(&self) {
+        if let Some(state) = self.held() {
+            lock(&state.pending_cache).take();
+        }
     }
 
     /// Turns the Filter lists off for every request of its page, as it

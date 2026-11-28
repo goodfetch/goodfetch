@@ -943,3 +943,194 @@ async fn the_index_opens_once_for_its_writes_and_once_for_its_lookups_through_it
 
     assert_eq!(vfs.opens(), 2);
 }
+
+/// Nothing is shared across persons, proxy exit countries, languages or
+/// device classes, even for public responses (ADR 0046).
+/// Covers: story:6-39
+#[tokio::test]
+async fn different_persons_countries_languages_and_devices_never_share_an_entry() {
+    let env = TestEnv::new();
+    let cache = cache(&env);
+    let page = get("/geo", &[]);
+    let base = Partition {
+        keeper: None,
+        person: "ada".to_owned(),
+        country: "US".to_owned(),
+        language: "en-US".to_owned(),
+        device: "desktop".to_owned(),
+    };
+    assert!(
+        cache
+            .store(
+                &base,
+                &page,
+                &minute(),
+                Bytes::from_static(b"us-en-desktop"),
+                None,
+                start()
+            )
+            .await
+    );
+
+    let others = [
+        Partition {
+            person: "bob".to_owned(),
+            ..base.clone()
+        },
+        Partition {
+            country: "DE".to_owned(),
+            ..base.clone()
+        },
+        Partition {
+            language: "fr-FR".to_owned(),
+            ..base.clone()
+        },
+        Partition {
+            device: "mobile".to_owned(),
+            ..base.clone()
+        },
+    ];
+    for other in &others {
+        assert_eq!(served_to(&cache, other, &page).await, None, "{other:?}");
+    }
+    assert_eq!(
+        served_to(&cache, &base, &page).await,
+        Some(Bytes::from_static(b"us-en-desktop"))
+    );
+}
+
+/// A response setting a cookie is kept for the life of a Session with no
+/// Saved identity, never served to another Session or an anonymous lookup,
+/// and gone when the Session ends (ADR 0046).
+/// Covers: story:6-39
+#[tokio::test]
+async fn a_set_cookie_response_lives_only_for_its_session() {
+    use goodfetch_protocol::response_cache::CacheMode;
+
+    use crate::clock::Clock;
+    use crate::response_cache::{Caching, ResponseSource};
+
+    let env = TestEnv::new();
+    let cache = cache(&env);
+    let run_id = RunId::parse("run-session-cookie").unwrap();
+    let source = ResponseSource::of(&cache, CacheMode::Revalidate);
+    let root = Caching::of(source, "ada", run_id, Clock::paused(start())).unwrap();
+    let session_a = SessionId("s-a".to_owned());
+    let session_b = SessionId("s-b".to_owned());
+    let a = root.of_session(&session_a);
+    let b = root.of_session(&session_b);
+
+    let req = get("/login-landing", &[]);
+    let set_cookie_head = ResponseHead {
+        status: 200,
+        headers: pairs(&[
+            ("cache-control", "max-age=60"),
+            ("set-cookie", "sid=abc; Path=/"),
+        ]),
+    };
+    assert!(
+        a.store(&req, &set_cookie_head, Bytes::from_static(b"welcome-a"))
+            .await
+    );
+    assert!(
+        matches!(a.source(&req, None).await, super::Source::Fresh(hit) if hit.body == "welcome-a")
+    );
+    assert!(matches!(b.source(&req, None).await, super::Source::Network));
+    assert!(matches!(
+        root.source(&req, None).await,
+        super::Source::Network
+    ));
+
+    root.forget(&session_a).await;
+    assert!(matches!(a.source(&req, None).await, super::Source::Network));
+}
+
+/// A request carrying a resolved secret in its URL, headers or body is never
+/// stored in `revalidate` or `replay`, and searching the cache's bodies and
+/// SQLite index with Secret canaries (ADR 0067, #379) finds none.
+/// Covers: story:6-40
+#[tokio::test]
+async fn a_request_carrying_a_resolved_secret_leaves_no_canary_in_cache_bodies_or_index() {
+    use goodfetch_protocol::response_cache::CacheMode;
+    use goodfetch_test_support::{Canaries, Output, SecretKind};
+    use secrecy::SecretString;
+
+    use crate::clock::Clock;
+    use crate::mask::{Masks, Reach, Redaction};
+    use crate::response_cache::{Caching, ResponseSource};
+
+    let env = TestEnv::new();
+    let cache = cache(&env);
+    let mut canaries = Canaries::new(env.seed());
+    let token = canaries.plant(SecretKind::EndpointToken).value().to_owned();
+    let header_val = canaries.plant(SecretKind::HeaderValue).value().to_owned();
+    let password = canaries.plant(SecretKind::TypedPassword).value().to_owned();
+
+    let masks = Masks::default();
+    let mask = masks.for_run(Redaction::On);
+    mask.join(
+        "api_token",
+        &SecretString::from(token.clone()),
+        Reach::Value,
+    );
+    mask.join(
+        "api_header",
+        &SecretString::from(header_val.clone()),
+        Reach::Value,
+    );
+    mask.join(
+        "user_pass",
+        &SecretString::from(password.clone()),
+        Reach::Value,
+    );
+
+    let run_id = RunId::parse("run-secret-canary").unwrap();
+    let source = ResponseSource::of(&cache, CacheMode::Replay);
+    let caching = Caching::of(source, "ada", run_id, Clock::paused(start()))
+        .unwrap()
+        .with_masks(masks.clone());
+
+    // Store one clean public entry so the cache index and bodies folder exist on disk.
+    let clean = get("/public", &[]);
+    assert!(
+        caching
+            .store(&clean, &minute(), Bytes::from_static(b"clean body"))
+            .await
+    );
+
+    // Three requests carrying resolved secrets (URL query, header, POST body), whose
+    // responses echo the secrets back: none may be stored.
+    let url_secret = get(&format!("/secret?token={token}"), &[]);
+    let header_secret = get("/secret-header", &[("x-api-key", &header_val)]);
+    let body_secret = request(
+        "POST",
+        "/secret-body",
+        &[("content-type", "text/plain")],
+        &password,
+    );
+    for (req, echoed) in [
+        (&url_secret, format!("echo {token}")),
+        (&header_secret, format!("echo {header_val}")),
+        (&body_secret, format!("echo {password}")),
+    ] {
+        assert!(!caching.may_store(req, None));
+        assert!(!caching.stores(req, &minute(), None));
+        assert!(!caching.store(req, &minute(), Bytes::from(echoed)).await);
+    }
+
+    let cache_dir = folder(&env);
+    let mut outputs = vec![cache_dir.join("index.sqlite")];
+    let bodies_dir = cache_dir.join("bodies");
+    if bodies_dir.exists() {
+        for entry in std::fs::read_dir(&bodies_dir).unwrap() {
+            outputs.push(entry.unwrap().path());
+        }
+    }
+    let refs: Vec<Output<'_>> = outputs.iter().map(|path| Output::Path(path)).collect();
+    let leaks = canaries.leaks(&refs).unwrap();
+    assert!(
+        leaks.is_empty(),
+        "secret canary leaked into Response cache: {leaks:?}"
+    );
+    drop(mask);
+}

@@ -815,6 +815,14 @@ covers = ["story:6-41", "setting:cache.mode", "operation:page.goto", "operation:
 id = "a-call-a-service-worker-answers-misses-the-response-cache-and-is-kept-with-service-workers-blocked"
 covers = ["story:6-41", "story:6-51", "setting:cache.mode", "setting:browser.service_workers", "operation:run.new_session", "operation:session.new_page", "operation:page.goto"]
 
+[[capability.case]]
+id = "partitions-isolate-logged-in-sessions-countries-languages-and-devices"
+covers = ["story:6-39", "setting:cache.mode", "setting:proxy.provider", "setting:proxy.country", "setting:browser.locale", "setting:browser.is_mobile", "operation:run.new_session", "operation:session.new_page", "operation:session.close", "operation:page.goto", "operation:cache.stats"]
+
+[[capability.case]]
+id = "blocked-failed-page-check-cut-body-and-invalid-cert-responses-are-never-cached"
+covers = ["story:6-40", "story:8-65", "setting:cache.mode", "setting:session.page_check", "setting:tls.accept_invalid_certs", "operation:page.goto"]
+
 [[capability]]
 name = "response_recording"
 

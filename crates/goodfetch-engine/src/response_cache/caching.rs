@@ -7,6 +7,7 @@
 //! a credential, or that set one, until the Session ends; the Run's own
 //! has no keeper, so such a response is neither served nor stored there.
 
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -17,15 +18,19 @@ use super::{
     CacheRequest, Hit, Keeper, KeptOut, Partition, ResponseHead, ResponseSource, Source, Stale,
 };
 use crate::clock::Clock;
+use crate::mask::{Masks, Scope};
 
 /// What a Run's transports answer from before they send: its source, the
-/// partition its responses are kept in, its ID and its clock.
+/// partition its responses are kept in, its ID, its clock and, when
+/// attached, the engine's secret `Masks` so requests carrying a resolved
+/// secret are never stored.
 #[derive(Clone, Debug)]
 pub struct Caching {
     source: ResponseSource,
     partition: Partition,
     run_id: RunId,
     clock: Clock,
+    masks: Option<Masks>,
 }
 
 impl Caching {
@@ -48,8 +53,55 @@ impl Caching {
                 },
                 run_id,
                 clock,
+                masks: None,
             })
         })
+    }
+
+    /// The same source, also checking each request against `masks` so a
+    /// request carrying a resolved secret is never stored on any tier
+    /// (ADRs 0016 and 0046).
+    #[must_use]
+    pub fn with_masks(&self, masks: Masks) -> Arc<Self> {
+        Arc::new(Self {
+            masks: Some(masks),
+            ..self.clone()
+        })
+    }
+
+    /// The partition this transport reads and writes.
+    #[must_use]
+    pub fn partition(&self) -> &Partition {
+        &self.partition
+    }
+
+    /// The same source in a partition with `country` as its proxy exit
+    /// country (ADR 0046).
+    #[must_use]
+    pub fn with_country(&self, country: &str) -> Arc<Self> {
+        Arc::new(Self {
+            partition: Partition {
+                country: country.to_owned(),
+                ..self.partition.clone()
+            },
+            ..self.clone()
+        })
+    }
+
+    /// Whether `request` carries any value resolved through the Run's
+    /// Secrets, in its URL, headers or body (ADRs 0016 and 0046).
+    #[must_use]
+    pub fn carries_secret(&self, request: &CacheRequest) -> bool {
+        let Some(masks) = &self.masks else {
+            return false;
+        };
+        let carries = |bytes: &[u8]| matches!(masks.apply_bytes(bytes, Scope::Kept), Cow::Owned(_));
+        carries(request.url.as_bytes())
+            || request
+                .headers
+                .iter()
+                .any(|(_, value)| carries(value.as_bytes()))
+            || carries(request.body())
     }
 
     /// Whether the Run replays a Response recording, as
@@ -112,6 +164,30 @@ impl Caching {
         })
     }
 
+    /// What the requests of a Session are answered from, built once when the
+    /// Session opens (or when its proxy exit changes): its `keeper` (its
+    /// Saved identity or itself), its proxy exit `country`, its Identity
+    /// profile's `language` and its `device` class (ADR 0046).
+    #[must_use]
+    pub fn of_session_partition(
+        &self,
+        keeper: Keeper,
+        country: Option<&str>,
+        language: Option<&str>,
+        device: Option<&str>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            partition: Partition {
+                keeper: Some(keeper),
+                person: self.partition.person.clone(),
+                country: country.unwrap_or_default().to_owned(),
+                language: language.unwrap_or_default().to_owned(),
+                device: device.unwrap_or_default().to_owned(),
+            },
+            ..self.clone()
+        })
+    }
+
     /// Deletes what the Run's Session `session`, ended or retired, kept in
     /// its own partition; a cache that cannot be written keeps it, which a
     /// warning says, until the Run is discarded.
@@ -141,25 +217,36 @@ impl Caching {
         head: &ResponseHead,
         kept_out: Option<KeptOut>,
     ) -> bool {
+        let kept_out = kept_out.or_else(|| {
+            self.carries_secret(request)
+                .then_some(KeptOut::ResolvedSecret)
+        });
         self.source.stores(&self.partition, request, head, kept_out)
     }
 
     /// Whether some response to `request` may be stored, as
     /// [`ResponseSource::may_store`] says.
     pub fn may_store(&self, request: &CacheRequest, kept_out: Option<KeptOut>) -> bool {
+        let kept_out = kept_out.or_else(|| {
+            self.carries_secret(request)
+                .then_some(KeptOut::ResolvedSecret)
+        });
         self.source.may_store(request, kept_out)
     }
 
     /// Stores `body`, the whole answer with `head` to `request`, fetched
     /// by this Run now, as [`ResponseSource::store`] does: whether it was.
     pub async fn store(&self, request: &CacheRequest, head: &ResponseHead, body: Bytes) -> bool {
+        let kept_out = self
+            .carries_secret(request)
+            .then_some(KeptOut::ResolvedSecret);
         self.source
             .store(
                 &self.partition,
                 request,
                 head,
                 body,
-                None,
+                kept_out,
                 Some(&self.run_id),
                 self.clock.wall(),
             )

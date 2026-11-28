@@ -544,6 +544,15 @@ impl EgressRelay {
             .is_some_and(|terminating| terminating.exceptions.covers(host))
     }
 
+    /// Whether the relay terminates `host`'s connections under a custom TLS
+    /// policy (`tls.accept_invalid_certs` or `tls.trusted_cas`), whose
+    /// responses the Response cache never stores (ADR 0046).
+    pub(crate) fn custom_tls(&self, host: &str) -> bool {
+        self.terminating.as_deref().is_some_and(|terminating| {
+            terminating.exceptions.covers(host) || terminating.trust.scope_of(host).is_some()
+        })
+    }
+
     /// How the certificate of `url`'s host fails the engine's per-host
     /// decision, for a load the browser refused on it: the relay opens a
     /// handshake of its own to the host, through itself, so the same

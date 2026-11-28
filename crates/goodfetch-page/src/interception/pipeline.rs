@@ -307,6 +307,9 @@ pub(super) async fn dispatch(mut events: InterceptionEvents, context: Arc<PageCo
                 context.scheduled(&frame, &url);
             }
             InterceptionEvent::LoadingFailed(failed) => context.loading_failed(&failed),
+            InterceptionEvent::ResponseSetCookie { network_id, values } => {
+                context.state.note_set_cookie(network_id, values);
+            }
             InterceptionEvent::WebSocketCreated { url } => context.web_socket(&url),
             InterceptionEvent::AuthRequired(required) => {
                 let waits = context.authentication_waits(&required);

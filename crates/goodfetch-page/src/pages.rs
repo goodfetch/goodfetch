@@ -1399,6 +1399,7 @@ impl Pages {
         if let Some(block) = &block
             && !(touched && block.checks_the_browser())
         {
+            page.owner.interception().discard_cached_navigation();
             return Err(blocked::blocked(block.clone(), &response, received));
         }
         let judged =
@@ -1412,12 +1413,36 @@ impl Pages {
             block,
             touched,
         };
-        let navigated = self
-            .unless_blocking_broke_it(page_id, &page, first, events)
-            .await?;
+        self.settle_navigation(page_id, &page, first, events).await
+    }
+
+    /// Finishes the post-load checks of a navigation (blocking-off retry,
+    /// Page check and consent wall verdict), committing or discarding any
+    /// held main-frame Response cache entry accordingly (ADR 0046).
+    async fn settle_navigation(
+        &self,
+        page_id: &PageId,
+        page: &OpenPage,
+        first: blocking_off::FirstLoad<'_>,
+        events: &goodfetch_engine::events::Events,
+    ) -> Result<Navigated, CallError> {
+        let navigated = match self
+            .unless_blocking_broke_it(page_id, page, first, events)
+            .await
+        {
+            Ok(navigated) => navigated,
+            Err(error) => {
+                page.owner.interception().discard_cached_navigation();
+                return Err(error);
+            }
+        };
         // A consent wall the runner found on the navigation's document is
         // the navigation's, once the runner judged it (ADR 0048).
-        self.consent_verdict(page_id, &page, true).await?;
+        if let Err(error) = self.consent_verdict(page_id, page, true).await {
+            page.owner.interception().discard_cached_navigation();
+            return Err(error);
+        }
+        page.owner.interception().commit_cached_navigation().await;
         Ok(navigated)
     }
 
@@ -1740,13 +1765,24 @@ impl Pages {
         )
         .await?
         {
+            page.owner.interception().discard_cached_navigation();
             return Err(blocked::blocked(block, &response, received));
         }
-        recovery::judge(
+        match recovery::judge(
             &arrival::judging_unsent(page, page_id, &requested, waiting),
             &response,
         )
         .await
+        {
+            Ok(()) => {
+                page.owner.interception().commit_cached_navigation().await;
+                Ok(())
+            }
+            Err(error) => {
+                page.owner.interception().discard_cached_navigation();
+                Err(error)
+            }
+        }
     }
 
     /// Judges, for a wait such as `page.wait_for_url` that waited for the

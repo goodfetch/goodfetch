@@ -1448,6 +1448,7 @@ impl On<'_> {
         {
             return ended;
         }
+        tiers.commit_cached(&page_id).await;
         self.learn(tiers, &page_id, how).await;
         self.in_flight
             .lock()

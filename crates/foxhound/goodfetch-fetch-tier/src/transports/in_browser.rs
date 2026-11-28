@@ -91,6 +91,7 @@ impl Transport for BrowserFetch {
                 reused: false,
                 decoded: true,
                 certificate_exception: None,
+                custom_tls: false,
                 origin: None,
             })
         })

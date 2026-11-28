@@ -91,7 +91,7 @@ use goodfetch_protocol::foxhound::report::BROWSER_VERSION_UNREAD;
 use goodfetch_protocol::foxhound::session_pool::SESSION_POOL_MAX_SIZE;
 use goodfetch_protocol::foxhound::settings::FETCH_BLOCK_CLASSIFICATION;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::page::proxy::{PROXY_KIND, PROXY_PROVIDER, PROXY_SERVER};
+use goodfetch_protocol::page::proxy::{PROXY_COUNTRY, PROXY_KIND, PROXY_PROVIDER, PROXY_SERVER};
 use goodfetch_protocol::page::read::PageField;
 use goodfetch_protocol::page::{
     BLOCKED, BlockedDetails, BodyHandle, FormatsRequest, Navigated, PageFormats, PageId,
@@ -316,6 +316,9 @@ struct ServedPage {
     /// Each redirect hop its crawl request's chain followed to its
     /// document, in order, which the Frontier learns from (ADR 0120).
     redirects: Arc<[Redirected]>,
+    /// Deferred Response cache entries held until Block classification and
+    /// Page check pass (ADRs 0006 and 0046, issue 795).
+    pending_cache: cached::DeferredStores,
 }
 
 impl ServedPage {
@@ -1171,12 +1174,20 @@ impl FetchTiers {
             CALLER,
             run.identity.id().clone(),
             run.identity.clock(),
-        );
+        )
+        .map(|caching| {
+            let caching = caching.with_masks(run.keys.secrets().mask().masks().clone());
+            match settings.value(&PROXY_COUNTRY).as_str() {
+                Some(country) if !country.is_empty() => caching.with_country(country),
+                _ => caching,
+            }
+        });
         Ok(HttpTier {
             addresses,
             transport: answering(caching.as_ref(), &transport),
             uncached: transport,
             caching,
+            jar: None,
             proxies,
             egress,
             bounds: FetchBounds::of(settings),
@@ -1289,14 +1300,16 @@ impl FetchTiers {
             encoding: hand_over.encoding,
             readers: Some(&hand_over.untouched),
         };
+        let (serve_transport, deferred_cache) = tier.deferred_transport();
         let fetched = follow_reading(hop, &tier.following, &gate, on, |hop| {
             let lead = std::mem::replace(&mut first, false);
             let clock = &clock;
+            let serve_transport = Arc::clone(&serve_transport);
             async move {
                 if lead {
                     tier.redundant
                         .fetch(
-                            tier.transport.as_ref(),
+                            serve_transport.as_ref(),
                             &tier.bounds,
                             OfRun {
                                 identity: &run.identity,
@@ -1310,7 +1323,7 @@ impl FetchTiers {
                         .await
                 } else {
                     fetch_accepting(
-                        tier.transport.as_ref(),
+                        serve_transport.as_ref(),
                         &hop,
                         &tier.bounds,
                         clock,
@@ -1342,7 +1355,7 @@ impl FetchTiers {
             run,
             choice,
             followed,
-            (hand_over, hand_over.encoding, ahead),
+            (hand_over, hand_over.encoding, ahead, deferred_cache),
         )
         .await
         .map_err(Unfollowed::from)
@@ -1400,7 +1413,12 @@ impl FetchTiers {
             read: opened,
             redirects,
         }: Followed<Opened>,
-        (hand_over, forced, ahead): (&Arc<HandOver>, Option<&'static Encoding>, ReadAhead),
+        (hand_over, forced, ahead, deferred_cache): (
+            &Arc<HandOver>,
+            Option<&'static Encoding>,
+            ReadAhead,
+            cached::DeferredStores,
+        ),
     ) -> Result<PageId, Stop> {
         let status = fetched.status;
         let (url, headers, body) = (
@@ -1486,6 +1504,7 @@ impl FetchTiers {
                 origin,
                 hand_over: Arc::clone(hand_over),
                 redirects: redirects.into(),
+                pending_cache: deferred_cache,
             }),
         );
         pages.opened(&page_id, opened);
@@ -1602,8 +1621,14 @@ impl FetchTiers {
             redirects: Vec::new(),
         };
         let ahead = self.read_ahead(run, hand_over).await;
-        self.open_served(tier, run, choice, followed, (hand_over, None, ahead))
-            .await
+        self.open_served(
+            tier,
+            run,
+            choice,
+            followed,
+            (hand_over, None, ahead, cached::DeferredStores::default()),
+        )
+        .await
     }
 
     /// Whether a Run's resolved `settings` let its crawl take the
@@ -1989,6 +2014,9 @@ impl FetchTiers {
                 })
                 .await
         };
+        if !matches!(verdict, Verdict::Expected) {
+            page.pending_cache.keep_out();
+        }
         Some(match verdict {
             Verdict::Expected => Judged::Passed,
             Verdict::LoginPage => Judged::Failed(expected_page::logged_out(&url, status)),
@@ -2021,15 +2049,30 @@ impl FetchTiers {
         }
         let response = page.own.as_ref().map(|(response, _)| response.clone())?;
         let run = Arc::clone(&page.document.run);
-        // Its document's hand-off classified it, when it took one.
-        if let Classified::Read(classified) = &page.classified {
+        let found = if let Classified::Read(classified) = &page.classified {
             let received = run.identity.clock().wall();
-            return classified
+            classified
                 .clone()
-                .map(|block| (block.clone(), blocked(block, &response, received)));
+                .map(|block| (block.clone(), blocked(block, &response, received)))
+        } else {
+            self.classified(&run.identity, response, Arc::clone(&page.document))
+                .await
+        };
+        if found.is_some() {
+            page.pending_cache.keep_out();
         }
-        self.classified(&run.identity, response, Arc::clone(&page.document))
-            .await
+        found
+    }
+
+    /// Commits any deferred Response cache entries of the served page
+    /// `page_id` once Block classification and Page check passed; discards
+    /// them if either check marked the page kept out (ADRs 0006 and 0046,
+    /// issue 795).
+    pub async fn commit_cached(&self, page_id: &PageId) {
+        let Some(page) = self.served_page(page_id) else {
+            return;
+        };
+        page.pending_cache.commit().await;
     }
 
     /// The Block cause of `document`, which `response` answered for
@@ -2525,6 +2568,9 @@ pub struct HttpTier {
     /// What its transports answer from before they send, unless the Run
     /// only sends (ADR 0046).
     caching: Option<Arc<Caching>>,
+    /// The Session's cookie jar when [`HttpTier::keeping_cookies_of`] wrapped
+    /// the transport, kept so [`HttpTier::deferred_transport`] preserves it.
+    jar: Option<Arc<crate::cookies::Jar>>,
 }
 
 /// The reqwest transport of each local source a Session of the Run sends
@@ -2675,13 +2721,39 @@ impl HttpTier {
             .caching
             .as_ref()
             .map(|caching| caching.of_session(session));
+        let jar = self.jars.of(session);
         HttpTier {
             transport: Arc::new(WithJar {
                 transport: answering(own.as_ref(), &self.uncached),
-                jar: self.jars.of(session),
+                jar: Arc::clone(&jar),
             }),
+            caching: own,
+            jar: Some(jar),
             ..self.clone()
         }
+    }
+
+    /// A transport for one served document fetch whose cache stores wait in
+    /// the returned [`cached::DeferredStores`] until Block classification and
+    /// Page check pass (ADRs 0006 and 0046, issue 795).
+    fn deferred_transport(&self) -> (Arc<dyn Transport>, cached::DeferredStores) {
+        let Some(caching) = &self.caching else {
+            return (
+                Arc::clone(&self.transport),
+                cached::DeferredStores::default(),
+            );
+        };
+        let deferred = cached::DeferredStores::default();
+        let cached_transport =
+            cached::over_deferred(caching, Arc::clone(&self.uncached), deferred.clone());
+        let transport: Arc<dyn Transport> = match &self.jar {
+            Some(jar) => Arc::new(WithJar {
+                transport: cached_transport,
+                jar: Arc::clone(jar),
+            }),
+            None => cached_transport,
+        };
+        (transport, deferred)
     }
 
     /// The tier Provenance names for a document this tier fetched under

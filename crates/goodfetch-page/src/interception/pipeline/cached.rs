@@ -438,7 +438,7 @@ impl PageContext {
             && url
                 .host_str()
                 .zip(self.driver.relay())
-                .is_some_and(|(host, relay)| relay.excepts(&host.to_ascii_lowercase()));
+                .is_some_and(|(host, relay)| relay.custom_tls(&host.to_ascii_lowercase()));
         if excepted {
             return Some(KeptOut::CertificateException);
         }
@@ -477,9 +477,21 @@ impl PageContext {
             return false;
         };
         let status = paused.status();
+        let mut response_headers = paused.response_header_list();
+        let has_set_cookie = response_headers
+            .iter()
+            .any(|(name, _)| name == "set-cookie");
+        if !has_set_cookie {
+            for value in self
+                .state
+                .take_set_cookie(storing.network_id.as_ref().map(NetworkId::as_str))
+            {
+                response_headers.push(("set-cookie".to_owned(), value));
+            }
+        }
         let head = ResponseHead {
             status,
-            headers: paused.response_header_list(),
+            headers: response_headers,
         };
         if status == 304
             && let Some(stale) = storing.stale
@@ -536,9 +548,22 @@ impl PageContext {
                     {
                         return false;
                     }
-                    caching
-                        .store(&storing.request, &decoded_head, body_bytes)
-                        .await;
+                    if storing.navigation {
+                        // Hold main-frame navigations until Block
+                        // classification, Page check and consent handling
+                        // pass so a failed page never enters the cache
+                        // (ADRs 0006, 0046, 0048).
+                        *lock(&self.state.pending_cache) = Some(super::super::PendingCacheStore {
+                            network_id: storing.network_id.map(|id| id.as_str().to_owned()),
+                            request: storing.request,
+                            head: decoded_head,
+                            body: body_bytes,
+                        });
+                    } else {
+                        caching
+                            .store(&storing.request, &decoded_head, body_bytes)
+                            .await;
+                    }
                 }
             }
             None if recording => {

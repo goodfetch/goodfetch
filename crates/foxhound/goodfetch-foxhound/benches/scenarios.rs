@@ -259,6 +259,7 @@ fn plain(status: u16, headers: Vec<(String, String)>, body: String) -> Sent {
         reused: false,
         decoded: false,
         certificate_exception: None,
+        custom_tls: false,
         origin: None,
     }
 }
@@ -365,6 +366,7 @@ impl Transport for Site {
                     reused: false,
                     decoded: false,
                     certificate_exception: None,
+                    custom_tls: false,
                     origin: None,
                 },
                 // robots.txt and anything else: no such page.
@@ -380,6 +382,7 @@ impl Transport for Site {
                     reused: false,
                     decoded: false,
                     certificate_exception: None,
+                    custom_tls: false,
                     origin: None,
                 },
             })

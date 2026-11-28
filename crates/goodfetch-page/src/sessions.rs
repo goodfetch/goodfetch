@@ -636,14 +636,6 @@ impl Sessions {
         let (session, life, open) = {
             let mut state = self.state.lock().await;
             let runs = reached(&mut state, &run.identity)?;
-            let seat = seat_for(
-                &runs.pool,
-                borrowed.as_ref(),
-                placement(&run, fingerprint.as_ref()),
-                egress(proxy.as_ref(), relay.as_ref()),
-                emulation,
-                TaskStarter::clone(&owner),
-            );
             let session = session_id(run.identity.id(), position);
             let life = SessionLife::new(session.clone(), attributes, SessionState::Opening);
             let interception = session_interception(
@@ -651,6 +643,15 @@ impl Sessions {
                 borrowed.as_ref(),
                 (relay.is_some(), proxy.is_some()),
                 signing,
+                (proxy.as_deref(), fingerprint.as_ref(), &emulation),
+            );
+            let seat = seat_for(
+                &runs.pool,
+                borrowed.as_ref(),
+                placement(&run, fingerprint.as_ref()),
+                egress(proxy.as_ref(), relay.as_ref()),
+                emulation,
+                TaskStarter::clone(&owner),
             );
             let open = Arc::new(Session {
                 owner,
@@ -819,6 +820,7 @@ impl Sessions {
             borrowed,
             (relay.is_some(), proxy.is_some()),
             signing,
+            (proxy.as_deref(), fingerprint.as_ref(), emulation),
         );
         let held = Arc::new(Session {
             owner,
@@ -1903,6 +1905,13 @@ async fn reopened_session(
         emulation,
     } = reopened;
     let session = session_id(run.identity.id(), position);
+    let interception = session_interception(
+        (&session, run),
+        borrowed.as_ref(),
+        (relay.is_some(), proxy.is_some()),
+        signing,
+        (proxy.as_deref(), fingerprint.as_ref(), &emulation),
+    );
     let (seat, attributes) = match &borrowed {
         Some(cdp_url) => (
             pool.borrowed_seat(cdp_url.clone(), TaskStarter::clone(&owner)),
@@ -1918,12 +1927,6 @@ async fn reopened_session(
             FRESH,
         ),
     };
-    let interception = session_interception(
-        (&session, run),
-        borrowed.as_ref(),
-        (relay.is_some(), proxy.is_some()),
-        signing,
-    );
     Ok(Session {
         owner,
         pages: HeldPages::default(),
@@ -2418,6 +2421,11 @@ fn session_interception(
     borrowed: Option<&CdpUrl>,
     (relayed, proxied): (bool, bool),
     signing: Option<Arc<RequestSigner>>,
+    (proxy, fingerprint, emulation): (
+        Option<&SessionProxy>,
+        Option<&FingerprintPlan>,
+        &SessionEmulation,
+    ),
 ) -> Arc<SessionInterception> {
     let resolve = resolve_of(run.identity.settings().map(RunSettings::resolved));
     let replay_script = run
@@ -2428,7 +2436,16 @@ fn session_interception(
         held_browser(borrowed, relayed, proxied).map(|browser| Lookups::new(resolve, browser));
     // Its requests are answered from its Run's sources, as the HTTP tier's
     // are, so an entry either stored serves the other where the key
-    // matches (ADR 0046).
+    // matches (ADR 0046). The partition is built once per Session from its
+    // keeper, proxy exit country, Identity profile language (or locale
+    // override) and device class.
+    let country = proxy.and_then(SessionProxy::country);
+    let language = fingerprint
+        .and_then(FingerprintPlan::language)
+        .or(emulation.locale.as_deref());
+    let device = fingerprint
+        .and_then(FingerprintPlan::device)
+        .or_else(|| emulation.is_mobile.then_some("mobile"));
     let caching = run.identity.settings().and_then(|settings| {
         Caching::of(
             run.engine
@@ -2437,7 +2454,19 @@ fn session_interception(
             run.identity.id().clone(),
             run.identity.clock(),
         )
-        .map(|caching| caching.of_session(session))
+        .map(|caching| {
+            caching
+                .with_masks(run.keys.secrets().mask().masks().clone())
+                .of_session_partition(
+                    goodfetch_engine::response_cache::Keeper::Session {
+                        run_id: run.identity.id().clone(),
+                        session_id: session.clone(),
+                    },
+                    country,
+                    language,
+                    device,
+                )
+        })
     });
     Arc::new(
         SessionInterception::new(session.clone(), lookups, signing)

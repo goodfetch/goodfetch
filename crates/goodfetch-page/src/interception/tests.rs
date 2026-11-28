@@ -64,6 +64,8 @@ fn state_of(session: &SessionInterception, failure: Option<LeftFailure>) -> Page
         learned: Arc::new(Learned::default()),
         on_document: None,
         caching: None,
+        pending_cache: Mutex::new(None),
+        set_cookie_headers: Mutex::new(std::collections::BTreeMap::new()),
         blocks: Arc::new(crate::blocks::NoBlocks),
     }
 }

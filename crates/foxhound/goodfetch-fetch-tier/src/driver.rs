@@ -140,6 +140,11 @@ pub struct Sent {
     /// host was reached through (ADR 0042); none when its certificate
     /// verified, or it came over plain HTTP.
     pub certificate_exception: Option<ExceptionUsed>,
+    /// Whether the hop was fetched under any custom TLS policy
+    /// (`tls.trusted_cas`, `tls.client_certificates` or
+    /// `tls.accept_invalid_certs`), keeping it out of the Response cache
+    /// (ADR 0046).
+    pub custom_tls: bool,
     /// The Response recording or Response cache that answered in place of
     /// the network (ADRs 0046 and 0105, issue 802).
     pub origin: Option<goodfetch_protocol::foxhound::provenance::ResponseOrigin>,
@@ -154,6 +159,7 @@ impl std::fmt::Debug for Sent {
             .field("reused", &self.reused)
             .field("decoded", &self.decoded)
             .field("certificate_exception", &self.certificate_exception)
+            .field("custom_tls", &self.custom_tls)
             .finish_non_exhaustive()
     }
 }

@@ -314,6 +314,7 @@ impl Transport for Plain {
                 reused: false,
                 decoded: false,
                 certificate_exception: None,
+                custom_tls: false,
                 origin: None,
             })
         })

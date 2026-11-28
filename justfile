@@ -77,11 +77,11 @@ fmt-check:
     steps_end
 
 # The checks of `just lint` that read documents: formatting, typos, the
-# Quality register, the Feature and Journey checks, the wording and the
-# repository's policy files. The docs gate runs them alone for a change of
-# documents (`xtask affected`'s `gate=docs`, ADR 0135). Every check runs
-# even after one failed; the `xtask` checks come after xtask's build, and are
-# skipped, named so, when it fails.
+# Quality register, the Feature and Journey checks, the wording, the docs
+# samples' extraction/names/count check and the repository's policy files.
+# The docs gate runs them alone for a change of documents (`xtask affected`'s
+# `gate=docs`, ADR 0135). Every check runs even after one failed; the `xtask`
+# checks come after xtask's build, and are skipped, named so, when it fails.
 lint-documents:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -94,8 +94,16 @@ lint-documents:
     step --after xtask xtask-features 'cargo run --quiet --bin xtask -- features check'
     step --after xtask xtask-wording 'cargo run --quiet --bin xtask -- wording'
     step --after xtask xtask-journeys 'cargo run --quiet --bin xtask -- journeys check'
+    step --after xtask xtask-docs-samples '{{ just_executable() }} docs-samples'
     step repository-files 'ci/repository-files.sh'
     steps_end
+
+# Extracts every docs and published-package README sample (enforcing ADR 0097's
+# cross-Product names check) and compares the manifest against `language-check`
+# (issue 150).
+docs-samples:
+    cargo run --quiet --bin xtask -- docs-samples extract
+    cargo run --quiet --bin xtask -- docs-samples check
 
 # The checks of `just lint` that a combination of changes can fail though
 # each change passed them alone: the lockfiles and the workspace-hack match

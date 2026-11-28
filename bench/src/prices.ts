@@ -2,6 +2,7 @@
 // rates, model token rates, proxy rates, CAPTCHA solver rates and hosted
 // browser per-minute rates, each with its source and date.
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { parserOf } from "./schema.ts";
 
 /** Public hourly rate for a dedicated or rented machine. */
@@ -23,7 +24,7 @@ export interface ModelPrice {
 /** List rate for a proxy tier. */
 export interface ProxyPrice {
   readonly per_gb_usd: number;
-  readonly per_request_usd?: number;
+  readonly per_request_usd?: number | undefined;
   readonly source: string;
   readonly date: string;
 }
@@ -154,7 +155,9 @@ export function parsePriceTable(raw: unknown, label = "price table"): PriceTable
 /** Loads the versioned price table from `filePath` (defaults to `bench/prices/v1.json`). */
 export function loadPriceTable(filePath?: string): PriceTable {
   const target =
-    filePath === undefined ? new URL("../prices/v1.json", import.meta.url).pathname : filePath;
+    filePath === undefined
+      ? fileURLToPath(new URL("../prices/v1.json", import.meta.url))
+      : filePath;
   const raw: unknown = JSON.parse(readFileSync(target, "utf8"));
   return parsePriceTable(raw, target);
 }

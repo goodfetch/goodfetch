@@ -32,10 +32,23 @@ describe("runtime campaigns and control cost reporting", () => {
     expect(liveHiding.server_bytes_saved).toBeNull();
   });
 
-  test("covers all switchable controls including TLS relay and reports reopenable ADRs", () => {
+  test("covers all switchable controls (ADR 0016 & ADR 0023) including TLS relay and reports reopenable ADRs", () => {
     expect(SWITCHABLE_CONTROLS).toContain("tls_relay_cert_exceptions");
     expect(SWITCHABLE_CONTROLS).toContain("live_hiding");
     expect(SWITCHABLE_CONTROLS).toContain("consent_prompt_handling");
+    expect(SWITCHABLE_CONTROLS).toContain("page_check");
+    expect(SWITCHABLE_CONTROLS).toContain("fetch_tier_comparison");
+    expect(SWITCHABLE_CONTROLS).toContain("browser_fetch_identity");
+    expect(SWITCHABLE_CONTROLS).toContain("backoff");
+    expect(SWITCHABLE_CONTROLS).toContain("target_fingerprint_check");
+    expect(SWITCHABLE_CONTROLS).toContain("success_checks");
+    expect(SWITCHABLE_CONTROLS).toContain("run_state_durability");
+    expect(SWITCHABLE_CONTROLS).toContain("frontier_learning");
+    expect(SWITCHABLE_CONTROLS).toContain("provenance_log");
+    expect(SWITCHABLE_CONTROLS).toContain("dataset_records");
+    expect(SWITCHABLE_CONTROLS).toContain("fetch_block_classification");
+    expect(SWITCHABLE_CONTROLS).toContain("security_field_encryption");
+    expect(SWITCHABLE_CONTROLS).toContain("security_redaction");
 
     const runState = evaluateReopenDecision({
       family: "run-state",

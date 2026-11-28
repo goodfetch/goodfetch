@@ -6,10 +6,11 @@
   "warmup": 1,
   "iterations": 3,
   "concurrency": 1,
+  "plan_amortization_runs": [1, 10, 100, 1000],
   "timeout_ms": 30000,
   "max_duration_ms": 180000,
   "max_restarts": 2,
-  "tasks": ["catalog/2"],
+  "tasks": ["schedule/1"],
   "registry": {
     "folder": "registry",
     "decisions": ["D-repeated-runs-drift"]
@@ -17,11 +18,25 @@
   "adapters": [
     {
       "id": "collie-candidate",
-      "command": ["node", "../adapters/goodfetch/src/adapter.ts", "--product", "collie"]
+      "command": [
+        "node",
+        "../adapters/goodfetch/src/adapter.ts",
+        "--product",
+        "collie",
+        "--setting",
+        "frontier.learning=true"
+      ]
     },
     {
       "id": "collie-baseline",
-      "command": ["node", "../adapters/goodfetch/src/adapter.ts", "--product", "collie"]
+      "command": [
+        "node",
+        "../adapters/goodfetch/src/adapter.ts",
+        "--product",
+        "collie",
+        "--setting",
+        "frontier.learning=false"
+      ]
     }
   ]
 }

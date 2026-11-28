@@ -121,9 +121,9 @@ export interface PlanOneTimeCostInput {
   /** One-time compilation and Repair cost in USD. */
   readonly oneTimeUsd: number;
   /** Run counts declared before measuring (must include 1, 10, 100 and 1,000). */
-  readonly declaredRunCounts?: readonly number[];
+  readonly declaredRunCounts?: readonly number[] | undefined;
   /** Number of verified results produced per run (defaults to this report's verified count). */
-  readonly verifiedPerRun?: number;
+  readonly verifiedPerRun?: number | undefined;
 }
 
 /** Inputs to compute ADR 0025's three views for a cell or set of attempts. */
@@ -132,13 +132,13 @@ export interface BuildThreeViewsInput {
   readonly task: string;
   readonly attempts: readonly Attempt[];
   /** Optional summarized cells for CPU / PSS / RSS readings. */
-  readonly cells?: readonly Cell[];
+  readonly cells?: readonly Cell[] | undefined;
   /** Wall time of the measured window in ms; defaults to sum of attempt task_ms when omitted. */
-  readonly windowMs?: number | null;
+  readonly windowMs?: number | null | undefined;
   /** Machine ID in `prices.hosts`, or `null` for a machine with no public hourly price (e.g. owner's laptop). */
   readonly hostMachineId: string | null;
   readonly prices: PriceTable;
-  readonly planOneTimeCost?: PlanOneTimeCostInput;
+  readonly planOneTimeCost?: PlanOneTimeCostInput | undefined;
 }
 
 const MS_PER_HOUR = 3_600_000;
@@ -190,12 +190,23 @@ export function countResults(attempts: readonly Attempt[]): ResultCounts {
   };
 }
 
-function attemptDirectSpendUsd(attempt: Attempt, prices: PriceTable): number {
+interface DirectSpendBreakdown {
+  readonly model_usd: number;
+  readonly proxy_usd: number;
+  readonly captcha_usd: number;
+  readonly hosted_browser_usd: number;
+  readonly total_usd: number;
+}
+
+function attemptDirectSpendBreakdown(attempt: Attempt, prices: PriceTable): DirectSpendBreakdown {
   const usage = attempt.adapter_metrics?.cost_usage;
   if (usage === undefined) {
-    return 0;
+    return { model_usd: 0, proxy_usd: 0, captcha_usd: 0, hosted_browser_usd: 0, total_usd: 0 };
   }
-  let usd = 0;
+  let modelUsd = 0;
+  let proxyUsd = 0;
+  let captchaUsd = 0;
+  let hostedBrowserUsd = 0;
   if (usage.model !== undefined) {
     const rate = prices.models[usage.model.id];
     if (rate === undefined) {
@@ -204,7 +215,7 @@ function attemptDirectSpendUsd(attempt: Attempt, prices: PriceTable): number {
         `price table v${prices.version} has no model rate for ${usage.model.id}`,
       );
     }
-    usd +=
+    modelUsd =
       (usage.model.input_tokens / 1_000_000) * rate.input_per_1m_usd +
       (usage.model.output_tokens / 1_000_000) * rate.output_per_1m_usd;
   }
@@ -216,7 +227,7 @@ function attemptDirectSpendUsd(attempt: Attempt, prices: PriceTable): number {
         `price table v${prices.version} has no proxy rate for ${usage.proxy.tier}`,
       );
     }
-    usd +=
+    proxyUsd =
       ((usage.proxy.bytes ?? 0) / BYTES_PER_GB) * rate.per_gb_usd +
       (usage.proxy.requests ?? 0) * (rate.per_request_usd ?? 0);
   }
@@ -228,7 +239,7 @@ function attemptDirectSpendUsd(attempt: Attempt, prices: PriceTable): number {
         `price table v${prices.version} has no CAPTCHA rate for ${usage.captcha.kind}`,
       );
     }
-    usd += (usage.captcha.solves / 1_000) * rate.per_1k_solves_usd;
+    captchaUsd = (usage.captcha.solves / 1_000) * rate.per_1k_solves_usd;
   }
   if (usage.hosted_browser !== undefined) {
     const rate = prices.hosted_browsers[usage.hosted_browser.vendor];
@@ -238,12 +249,19 @@ function attemptDirectSpendUsd(attempt: Attempt, prices: PriceTable): number {
         `price table v${prices.version} has no hosted browser rate for ${usage.hosted_browser.vendor}`,
       );
     }
-    usd += usage.hosted_browser.minutes * rate.per_browser_minute_usd;
+    hostedBrowserUsd = usage.hosted_browser.minutes * rate.per_browser_minute_usd;
   }
-  return usd;
+  return {
+    model_usd: modelUsd,
+    proxy_usd: proxyUsd,
+    captcha_usd: captchaUsd,
+    hosted_browser_usd: hostedBrowserUsd,
+    total_usd: modelUsd + proxyUsd + captchaUsd + hostedBrowserUsd,
+  };
 }
 
-function resolveAmortizationCounts(declared?: readonly number[]): readonly number[] {
+/** Validates and sorts Plan amortization run counts declared before measuring (must include 1, 10, 100 and 1,000). */
+export function resolveAmortizationCounts(declared?: readonly number[]): readonly number[] {
   if (declared === undefined) {
     return PLAN_AMORTIZATION_RUN_COUNTS;
   }
@@ -383,43 +401,18 @@ export function buildThreeViews(input: BuildThreeViewsInput): ThreeViewReport {
     let failedAttemptUsd = 0;
 
     for (const one of measured) {
-      const usage = one.adapter_metrics?.cost_usage;
-      const attemptDirect = attemptDirectSpendUsd(one, input.prices);
+      const spend = attemptDirectSpendBreakdown(one, input.prices);
       const attemptHost =
         one.timing.task_ms !== null && summedWallMs > 0
           ? (one.timing.task_ms / summedWallMs) * hostUsd
           : 0;
       if (one.status !== "verified") {
-        failedAttemptUsd += attemptDirect + attemptHost;
+        failedAttemptUsd += spend.total_usd + attemptHost;
       }
-      if (usage?.model !== undefined) {
-        const rate = input.prices.models[usage.model.id];
-        if (rate !== undefined) {
-          modelUsd +=
-            (usage.model.input_tokens / 1_000_000) * rate.input_per_1m_usd +
-            (usage.model.output_tokens / 1_000_000) * rate.output_per_1m_usd;
-        }
-      }
-      if (usage?.proxy !== undefined) {
-        const rate = input.prices.proxies[usage.proxy.tier];
-        if (rate !== undefined) {
-          proxyUsd +=
-            ((usage.proxy.bytes ?? 0) / BYTES_PER_GB) * rate.per_gb_usd +
-            (usage.proxy.requests ?? 0) * (rate.per_request_usd ?? 0);
-        }
-      }
-      if (usage?.captcha !== undefined) {
-        const rate = input.prices.captchas[usage.captcha.kind];
-        if (rate !== undefined) {
-          captchaUsd += (usage.captcha.solves / 1_000) * rate.per_1k_solves_usd;
-        }
-      }
-      if (usage?.hosted_browser !== undefined) {
-        const rate = input.prices.hosted_browsers[usage.hosted_browser.vendor];
-        if (rate !== undefined) {
-          hostedBrowserUsd += usage.hosted_browser.minutes * rate.per_browser_minute_usd;
-        }
-      }
+      modelUsd += spend.model_usd;
+      proxyUsd += spend.proxy_usd;
+      captchaUsd += spend.captcha_usd;
+      hostedBrowserUsd += spend.hosted_browser_usd;
     }
 
     const totalUsd = hostUsd + modelUsd + proxyUsd + captchaUsd + hostedBrowserUsd;

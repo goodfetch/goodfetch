@@ -1,17 +1,41 @@
 // Runtime benchmark campaigns and switchable control cost reporting
-// (ADRs 0002, 0004, 0016, 0023, 0025, 0042, 0047, 0048, 0094; issue 188).
+// (ADRs 0002, 0004, 0016, 0023, 0025, 0042, 0047, 0048, 0086, 0093, 0094, 0138; issue 188).
 import type { Product } from "./evaluations.ts";
 
-/** Every switchable control whose cost is published (ADRs 0023, 0042, 0047, 0048). */
+/**
+ * Every switchable control whose cost is published (ADRs 0016, 0023, 0042,
+ * 0047, 0048, 0086, 0093, 0138).
+ */
 export const SWITCHABLE_CONTROLS = [
+  // ADR 0023 reliability & fetch controls
   "actionability_guard",
+  "page_check",
+  "fetch_tier_comparison",
+  "browser_fetch_identity",
+  "backoff",
+  "target_fingerprint_check",
+  "success_checks",
+  // ADR 0023 (2026-11-06 / ADR 0138) Foxhound & run-state controls
+  "run_state_durability",
+  "frontier_learning",
+  "provenance_log",
+  "dataset_records",
+  "fetch_block_classification",
+  // Clean-up (ADRs 0047, 0048) & TLS relay (ADR 0042) & politeness / admission (ADRs 0004, 0086)
   "filter_list_blocking",
   "live_hiding",
   "consent_prompt_handling",
   "tls_relay_cert_exceptions",
   "politeness_respect_robots",
-  "power_cut_safe_run_state",
   "fair_per_domain_admission",
+  // ADR 0016 switchable security controls
+  "security_field_encryption",
+  "security_secure_delete",
+  "security_resolved_ip_check",
+  "security_raw_cdp_egress_proxy",
+  "security_browser_sandbox",
+  "security_audit_chain",
+  "security_redaction",
 ] as const;
 
 export type SwitchableControl = (typeof SWITCHABLE_CONTROLS)[number];
@@ -23,8 +47,8 @@ export interface ControlMeasurementInput {
   readonly on_ms: number;
   readonly off_ms: number;
   /** Server-side observed response bytes from the Proving ground (#159), when applicable. */
-  readonly server_bytes_on?: number;
-  readonly server_bytes_off?: number;
+  readonly server_bytes_on?: number | undefined;
+  readonly server_bytes_off?: number | undefined;
   /** Baseline label (e.g. `live_hiding = off`). */
   readonly baseline_setting: string;
 }
@@ -93,8 +117,8 @@ export function evaluateReopenDecision(input: {
     product: input.product,
     could_reopen: isRunState ? "ADR 0002" : "ADR 0004",
     reopen_condition: isRunState
-      ? "large gap between power-cut-safe and fast run state reopens separate-log option (ADR 0002)"
-      : "measurable slowdown on single-domain crawls reopens fair per-domain admission (ADR 0004)",
+      ? "large gap between run_state.durability presets (batch vs full vs off) reopens separate-log option (ADR 0002)"
+      : "measurable slowdown between crawl.domain_order fewest_in_flight and round_robin reopens fair per-domain admission (ADR 0004)",
     measured_gap_percent: input.measured_gap_percent,
     threshold_percent: input.threshold_percent,
     triggers_reopen_review: input.measured_gap_percent > input.threshold_percent,

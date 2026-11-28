@@ -5,9 +5,17 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { BenchError } from "./errors.ts";
-import { hostClasses, type HostClass } from "./host.ts";
+import {
+  hostClasses,
+  NETWORK_PROFILE_RTT_MS,
+  type HostClass,
+  type NetworkProfileRttMs,
+} from "./host.ts";
 import { checkRegistry, loadRegistry, type Declared } from "./registry.ts";
+import { SWITCHABLE_CONTROLS, type SwitchableControl } from "./runtime-campaigns.ts";
 import { parserOf } from "./schema.ts";
+import { resolveAmortizationCounts } from "./views.ts";
+import type { Product } from "./evaluations.ts";
 
 /** One competitor adapter of a campaign. */
 export interface CampaignAdapter {
@@ -15,20 +23,27 @@ export interface CampaignAdapter {
   /** The program and its arguments, run in the campaign file's folder. */
   readonly command: readonly [string, ...string[]];
   /**
+   * Optional subset of `campaign.tasks` this adapter owns and runs (e.g. startup-binding
+   * where Collie runs `extract` tasks and Foxhound runs `crawl` tasks, ADR 0094).
+   */
+  readonly tasks?: readonly string[] | undefined;
+  /**
    * The tool's published configuration, a file beside the campaign's: what
    * it does by default where a Product has a control (ADR 0025).
    */
-  readonly configuration?: string;
+  readonly configuration?: string | undefined;
   /**
    * A matched row (ADR 0025's equal guarantees): the Product with the
    * controls the adapter `against` lacks switched off, by the settings
    * named here, and with Filter-list blocking and Consent prompt handling
    * set as that tool's published configuration declares its defaults.
    */
-  readonly matched?: {
-    readonly against: string;
-    readonly settings: Readonly<Record<string, unknown>>;
-  };
+  readonly matched?:
+    | {
+        readonly against: string;
+        readonly settings: Readonly<Record<string, unknown>>;
+      }
+    | undefined;
 }
 
 /** What a tool's published configuration declares it does by default (ADRs 0047 and 0048). */
@@ -49,6 +64,34 @@ export type Row =
       readonly competitor_defaults: CompetitorDefaults;
     };
 
+/** Declared network profile to calibrate for a campaign run (ADR 0025). */
+export interface CampaignNetworkProfile {
+  readonly mechanism: "tc_netem" | "userspace_proxy";
+  readonly declared_rtt_ms: NetworkProfileRttMs;
+  readonly declared_loss_percent: number;
+  readonly measured_rtt_ms: number;
+  readonly tolerance_ms: number;
+}
+
+/** One switchable-control on-vs-off comparison declared by a campaign (ADR 0023, issue 188). */
+export interface CampaignControlComparison {
+  readonly control: SwitchableControl;
+  readonly product: Product;
+  readonly on_adapter: string;
+  readonly off_adapter: string;
+  readonly baseline_setting: string;
+  readonly measure_server_bytes?: boolean | undefined;
+}
+
+/** One reopenable-ADR check declared by a runtime campaign (ADRs 0002 & 0004, issue 188). */
+export interface CampaignReopenCheck {
+  readonly family: "run-state" | "fair-per-domain-admission";
+  readonly product: Product;
+  readonly candidate_adapter: string;
+  readonly baseline_adapter: string;
+  readonly threshold_percent: number;
+}
+
 /** A campaign, as its file declares it. */
 export interface Campaign {
   readonly id: string;
@@ -64,7 +107,19 @@ export interface Campaign {
   /** Measured attempts in flight at once on one adapter. */
   readonly concurrency: number;
   /** Optional concurrency sweep levels for load runs (ADR 0025, e.g. [1, 8, 64, 256]). */
-  readonly concurrency_levels?: readonly number[];
+  readonly concurrency_levels?: readonly number[] | undefined;
+  /** Pre-declared Plan amortization run counts (must include 1, 10, 100 and 1,000, ADR 0025). */
+  readonly plan_amortization_runs?: readonly number[] | undefined;
+  /** Optional declared Plan one-time compilation/repair cost in USD. */
+  readonly plan_one_time_usd?: number | undefined;
+  /** Optional price-table host machine ID for the cost view, or `null` for an unpriced machine. */
+  readonly host_machine_id?: string | null | undefined;
+  /** Optional network profile calibration check (ADR 0025). */
+  readonly network_profile?: CampaignNetworkProfile | undefined;
+  /** Optional switchable-control comparisons derived from the campaign's measured arms (issue 188). */
+  readonly control_cost_comparisons?: readonly CampaignControlComparison[] | undefined;
+  /** Optional ADR reopen checks derived from the campaign's measured arms (issue 188). */
+  readonly reopen_checks?: readonly CampaignReopenCheck[] | undefined;
   /** How long one call to an adapter may take. */
   readonly timeout_ms: number;
   /** How long a cell's measured window may last; later attempts are rejected. */
@@ -78,7 +133,9 @@ export interface Campaign {
    * The decisions the campaign measures, from the registry folder beside
    * it; each one's claims come with it, checked before anything is measured.
    */
-  readonly registry?: { readonly folder: string; readonly decisions: readonly string[] };
+  readonly registry?:
+    | { readonly folder: string; readonly decisions: readonly string[] }
+    | undefined;
 }
 
 const count = { type: "integer", minimum: 0 };
@@ -118,6 +175,64 @@ const campaignFile = parserOf<Campaign>({
     iterations: positive,
     concurrency: positive,
     concurrency_levels: { type: "array", minItems: 1, items: positive },
+    plan_amortization_runs: { type: "array", minItems: 4, items: positive },
+    plan_one_time_usd: { type: "number", minimum: 0 },
+    host_machine_id: { anyOf: [{ type: "string", minLength: 1 }, { type: "null" }] },
+    network_profile: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "mechanism",
+        "declared_rtt_ms",
+        "declared_loss_percent",
+        "measured_rtt_ms",
+        "tolerance_ms",
+      ],
+      properties: {
+        mechanism: { enum: ["tc_netem", "userspace_proxy"] },
+        declared_rtt_ms: { enum: [...NETWORK_PROFILE_RTT_MS] },
+        declared_loss_percent: { type: "number", minimum: 0 },
+        measured_rtt_ms: { type: "number", minimum: 0 },
+        tolerance_ms: { type: "number", minimum: 0 },
+      },
+    },
+    control_cost_comparisons: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["control", "product", "on_adapter", "off_adapter", "baseline_setting"],
+        properties: {
+          control: { enum: [...SWITCHABLE_CONTROLS] },
+          product: { enum: ["collie", "foxhound"] },
+          on_adapter: { type: "string", minLength: 1 },
+          off_adapter: { type: "string", minLength: 1 },
+          baseline_setting: { type: "string", minLength: 1 },
+          measure_server_bytes: { type: "boolean" },
+        },
+      },
+    },
+    reopen_checks: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "family",
+          "product",
+          "candidate_adapter",
+          "baseline_adapter",
+          "threshold_percent",
+        ],
+        properties: {
+          family: { enum: ["run-state", "fair-per-domain-admission"] },
+          product: { enum: ["collie", "foxhound"] },
+          candidate_adapter: { type: "string", minLength: 1 },
+          baseline_adapter: { type: "string", minLength: 1 },
+          threshold_percent: { type: "number", minimum: 0 },
+        },
+      },
+    },
     timeout_ms: positive,
     max_duration_ms: positive,
     max_restarts: count,
@@ -131,6 +246,7 @@ const campaignFile = parserOf<Campaign>({
         properties: {
           id: { type: "string", pattern: "^[a-z0-9][a-z0-9-]*$" },
           command: { type: "array", minItems: 1, items: { type: "string" } },
+          tasks: { type: "array", minItems: 1, items: { type: "string" } },
           configuration: { type: "string", minLength: 1 },
           matched: {
             type: "object",
@@ -193,6 +309,9 @@ export async function loadCampaign(path: string): Promise<LoadedCampaign> {
   const absolute = resolve(path);
   const bytes = await readFile(absolute);
   const campaign = campaignFile.parse(JSON.parse(bytes.toString("utf8")), absolute);
+  if (campaign.plan_amortization_runs !== undefined) {
+    resolveAmortizationCounts(campaign.plan_amortization_runs);
+  }
   const folder = dirname(absolute);
   const rows = new Map<string, Row>();
   for (const adapter of campaign.adapters) {

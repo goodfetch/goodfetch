@@ -9,20 +9,15 @@
 )]
 
 use std::collections::BTreeMap;
-use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use data_encoding::HEXLOWER;
 use hmac::{Hmac, Mac as _};
 use http_body_util::{BodyExt as _, Full, Limited};
 use hyper::body::{Bytes, Incoming};
-use hyper::header::CONTENT_TYPE;
-use hyper::server::conn::http1;
-use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
-use hyper_util::rt::TokioIo;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
@@ -32,6 +27,8 @@ use tokio_util::task::TaskTracker;
 
 use crate::interface::ChainAccounts;
 use crate::sync::Mutex;
+
+use super::http;
 
 /// Standard local EVM chain ID (matches Anvil).
 pub(crate) const CHAIN_ID: u64 = 31_337;
@@ -406,6 +403,9 @@ impl Chain {
             .and_then(Value::as_str)
             .unwrap_or_default();
         let hex = data.strip_prefix("0x").unwrap_or(data).to_ascii_lowercase();
+        if !hex.is_ascii() {
+            return json!(format!("0x{:064x}", 0u8));
+        }
         let state = self.state.lock();
         // authorizationState(address,bytes32): selector e94a0102
         // nonceBitmap(address,uint256): selector 4fe02b44
@@ -431,39 +431,17 @@ impl Chain {
 impl ChainServer {
     /// Binds the local chain JSON-RPC server on `(host, 0)`.
     pub(crate) async fn bind(host: IpAddr, chain: Chain) -> Result<Self> {
-        let listener = TcpListener::bind((host, 0))
-            .await
-            .context("binding the local chain JSON-RPC server")?;
+        let listener = http::bind(host, "the local chain JSON-RPC server").await?;
         Ok(Self { listener, chain })
     }
 
     pub(crate) fn address(&self) -> Result<SocketAddr> {
-        self.listener
-            .local_addr()
-            .context("reading the local chain's address")
+        http::address(&self.listener, "the local chain")
     }
 
     /// Serves JSON-RPC requests until `stop` is cancelled.
     pub(crate) async fn run(self, tracker: TaskTracker, stop: CancellationToken) {
-        loop {
-            let accepted = tokio::select! {
-                () = stop.cancelled() => return,
-                accepted = self.listener.accept() => accepted,
-            };
-            let Ok((stream, _)) = accepted else {
-                continue;
-            };
-            let chain = self.chain.clone();
-            tracker.spawn(async move {
-                let service = service_fn(move |request| {
-                    let chain = chain.clone();
-                    async move { Ok::<_, Infallible>(handle_http(chain, request).await) }
-                });
-                let _ = http1::Builder::new()
-                    .serve_connection(TokioIo::new(stream), service)
-                    .await;
-            });
-        }
+        http::serve(self.listener, self.chain, handle_http, tracker, stop).await;
     }
 }
 
@@ -477,7 +455,7 @@ struct RpcRequest {
 
 async fn handle_http(chain: Chain, request: Request<Incoming>) -> Response<Full<Bytes>> {
     if request.method() != Method::POST {
-        return json_response(
+        return http::json_response(
             StatusCode::METHOD_NOT_ALLOWED,
             &json!({"error": "method_not_allowed"}),
         );
@@ -486,14 +464,14 @@ async fn handle_http(chain: Chain, request: Request<Incoming>) -> Response<Full<
         .collect()
         .await
     else {
-        return json_response(
+        return http::json_response(
             StatusCode::PAYLOAD_TOO_LARGE,
             &json!({"error": "body_too_large"}),
         );
     };
     let bytes = collected.to_bytes();
     let Ok(rpc) = serde_json::from_slice::<RpcRequest>(&bytes) else {
-        return json_response(
+        return http::json_response(
             StatusCode::BAD_REQUEST,
             &json!({"jsonrpc": "2.0", "id": null, "error": {"code": -32700, "message": "parse error"}}),
         );
@@ -510,16 +488,7 @@ async fn handle_http(chain: Chain, request: Request<Incoming>) -> Response<Full<
             "error": {"code": code, "message": message},
         }),
     };
-    json_response(StatusCode::OK, &body)
-}
-
-fn json_response(status: StatusCode, value: &Value) -> Response<Full<Bytes>> {
-    let bytes = serde_json::to_vec(value).expect("invariant: JSON value serializes");
-    Response::builder()
-        .status(status)
-        .header(CONTENT_TYPE, "application/json")
-        .body(Full::new(Bytes::from(bytes)))
-        .expect("invariant: JSON response builds")
+    http::json_response(StatusCode::OK, &body)
 }
 
 fn derive_accounts(seed: u64) -> ChainAccounts {

@@ -47,7 +47,11 @@ export interface Decision {
   /** The host class a verdict needs, and the one a published figure needs. */
   readonly host_class: { readonly decision: HostClass; readonly publication: HostClass };
   /** Sets of tasks judged apart, so opposite effects are not pooled; all tasks when absent. */
-  readonly strata?: readonly { readonly id: string; readonly tasks: readonly string[] }[];
+  readonly strata?:
+    | readonly { readonly id: string; readonly tasks: readonly string[] }[]
+    | undefined;
+  /** Pre-declared Plan amortization run counts (must include 1, 10, 100 and 1,000, ADR 0025). */
+  readonly plan_amortization_runs?: readonly number[] | undefined;
   /** The runs its verdicts read, by ID. */
   readonly evidence: readonly string[];
   readonly depends_on: readonly string[];
@@ -166,6 +170,11 @@ const decisionFile = parserOf<Decision>({
         required: ["id", "tasks"],
         properties: { id: text, tasks: { type: "array", minItems: 1, items: text } },
       },
+    },
+    plan_amortization_runs: {
+      type: "array",
+      minItems: 4,
+      items: { type: "integer", minimum: 1 },
     },
     evidence: ids,
     depends_on: ids,
@@ -341,6 +350,13 @@ export function checkRegistry(registry: Registry, context: CheckContext = {}): s
     const figure = figureIn(decision.notes);
     if (figure !== null) {
       at(`notes contain a measured figure (${figure}); figures must come from verdicts`);
+    }
+    if (decision.plan_amortization_runs !== undefined) {
+      for (const required of [1, 10, 100, 1000] as const) {
+        if (!decision.plan_amortization_runs.includes(required)) {
+          at(`plan_amortization_runs must include ${required} (ADR 0025)`);
+        }
+      }
     }
     dated(decision.id, decision.declared_at, decision.evidence, (run) => run.declared.decisions);
   }

@@ -1,10 +1,16 @@
 // Integration test (spec #152, issue 175): runs a real `bench run` against
-// the commit's Proving ground, then derives ADR 0025's three views (raw with
-// verified/false-success/needs-review counts, per-verified-result, and dollars
-// per 1,000 verified results) plus Plan amortization and separate human time.
+// the commit's Proving ground and verifies that `run.json` emits ADR 0025's
+// three views (raw paired with verified/false-success/needs-review counts,
+// per-verified-result, dollars per 1,000 verified results), Plan amortization
+// over pre-declared run counts, and the separate human-time column.
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
 import { loadPriceTable } from "../src/prices.ts";
+import { runCampaign } from "../src/runner.ts";
 import { buildThreeViews, formatRawFigure, PLAN_AMORTIZATION_RUN_COUNTS } from "../src/views.ts";
 import { bench, written } from "./bench.ts";
 
@@ -24,59 +30,83 @@ describe(
   () => {
     test.override("provingGroundSeed", 152);
 
-    test("computes all three views, counts, cost model and Plan amortization from a Proving ground run", async ({
+    test("run.json emits three views, needs-review counts, Plan amortization and human time from Proving ground", async ({
       provingGround,
     }) => {
+      // Standard bench CLI run emits views, raw summaries, and needs_review counts directly in run.json.
       const ran = await bench("decisions.json", provingGround.address);
       expect(ran.stderr).toBe("");
       const { record, attempts } = await written(ran.out);
-      const prices = loadPriceTable();
+      expect(record.totals.needs_review).toBe(0);
+      expect(record.views.length).toBeGreaterThan(0);
+      expect(record.raw_summaries.length).toBe(record.views.length);
 
-      const fastAttempts = attempts.filter((one) => one.adapter === "fast");
-      const fastCells = record.cells.filter((cell) => cell.adapter === "fast");
-      const report = buildThreeViews({
-        adapter: "fast",
-        task: "catalog/2",
-        attempts: fastAttempts,
-        cells: fastCells,
-        hostMachineId: "reference-bare-metal",
-        prices,
-        planOneTimeCost: {
-          oneTimeUsd: 0.5,
-          declaredRunCounts: [...PLAN_AMORTIZATION_RUN_COUNTS],
-          verifiedPerRun: 15,
-        },
-      });
-
-      // Raw view always carries verified, false-success and needs-review counts.
-      expect(report.raw.counts.verified).toBe(15);
-      expect(report.raw.counts.false_success).toBe(0);
-      expect(report.raw.counts.needs_review).toBe(0);
-      expect(formatRawFigure(report.raw)).toContain(
-        "verified=15/15, false_success=0, needs_review=0",
-      );
-
-      // Per-verified view carries verified throughput and latency.
-      expect(report.per_verified.verified_tasks_per_second).toBeGreaterThan(0);
-      expect(report.per_verified.task_p50_ms_verified).toBeGreaterThan(0);
-
-      // Cost view sums host price × wall time with versioned price table provenance and Plan amortization.
-      if (!report.cost.available) {
-        throw new Error(`expected available cost view, got: ${report.cost.reason}`);
+      const fastView = record.views.find((v) => v.adapter === "fast");
+      if (fastView === undefined) {
+        throw new Error("expected fast view in run.json");
       }
-      expect(report.cost.price_table.version).toBe(1);
-      expect(report.cost.dollars_per_1k_verified).toBeGreaterThan(0);
-      expect(report.cost.plan_amortization?.map((r) => r.runs)).toEqual([1, 10, 100, 1000]);
+      expect(fastView.raw.counts.verified).toBe(15);
+      expect(fastView.raw.counts.false_success).toBe(0);
+      expect(fastView.raw.counts.needs_review).toBe(0);
+      expect(fastView.per_verified.verified_tasks_per_second).toBeGreaterThan(0);
+      expect(fastView.human_time).toEqual({ total_seconds: 0, seconds_per_verified: 0 });
+      // Default local run has no public hourly host price -> cost view unavailable.
+      expect(fastView.cost.available).toBe(false);
 
-      // Human time is reported separately and never folded into dollars.
-      expect(report.human_time).toEqual({ total_seconds: 0, seconds_per_verified: 0 });
+      const fastSummary = record.raw_summaries.find((s) => s.adapter === "fast")?.summary;
+      expect(fastSummary).toContain("verified=15/15, false_success=0, needs_review=0");
 
-      // Machine with no public hourly price emits no cost view.
+      // Campaign with pre-declared Plan amortization and public host machine emits priced cost view.
+      const dir = await mkdtemp(join(tmpdir(), "goodfetch-views-"));
+      try {
+        const stubPath = fileURLToPath(new URL("./stub-adapter.ts", import.meta.url));
+        const campaignPath = join(dir, "views-campaign.json");
+        await writeFile(
+          campaignPath,
+          JSON.stringify({
+            id: "views-priced",
+            host_class: { requested: "local-dev", allow_downgrade: false },
+            order_seed: 175,
+            blocks: 1,
+            warmup: 0,
+            iterations: 3,
+            concurrency: 1,
+            host_machine_id: "reference-bare-metal",
+            plan_amortization_runs: [...PLAN_AMORTIZATION_RUN_COUNTS],
+            plan_one_time_usd: 0.5,
+            timeout_ms: 10000,
+            max_duration_ms: 60000,
+            max_restarts: 1,
+            adapters: [{ id: "stub", command: ["node", stubPath, "--delay-ms", "10"] }],
+            tasks: ["catalog/2"],
+          }),
+        );
+        const priced = await runCampaign({
+          campaignPath,
+          provingGround: provingGround.address,
+          out: dir,
+        });
+        const view = priced.record.views[0];
+        if (view === undefined || !view.cost.available) {
+          throw new Error("expected available cost view in priced run.json");
+        }
+        expect(view.cost.price_table.version).toBe(1);
+        expect(view.cost.dollars_per_1k_verified).toBeGreaterThan(0);
+        expect(view.cost.plan_amortization?.map((r) => r.runs)).toEqual([1, 10, 100, 1000]);
+        expect(formatRawFigure(view.raw)).toContain(
+          "verified=3/3, false_success=0, needs_review=0",
+        );
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+
+      // Direct buildThreeViews cross-check against loaded price table.
+      const prices = loadPriceTable();
+      const fastAttempts = attempts.filter((one) => one.adapter === "fast");
       const unpriced = buildThreeViews({
         adapter: "fast",
         task: "catalog/2",
         attempts: fastAttempts,
-        cells: fastCells,
         hostMachineId: null,
         prices,
       });

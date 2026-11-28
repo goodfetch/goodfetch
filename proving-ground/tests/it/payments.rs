@@ -146,11 +146,13 @@ fn start_key_directory() -> String {
 
 struct Accounts {
     chain: String,
+    facilitator: String,
     network: String,
     sender: String,
     sender_key: String,
     recipient: String,
     token: String,
+    permit2: String,
 }
 
 fn read_accounts(ground: &ProvingGround) -> Accounts {
@@ -158,6 +160,10 @@ fn read_accounts(ground: &ProvingGround) -> Accounts {
     let accounts = &first["chain_accounts"];
     Accounts {
         chain: first["chain"].as_str().expect("chain url").to_owned(),
+        facilitator: first["facilitator"]
+            .as_str()
+            .expect("facilitator url")
+            .to_owned(),
         network: accounts["network"].as_str().expect("network").to_owned(),
         sender: accounts["payer_address"]
             .as_str()
@@ -172,16 +178,17 @@ fn read_accounts(ground: &ProvingGround) -> Accounts {
             .expect("payee")
             .to_owned(),
         token: accounts["token"].as_str().expect("token").to_owned(),
+        permit2: accounts["permit2"].as_str().expect("permit2").to_owned(),
     }
 }
 
-fn sign_x402_payload(
+fn sign_x402_payload_json(
     accounts: &Accounts,
     scheme: &str,
     value: u128,
     valid_before: u64,
     nonce: &str,
-) -> String {
+) -> Value {
     let key_bytes = HEXLOWER
         .decode(accounts.sender_key.trim_start_matches("0x").as_bytes())
         .expect("hex payer key");
@@ -194,7 +201,7 @@ fn sign_x402_payload(
     );
     mac.update(message.as_bytes());
     let sig = format!("0x{}", HEXLOWER.encode(&mac.finalize().into_bytes()));
-    let payload = json!({
+    json!({
         "x402Version": 2,
         "scheme": scheme,
         "network": accounts.network,
@@ -206,8 +213,46 @@ fn sign_x402_payload(
             "nonce": nonce,
             "signature": sig,
         }
-    });
+    })
+}
+
+fn sign_x402_payload(
+    accounts: &Accounts,
+    scheme: &str,
+    value: u128,
+    valid_before: u64,
+    nonce: &str,
+) -> String {
+    let payload = sign_x402_payload_json(accounts, scheme, value, valid_before, nonce);
     BASE64.encode(&serde_json::to_vec(&payload).expect("serialize payload"))
+}
+
+fn extract_between<'a>(haystack: &'a str, start: &str, end: &str) -> &'a str {
+    let after = haystack
+        .split_once(start)
+        .unwrap_or_else(|| panic!("missing {start:?} in {haystack:?}"))
+        .1;
+    after
+        .split_once(end)
+        .unwrap_or_else(|| panic!("missing {end:?} after {start:?} in {haystack:?}"))
+        .0
+}
+
+fn parse_paid_record(html: &str) -> Value {
+    let id = extract_between(html, "<article data-id=\"", "\">");
+    let title = extract_between(html, "<h1>", "</h1>");
+    let price_atomic = extract_between(html, "<p data-price=\"", "\">");
+    json!({
+        "id": id,
+        "title": title,
+        "price_atomic": price_atomic,
+    })
+}
+
+fn nonce_bitmap_calldata(sender: &str, nonce: &str) -> String {
+    let sender_hex = sender.trim_start_matches("0x").to_ascii_lowercase();
+    let nonce_clean = nonce.trim_start_matches("0x").to_ascii_lowercase();
+    format!("0x4fe02b44{sender_hex:0>64}{nonce_clean:0>64}")
 }
 
 fn rpc_call(url: &str, method: &str, params: &Value) -> Value {
@@ -310,6 +355,29 @@ fn pay_per_crawl_enforces_price_signature_and_replay_and_oracle_counts() {
     assert_eq!(unsigned.header("x-payment-error"), Some("unsigned"));
 
     let sig_agent = format!("\"{dir_origin}\"");
+    // Valid Web Bot Auth signature that fails to cover the price header must be refused as unsigned.
+    let (uncovered_in, uncovered_sig) = sign_wba(
+        &AGENT_KEY,
+        "web-bot-auth",
+        "sig1",
+        9,
+        IndexMap::from([
+            authority_component(&authority, false),
+            field_component("signature-agent", &sig_agent),
+        ]),
+    );
+    let uncovered = ground.get_with_headers(
+        &url,
+        &[
+            ("crawler-exact-price", "USD 0.01"),
+            ("signature-agent", &sig_agent),
+            ("signature-input", &uncovered_in),
+            ("signature", &uncovered_sig),
+        ],
+    );
+    assert_eq!(uncovered.status, 402);
+    assert_eq!(uncovered.header("x-payment-error"), Some("unsigned"));
+
     let (wrong_in, wrong_sig) = sign_wba(
         &AGENT_KEY,
         "web-bot-auth",
@@ -359,14 +427,84 @@ fn pay_per_crawl_enforces_price_signature_and_replay_and_oracle_counts() {
     assert_eq!(replay.status, 402);
     assert_eq!(replay.header("x-payment-error"), Some("replay"));
 
+    let record = parse_paid_record(&paid.body);
     let verdict = oracle_judge(
         &ground,
-        &json!({ "task": "paid/1", "status": "success", "records": [] }),
+        &json!({ "task": "paid/1", "status": "success", "records": [record] }),
     );
+    assert_eq!(verdict["outcome"], "verified");
     assert_eq!(verdict["payments"]["paid_count"], 1);
     assert_eq!(verdict["payments"]["total_paid_atomic"], 10_000);
     assert_eq!(verdict["payments"]["fetched_count"], 1);
-    assert_eq!(verdict["payments"]["refused_count"], 4);
+    assert_eq!(verdict["payments"]["refused_count"], 5);
+}
+
+#[test]
+fn pay_per_crawl_enforces_crawler_max_price() {
+    let ground = ProvingGround::start(SEED);
+    let dir_origin = start_key_directory();
+    let host = "1.paid.test";
+    let authority = format!("{host}:{}", ground.port());
+    let url = ground.url(host, "/page");
+    let sig_agent = format!("\"{dir_origin}\"");
+
+    // crawler-max-price: too low is refused, >= price is accepted.
+    let (low_max_in, low_max_sig) = sign_wba(
+        &AGENT_KEY,
+        "web-bot-auth",
+        "sig1",
+        12,
+        IndexMap::from([
+            authority_component(&authority, false),
+            field_component("signature-agent", &sig_agent),
+            field_component("crawler-max-price", "USD 0.005"),
+        ]),
+    );
+    let low_max = ground.get_with_headers(
+        &url,
+        &[
+            ("crawler-max-price", "USD 0.005"),
+            ("signature-agent", &sig_agent),
+            ("signature-input", &low_max_in),
+            ("signature", &low_max_sig),
+        ],
+    );
+    assert_eq!(low_max.status, 402);
+    assert_eq!(low_max.header("x-payment-error"), Some("wrong_amount"));
+
+    let (ok_max_in, ok_max_sig) = sign_wba(
+        &AGENT_KEY,
+        "web-bot-auth",
+        "sig1",
+        13,
+        IndexMap::from([
+            authority_component(&authority, false),
+            field_component("signature-agent", &sig_agent),
+            field_component("crawler-max-price", "USD 0.02"),
+        ]),
+    );
+    let paid_max = ground.get_with_headers(
+        &url,
+        &[
+            ("crawler-max-price", "USD 0.02"),
+            ("signature-agent", &sig_agent),
+            ("signature-input", &ok_max_in),
+            ("signature", &ok_max_sig),
+        ],
+    );
+    assert_eq!(paid_max.status, 200);
+    assert_eq!(paid_max.header("crawler-charged"), Some("USD 0.01"));
+
+    let record = parse_paid_record(&paid_max.body);
+    let verdict = oracle_judge(
+        &ground,
+        &json!({ "task": "paid/1", "status": "success", "records": [record] }),
+    );
+    assert_eq!(verdict["outcome"], "verified");
+    assert_eq!(verdict["payments"]["paid_count"], 1);
+    assert_eq!(verdict["payments"]["total_paid_atomic"], 10_000);
+    assert_eq!(verdict["payments"]["fetched_count"], 1);
+    assert_eq!(verdict["payments"]["refused_count"], 1);
 }
 
 #[test]
@@ -417,6 +555,13 @@ fn x402_exact_and_upto_settle_on_local_chain() {
     assert_eq!(replay.status, 402);
     assert_eq!(replay.header("x-payment-error"), Some("replay"));
 
+    let exact_record = parse_paid_record(&resp.body);
+    let exact_verdict = oracle_judge(
+        &ground,
+        &json!({ "task": "paid/2", "status": "success", "records": [exact_record] }),
+    );
+    assert_eq!(exact_verdict["outcome"], "verified");
+
     let auth_state = rpc_call(
         &accounts.chain,
         "eth_call",
@@ -427,17 +572,142 @@ fn x402_exact_and_upto_settle_on_local_chain() {
         "0x0000000000000000000000000000000000000000000000000000000000000001"
     );
 
+    // Permit2 nonceBitmap (4fe02b44) reports 0 for an unused nonce and 1 for a settled nonce.
+    let unused_bitmap = rpc_call(
+        &accounts.chain,
+        "eth_call",
+        &json!([{"to": accounts.permit2, "data": nonce_bitmap_calldata(&accounts.sender, &nonce_hex(999))}]),
+    );
+    assert_eq!(
+        unused_bitmap["result"],
+        "0x0000000000000000000000000000000000000000000000000000000000000000"
+    );
+    let settled_bitmap = rpc_call(
+        &accounts.chain,
+        "eth_call",
+        &json!([{"to": accounts.permit2, "data": nonce_bitmap_calldata(&accounts.sender, &exact_nonce)}]),
+    );
+    assert_eq!(
+        settled_bitmap["result"],
+        "0x0000000000000000000000000000000000000000000000000000000000000001"
+    );
+
+    // Non-ASCII eth_call data must not panic on UTF-8 byte slicing (S7).
+    let non_ascii_data = format!("0xe94a0102{}", "é".repeat(100));
+    let non_ascii_call = rpc_call(
+        &accounts.chain,
+        "eth_call",
+        &json!([{"to": accounts.token, "data": non_ascii_data}]),
+    );
+    assert_eq!(
+        non_ascii_call["result"],
+        "0x0000000000000000000000000000000000000000000000000000000000000000"
+    );
+}
+
+#[test]
+fn x402_upto_and_facilitator_endpoints_enforce_payment_rules() {
+    let ground = ProvingGround::start(SEED);
+    let accounts = read_accounts(&ground);
+    let valid_before: u64 = 1_800_000_000;
+
+    // paid/3 (upto): unpaid 402, wrong amount, unsigned, valid settle, replay, verified oracle.
     let url3 = ground.url("3.paid.test", "/page");
+    let unpaid3 = ground.get(&url3);
+    assert_eq!(unpaid3.status, 402);
+    assert!(unpaid3.header("payment-required").is_some());
+    assert_eq!(unpaid3.json()["accepts"][0]["scheme"], "upto");
+
+    let wrong_upto = sign_x402_payload(&accounts, "upto", 5_000, valid_before, &nonce_hex(29));
+    let resp_wrong3 = ground.get_with_headers(&url3, &[("payment-signature", &wrong_upto)]);
+    assert_eq!(resp_wrong3.status, 402);
+    assert_eq!(resp_wrong3.header("x-payment-error"), Some("wrong_amount"));
+
+    let unsigned_upto = BASE64.encode(
+        serde_json::to_vec(&json!({
+            "x402Version": 2,
+            "scheme": "upto",
+            "network": accounts.network,
+            "payload": {
+                "from": accounts.sender,
+                "to": accounts.recipient,
+                "value": "20000",
+                "validBefore": valid_before,
+                "nonce": nonce_hex(28),
+                "signature": "",
+            }
+        }))
+        .expect("serialize unsigned upto")
+        .as_slice(),
+    );
+    let resp_unsigned3 = ground.get_with_headers(&url3, &[("payment-signature", &unsigned_upto)]);
+    assert_eq!(resp_unsigned3.status, 402);
+    assert_eq!(resp_unsigned3.header("x-payment-error"), Some("unsigned"));
+
     let ok_upto = sign_x402_payload(&accounts, "upto", 20_000, valid_before, &nonce_hex(30));
-    let resp = ground.get_with_headers(&url3, &[("payment-signature", &ok_upto)]);
-    assert_eq!(resp.status, 200);
+    let resp3 = ground.get_with_headers(&url3, &[("payment-signature", &ok_upto)]);
+    assert_eq!(resp3.status, 200);
+
+    let replay3 = ground.get_with_headers(&url3, &[("payment-signature", &ok_upto)]);
+    assert_eq!(replay3.status, 402);
+    assert_eq!(replay3.header("x-payment-error"), Some("replay"));
+
+    let upto_record = parse_paid_record(&resp3.body);
     let upto_verdict = oracle_judge(
         &ground,
-        &json!({ "task": "paid/3", "status": "success", "records": [] }),
+        &json!({ "task": "paid/3", "status": "success", "records": [upto_record] }),
     );
+    assert_eq!(upto_verdict["outcome"], "verified");
     assert_eq!(upto_verdict["payments"]["paid_count"], 1);
     assert_eq!(upto_verdict["payments"]["total_paid_atomic"], 10_000);
     assert_eq!(upto_verdict["payments"]["fetched_count"], 1);
+    assert_eq!(upto_verdict["payments"]["refused_count"], 4);
+
+    // Facilitator HTTP endpoints POST /verify and POST /settle.
+    let fac_nonce = nonce_hex(35);
+    let fac_payload = sign_x402_payload_json(&accounts, "exact", 10_000, valid_before, &fac_nonce);
+    let fac_requirements = json!({
+        "scheme": "exact",
+        "network": accounts.network,
+        "maxAmountRequired": "10000",
+        "asset": accounts.token,
+        "payTo": accounts.recipient,
+        "settleAmount": "10000",
+    });
+    let verify_ok: Value = ureq::post(&format!("{}/verify", accounts.facilitator))
+        .send_json(json!({
+            "paymentPayload": fac_payload,
+            "paymentRequirements": fac_requirements,
+        }))
+        .expect("POST /verify")
+        .into_body()
+        .read_json()
+        .expect("verify json");
+    assert_eq!(verify_ok["isValid"], true);
+    assert_eq!(verify_ok["settledAmount"], "10000");
+
+    let settle_ok: Value = ureq::post(&format!("{}/settle", accounts.facilitator))
+        .send_json(json!({
+            "paymentPayload": fac_payload,
+            "paymentRequirements": fac_requirements,
+        }))
+        .expect("POST /settle")
+        .into_body()
+        .read_json()
+        .expect("settle json");
+    assert_eq!(settle_ok["success"], true);
+
+    let settle_replay: Value = ureq::post(&format!("{}/settle", accounts.facilitator))
+        .send_json(json!({
+            "paymentPayload": fac_payload,
+            "paymentRequirements": fac_requirements,
+        }))
+        .expect("POST /settle replay")
+        .into_body()
+        .read_json()
+        .expect("settle replay json");
+    assert_eq!(settle_replay["success"], false);
+    assert_eq!(settle_replay["errorReason"], "replay");
 }
 
 #[test]
@@ -455,11 +725,46 @@ fn x402_batch_settlement_requires_web_bot_auth() {
         &nonce_hex(40),
     );
 
+    let unpaid4 = ground.get(&url4);
+    assert_eq!(unpaid4.status, 402);
+    assert!(unpaid4.header("payment-required").is_some());
+    assert_eq!(unpaid4.json()["accepts"][0]["scheme"], "batch-settlement");
+
     let unsigned_batch = ground.get_with_headers(&url4, &[("payment-signature", &batch_payload)]);
     assert_eq!(unsigned_batch.status, 402);
     assert_eq!(unsigned_batch.header("x-payment-error"), Some("unsigned"));
 
     let sig_agent = format!("\"{dir_origin}\"");
+    let wrong_batch_payload = sign_x402_payload(
+        &accounts,
+        "batch-settlement",
+        5_000,
+        1_800_000_000,
+        &nonce_hex(39),
+    );
+    let (wrong_in, wrong_sig) = sign_wba(
+        &AGENT_KEY,
+        "web-bot-auth",
+        "sig1",
+        39,
+        IndexMap::from([
+            authority_component(&authority4, false),
+            field_component("signature-agent", &sig_agent),
+            field_component("payment-signature", &wrong_batch_payload),
+        ]),
+    );
+    let wrong_batch = ground.get_with_headers(
+        &url4,
+        &[
+            ("payment-signature", &wrong_batch_payload),
+            ("signature-agent", &sig_agent),
+            ("signature-input", &wrong_in),
+            ("signature", &wrong_sig),
+        ],
+    );
+    assert_eq!(wrong_batch.status, 402);
+    assert_eq!(wrong_batch.header("x-payment-error"), Some("wrong_amount"));
+
     let (batch_in, batch_sig) = sign_wba(
         &AGENT_KEY,
         "web-bot-auth",
@@ -471,17 +776,27 @@ fn x402_batch_settlement_requires_web_bot_auth() {
             field_component("payment-signature", &batch_payload),
         ]),
     );
-    let ok_batch = ground.get_with_headers(
-        &url4,
-        &[
-            ("payment-signature", &batch_payload),
-            ("signature-agent", &sig_agent),
-            ("signature-input", &batch_in),
-            ("signature", &batch_sig),
-        ],
-    );
+    let ok_headers = [
+        ("payment-signature", batch_payload.as_str()),
+        ("signature-agent", sig_agent.as_str()),
+        ("signature-input", batch_in.as_str()),
+        ("signature", batch_sig.as_str()),
+    ];
+    let ok_batch = ground.get_with_headers(&url4, &ok_headers);
     assert_eq!(ok_batch.status, 200);
     assert!(ok_batch.header("payment-response").is_some());
+
+    // Replaying the same Web Bot Auth signature on paid/4 is refused as replay.
+    let wba_replay = ground.get_with_headers(&url4, &ok_headers);
+    assert_eq!(wba_replay.status, 402);
+    assert_eq!(wba_replay.header("x-payment-error"), Some("replay"));
+
+    let batch_record = parse_paid_record(&ok_batch.body);
+    let batch_verdict = oracle_judge(
+        &ground,
+        &json!({ "task": "paid/4", "status": "success", "records": [batch_record] }),
+    );
+    assert_eq!(batch_verdict["outcome"], "verified");
 }
 
 #[test]
@@ -503,6 +818,15 @@ fn refusal_and_interrupted_payments_are_reported_by_chain_and_oracle() {
     );
     assert_eq!(refusal_verdict["outcome"], "verified");
     assert_eq!(refusal_verdict["payments"]["paid_count"], 0);
+
+    // Sending an invalid payment to paid/6 must NOT consume the one-shot interrupted fault (S8).
+    let bad6 = sign_x402_payload(&accounts, "exact", 5_000, valid_before, &nonce_hex(59));
+    let r6_bad = ground.get_with_headers(
+        &ground.url("6.paid.test", "/page"),
+        &[("payment-signature", &bad6)],
+    );
+    assert_eq!(r6_bad.status, 402);
+    assert_eq!(r6_bad.header("x-payment-error"), Some("wrong_amount"));
 
     let n6 = nonce_hex(60);
     let p6 = sign_x402_payload(&accounts, "exact", 10_000, valid_before, &n6);

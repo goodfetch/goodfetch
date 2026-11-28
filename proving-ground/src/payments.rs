@@ -8,6 +8,7 @@
 
 pub(crate) mod chain;
 pub(crate) mod facilitator;
+mod http;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -410,13 +411,20 @@ impl Payments {
                 self.record_refused(task_id);
                 return self.x402_402(scheme, max_amount, target, "unsigned");
             }
-            let mut ledger = self.ledger.lock();
-            if !ledger.used_tokens.insert(verified.replay_token) {
-                ledger
-                    .summaries
-                    .entry(task_id.to_owned())
-                    .or_default()
-                    .refused_count += 1;
+            let is_replay = {
+                let mut ledger = self.ledger.lock();
+                if ledger.used_tokens.insert(verified.replay_token) {
+                    false
+                } else {
+                    ledger
+                        .summaries
+                        .entry(task_id.to_owned())
+                        .or_default()
+                        .refused_count += 1;
+                    true
+                }
+            };
+            if is_replay {
                 return self.x402_402(scheme, max_amount, target, "replay");
             }
         }
@@ -438,22 +446,18 @@ impl Payments {
             settle_amount: Some(settle_amount.to_string()),
         };
 
-        if let Some(state) = interrupt {
-            let should_interrupt = {
-                let mut ledger = self.ledger.lock();
-                ledger.interrupted_fired.insert(task_id.to_owned())
-            };
-            if should_interrupt {
-                return self.handle_interrupted(
-                    task_id,
-                    state,
-                    &payment,
-                    &requirements,
-                    scheme,
-                    max_amount,
-                    target,
-                );
-            }
+        if let Some(state) = interrupt
+            && let Some(reply) = self.try_handle_interrupted(
+                task_id,
+                state,
+                &payment,
+                &requirements,
+                scheme,
+                max_amount,
+                target,
+            )
+        {
+            return reply;
         }
 
         match self.facilitator.settle(&payment, &requirements) {
@@ -484,7 +488,7 @@ impl Payments {
         clippy::too_many_arguments,
         reason = "applies the requested interruption outcome to a verified x402 payment"
     )]
-    fn handle_interrupted(
+    fn try_handle_interrupted(
         &self,
         task_id: &str,
         state: InterruptedState,
@@ -493,19 +497,30 @@ impl Payments {
         scheme: &str,
         max_amount: u128,
         target: &str,
-    ) -> Reply {
+    ) -> Option<Reply> {
+        if self.ledger.lock().interrupted_fired.contains(task_id) {
+            return None;
+        }
         let verified_amount = match self.facilitator.verify(payment, requirements) {
             Ok(amount) => amount,
             Err(rejection) => {
                 self.record_refused(task_id);
-                return self.x402_402(scheme, max_amount, target, rejection.code());
+                return Some(self.x402_402(scheme, max_amount, target, rejection.code()));
             }
         };
+        if !self
+            .ledger
+            .lock()
+            .interrupted_fired
+            .insert(task_id.to_owned())
+        {
+            return None;
+        }
         match state {
             InterruptedState::Settled => {
                 if let Err(rejection) = self.facilitator.settle(payment, requirements) {
                     self.record_refused(task_id);
-                    return self.x402_402(scheme, max_amount, target, rejection.code());
+                    return Some(self.x402_402(scheme, max_amount, target, rejection.code()));
                 }
                 let mut ledger = self.ledger.lock();
                 let summary = ledger.summaries.entry(task_id.to_owned()).or_default();
@@ -550,7 +565,7 @@ impl Payments {
         reply
             .headers
             .push(("x-payment-interrupted", state.as_header().to_owned()));
-        reply
+        Some(reply)
     }
 
     fn x402_402(&self, scheme: &str, max_amount: u128, resource: &str, error_code: &str) -> Reply {

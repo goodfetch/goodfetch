@@ -9,7 +9,7 @@
   "timeout_ms": 30000,
   "max_duration_ms": 180000,
   "max_restarts": 2,
-  "tasks": ["catalog/1"],
+  "tasks": ["incidents/1"],
   "registry": {
     "folder": "registry",
     "decisions": ["D-incident-recovery"]
@@ -17,11 +17,25 @@
   "adapters": [
     {
       "id": "foxhound-candidate",
-      "command": ["node", "../adapters/goodfetch/src/adapter.ts", "--product", "foxhound"]
+      "command": [
+        "node",
+        "../adapters/goodfetch/src/adapter.ts",
+        "--product",
+        "foxhound",
+        "--setting",
+        "run_state.durability=batch"
+      ]
     },
     {
       "id": "foxhound-baseline",
-      "command": ["node", "../adapters/goodfetch/src/adapter.ts", "--product", "foxhound"]
+      "command": [
+        "node",
+        "../adapters/goodfetch/src/adapter.ts",
+        "--product",
+        "foxhound",
+        "--setting",
+        "run_state.durability=full"
+      ]
     }
   ]
 }

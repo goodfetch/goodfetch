@@ -3,8 +3,9 @@
 // cannot be measured fails: a quiet host must be shown, never assumed.
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { arch, cpus, loadavg, platform, totalmem } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import { parserOf } from "./schema.ts";
 
@@ -400,6 +401,56 @@ async function linuxSmtEnabled(): Promise<boolean | null> {
   return null;
 }
 
+/**
+ * Reads Linux `/sys/class/power_supply/*` to determine whether the host is on
+ * AC power. Reports `false` when a Mains/AC supply reads `0` or a Battery
+ * reports `Discharging`; reports `true` when an AC/Mains supply reads `1`, or
+ * on a mains-only server/VM with no power supply entries or batteries.
+ */
+export async function linuxOnAc(
+  powerSupplyDir = "/sys/class/power_supply",
+): Promise<boolean | null> {
+  let entries: string[];
+  try {
+    entries = await readdir(powerSupplyDir);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      // Mains-only servers and VMs often expose no /sys/class/power_supply.
+      return true;
+    }
+    return null;
+  }
+  if (entries.length === 0) {
+    return true;
+  }
+  let sawMainsOnline = false;
+  let sawBattery = false;
+  for (const entry of entries) {
+    const dir = join(powerSupplyDir, entry);
+    const kind = (await contents(join(dir, "type")))?.trim();
+    if (kind === "Mains" || kind === "USB" || kind === "AC") {
+      const online = (await contents(join(dir, "online")))?.trim();
+      if (online === "0") {
+        return false;
+      }
+      if (online === "1") {
+        sawMainsOnline = true;
+      }
+    } else if (kind === "Battery") {
+      sawBattery = true;
+      const status = (await contents(join(dir, "status")))?.trim();
+      if (status === "Discharging") {
+        return false;
+      }
+    }
+  }
+  if (sawMainsOnline || !sawBattery) {
+    return true;
+  }
+  // Batteries exist and none are discharging, with no explicit mains online file.
+  return true;
+}
+
 async function linuxValues(): Promise<PlatformValues> {
   const meminfo = await contents("/proc/meminfo");
   const total = meminfo?.match(/MemTotal:\s+(\d+)/)?.[1];
@@ -412,7 +463,7 @@ async function linuxValues(): Promise<PlatformValues> {
         ? null
         : Math.round((Number(available) * 100) / Number(total)),
     thermal_warning: temperature === null ? null : Number(temperature) > 90_000,
-    on_ac: true,
+    on_ac: await linuxOnAc(),
     low_power_mode: false,
     cpu_governor: governor?.trim() ?? null,
     virtualized: await linuxVirtualized(),

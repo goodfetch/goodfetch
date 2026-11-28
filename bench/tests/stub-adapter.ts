@@ -22,15 +22,23 @@ const { values } = parseArgs({
     "delay-ms": { type: "string", default: "0" },
     "hang-once": { type: "boolean", default: false },
     capabilities: { type: "string", default: "extract" },
+    "false-success-at-concurrency": { type: "string" },
+    "extra-fetches": { type: "string", default: "0" },
   },
 });
 const delayMs = Number(values["delay-ms"]);
+const extraFetches = Number(values["extra-fetches"]);
+const falseSuccessAtConcurrency =
+  values["false-success-at-concurrency"] === undefined
+    ? null
+    : Number(values["false-success-at-concurrency"]);
 const hangMark =
   values["hang-once"] && process.env["GOODFETCH_BENCH_STUB_STATE"] !== undefined
     ? join(process.env["GOODFETCH_BENCH_STUB_STATE"], "hung")
     : null;
 
 let address = "";
+let preparedConcurrency = 1;
 let runs = 0;
 let hung = false;
 
@@ -69,13 +77,22 @@ function field(text: string, pattern: RegExp): string {
 }
 
 async function run(startUrl: string): Promise<unknown> {
-  const text = await page(new URL(startUrl));
+  const target = new URL(startUrl);
+  const text = await page(target);
+  for (let i = 0; i < extraFetches; i += 1) {
+    await page(target);
+  }
   const product = {
     id: field(text, /<article class="product" data-id="([^"]+)"/),
     name: field(text, /<h1 class="name">([^<]+)<\/h1>/),
     price: field(text, /data-price="([^"]+)"/),
   };
-  const records = [values.answer === "wrong" ? { ...product, price: "0.01" } : product];
+  const forceWrong =
+    values.answer === "wrong" ||
+    (falseSuccessAtConcurrency !== null &&
+      preparedConcurrency >= falseSuccessAtConcurrency &&
+      runs > 1);
+  const records = [forceWrong ? { ...product, price: "0.01" } : product];
   return { status: "success", records };
 }
 
@@ -100,6 +117,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         typeof ground === "object" && ground !== null && "address" in ground
           ? String(ground.address)
           : "";
+      const conc = message.params["concurrency"];
+      preparedConcurrency = typeof conc === "number" && conc >= 1 ? conc : 1;
       reply(message.id, {});
       return;
     }

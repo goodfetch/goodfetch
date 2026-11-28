@@ -1,66 +1,91 @@
-// Integration test (spec #152, issue 178): runs a real Proving ground campaign
-// and drives the concurrency search over [1, 8, 64, 256] against a scripted
-// curve anchored on the real run's verified throughput, then verifies the
-// published GovernorCeilings artifact read by the Engine runtime (ADR 0040).
+// Integration test (spec #152, issue 178): runs a real multi-concurrency
+// campaign (`concurrency_levels: [1, 2, 4]`) against the Proving ground using
+// `stub-adapter.ts`, verifying that `runner.ts` executes real multi-concurrency
+// sweeps, stops at the scripted false-success cutoff, and writes a validated
+// `governor-ceilings.json` artifact aligned with Engine runtime's 3 WorkKinds.
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
-import {
-  parseGovernorCeilings,
-  runConcurrencySearch,
-  STANDARD_CONCURRENCY_LEVELS,
-  toGovernorCeilings,
-} from "../src/load.ts";
-import { bench, written } from "./bench.ts";
+import { parseGovernorCeilings } from "../src/load.ts";
+import { runCampaign } from "../src/runner.ts";
 
 describe("load runs and concurrency search", { tags: ["story:2-17", "story:2-70"] }, () => {
   test.override("provingGroundSeed", 152);
 
-  test("runs concurrency search over declared levels and publishes GovernorCeilings", async ({
+  test("executes real multi-concurrency stub-adapter sweep and writes governor-ceilings.json", async ({
     provingGround,
   }) => {
-    const ran = await bench("stubs.json", provingGround.address);
-    expect(ran.stderr).toBe("");
-    const { record } = await written(ran.out);
+    const dir = await mkdtemp(join(tmpdir(), "goodfetch-load-"));
+    try {
+      const stubPath = fileURLToPath(new URL("./stub-adapter.ts", import.meta.url));
+      const campaignPath = join(dir, "load-sweep.json");
+      await writeFile(
+        campaignPath,
+        JSON.stringify({
+          id: "http-crawl",
+          host_class: { requested: "local-dev", allow_downgrade: false },
+          order_seed: 178,
+          blocks: 1,
+          warmup: 0,
+          iterations: 6,
+          concurrency: 1,
+          concurrency_levels: [1, 2, 4],
+          timeout_ms: 10000,
+          max_duration_ms: 60000,
+          max_restarts: 1,
+          adapters: [
+            {
+              id: "scripted-load",
+              command: [
+                "node",
+                stubPath,
+                "--delay-ms",
+                "40",
+                "--false-success-at-concurrency",
+                "4",
+              ],
+            },
+          ],
+          tasks: ["catalog/2"],
+        }),
+      );
 
-    const baselineCell = record.cells.find((c) => c.gate === "passed");
-    const baseTps = baselineCell?.metrics.verified_tasks_per_second.value ?? 10;
+      const { directory, record } = await runCampaign({
+        campaignPath,
+        provingGround: provingGround.address,
+        out: dir,
+      });
 
-    // Scripted curve: scales up cleanly at 1 -> 8 -> 64, then saturates at 256.
-    const multipliers: Readonly<Record<number, number>> = {
-      1: 1,
-      8: 6,
-      64: 24,
-      256: 22,
-    };
+      const search = record.concurrency_search;
+      if (search === null) {
+        throw new Error("expected concurrency_search in run.json");
+      }
+      expect(search.levels.map((l) => l.concurrency)).toEqual([1, 2, 4]);
+      expect(search.levels[0]?.false_success).toBe(0);
+      expect(search.levels[1]?.false_success).toBe(0);
+      expect(search.levels[1]?.verified_tasks_per_second).toBeGreaterThan(
+        search.levels[0]?.verified_tasks_per_second ?? 0,
+      );
+      expect(search.levels[2]?.false_success).toBeGreaterThan(0);
+      expect(search.stop_reason).toBe("false_success");
+      expect(search.stopped_at_concurrency).toBe(4);
+      expect(search.highest_safe_concurrency).toBe(2);
 
-    const search = await runConcurrencySearch({
-      levels: STANDARD_CONCURRENCY_LEVELS,
-      measure: async (concurrency) => ({
-        concurrency,
-        verified_tasks_per_second: baseTps * (multipliers[concurrency] ?? 1),
-        verified: baselineCell?.counts.verified ?? 5,
-        false_success: 0,
-        failed: 0,
-        total_attempts: baselineCell?.counts.verified ?? 5,
-      }),
-    });
-
-    expect(search.highest_safe_concurrency).toBe(64);
-    expect(search.stop_reason).toBe("throughput_plateau");
-    expect(search.stopped_at_concurrency).toBe(256);
-
-    const ceilings = toGovernorCeilings({
-      product: "foxhound",
-      family: "http-crawl",
-      search,
-      hostClass: record.host.class_granted,
-      measuredAt: record.finished_at,
-      provenanceCommit: record.provenance.git?.sha ?? "unknown",
-    });
-
-    const parsed = parseGovernorCeilings(JSON.parse(JSON.stringify(ceilings)));
-    expect(parsed.schema_version).toBe(1);
-    expect(parsed.default_ceiling).toBe(64);
-    expect(parsed.levels.map((l) => l.concurrency)).toEqual([1, 8, 64, 256]);
+      const ceilingsFile: unknown = JSON.parse(
+        await readFile(join(directory, "governor-ceilings.json"), "utf8"),
+      );
+      const parsed = parseGovernorCeilings(ceilingsFile);
+      expect(parsed.schema_version).toBe(1);
+      expect(parsed.work_kind).toBe("http");
+      expect(parsed.setting).toBe("governor.http.ceiling");
+      expect(parsed.default_ceiling).toBe(2);
+      expect(parsed.ceilings).toEqual({ http: 2, browser_page: null, model_call: null });
+      expect(record.governor_ceilings).toEqual(parsed);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

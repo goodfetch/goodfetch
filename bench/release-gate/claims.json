@@ -89,7 +89,27 @@
       "delta": null,
       "delta_approved_by_owner": false,
       "declared_at": "2026-11-28T00:00:00.000Z",
-      "notes": "Runs on each Product executable; delta awaits reference host run-to-run spread (ADR 0076)."
+      "notes": "Collie startup and binding overhead; delta awaits reference host run-to-run spread (ADR 0076)."
+    },
+    {
+      "id": "RG-startup-binding-foxhound",
+      "family": "startup-binding",
+      "product": "foxhound",
+      "primary_metric": "startup_ms",
+      "delta": null,
+      "delta_approved_by_owner": false,
+      "declared_at": "2026-11-28T00:00:00.000Z",
+      "notes": "Foxhound startup and binding overhead; delta awaits reference host run-to-run spread (ADR 0076)."
+    },
+    {
+      "id": "RG-run-state-and-admission",
+      "family": "run-state-and-admission",
+      "product": "foxhound",
+      "primary_metric": "verified_tasks_per_second",
+      "delta": null,
+      "delta_approved_by_owner": false,
+      "declared_at": "2026-11-28T00:00:00.000Z",
+      "notes": "Run-state durability (batch/full/off) and fair admission (fewest_in_flight/round_robin); delta awaits reference host run-to-run spread (ADR 0076)."
     },
     {
       "id": "RG-control-cost",

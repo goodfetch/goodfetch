@@ -153,8 +153,9 @@ policy = ["shelf"]
 shelf = []
 
 [submodules.payments]
-chain = []
-facilitator = ["chain"]
+chain = ["http"]
+facilitator = ["chain", "http"]
+http = []
 
 [submodules.dns]
 message = []

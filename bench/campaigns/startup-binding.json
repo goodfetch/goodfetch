@@ -17,10 +17,12 @@
   "adapters": [
     {
       "id": "collie-default",
+      "tasks": ["catalog/2"],
       "command": ["node", "../adapters/goodfetch/src/adapter.ts", "--product", "collie"]
     },
     {
       "id": "foxhound-default",
+      "tasks": ["catalog/1"],
       "command": ["node", "../adapters/goodfetch/src/adapter.ts", "--product", "foxhound"]
     }
   ]

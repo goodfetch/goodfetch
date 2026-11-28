@@ -7,24 +7,20 @@
     reason = "the facilitator stand-in opens its own loopback listener outside the engine transport (ADR 0060)"
 )]
 
-use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use http_body_util::{BodyExt as _, Full, Limited};
 use hyper::body::{Bytes, Incoming};
-use hyper::header::CONTENT_TYPE;
-use hyper::server::conn::http1;
-use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
-use hyper_util::rt::TokioIo;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::json;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use super::chain::{Chain, NETWORK, NonceState, SigningInput};
+use super::http;
 
 const BODY_LIMIT: usize = 256 * 1024;
 
@@ -245,9 +241,7 @@ impl Facilitator {
 
 impl FacilitatorServer {
     pub(crate) async fn bind(host: IpAddr, facilitator: Facilitator) -> Result<Self> {
-        let listener = TcpListener::bind((host, 0))
-            .await
-            .context("binding the x402 facilitator stand-in")?;
+        let listener = http::bind(host, "the x402 facilitator stand-in").await?;
         Ok(Self {
             listener,
             facilitator,
@@ -255,31 +249,11 @@ impl FacilitatorServer {
     }
 
     pub(crate) fn address(&self) -> Result<SocketAddr> {
-        self.listener
-            .local_addr()
-            .context("reading the facilitator's address")
+        http::address(&self.listener, "the facilitator")
     }
 
     pub(crate) async fn run(self, tracker: TaskTracker, stop: CancellationToken) {
-        loop {
-            let accepted = tokio::select! {
-                () = stop.cancelled() => return,
-                accepted = self.listener.accept() => accepted,
-            };
-            let Ok((stream, _)) = accepted else {
-                continue;
-            };
-            let facilitator = self.facilitator.clone();
-            tracker.spawn(async move {
-                let service = service_fn(move |request| {
-                    let facilitator = facilitator.clone();
-                    async move { Ok::<_, Infallible>(handle_http(facilitator, request).await) }
-                });
-                let _ = http1::Builder::new()
-                    .serve_connection(TokioIo::new(stream), service)
-                    .await;
-            });
-        }
+        http::serve(self.listener, self.facilitator, handle_http, tracker, stop).await;
     }
 }
 
@@ -297,17 +271,17 @@ async fn handle_http(
     match (request.method(), request.uri().path()) {
         (&Method::GET, "/supported") => {
             let kinds = facilitator.chain().supported_kinds(&SCHEMES);
-            json_response(StatusCode::OK, &json!({ "kinds": kinds }))
+            http::json_response(StatusCode::OK, &json!({ "kinds": kinds }))
         }
         (&Method::POST, "/verify") => {
             let Some(req) = read_body(request).await else {
-                return json_response(
+                return http::json_response(
                     StatusCode::BAD_REQUEST,
                     &json!({"isValid": false, "invalidReason": "malformed"}),
                 );
             };
             match facilitator.verify(&req.payment_payload, &req.payment_requirements) {
-                Ok(amount) => json_response(
+                Ok(amount) => http::json_response(
                     StatusCode::OK,
                     &json!({
                         "isValid": true,
@@ -315,7 +289,7 @@ async fn handle_http(
                         "settledAmount": amount.to_string(),
                     }),
                 ),
-                Err(reason) => json_response(
+                Err(reason) => http::json_response(
                     StatusCode::OK,
                     &json!({
                         "isValid": false,
@@ -326,18 +300,18 @@ async fn handle_http(
         }
         (&Method::POST, "/settle") => {
             let Some(req) = read_body(request).await else {
-                return json_response(
+                return http::json_response(
                     StatusCode::BAD_REQUEST,
                     &json!({"success": false, "errorReason": "malformed"}),
                 );
             };
             match facilitator.settle(&req.payment_payload, &req.payment_requirements) {
-                Ok(settlement) => json_response(
+                Ok(settlement) => http::json_response(
                     StatusCode::OK,
                     &serde_json::to_value(settlement)
                         .expect("invariant: settlement serializes to JSON"),
                 ),
-                Err(reason) => json_response(
+                Err(reason) => http::json_response(
                     StatusCode::OK,
                     &json!({
                         "success": false,
@@ -346,7 +320,7 @@ async fn handle_http(
                 ),
             }
         }
-        _ => json_response(StatusCode::NOT_FOUND, &json!({"error": "not_found"})),
+        _ => http::json_response(StatusCode::NOT_FOUND, &json!({"error": "not_found"})),
     }
 }
 
@@ -356,13 +330,4 @@ async fn read_body(request: Request<Incoming>) -> Option<FacilitatorRequest> {
         .await
         .ok()?;
     serde_json::from_slice(&collected.to_bytes()).ok()
-}
-
-fn json_response(status: StatusCode, value: &Value) -> Response<Full<Bytes>> {
-    let bytes = serde_json::to_vec(value).expect("invariant: JSON value serializes");
-    Response::builder()
-        .status(status)
-        .header(CONTENT_TYPE, "application/json")
-        .body(Full::new(Bytes::from(bytes)))
-        .expect("invariant: JSON response builds")
 }

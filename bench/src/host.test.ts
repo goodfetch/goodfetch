@@ -1,6 +1,9 @@
 // Host preflight, carried over from the lab's `host` tests: a class is granted
 // only when every gate of it passes, a gate it cannot measure fails, and the
 // agent app driving the run is not counted as foreign load.
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   assessHost,
@@ -8,6 +11,7 @@ import {
   calibrateNetworkProfile,
   classifyForPublication,
   classifyProcesses,
+  linuxOnAc,
   loadHostClasses,
   type HostSnapshot,
 } from "./host.ts";
@@ -314,5 +318,38 @@ describe("reference host class gates and publication classification", () => {
     expect(drifted.within_tolerance).toBe(false);
     expect(drifted.time_metrics_valid).toBe(false);
     expect(drifted.correctness_metrics_valid).toBe(true);
+  });
+
+  test("linuxOnAc reads /sys/class/power_supply AC online and Battery status", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "goodfetch-power-"));
+    try {
+      // Empty dir (mains-only server/VM) -> true
+      expect(await linuxOnAc(dir)).toBe(true);
+      expect(await linuxOnAc(join(dir, "missing"))).toBe(true);
+
+      // Mains offline -> false
+      const acDir = join(dir, "AC");
+      await mkdir(acDir);
+      await writeFile(join(acDir, "type"), "Mains\n");
+      await writeFile(join(acDir, "online"), "0\n");
+      expect(await linuxOnAc(dir)).toBe(false);
+
+      // Mains online -> true
+      await writeFile(join(acDir, "online"), "1\n");
+      expect(await linuxOnAc(dir)).toBe(true);
+
+      // Battery discharging -> false
+      const batDir = join(dir, "BAT0");
+      await mkdir(batDir);
+      await writeFile(join(batDir, "type"), "Battery\n");
+      await writeFile(join(batDir, "status"), "Discharging\n");
+      expect(await linuxOnAc(dir)).toBe(false);
+
+      // Battery charging -> true
+      await writeFile(join(batDir, "status"), "Charging\n");
+      expect(await linuxOnAc(dir)).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

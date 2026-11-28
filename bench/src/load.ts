@@ -39,12 +39,62 @@ export interface ConcurrencySearchResult {
   readonly levels: readonly LoadLevelMeasurement[];
 }
 
+/** Work kinds governed by the Engine runtime Resource governor (ADR 0040, `goodfetch-protocol::governor::WorkKind`). */
+export const GOVERNOR_WORK_KINDS = ["http", "browser_page", "model_call"] as const;
+export type GovernorWorkKind = (typeof GOVERNOR_WORK_KINDS)[number];
+
+/** Engine runtime ceiling setting key for each `WorkKind`. */
+export type GovernorCeilingSetting =
+  | "governor.http.ceiling"
+  | "governor.browser_page.ceiling"
+  | "governor.model_call.ceiling";
+
+/** Maps a work kind to its exact Engine runtime setting key. */
+export function settingForWorkKind(kind: GovernorWorkKind): GovernorCeilingSetting {
+  switch (kind) {
+    case "http":
+      return "governor.http.ceiling";
+    case "browser_page":
+      return "governor.browser_page.ceiling";
+    case "model_call":
+      return "governor.model_call.ceiling";
+    default: {
+      const exhaustive: never = kind;
+      return exhaustive;
+    }
+  }
+}
+
+/** Maps a benchmark family name to the primary governor `WorkKind` it exercises. */
+export function workKindForFamily(family: string): GovernorWorkKind {
+  switch (family) {
+    case "http-crawl":
+    case "run-state-and-admission":
+    case "incident-recovery":
+      return "http";
+    case "ai":
+      return "model_call";
+    default:
+      return "browser_page";
+  }
+}
+
+/** Published default ceilings per Engine runtime `WorkKind` (ADR 0040). */
+export interface GovernorWorkKindCeilings {
+  readonly http: number | null;
+  readonly browser_page: number | null;
+  readonly model_call: number | null;
+}
+
 /** Published default ceilings document read by the Engine runtime governor (ADR 0040). */
 export interface GovernorCeilings {
   readonly schema_version: 1;
   readonly product: Product;
   readonly family: string;
+  readonly work_kind: GovernorWorkKind;
+  readonly setting: GovernorCeilingSetting;
   readonly default_ceiling: number;
+  readonly ceilings: GovernorWorkKindCeilings;
   readonly peak_verified_tasks_per_second: number;
   readonly stop_reason: ConcurrencySearchStopReason;
   readonly stopped_at_concurrency: number;
@@ -54,6 +104,8 @@ export interface GovernorCeilings {
   readonly levels: readonly LoadLevelMeasurement[];
 }
 
+const nullableCeiling = { anyOf: [{ type: "integer", minimum: 1 }, { type: "null" }] };
+
 const governorCeilingsParser = parserOf<GovernorCeilings>({
   type: "object",
   additionalProperties: false,
@@ -61,7 +113,10 @@ const governorCeilingsParser = parserOf<GovernorCeilings>({
     "schema_version",
     "product",
     "family",
+    "work_kind",
+    "setting",
     "default_ceiling",
+    "ceilings",
     "peak_verified_tasks_per_second",
     "stop_reason",
     "stopped_at_concurrency",
@@ -74,7 +129,25 @@ const governorCeilingsParser = parserOf<GovernorCeilings>({
     schema_version: { const: 1 },
     product: { enum: ["collie", "foxhound"] },
     family: { type: "string", minLength: 1 },
+    work_kind: { enum: [...GOVERNOR_WORK_KINDS] },
+    setting: {
+      enum: [
+        "governor.http.ceiling",
+        "governor.browser_page.ceiling",
+        "governor.model_call.ceiling",
+      ],
+    },
     default_ceiling: { type: "integer", minimum: 1 },
+    ceilings: {
+      type: "object",
+      additionalProperties: false,
+      required: ["http", "browser_page", "model_call"],
+      properties: {
+        http: nullableCeiling,
+        browser_page: nullableCeiling,
+        model_call: nullableCeiling,
+      },
+    },
     peak_verified_tasks_per_second: { type: "number", minimum: 0 },
     stop_reason: { enum: ["false_success", "throughput_plateau", "exhausted_levels"] },
     stopped_at_concurrency: { type: "integer", minimum: 1 },
@@ -121,7 +194,7 @@ export function parseGovernorCeilings(raw: unknown, label = "governor ceilings")
  * verified throughput stops strictly rising or a false success appears.
  */
 export async function runConcurrencySearch(input: {
-  readonly levels?: readonly number[];
+  readonly levels?: readonly number[] | undefined;
   readonly measure: (concurrency: number) => Promise<LoadLevelMeasurement>;
 }): Promise<ConcurrencySearchResult> {
   const ordered = [...new Set(input.levels ?? STANDARD_CONCURRENCY_LEVELS)].toSorted(
@@ -176,6 +249,7 @@ export async function runConcurrencySearch(input: {
 export function toGovernorCeilings(input: {
   readonly product: Product;
   readonly family: string;
+  readonly workKind?: GovernorWorkKind | undefined;
   readonly search: ConcurrencySearchResult;
   readonly hostClass: HostClass;
   readonly measuredAt: string;
@@ -187,11 +261,20 @@ export function toGovernorCeilings(input: {
   ) {
     throw new Error("cannot publish governor ceilings when no concurrency level was safe");
   }
+  const workKind = input.workKind ?? workKindForFamily(input.family);
+  const ceiling = input.search.highest_safe_concurrency;
   const doc: GovernorCeilings = {
     schema_version: 1,
     product: input.product,
     family: input.family,
-    default_ceiling: input.search.highest_safe_concurrency,
+    work_kind: workKind,
+    setting: settingForWorkKind(workKind),
+    default_ceiling: ceiling,
+    ceilings: {
+      http: workKind === "http" ? ceiling : null,
+      browser_page: workKind === "browser_page" ? ceiling : null,
+      model_call: workKind === "model_call" ? ceiling : null,
+    },
     peak_verified_tasks_per_second: input.search.peak_verified_tasks_per_second,
     stop_reason: input.search.stop_reason,
     stopped_at_concurrency: input.search.stopped_at_concurrency,

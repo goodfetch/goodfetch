@@ -95,7 +95,58 @@ describe("concurrency search and governor ceilings", () => {
 
     const reparsed = parseGovernorCeilings(JSON.parse(JSON.stringify(ceilings)));
     expect(reparsed.default_ceiling).toBe(256);
+    expect(reparsed.work_kind).toBe("http");
+    expect(reparsed.setting).toBe("governor.http.ceiling");
+    expect(reparsed.ceilings).toEqual({ http: 256, browser_page: null, model_call: null });
     expect(reparsed.product).toBe("foxhound");
     expect(reparsed.levels).toHaveLength(4);
+  });
+
+  test("records highest_safe_concurrency null on level-1 false success and toGovernorCeilings throws", async () => {
+    const result = await runConcurrencySearch({
+      levels: STANDARD_CONCURRENCY_LEVELS,
+      measure: scripted({
+        1: { tps: 20, falseSuccess: 1 },
+        8: { tps: 100 },
+      }),
+    });
+
+    expect(result.highest_safe_concurrency).toBeNull();
+    expect(result.peak_verified_tasks_per_second).toBeNull();
+    expect(result.stop_reason).toBe("false_success");
+    expect(result.stopped_at_concurrency).toBe(1);
+    expect(result.levels).toHaveLength(1);
+
+    expect(() =>
+      toGovernorCeilings({
+        product: "foxhound",
+        family: "http-crawl",
+        search: result,
+        hostClass: "local-controlled",
+        measuredAt: "2026-11-28T00:00:00.000Z",
+        provenanceCommit: "133ec258a",
+      }),
+    ).toThrow(/no concurrency level was safe/);
+  });
+
+  test("stops on equal-throughput plateau (<=)", async () => {
+    const visited: number[] = [];
+    const result = await runConcurrencySearch({
+      levels: [1, 8, 64],
+      measure: async (c) => {
+        visited.push(c);
+        return scripted({
+          1: { tps: 50 },
+          8: { tps: 50 },
+          64: { tps: 120 },
+        })(c);
+      },
+    });
+
+    expect(visited).toEqual([1, 8]);
+    expect(result.highest_safe_concurrency).toBe(1);
+    expect(result.peak_verified_tasks_per_second).toBe(50);
+    expect(result.stop_reason).toBe("throughput_plateau");
+    expect(result.stopped_at_concurrency).toBe(8);
   });
 });

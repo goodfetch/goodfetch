@@ -4,8 +4,10 @@
 // with reasons, plus a Live check record and the list of rows where a Product
 // is behind a competitor for owner acceptance before promotion (#2252 Q4).
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { BenchError } from "./errors.ts";
 import type { EvaluationSize, Product } from "./evaluations.ts";
-import type { HostClass } from "./host.ts";
+import { hostClasses, type HostClass } from "./host.ts";
 import { metricCatalog, type MetricId } from "./metrics.ts";
 import { parserOf } from "./schema.ts";
 import type { RegressionOutcome } from "./statistics.ts";
@@ -21,6 +23,7 @@ export const BENCHMARK_FAMILIES = [
   "repeated-runs-drift",
   "incident-recovery",
   "startup-binding",
+  "run-state-and-admission",
   "control-cost",
   "access",
 ] as const;
@@ -33,6 +36,7 @@ export function smallestProductForFamily(family: BenchmarkFamily): Product {
     case "http-crawl":
     case "rendered-crawl":
     case "incident-recovery":
+    case "run-state-and-admission":
       return "foxhound";
     case "extraction":
     case "scripted-actions":
@@ -122,7 +126,7 @@ export function parseReleaseGateClaims(
 export function loadReleaseGateClaims(filePath?: string): ReleaseGateClaimsFile {
   const target =
     filePath === undefined
-      ? new URL("../release-gate/claims.json", import.meta.url).pathname
+      ? fileURLToPath(new URL("../release-gate/claims.json", import.meta.url))
       : filePath;
   const raw: unknown = JSON.parse(readFileSync(target, "utf8"));
   return parseReleaseGateClaims(raw, target);
@@ -182,7 +186,7 @@ export interface HostRunStatus {
   readonly host_class: HostClass;
   readonly host_label: string;
   readonly refused_by_host_gates: boolean;
-  readonly refusal_reason?: string;
+  readonly refusal_reason?: string | undefined;
 }
 
 /** Release-gate mode: full minor/major gate or patch correctness-only mode (ADRs 0030, 0032). */
@@ -194,10 +198,166 @@ export interface ReleaseGateInput {
   readonly claims: readonly ReleaseGateClaim[];
   readonly candidate_rows: readonly FamilyBenchmarkRow[];
   readonly previous_release_rows: readonly FamilyBenchmarkRow[];
-  readonly explanations?: readonly DeclaredRegressionExplanation[];
-  readonly evaluations?: readonly EvaluationGateInput[];
-  readonly behind_competitors?: readonly BehindCompetitorInput[];
+  readonly explanations?: readonly DeclaredRegressionExplanation[] | undefined;
+  readonly evaluations?: readonly EvaluationGateInput[] | undefined;
+  /** Optional owner-declared cause/next-cut annotations for behind-competitor rows computed from `candidate_rows`. */
+  readonly behind_competitors?: readonly BehindCompetitorInput[] | undefined;
   readonly host: HostRunStatus;
+}
+
+const familyBenchmarkRowSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "family",
+    "product",
+    "adapter",
+    "is_competitor",
+    "gate_passed",
+    "verified",
+    "false_success",
+    "failed",
+    "incomplete",
+    "timeout",
+    "crashed",
+    "primary_metric_value",
+  ],
+  properties: {
+    family: { enum: [...BENCHMARK_FAMILIES] },
+    product: { anyOf: [{ enum: ["collie", "foxhound"] }, { type: "null" }] },
+    adapter: { type: "string", minLength: 1 },
+    is_competitor: { type: "boolean" },
+    gate_passed: { type: "boolean" },
+    verified: { type: "integer", minimum: 0 },
+    false_success: { type: "integer", minimum: 0 },
+    failed: { type: "integer", minimum: 0 },
+    incomplete: { type: "integer", minimum: 0 },
+    timeout: { type: "integer", minimum: 0 },
+    crashed: { type: "integer", minimum: 0 },
+    primary_metric_value: { anyOf: [{ type: "number" }, { type: "null" }] },
+  },
+};
+
+const releaseGateClaimSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "family",
+    "product",
+    "primary_metric",
+    "delta",
+    "delta_approved_by_owner",
+    "declared_at",
+    "notes",
+  ],
+  properties: {
+    id: { type: "string", pattern: "^RG-[a-z0-9-]+$" },
+    family: { enum: [...BENCHMARK_FAMILIES] },
+    product: { enum: ["collie", "foxhound"] },
+    primary_metric: { enum: Object.keys(metricCatalog) },
+    delta: { anyOf: [{ type: "number", exclusiveMinimum: 0 }, { type: "null" }] },
+    delta_approved_by_owner: { type: "boolean" },
+    declared_at: instant,
+    notes: { type: "string" },
+  },
+};
+
+const releaseGateInputParser = parserOf<ReleaseGateInput>({
+  type: "object",
+  additionalProperties: false,
+  required: ["mode", "claims", "candidate_rows", "previous_release_rows", "host"],
+  properties: {
+    mode: { enum: ["release", "patch-correctness-only"] },
+    claims: { type: "array", items: releaseGateClaimSchema },
+    candidate_rows: { type: "array", items: familyBenchmarkRowSchema },
+    previous_release_rows: { type: "array", items: familyBenchmarkRowSchema },
+    explanations: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["product", "family", "metric", "explanation"],
+        properties: {
+          product: { enum: ["collie", "foxhound"] },
+          family: { enum: [...BENCHMARK_FAMILIES] },
+          metric: { enum: Object.keys(metricCatalog) },
+          explanation: { type: "string", minLength: 1 },
+        },
+      },
+    },
+    evaluations: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "size",
+          "product",
+          "capability",
+          "false_successes",
+          "safety_violations",
+          "regression_outcome",
+          "regression_delta_pp",
+          "regression_delta_approved_by_owner",
+        ],
+        properties: {
+          size: { enum: ["eval-pr", "eval-nightly", "eval-weekly"] },
+          product: { enum: ["collie", "foxhound"] },
+          capability: { type: "string", minLength: 1 },
+          false_successes: { type: "integer", minimum: 0 },
+          safety_violations: { type: "integer", minimum: 0 },
+          regression_outcome: { enum: ["passes", "fails", "inconclusive"] },
+          regression_delta_pp: { anyOf: [{ type: "number" }, { type: "null" }] },
+          regression_delta_approved_by_owner: { type: "boolean" },
+        },
+      },
+    },
+    behind_competitors: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "product",
+          "family",
+          "competitor",
+          "metric",
+          "gap",
+          "measured_cause",
+          "next_cut",
+        ],
+        properties: {
+          product: { enum: ["collie", "foxhound"] },
+          family: { enum: [...BENCHMARK_FAMILIES] },
+          competitor: { type: "string", minLength: 1 },
+          metric: { enum: Object.keys(metricCatalog) },
+          gap: { type: "string", minLength: 1 },
+          measured_cause: { type: "string", minLength: 1 },
+          next_cut: { type: "string", minLength: 1 },
+        },
+      },
+    },
+    host: {
+      type: "object",
+      additionalProperties: false,
+      required: ["host_class", "host_label", "refused_by_host_gates"],
+      properties: {
+        host_class: { enum: [...hostClasses] },
+        host_label: { type: "string", minLength: 1 },
+        refused_by_host_gates: { type: "boolean" },
+        refusal_reason: { type: "string", minLength: 1 },
+      },
+    },
+  },
+});
+
+/** Validates untrusted `bench release-gate` CLI input at the boundary. */
+export function parseReleaseGateInput(
+  raw: unknown,
+  label = "release-gate input",
+): ReleaseGateInput {
+  return releaseGateInputParser.parse(raw, label);
 }
 
 /** One blocking or reported reason from the release gate. */
@@ -269,14 +429,36 @@ function relativeWorsening(
   return (candidate - previous) / Math.abs(previous);
 }
 
+function formatGap(worsening: number, direction: "higher" | "lower"): string {
+  const pct = (worsening * 100).toFixed(1);
+  return direction === "higher" ? `-${pct}%` : `+${pct}%`;
+}
+
+/** Validates non-empty trimmed metadata on any caller-supplied behind-competitor notes. */
+function validateBehindCompetitorNote(note: BehindCompetitorInput): void {
+  if (
+    note.gap.trim().length === 0 ||
+    note.measured_cause.trim().length === 0 ||
+    note.next_cut.trim().length === 0
+  ) {
+    throw new BenchError(
+      "invalid_document",
+      `behind_competitors entry for ${note.product}/${note.family} vs ${note.competitor} requires non-empty gap, measured_cause and next_cut`,
+    );
+  }
+}
+
 /** Evaluates a release candidate against its previous release per Product. */
 export function evaluateReleaseGate(input: ReleaseGateInput): ReleaseGateDecision {
   const claimByKey = new Map<string, ReleaseGateClaim>(
     input.claims.map((claim) => [`${claim.product}:${claim.family}`, claim]),
   );
-  const claimByFamily = new Map<BenchmarkFamily, ReleaseGateClaim>(
-    input.claims.map((claim) => [claim.family, claim]),
-  );
+
+  const suppliedBehind = new Map<string, BehindCompetitorInput>();
+  for (const note of input.behind_competitors ?? []) {
+    validateBehindCompetitorNote(note);
+    suppliedBehind.set(`${note.product}:${note.family}:${note.competitor}:${note.metric}`, note);
+  }
 
   const perProduct: Record<
     Product,
@@ -291,6 +473,17 @@ export function evaluateReleaseGate(input: ReleaseGateInput): ReleaseGateDecisio
   };
 
   // 1. Evaluate candidate benchmark rows (competitor rows NEVER block).
+  const competitorRowsByFamily = new Map<BenchmarkFamily, FamilyBenchmarkRow[]>();
+  for (const row of input.candidate_rows) {
+    if (row.is_competitor) {
+      const list = competitorRowsByFamily.get(row.family) ?? [];
+      list.push(row);
+      competitorRowsByFamily.set(row.family, list);
+    }
+  }
+
+  const computedBehind: BehindCompetitorInput[] = [];
+
   for (const row of input.candidate_rows) {
     if (row.is_competitor || row.product === null) {
       continue;
@@ -325,8 +518,39 @@ export function evaluateReleaseGate(input: ReleaseGateInput): ReleaseGateDecisio
       continue;
     }
 
+    // Primary-metric lookup is strictly per (product, family) — never cross-match another Product's claim.
+    const claim = claimByKey.get(`${product}:${row.family}`);
+
+    // Compute behind-competitor rows directly from `candidate_rows` (#2252 Q4); competitor rows never block.
+    if (claim !== undefined && row.primary_metric_value !== null) {
+      const { direction } = metricCatalog[claim.primary_metric];
+      for (const comp of competitorRowsByFamily.get(row.family) ?? []) {
+        if (!comp.gate_passed || comp.primary_metric_value === null) {
+          continue;
+        }
+        const worsening = relativeWorsening(
+          row.primary_metric_value,
+          comp.primary_metric_value,
+          direction,
+        );
+        if (worsening > 0 && Number.isFinite(worsening)) {
+          const note = suppliedBehind.get(
+            `${product}:${row.family}:${comp.adapter}:${claim.primary_metric}`,
+          );
+          computedBehind.push({
+            product,
+            family: row.family,
+            competitor: comp.adapter,
+            metric: claim.primary_metric,
+            gap: formatGap(worsening, direction),
+            measured_cause: note?.measured_cause ?? "unmeasured — cause required before promotion",
+            next_cut: note?.next_cut ?? "undeclared — next cut required before promotion",
+          });
+        }
+      }
+    }
+
     // Primary-metric comparison against previous release.
-    const claim = claimByKey.get(`${product}:${row.family}`) ?? claimByFamily.get(row.family);
     const previous = input.previous_release_rows.find(
       (prev) => !prev.is_competitor && prev.product === product && prev.family === row.family,
     );
@@ -386,6 +610,10 @@ export function evaluateReleaseGate(input: ReleaseGateInput): ReleaseGateDecisio
         family_or_capability: `${evalItem.size}:${evalItem.capability}`,
         message: `${evalItem.size} (${evalItem.product}/${evalItem.capability}) reported false_successes=${evalItem.false_successes}, safety_violations=${evalItem.safety_violations}`,
       });
+    }
+    // Patch correctness-only mode checks correctness/safety only, never metric regressions.
+    if (input.mode === "patch-correctness-only") {
+      continue;
     }
     if (evalItem.regression_outcome === "fails") {
       if (evalItem.regression_delta_approved_by_owner) {
@@ -462,7 +690,7 @@ export function evaluateReleaseGate(input: ReleaseGateInput): ReleaseGateDecisio
     },
     blocking_reasons: allBlocking,
     release_notes_explanations: allExplanations,
-    behind_competitors: [...(input.behind_competitors ?? [])],
+    behind_competitors: computedBehind,
     live_check: liveCheck,
   };
 }

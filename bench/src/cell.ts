@@ -14,32 +14,40 @@ export type Phase = "conformance" | "warmup" | "measure";
 
 /** Per-attempt billable usage reported by an adapter for the cost model (ADR 0025). */
 export interface AttemptCostUsage {
-  readonly model?: {
-    readonly id: string;
-    readonly input_tokens: number;
-    readonly output_tokens: number;
-  };
-  readonly proxy?: {
-    readonly tier: string;
-    readonly bytes?: number;
-    readonly requests?: number;
-  };
-  readonly captcha?: {
-    readonly kind: string;
-    readonly solves: number;
-  };
-  readonly hosted_browser?: {
-    readonly vendor: string;
-    readonly minutes: number;
-  };
+  readonly model?:
+    | {
+        readonly id: string;
+        readonly input_tokens: number;
+        readonly output_tokens: number;
+      }
+    | undefined;
+  readonly proxy?:
+    | {
+        readonly tier: string;
+        readonly bytes?: number | undefined;
+        readonly requests?: number | undefined;
+      }
+    | undefined;
+  readonly captcha?:
+    | {
+        readonly kind: string;
+        readonly solves: number;
+      }
+    | undefined;
+  readonly hosted_browser?:
+    | {
+        readonly vendor: string;
+        readonly minutes: number;
+      }
+    | undefined;
   /** Human intervention time in seconds; reported in its own column, never folded into dollars. */
-  readonly human_seconds?: number;
+  readonly human_seconds?: number | undefined;
 }
 
 /** What an adapter reports of its own work on one task. */
 export interface AdapterMetrics {
-  readonly cdp_commands?: number;
-  readonly cost_usage?: AttemptCostUsage;
+  readonly cdp_commands?: number | undefined;
+  readonly cost_usage?: AttemptCostUsage | undefined;
 }
 
 /** One attempt, as `attempts.jsonl` writes it. */
@@ -54,7 +62,7 @@ export interface Attempt {
   readonly index: number;
   readonly status: AttemptStatus;
   /** What the tool itself reported (`success`, `needs-review`, `failure`), or `null` if it did not answer. */
-  readonly tool_status?: ToolStatus | null;
+  readonly tool_status?: ToolStatus | null | undefined;
   readonly error_code: BenchErrorCode | null;
   readonly reason: string | null;
   readonly timing: {
@@ -71,8 +79,10 @@ export interface Attempt {
   readonly adapter_metrics: AdapterMetrics | null;
 }
 
-/** How many attempts ended with each status. */
-export type Counts = Readonly<Record<AttemptStatus, number>>;
+/** How many attempts ended with each status, plus `needs_review` count (ADR 0025). */
+export type Counts = Readonly<Record<AttemptStatus, number>> & {
+  readonly needs_review: number;
+};
 
 /** One cell as the run record writes it, with its metrics. */
 export interface Cell {
@@ -107,7 +117,7 @@ const failures: ReadonlySet<AttemptStatus> = new Set([
   "crashed",
 ]);
 
-function zero(): Record<AttemptStatus, number> {
+function zero(): Record<AttemptStatus, number> & { needs_review: number } {
   return {
     verified: 0,
     incomplete: 0,
@@ -119,14 +129,23 @@ function zero(): Record<AttemptStatus, number> {
     unsupported: 0,
     rejected: 0,
     skipped_gate: 0,
+    needs_review: 0,
   };
 }
 
-/** How many of `attempts` ended with each status. */
-export function countStatuses(attempts: readonly { readonly status: AttemptStatus }[]): Counts {
+/** How many of `attempts` ended with each status (and how many reported `needs-review`). */
+export function countStatuses(
+  attempts: readonly {
+    readonly status: AttemptStatus;
+    readonly tool_status?: ToolStatus | null | undefined;
+  }[],
+): Counts {
   const counts = zero();
   for (const one of attempts) {
     counts[one.status] += 1;
+    if (one.tool_status === "needs-review") {
+      counts.needs_review += 1;
+    }
   }
   return counts;
 }

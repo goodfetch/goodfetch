@@ -31,11 +31,17 @@ use std::str::FromStr;
 /// bounded); past it, the oldest waiting query is forgotten.
 const PENDING_LIMIT: usize = 1024;
 
-/// The largest DNS message relayed over UDP or TCP.
+/// The largest DNS message relayed over UDP.
 const MESSAGE_LIMIT: usize = 65_535;
 
-/// The largest buffered TCP frame (two-byte length prefix plus message).
-const TCP_BUFFER_LIMIT: usize = 2 + MESSAGE_LIMIT;
+/// The largest DNS message relayed over TCP, matching `proving-ground/src/dns.rs`
+/// so an oversized client frame is rejected locally without closing the shared
+/// fixture stream.
+const TCP_MESSAGE_LIMIT: usize = 4096;
+
+/// The largest buffered outbound TCP data per socket (STYLE.md: every buffer
+/// is bounded).
+const TCP_WRITE_BUFFER_LIMIT: usize = 64 * 1024;
 
 /// The most concurrent TCP clients accepted inside the namespace (STYLE.md:
 /// every buffer is bounded).
@@ -514,8 +520,17 @@ impl TcpRelay {
                         }
                         Ok(read) => {
                             client.read_buf.extend_from_slice(&scratch[..read]);
-                            if client.read_buf.len() > TCP_BUFFER_LIMIT {
-                                broken = true;
+                            loop {
+                                match take_frame(&mut client.read_buf) {
+                                    Frame::Complete(body) => queries.push(body),
+                                    Frame::Incomplete => break,
+                                    Frame::Invalid => {
+                                        broken = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if broken {
                                 break;
                             }
                         }
@@ -527,33 +542,32 @@ impl TcpRelay {
                         }
                     }
                 }
-                if !broken {
-                    loop {
-                        match take_frame(&mut client.read_buf) {
-                            Frame::Complete(body) => queries.push(body),
-                            Frame::Incomplete => break,
-                            Frame::Invalid => {
-                                broken = true;
-                                break;
-                            }
-                        }
-                    }
-                }
             }
             if broken {
                 self.clients.remove(&id);
                 continue;
             }
+            let mut overflowed = false;
             for query in queries {
-                if message_id(&query).is_none() {
+                if !is_query(&query) {
                     continue;
                 }
-                if self.fixture.is_some() && self.pending.len() < PENDING_LIMIT {
+                let fixture_queued = self.fixture_write.len() - self.fixture_write_offset;
+                if self.fixture.is_some()
+                    && self.pending.len() < PENDING_LIMIT
+                    && fixture_queued + 2 + query.len() <= TCP_WRITE_BUFFER_LIMIT
+                {
                     push_frame(&mut self.fixture_write, &query);
                     self.pending.push_back((id, query));
-                } else if let Some(client) = self.clients.get_mut(&id) {
-                    push_frame(&mut client.write_buf, &server_failure(&query));
+                } else if let Some(client) = self.clients.get_mut(&id)
+                    && !queue_client_frame(client, &server_failure(&query))
+                {
+                    overflowed = true;
+                    break;
                 }
+            }
+            if overflowed {
+                self.clients.remove(&id);
             }
         }
     }
@@ -588,6 +602,7 @@ impl TcpRelay {
 
     fn read_fixture(&mut self) {
         let mut failed = false;
+        let mut replies = Vec::new();
         let mut scratch = [0_u8; 4096];
         if let Some(fixture) = &mut self.fixture {
             loop {
@@ -598,8 +613,17 @@ impl TcpRelay {
                     }
                     Ok(read) => {
                         self.fixture_read.extend_from_slice(&scratch[..read]);
-                        if self.fixture_read.len() > TCP_BUFFER_LIMIT {
-                            failed = true;
+                        loop {
+                            match take_frame(&mut self.fixture_read) {
+                                Frame::Complete(reply) => replies.push(reply),
+                                Frame::Incomplete => break,
+                                Frame::Invalid => {
+                                    failed = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if failed {
                             break;
                         }
                     }
@@ -612,20 +636,12 @@ impl TcpRelay {
                 }
             }
         }
-        loop {
-            match take_frame(&mut self.fixture_read) {
-                Frame::Complete(reply) => {
-                    if let Some((client_id, _)) = self.pending.pop_front()
-                        && let Some(client) = self.clients.get_mut(&client_id)
-                    {
-                        push_frame(&mut client.write_buf, &reply);
-                    }
-                }
-                Frame::Incomplete => break,
-                Frame::Invalid => {
-                    failed = true;
-                    break;
-                }
+        for reply in replies {
+            if let Some((client_id, _)) = self.pending.pop_front()
+                && let Some(client) = self.clients.get_mut(&client_id)
+                && !queue_client_frame(client, &reply)
+            {
+                self.clients.remove(&client_id);
             }
         }
         if failed {
@@ -679,11 +695,32 @@ impl TcpRelay {
         self.fixture_write.clear();
         self.fixture_write_offset = 0;
         for (client_id, query) in self.pending.drain(..) {
-            if let Some(client) = self.clients.get_mut(&client_id) {
-                push_frame(&mut client.write_buf, &server_failure(&query));
+            if let Some(client) = self.clients.get_mut(&client_id)
+                && !queue_client_frame(client, &server_failure(&query))
+            {
+                self.clients.remove(&client_id);
             }
         }
     }
+}
+
+/// Appends a framed message to `client.write_buf` if it fits within
+/// [`TCP_WRITE_BUFFER_LIMIT`]; returns `false` when a slow client's buffer
+/// would overflow so the caller drops it.
+fn queue_client_frame(client: &mut TcpClient, message: &[u8]) -> bool {
+    let queued = client.write_buf.len() - client.write_offset;
+    if queued + 2 + message.len() > TCP_WRITE_BUFFER_LIMIT {
+        return false;
+    }
+    push_frame(&mut client.write_buf, message);
+    true
+}
+
+/// Whether `message` carries a DNS query header (`proving-ground` ignores any
+/// message shorter than 12 bytes or with the QR response bit set, so skipping
+/// them keeps the FIFO `pending` queue aligned with fixture replies).
+fn is_query(message: &[u8]) -> bool {
+    message.len() >= 12 && message[2] & 0x80 == 0
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -699,7 +736,7 @@ fn take_frame(buffer: &mut Vec<u8>) -> Frame {
         return Frame::Incomplete;
     }
     let length = usize::from(u16::from_be_bytes([buffer[0], buffer[1]]));
-    if length == 0 {
+    if length == 0 || length > TCP_MESSAGE_LIMIT {
         return Frame::Invalid;
     }
     if buffer.len() < 2 + length {
@@ -762,9 +799,25 @@ mod tests {
     }
 
     #[test]
-    fn take_frame_rejects_a_zero_length_prefix() {
-        let mut buffer = vec![0x00, 0x00];
+    fn take_frame_rejects_zero_and_oversized_length_prefixes() {
+        let mut zero = vec![0x00, 0x00];
+        let oversized_len = u16::try_from(TCP_MESSAGE_LIMIT + 1).unwrap();
+        let mut oversized = oversized_len.to_be_bytes().to_vec();
 
-        assert_eq!(take_frame(&mut buffer), Frame::Invalid);
+        assert_eq!(take_frame(&mut zero), Frame::Invalid);
+        assert_eq!(take_frame(&mut oversized), Frame::Invalid);
+    }
+
+    #[test]
+    fn is_query_rejects_short_messages_and_responses() {
+        let mut query = [0_u8; 12];
+        let mut response = [0_u8; 12];
+        response[2] = 0x80;
+
+        assert!(is_query(&query));
+        assert!(!is_query(&query[..11]));
+        assert!(!is_query(&response));
+        query[2] = 0x01;
+        assert!(is_query(&query));
     }
 }

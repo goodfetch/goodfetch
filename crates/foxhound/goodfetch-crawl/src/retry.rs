@@ -147,7 +147,7 @@ async fn reopened(
     // Atomically claim any declarations kept by a prior `crawl.start` so at
     // most one concurrent reopen can authorize them (#3542). If reopening
     // fails before a driver starts, restore the claim for a subsequent retry.
-    let claim = redeclared.claim(&run_id).await;
+    let claim = redeclared.claim(&run_id);
     let resumed = match context
         .runs()
         .resume(Resume {
@@ -164,7 +164,7 @@ async fn reopened(
         Ok(resumed) => resumed,
         Err(error) => {
             if let Some(claim) = claim {
-                claim.restore().await;
+                claim.restore();
             }
             return Err(run_error(error, &context));
         }
@@ -175,11 +175,11 @@ async fn reopened(
             let readmitted = readmit(identity, &run.state, blocked).await;
             if let Some(driver) = context.driver(kind) {
                 if let Some(claim) = claim {
-                    claim.deliver().await;
+                    claim.deliver();
                 }
                 identity.spawn(driver(*run.clone(), context.clone(), settings));
             } else if let Some(claim) = claim {
-                claim.restore().await;
+                claim.restore();
             }
             readmitted.map(|readmitted| RetriedFailed { readmitted })
         }
@@ -189,7 +189,7 @@ async fn reopened(
             ..
         } => {
             if let Some(claim) = claim {
-                claim.restore().await;
+                claim.restore();
             }
             Err(interrupted(&run_id))
         }
@@ -197,7 +197,7 @@ async fn reopened(
         // retry in a Run that stays as it is.
         Resumed::Unchanged { .. } => {
             if let Some(claim) = claim {
-                claim.restore().await;
+                claim.restore();
             }
             Ok(RetriedFailed { readmitted: 0 })
         }

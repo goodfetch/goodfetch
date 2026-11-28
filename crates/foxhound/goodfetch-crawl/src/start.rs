@@ -172,11 +172,12 @@ pub fn contribution(tiers: FetchTiers, sinks: Sinks) -> Contribution {
                         {
                             Ok(started) => started,
                             Err(error) => {
+                                redeclared.restore_delivering(run.identity.id());
                                 tracing::warn!(%error, run_id = %run.identity.id(), "the resumed crawl's Sinks were refused");
                                 return;
                             }
                         };
-                    let hooks = redeclared.record(&run.identity, &run.state).await;
+                    let hooks = redeclared.record(run.identity.id(), &run.state).await;
                     // Boxed: the resumed delivery's future is large.
                     Box::pin(delivery::resume(
                         run,
@@ -655,13 +656,17 @@ async fn resume_started(
         match resume_run(context, run_id, None, settings, timeout, pending.is_some()).await {
             Ok(resumed) => {
                 if let Some(pending) = pending {
-                    pending.commit();
+                    match resumed.started_as {
+                        StartedAs::Resumed => pending.commit(),
+                        StartedAs::Ended => pending.move_to_kept(),
+                        StartedAs::New => pending.cancel(),
+                    }
                 }
                 resumed
             }
             Err(error) => {
                 if let Some(pending) = pending {
-                    pending.cancel().await;
+                    pending.cancel();
                 }
                 return Err(error);
             }

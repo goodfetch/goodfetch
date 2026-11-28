@@ -40,7 +40,7 @@ fn connecting(proving_ground: &ProvingGround, mapping: HostMapping, clock: Clock
     Connecting {
         dns: Dns::new(
             mapping,
-            ResolverConfiguration::name_servers([fixture]).over_tcp(),
+            ResolverConfiguration::name_servers([fixture]),
             clock,
         ),
         clock,

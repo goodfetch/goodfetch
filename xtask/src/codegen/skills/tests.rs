@@ -258,7 +258,7 @@ fn a_skill_without_a_front_matter_does_not_render() {
 /// from the committed catalog and command lines with no finding, so none
 /// presents a person-only answer as the agent's action.
 ///
-/// Covers: story:11-240, skill:goodfetch-collie, skill:goodfetch-collie-cli
+/// Covers: story:11-240, skill:goodfetch-collie, skill:goodfetch-collie-cli, skill:goodfetch-collie-mcp
 #[test]
 fn the_topic_list_is_each_products_rendering_of_the_skills() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");

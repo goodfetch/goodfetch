@@ -12259,6 +12259,17 @@
       ]
     },
     {
+      "id": "skill:goodfetch-collie-mcp",
+      "kind": "skill",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:1-1",
       "kind": "story",
       "area": 1,

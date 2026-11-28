@@ -119,6 +119,10 @@ fn skill_install_writes_the_hosts_skills_folder(
                     "goodfetch-collie-cli",
                     folder.join("goodfetch-collie-cli").display().to_string()
                 ),
+                (
+                    "goodfetch-collie-mcp",
+                    folder.join("goodfetch-collie-mcp").display().to_string()
+                ),
             ],
             contents(tree(Path::new(RENDERINGS))),
         ),

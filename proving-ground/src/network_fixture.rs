@@ -159,7 +159,7 @@ impl NetworkFixtures {
             udp: udp.to_string(),
             chain: format!("http://{chain}"),
             facilitator: format!("http://{facilitator}"),
-            chain_accounts: self.chain_handle.accounts().clone(),
+            chain_accounts: self.chain_handle.report_accounts(),
         })
     }
 

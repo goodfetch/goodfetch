@@ -296,18 +296,7 @@ async fn handle_http(
 ) -> Response<Full<Bytes>> {
     match (request.method(), request.uri().path()) {
         (&Method::GET, "/supported") => {
-            let accounts = facilitator.chain().accounts();
-            let kinds: Vec<Value> = SCHEMES
-                .iter()
-                .map(|scheme| {
-                    json!({
-                        "x402Version": 2,
-                        "scheme": scheme,
-                        "network": accounts.network,
-                        "asset": accounts.token,
-                    })
-                })
-                .collect();
+            let kinds = facilitator.chain().supported_kinds(&SCHEMES);
             json_response(StatusCode::OK, &json!({ "kinds": kinds }))
         }
         (&Method::POST, "/verify") => {

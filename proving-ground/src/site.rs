@@ -158,8 +158,19 @@ impl Site {
         }
     }
 
-    pub(crate) fn payments(&self) -> &Payments {
-        &self.payments
+    /// Returns the local chain and facilitator handles used by the network fixtures.
+    pub(crate) fn payment_fixtures(
+        &self,
+    ) -> (
+        crate::payments::chain::Chain,
+        crate::payments::facilitator::Facilitator,
+    ) {
+        (self.payments.chain(), self.payments.facilitator())
+    }
+
+    /// Records the bound facilitator URL so x402 `402` challenges advertise it.
+    pub(crate) fn set_facilitator_url(&self, url: String) {
+        self.payments.set_facilitator_url(url);
     }
 
     /// Every host name the site serves, in order.

@@ -428,13 +428,13 @@ impl Payments {
             self.record_refused(task_id);
             return self.x402_402(scheme, max_amount, target, "malformed");
         };
-        let accounts = self.chain.accounts();
+        let (network, asset, pay_to) = self.chain.x402_terms();
         let requirements = PaymentRequirements {
             scheme: scheme.to_owned(),
-            network: accounts.network.clone(),
+            network: network.to_owned(),
             max_amount_required: max_amount.to_string(),
-            asset: accounts.token.clone(),
-            pay_to: accounts.payee_address.clone(),
+            asset: asset.to_owned(),
+            pay_to: pay_to.to_owned(),
             settle_amount: Some(settle_amount.to_string()),
         };
 
@@ -554,17 +554,17 @@ impl Payments {
     }
 
     fn x402_402(&self, scheme: &str, max_amount: u128, resource: &str, error_code: &str) -> Reply {
-        let accounts = self.chain.accounts();
+        let (network, asset, pay_to) = self.chain.x402_terms();
         let facilitator_url = self.ledger.lock().facilitator_url.clone();
         let body = json!({
             "x402Version": 2,
             "error": error_code,
             "accepts": [{
                 "scheme": scheme,
-                "network": accounts.network,
+                "network": network,
                 "maxAmountRequired": max_amount.to_string(),
-                "asset": accounts.token,
-                "payTo": accounts.payee_address,
+                "asset": asset,
+                "payTo": pay_to,
                 "resource": resource,
                 "maxTimeoutSeconds": 60,
                 "facilitator": facilitator_url,

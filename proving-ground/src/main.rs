@@ -223,19 +223,19 @@ async fn serve(
 ) -> Result<()> {
     let upstream = server.address();
     let reached = network.proxy_address().unwrap_or(upstream);
+    let (chain, facilitator) = server.site().payment_fixtures();
     let fixtures = NetworkFixtures::bind(
         reached.ip(),
         seed,
         server.observations(),
         server.proxy_tls(),
-        server.site().payments().chain(),
-        server.site().payments().facilitator(),
+        chain,
+        facilitator,
     )
     .await?;
     let addresses = fixtures.report()?;
     server
         .site()
-        .payments()
         .set_facilitator_url(addresses.facilitator.clone());
     server.observations().set_network_fixtures(
         serde_json::to_value(&addresses).context("reporting the network fixtures")?,

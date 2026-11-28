@@ -126,8 +126,33 @@ impl Chain {
         }
     }
 
-    pub(crate) fn accounts(&self) -> &ChainAccounts {
-        &self.accounts
+    /// Owned copy of the seeded chain accounts for fixture reporting.
+    pub(crate) fn report_accounts(&self) -> ChainAccounts {
+        self.accounts.clone()
+    }
+
+    /// Returns `(network, token, payee_address)` for x402 payment requirements.
+    pub(crate) fn x402_terms(&self) -> (&str, &str, &str) {
+        (
+            &self.accounts.network,
+            &self.accounts.token,
+            &self.accounts.payee_address,
+        )
+    }
+
+    /// Builds the `/supported` kinds array for the given x402 schemes.
+    pub(crate) fn supported_kinds(&self, schemes: &[&str]) -> Vec<Value> {
+        schemes
+            .iter()
+            .map(|scheme| {
+                json!({
+                    "x402Version": 2,
+                    "scheme": scheme,
+                    "network": self.accounts.network,
+                    "asset": self.accounts.token,
+                })
+            })
+            .collect()
     }
 
     pub(crate) fn block_timestamp(&self) -> u64 {

@@ -6,7 +6,9 @@ use std::path::Path;
 
 use serde_json::{Value, json};
 
-use crate::workspace::{Workspace, write_executable};
+use crate::workspace::Workspace;
+#[cfg(unix)]
+use crate::workspace::write_executable;
 
 fn repo_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -183,6 +185,7 @@ fn publish_advances_past_previously_published_version_and_checks_published_age()
     assert_eq!(doc3["expires_at"], "2026-12-14T00:00:00Z");
 }
 
+#[cfg(unix)]
 fn write_plugin_entry(
     workspace: &Workspace,
     name: &str,
@@ -206,6 +209,7 @@ fn write_plugin_entry(
     rel
 }
 
+#[cfg(unix)]
 #[test]
 fn review_accepts_verified_entry_and_refuses_bad_provenance_failed_suite_or_wall_bypass() {
     let workspace = Workspace::from_fixture("empty");

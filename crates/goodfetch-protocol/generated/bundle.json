@@ -302,6 +302,28 @@
       ],
       "type": "object"
     },
+    "ApprovalAnswered": {
+      "description": "What `needs_you.answer_approval` answers.",
+      "properties": {
+        "accepted": {
+          "arrived_in": "0.1",
+          "description": "Whether the pending approval accepted the answer.",
+          "type": "boolean"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "Why the answer was not accepted, when `accepted` is false.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "accepted"
+      ],
+      "type": "object"
+    },
     "Artifact": {
       "additionalProperties": false,
       "description": "A published file or package.",
@@ -7251,6 +7273,11 @@
         {
           "const": "challenge_ladder",
           "description": "The Challenge ladder (ADR 0035).",
+          "type": "string"
+        },
+        {
+          "const": "approval",
+          "description": "A person's approval of a model's or Recipe's unlisted domain or login action (ADR 0056).",
           "type": "string"
         }
       ]
@@ -15581,6 +15608,39 @@
       },
       "required": [
         "domain"
+      ],
+      "type": "object"
+    },
+    "NeedsYouAnswerApprovalParams": {
+      "additionalProperties": false,
+      "description": "What `needs_you.answer_approval` takes: the approval item's ID, whether the\nperson approves, and an optional note when declining (ADR 0056; #745).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "approve": {
+          "arrived_in": "0.1",
+          "description": "`true` to approve and continue; `false` to decline with `human_pause_declined`.",
+          "type": "boolean"
+        },
+        "id": {
+          "arrived_in": "0.1",
+          "description": "The pending approval item's ID from `needs_you.list`.",
+          "type": "string"
+        },
+        "note": {
+          "arrived_in": "0.1",
+          "description": "Optional note carried by `human_pause_declined` when declining.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "approve"
       ],
       "type": "object"
     },

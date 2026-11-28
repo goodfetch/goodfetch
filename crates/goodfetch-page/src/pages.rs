@@ -101,6 +101,7 @@ use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, Setti
 use goodfetch_protocol::usage::REQUESTS;
 use serde_json::Value;
 
+use crate::approvals::Approvals;
 use crate::blocks::{Block, BlockClassifier, NoBlocks};
 use crate::browser_fetch;
 use crate::browser_host::{self, RemoteSessions};
@@ -221,17 +222,20 @@ pub fn contribution_with(
     let handler_pages: Arc<dyn HandlerPages> = Arc::new(handler_pages);
     let interception = Interception::with_blocks(Arc::clone(&blocks));
     let dialogs = Dialogs::default();
+    let approvals = Approvals::default();
     let remote = Arc::new(RemoteSessions::default());
     let pages = Pages {
         sessions: Sessions::new(
             (pins, launcher),
             interception.clone(),
             dialogs.clone(),
+            approvals.clone(),
             Arc::clone(&handler_pages),
         ),
         interception,
         dialogs,
         pauses: pause::ActivePauses::default(),
+        approvals: approvals.clone(),
         cdp_sessions: cdp_session::CdpSessions::default(),
         lends: lend::ActiveLends::default(),
         code_sources: CodeSources::default(),
@@ -246,6 +250,7 @@ pub fn contribution_with(
                 remote: Arc::clone(&remote),
             }))
             .with_watched_sessions(Arc::new(pages.sessions.watched()))
+            .with_needs_you_source(approvals.needs_you_source())
             .with_run_state_tables(sessions::TABLES)
             .with_politeness_tables(proxy::TABLES)
             .with_clean_up_versions(pages.interception.versions()),
@@ -266,8 +271,11 @@ pub fn contribution_with(
     let contribution = cdp_session::with_cdp_session_handlers(contribution, &pages);
     let contribution = lend::with_lend_handlers(contribution, &pages);
     let contribution = borrow::with_borrow_handlers(contribution, &pages);
-    let contribution =
-        identity::with_identity_handlers(contribution, pages.sessions.launcher().clone());
+    let contribution = identity::with_identity_handlers(
+        contribution,
+        pages.sessions.launcher().clone(),
+        pages.approvals.clone(),
+    );
     let contribution = scroll_collect::with_scroll_collect_handler(contribution, &pages);
     let contribution = with_request_handler(contribution, &pages);
     pages.product.opened(Arc::new(Opener {
@@ -1412,6 +1420,8 @@ struct Pages {
     dialogs: Dialogs,
     /// The waiting Human pauses' slots, which `page.pause_answer` reaches.
     pauses: pause::ActivePauses,
+    /// Pending Human pause approvals for model / Recipe runs (ADR 0056; #745).
+    approvals: Approvals,
     /// The open raw CDP sessions (`page.new_cdp_session`).
     cdp_sessions: cdp_session::CdpSessions,
     /// The open lending endpoints (`page.lend`).
@@ -1472,11 +1482,7 @@ impl Pages {
         span.record("run_id", page.run.identity.id().as_str());
         let navigator = Navigator {
             acting_for_model: context.surface().acts_for_model(),
-            recipe_run: page
-                .run
-                .identity
-                .settings()
-                .is_some_and(|settings| settings.resolved().recipe_run()),
+            recipe_run: page.run.identity.is_recipe_run(),
             // No engine serves accounts before area 12's: a person's own
             // engine serves the program's own code alone (`engine_context::CALLER`).
             accounts: false,

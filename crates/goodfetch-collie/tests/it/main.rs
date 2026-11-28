@@ -56,6 +56,8 @@ mod daemon_kills;
 mod daemon_log;
 mod daemon_run;
 mod doctor;
+#[cfg(unix)]
+mod domain_bounds_and_approvals;
 mod domain_narrowing;
 mod egress_relay;
 mod endpoint;
@@ -131,7 +133,6 @@ mod renderer_sandbox;
 mod request_kinds;
 mod request_secrets;
 mod run;
-#[cfg(unix)]
 mod running_browser;
 mod rust_client;
 mod saved_identities;

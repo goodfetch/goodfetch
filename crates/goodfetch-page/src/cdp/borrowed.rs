@@ -96,10 +96,13 @@ pub(crate) fn resolve_of(settings: Option<&Resolved>) -> HostMapping {
 /// `ws://` one; `setting_invalid` for a Run whose domain lists hold no
 /// host; and `browser_launch_failed` naming the address when nothing
 /// answers there as a browser (#743 gives each case its own code).
-pub(crate) async fn connect(
-    (run, on): (&BrowserRun, &RunIdentity),
+/// Validates `cdp_url` against ADR 0056's address rules before connecting or
+/// waiting on a Human pause approval: parses its host/port, resolves its
+/// addresses through `network.resolve`, and judges them with `judge_cdp_url`.
+pub(crate) async fn validate_cdp_url(
+    run: &BrowserRun,
     cdp_url: &CdpUrl,
-) -> Result<Connection, CallError> {
+) -> Result<Vec<std::net::SocketAddr>, CallError> {
     let address = cdp_url.address();
     let (host, port) = cdp_url
         .host_and_port()
@@ -119,6 +122,15 @@ pub(crate) async fn connect(
     let endpoints = settings.map(EndpointPolicy::of).unwrap_or_default();
     judge_cdp_url(&cdp_url.url, &addresses, cdp_url.origin, &policy, endpoints)
         .map_err(|refused| refused.error())?;
+    Ok(addresses)
+}
+
+pub(crate) async fn connect(
+    (run, on): (&BrowserRun, &RunIdentity),
+    cdp_url: &CdpUrl,
+) -> Result<Connection, CallError> {
+    let address = cdp_url.address();
+    let addresses = validate_cdp_url(run, cdp_url).await?;
     let stream = TcpStream::connect(addresses.as_slice())
         .await
         .map_err(|error| {

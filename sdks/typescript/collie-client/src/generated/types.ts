@@ -823,7 +823,7 @@ export type PanicEnded = "call" | "attempt" | "page" | "session" | "browser" | "
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "EngineStep".
  */
-export type EngineStep = "login_recovery" | "challenge_ladder";
+export type EngineStep = "login_recovery" | "challenge_ladder" | "approval";
 /**
  * The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a
  * value, never an error, since a request is one among many.
@@ -2279,6 +2279,22 @@ export interface LimitScope {
    * The scope's kind.
    */
   kind: string;
+}
+/**
+ * What `needs_you.answer_approval` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ApprovalAnswered".
+ */
+export interface ApprovalAnswered {
+  /**
+   * Whether the pending approval accepted the answer.
+   */
+  accepted: boolean;
+  /**
+   * Why the answer was not accepted, when `accepted` is false.
+   */
+  reason?: string | null;
 }
 /**
  * Which Pinned artifact: its kind, its name and its build.
@@ -7252,6 +7268,27 @@ export interface NeedsYouAllowConsentDomainParams {
    * a `consent_wall` item names it, or `*` for every domain.
    */
   domain: string;
+}
+/**
+ * What `needs_you.answer_approval` takes: the approval item's ID, whether the
+ * person approves, and an optional note when declining (ADR 0056; #745).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NeedsYouAnswerApprovalParams".
+ */
+export interface NeedsYouAnswerApprovalParams {
+  /**
+   * `true` to approve and continue; `false` to decline with `human_pause_declined`.
+   */
+  approve: boolean;
+  /**
+   * The pending approval item's ID from `needs_you.list`.
+   */
+  id: string;
+  /**
+   * Optional note carried by `human_pause_declined` when declining.
+   */
+  note?: string | null;
 }
 /**
  * One thing waiting for a person.

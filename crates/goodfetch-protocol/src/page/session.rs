@@ -12,8 +12,8 @@ use serde_json::{Map, Value};
 
 use super::{ARRIVED_IN, PageOpened, SessionId};
 use crate::catalog::{
-    ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind, Reach, Stability,
-    schema_of,
+    ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind, Reach, SharedType,
+    SharedTypeValue, Stability, schema_of,
 };
 use crate::run::RunId;
 use crate::settings::session_source::SessionSource;
@@ -328,5 +328,55 @@ pub const RUNNING_BROWSER_UNSUPPORTED: ErrorCodeDefinition = ErrorCodeDefinition
     group: ErrorGroup::Program,
     retryable: false,
     exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `domain_not_allowed` details (ADRs 0056 and 0092; tickets #745 and #746).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DomainNotAllowedDetails {
+    /// The registrable domain that was outside the Session source's allowed `domains`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub domain: String,
+    /// The registrable domains allowed by the Session's source.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub allowed: Vec<String>,
+    /// The `session.source` kind that bound the Session (`running_browser`,
+    /// `cdp_url`, `profile_directory`, etc.).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub source: String,
+    /// The target URL when a navigation was refused; absent for cookie operations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: Option<String>,
+    /// Suggested fix.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
+/// `domain_not_allowed`.
+pub const DOMAIN_NOT_ALLOWED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "domain_not_allowed",
+    description: "A top-level navigation, new tab, or cookie operation targeted a registrable domain outside the Session source's bound `domains` (ADRs 0056 and 0092).",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A login was imported from a Session source (`state_file`, `cookie_header`,
+/// `installed_browser`, or `profile_directory`, ADR 0056).
+pub const LOGIN_IMPORTED: SharedTypeValue = SharedTypeValue {
+    shared_type: SharedType::AuditKind,
+    name: "login_imported",
+    description: "A login was imported from a Session source (`state_file`, `cookie_header`, `installed_browser`, or `profile_directory`) into a Session (ADR 0056).",
+    arrived_in: ARRIVED_IN,
+};
+
+/// A running or remote browser login was borrowed (`running_browser`, `cdp_url`,
+/// or `client_browser`, ADR 0056).
+pub const LOGIN_BORROWED: SharedTypeValue = SharedTypeValue {
+    shared_type: SharedType::AuditKind,
+    name: "login_borrowed",
+    description: "A browser login was borrowed (`running_browser`, `cdp_url`, or `client_browser`) for a Session (ADR 0056).",
     arrived_in: ARRIVED_IN,
 };

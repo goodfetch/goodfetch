@@ -128,6 +128,18 @@ class AllowanceSource(StrEnum):
     """Half of physical memory, when nothing tighter applies."""
 
 
+class ApprovalAnswered(BaseModel):
+    """What `needs_you.answer_approval` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    accepted: bool
+    """Whether the pending approval accepted the answer."""
+    reason: str | None = None
+    """Why the answer was not accepted, when `accepted` is false."""
+
+
 class ArtifactKind(StrEnum):
     """
     What a Pinned artifact is (ADR 0098: the clean-up's rule covers every
@@ -1306,6 +1318,8 @@ class EngineStep(StrEnum):
     """A login recovery (ADR 0006)."""
     challenge_ladder = "challenge_ladder"
     """The Challenge ladder (ADR 0035)."""
+    approval = "approval"
+    """A person's approval of a model's or Recipe's unlisted domain or login action (ADR 0056)."""
 
 
 class Enqueued1(BaseModel):
@@ -2476,6 +2490,23 @@ class NeedsYouAllowConsentDomainParams(BaseModel):
     The registrable domain whose consent walls the next runs accept, as
     a `consent_wall` item names it, or `*` for every domain.
     """
+
+
+class NeedsYouAnswerApprovalParams(BaseModel):
+    """
+    What `needs_you.answer_approval` takes: the approval item's ID, whether the
+    person approves, and an optional note when declining (ADR 0056; #745).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    approve: bool
+    """`true` to approve and continue; `false` to decline with `human_pause_declined`."""
+    id: str
+    """The pending approval item's ID from `needs_you.list`."""
+    note: str | None = None
+    """Optional note carried by `human_pause_declined` when declining."""
 
 
 class NeedsYouDenyWallDomainParams(BaseModel):

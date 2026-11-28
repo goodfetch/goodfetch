@@ -111,6 +111,10 @@ use self::lifecycle::{
 use crate::access_mode::{
     self, BrowserFamily, Refusal, SessionIdentityPlan, SessionSettings, SigningPlan,
 };
+use crate::approvals::{
+    ApprovalAction, ApprovalWait, Approvals, SourceDomains, approval_action_for_source,
+    caller_actor_label, record_login_audit, source_requires_approval,
+};
 use crate::browser_run::BrowserRun;
 use crate::cdp::CREATE_TARGET;
 use crate::cdp::borrowed::{CdpUrl, resolve_of};
@@ -188,6 +192,8 @@ pub(crate) struct Sessions {
     /// The open dialogs' slots, which each page's reader of its dialogs
     /// opens.
     dialogs: Dialogs,
+    /// Shared Human pause approval registry for model / Recipe runs (ADR 0056; #745).
+    approvals: Approvals,
     /// What each page carries for the Product that hands pages to
     /// handlers: its value and its response observer (ADR 0087).
     handler_pages: Arc<dyn HandlerPages>,
@@ -615,6 +621,7 @@ impl Sessions {
         (pins, launcher): (Vec<PinnedArtifact>, Launcher),
         interception: Interception,
         dialogs: Dialogs,
+        approvals: Approvals,
         handler_pages: Arc<dyn HandlerPages>,
     ) -> Self {
         Self {
@@ -625,6 +632,7 @@ impl Sessions {
             interception,
             consent: Consent::default(),
             dialogs,
+            approvals,
             handler_pages,
             page_owners: PageOwners::default(),
         }
@@ -682,8 +690,16 @@ impl Sessions {
         let browser_family = BrowserFamily::of(named.as_ref().map(|n| &n.source));
         let (identity, mut emulation) =
             session_plans(&settings, &run.identity, named.as_ref(), context)?;
-        let (opened, gpc) =
-            opening_source_and_gpc(&settings, &run, named, &self.launcher, context).await?;
+        let (resolved_source, gpc) = opening_source_and_gpc(
+            &settings,
+            &run,
+            named,
+            &self.launcher,
+            &self.approvals,
+            context,
+        )
+        .await?;
+        let opened = &resolved_source.opened;
         if let Some(saved) = opened.saved_identity() {
             crate::saved_identity::check_access_mode(saved, identity.mode)?;
             if emulation.locale.is_none() {
@@ -774,6 +790,8 @@ impl Sessions {
                 gpc.header_only(),
                 identity.mode == crate::access_mode::AccessMode::Identified,
                 settings.clone(),
+                resolved_source.source_domains.clone(),
+                Some((&self.approvals, context)),
             );
             let saved_state = carried.map_or_else(Arc::default, |carried| {
                 Arc::new(Mutex::new(SavedState {
@@ -820,7 +838,12 @@ impl Sessions {
         self.seat_and_record(
             (&run, &open),
             (&session, &life),
-            (SessionRow::opened(position, seed), &settings, &opened, gpc),
+            (
+                SessionRow::opened(position, seed),
+                &settings,
+                &resolved_source,
+                gpc,
+            ),
             context,
         )
         .await
@@ -833,7 +856,7 @@ impl Sessions {
         &self,
         (run, open): (&Arc<BrowserRun>, &Arc<Session>),
         (session, life): (&SessionId, &SessionLife),
-        (row, settings, opened, gpc): (SessionRow, &Values, &OpenedSource, GpcPlan),
+        (row, settings, resolved, gpc): (SessionRow, &Values, &ResolvedSource, GpcPlan),
         context: &CallContext,
     ) -> Result<SessionOpened, CallError> {
         if let Err(error) = open.seat.open().await {
@@ -848,10 +871,12 @@ impl Sessions {
             // A `close()` while it opened abandoned the open (S3).
             _ => return Err(cancelled(CancelledBy::Program, ClosedValue::Session)),
         }
-        self.record(run, row, settings, opened, context).await?;
+        self.record(run, row, settings, &resolved.opened, context)
+            .await?;
         mark_opened_session(run, open, session).await;
         warn_gpc(run, session, gpc).await;
-        warn_import(run, session, opened).await;
+        warn_import(run, session, &resolved.opened).await;
+        audit_opened_source(resolved.login_audit.as_ref(), run, session, context).await;
         Ok(SessionOpened {
             session_id: session.clone(),
         })
@@ -870,7 +895,7 @@ impl Sessions {
         let named = named_source(&run, None, context);
         let (identity, emulation) =
             session_plans(&Values::default(), &run.identity, named.as_ref(), context)?;
-        let opened = opening_source(&run, named, &self.launcher, context).await?;
+        let opened = opening_source(&run, named, &self.launcher, &self.approvals, context).await?;
         self.reach(&run, context).await?;
         let default = Arc::clone(&reached(&mut *self.state.lock().await, &run.identity)?.default);
         let position = *default
@@ -915,11 +940,12 @@ impl Sessions {
     async fn open_held(
         &self,
         run: &Arc<BrowserRun>,
-        source: &OpenedSource,
+        resolved: &ResolvedSource,
         (identity, emulation): (&SessionIdentityPlan, &SessionEmulation),
         opener: Opener,
         context: &CallContext,
     ) -> Result<u32, CallError> {
+        let source = &resolved.opened;
         let borrowed = source.borrowed();
         let carried = source.carried();
         let mut emulation = emulation.clone();
@@ -1035,6 +1061,8 @@ impl Sessions {
             gpc.header_only(),
             identity.mode == crate::access_mode::AccessMode::Identified,
             Values::default(),
+            resolved.source_domains.clone(),
+            Some((&self.approvals, context)),
         );
         let saved_state = carried.map_or_else(Arc::default, |carried| {
             Arc::new(Mutex::new(SavedState {
@@ -1085,6 +1113,7 @@ impl Sessions {
         }
         warn_gpc(run, &session, gpc).await;
         warn_import(run, &session, source).await;
+        audit_opened_source(resolved.login_audit.as_ref(), run, &session, context).await;
         if let Some(human_input) = &held.human_input {
             human_input.chosen(run, &session).await;
         }
@@ -1222,6 +1251,8 @@ impl Sessions {
                 false,
                 false,
                 settings.clone(),
+                None,
+                Some((&self.approvals, context)),
             );
             let open = Arc::new(Session {
                 owner,
@@ -1311,23 +1342,16 @@ impl Sessions {
         Ok(page)
     }
 
-    /// Saves a Session's login as a named Saved identity (`session.save_identity`,
-    /// ADRs 0035, 0089, 0092; tickets #736 and #737): refuses a Profile directory
-    /// used in place or a Borrowed browser with `session_not_savable`, otherwise
-    /// captures cookies and `localStorage`, encrypts them into the per-major
-    /// Saved identity store under the install-wide lock, and records the save in
-    /// the Audit log.
-    pub(crate) async fn save_identity(
+    /// Checks that `open` is savable (neither a Profile directory in place nor
+    /// a Borrowed browser) and waits for a person's approval when called by a
+    /// model or Recipe run (ADRs 0056 and 0092; ticket #745).
+    async fn check_savable_and_approve(
         &self,
+        open: &Session,
         session_id: &SessionId,
         name: &str,
         context: &CallContext,
-    ) -> Result<goodfetch_protocol::page::session::IdentitySaved, CallError> {
-        let name = crate::saved_identity::validate_name(name)?;
-        let open = self
-            .index
-            .session(session_id)
-            .ok_or_else(|| self.closed_session(session_id))?;
+    ) -> Result<(), CallError> {
         if open.is_profile_directory {
             return Err(CallError::new(
                 &goodfetch_protocol::page::session::SESSION_NOT_SAVABLE,
@@ -1355,6 +1379,52 @@ impl Sessions {
                 },
             ));
         }
+        let is_recipe_run = open.run.identity.is_recipe_run();
+        if context.surface().acts_for_model() || is_recipe_run {
+            let domains: Vec<String> = open
+                .saved_state
+                .lock()
+                .await
+                .last
+                .domains()
+                .into_iter()
+                .collect();
+            self.approvals
+                .wait_for_approval(ApprovalWait {
+                    action: ApprovalAction::SaveIdentity {
+                        session_id: session_id.clone(),
+                        name: name.to_owned(),
+                        domains,
+                    },
+                    actor: caller_actor_label(context, is_recipe_run),
+                    run: Some(&open.run),
+                    engine: context.engine(),
+                    cancellation: context.cancellation().clone(),
+                })
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Saves a Session's login as a named Saved identity (`session.save_identity`,
+    /// ADRs 0035, 0089, 0092; tickets #736 and #737): refuses a Profile directory
+    /// used in place or a Borrowed browser with `session_not_savable`, otherwise
+    /// captures cookies and `localStorage`, encrypts them into the per-major
+    /// Saved identity store under the install-wide lock, and records the save in
+    /// the Audit log.
+    pub(crate) async fn save_identity(
+        &self,
+        session_id: &SessionId,
+        name: &str,
+        context: &CallContext,
+    ) -> Result<goodfetch_protocol::page::session::IdentitySaved, CallError> {
+        let name = crate::saved_identity::validate_name(name)?;
+        let open = self
+            .index
+            .session(session_id)
+            .ok_or_else(|| self.closed_session(session_id))?;
+        self.check_savable_and_approve(&open, session_id, &name, context)
+            .await?;
         let carried = capture_session_carried(&open).await;
         let (cookie_count, origin_count) = carried.counts();
         let domains = carried.domains();
@@ -1498,7 +1568,7 @@ impl Sessions {
         let named = named_source(&run, pooled.source.clone(), context);
         let (identity, emulation) =
             session_plans(&Values::default(), &run.identity, named.as_ref(), context)?;
-        let source = opening_source(&run, named, &self.launcher, context).await?;
+        let source = opening_source(&run, named, &self.launcher, &self.approvals, context).await?;
         self.reach(&run, context).await?;
         let cell = Arc::clone(
             reached(&mut *self.state.lock().await, &run.identity)?
@@ -2653,6 +2723,8 @@ async fn reopened_session(
         gpc.header_only(),
         identified,
         settings.clone(),
+        None,
+        None,
     );
     warn_gpc(run, &session, gpc).await;
     Ok(Session {
@@ -2987,20 +3059,131 @@ impl OpenedSource {
     }
 }
 
+/// Audit metadata carried alongside a resolved Session source so successful
+/// Session openings write one `login_imported` or `login_borrowed` entry
+/// through `audit` (ADRs 0056 and 0140; ticket #745).
+struct LoginAudit {
+    kind: &'static goodfetch_protocol::catalog::SharedTypeValue,
+    source_kind: &'static str,
+    layer: SettingsLayer,
+    domains: Vec<String>,
+}
+
+/// The resolved Session source together with its parsed navigation domain
+/// bounds and Audit metadata (ADR 0056; ticket #745).
+struct ResolvedSource {
+    opened: OpenedSource,
+    source_domains: Option<Arc<SourceDomains>>,
+    login_audit: Option<LoginAudit>,
+}
+
 async fn opening_source(
     run: &Arc<BrowserRun>,
     named: Option<NamedSource>,
     launcher: &Launcher,
+    approvals: &Approvals,
     context: &CallContext,
-) -> Result<OpenedSource, CallError> {
+) -> Result<ResolvedSource, CallError> {
     let Some(NamedSource {
         source,
         layer,
         acting_for_model,
     }) = named
     else {
-        return Ok(OpenedSource::Fresh);
+        return Ok(ResolvedSource {
+            opened: OpenedSource::Fresh,
+            source_domains: None,
+            login_audit: None,
+        });
     };
+    let is_recipe_run = run.identity.is_recipe_run();
+    precheck_source(run, &source, layer, acting_for_model).await?;
+    let source_domains =
+        SourceDomains::for_navigation(&source, acting_for_model || is_recipe_run).map(Arc::new);
+    let login_audit = login_audit_for_source(&source, layer);
+    if source_requires_approval(&source, layer, acting_for_model, is_recipe_run) {
+        approvals
+            .wait_for_approval(ApprovalWait {
+                action: approval_action_for_source(&source, run.identity.id()),
+                actor: caller_actor_label(context, is_recipe_run),
+                run: Some(run),
+                engine: context.engine(),
+                cancellation: context.cancellation().clone(),
+            })
+            .await?;
+    }
+    let opened =
+        open_validated_source(run, source, layer, acting_for_model, launcher, context).await?;
+    Ok(ResolvedSource {
+        opened,
+        source_domains,
+        login_audit,
+    })
+}
+
+async fn precheck_source(
+    run: &Arc<BrowserRun>,
+    source: &SessionSource,
+    layer: SettingsLayer,
+    acting_for_model: bool,
+) -> Result<(), CallError> {
+    match source {
+        SessionSource::CdpUrl {
+            url, headers: None, ..
+        } => {
+            let cdp_url = CdpUrl {
+                url: url.clone(),
+                origin: CdpUrlOrigin {
+                    layer,
+                    acting_for_model,
+                },
+            };
+            let _ = crate::cdp::borrowed::validate_cdp_url(run, &cdp_url).await?;
+            Ok(())
+        }
+        SessionSource::CdpUrl {
+            headers: Some(_), ..
+        } => Err(unsupported_session_source(source, layer)),
+        SessionSource::RunningBrowser { browser, .. } => {
+            crate::cdp::running_browser::check_browser_supported(*browser)
+        }
+        _ => Ok(()),
+    }
+}
+
+fn login_audit_for_source(source: &SessionSource, layer: SettingsLayer) -> Option<LoginAudit> {
+    let domains: Vec<String> = match source {
+        SessionSource::CookieHeader { domain, .. } => vec![domain.clone()],
+        other => other.domains().to_vec(),
+    };
+    let kind = match source {
+        SessionSource::RunningBrowser { .. } | SessionSource::CdpUrl { .. } => {
+            &goodfetch_protocol::page::session::LOGIN_BORROWED
+        }
+        SessionSource::StateFile { .. }
+        | SessionSource::CookieHeader { .. }
+        | SessionSource::InstalledBrowser { .. }
+        | SessionSource::ProfileDirectory { .. } => {
+            &goodfetch_protocol::page::session::LOGIN_IMPORTED
+        }
+        SessionSource::SavedIdentity { .. } => return None,
+    };
+    Some(LoginAudit {
+        kind,
+        source_kind: source.kind(),
+        layer,
+        domains,
+    })
+}
+
+async fn open_validated_source(
+    run: &Arc<BrowserRun>,
+    source: SessionSource,
+    layer: SettingsLayer,
+    acting_for_model: bool,
+    launcher: &Launcher,
+    context: &CallContext,
+) -> Result<OpenedSource, CallError> {
     match source {
         SessionSource::SavedIdentity { name } => {
             let loaded =
@@ -3563,17 +3746,42 @@ async fn opening_source_and_gpc(
     run: &Arc<BrowserRun>,
     named: Option<NamedSource>,
     launcher: &Launcher,
+    approvals: &Approvals,
     context: &CallContext,
-) -> Result<(OpenedSource, GpcPlan), CallError> {
+) -> Result<(ResolvedSource, GpcPlan), CallError> {
     let source = named.as_ref().map(|named| named.source.clone());
-    let opened = opening_source(run, named, launcher, context).await?;
+    let resolved = opening_source(run, named, launcher, approvals, context).await?;
     let gpc = GpcPlan::of(
         settings,
         run.identity.settings().map(RunSettings::resolved),
         source.as_ref(),
-        opened.borrowed().is_some(),
+        resolved.opened.borrowed().is_some(),
     );
-    Ok((opened, gpc))
+    Ok((resolved, gpc))
+}
+
+async fn audit_opened_source(
+    login_audit: Option<&LoginAudit>,
+    run: &BrowserRun,
+    session: &SessionId,
+    context: &CallContext,
+) {
+    let Some(audit) = login_audit else {
+        return;
+    };
+    let details = json!({
+        "session_id": session,
+        "source_kind": audit.source_kind,
+        "domains": audit.domains,
+    });
+    record_login_audit(
+        context,
+        Some(run.identity.id().clone()),
+        Some(audit.layer),
+        audit.kind,
+        details,
+    )
+    .await;
 }
 
 /// Records any ADR 0056 import warnings (device-bound sessions excluded,
@@ -3614,6 +3822,10 @@ async fn warn_gpc(run: &BrowserRun, session: &SessionId, gpc: GpcPlan) {
 /// cannot resolve judged by where it would be resolved (ADR 0056; #2435);
 /// its requests are signed by `signing` when it is `identified`, and carry
 /// `Sec-GPC: 1` when `send_gpc_header` is set (ADR 0048).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "wires all Session-level interception policies, lookups, caching, and source-domain approvals once per Session"
+)]
 fn session_interception(
     (session, run): (&SessionId, &Arc<BrowserRun>),
     borrowed: Option<&BorrowedTarget>,
@@ -3622,6 +3834,8 @@ fn session_interception(
     send_gpc_header: bool,
     identified: bool,
     own_settings: Values,
+    source_domains: Option<Arc<SourceDomains>>,
+    approvals: Option<(&Approvals, &CallContext)>,
 ) -> Arc<SessionInterception> {
     let lookups =
         held_browser(borrowed.map(|target| &target.cdp_url), relayed, proxied).map(|browser| {
@@ -3643,6 +3857,13 @@ fn session_interception(
         )
         .map(|caching| caching.of_session(session))
     });
+    let approval_ctx = approvals.map(|(approvals, context)| {
+        (
+            approvals.clone(),
+            Arc::clone(run),
+            caller_actor_label(context, run.identity.is_recipe_run()),
+        )
+    });
     Arc::new(
         SessionInterception::new(
             session.clone(),
@@ -3652,7 +3873,8 @@ fn session_interception(
             identified,
             own_settings,
         )
-        .with_caching(caching),
+        .with_caching(caching)
+        .with_source_domains(source_domains, approval_ctx),
     )
 }
 

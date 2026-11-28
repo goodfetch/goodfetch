@@ -1814,6 +1814,17 @@
       ]
     },
     {
+      "id": "error:domain_not_allowed",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:edge_handlers_unsupported",
       "kind": "error",
       "area": 11,
@@ -4736,6 +4747,17 @@
     },
     {
       "id": "operation:needs_you.allow_consent_domain",
+      "kind": "operation",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:needs_you.answer_approval",
       "kind": "operation",
       "area": 12,
       "milestone": null,

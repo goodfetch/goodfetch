@@ -21,6 +21,7 @@ fn identity() -> (RunIdentity, StopAsker) {
         folder: "runs/identity".into(),
         clock: Clock::paused(UNIX_EPOCH),
         settings: None,
+        recipe_run: false,
         metrics: Metrics::new(&opentelemetry::global::meter("run-identity-tests")),
         span: tracing::Span::none(),
         owner: Arc::new(TaskOwner::root(BlockingPolicy::Inline)),

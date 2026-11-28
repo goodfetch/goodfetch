@@ -168,6 +168,8 @@ pub enum EngineStep {
     LoginRecovery,
     /// The Challenge ladder (ADR 0035).
     ChallengeLadder,
+    /// A person's approval of a model's or Recipe's unlisted domain or login action (ADR 0056).
+    Approval,
 }
 
 /// What `run.progress` takes.

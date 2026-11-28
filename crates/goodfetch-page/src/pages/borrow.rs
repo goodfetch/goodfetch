@@ -15,19 +15,18 @@
 
 use std::sync::Arc;
 
-use goodfetch_engine::audit::Origin;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
-use goodfetch_protocol::audit::Actor;
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::page::borrow::{
     BORROW_COMMAND, BORROW_FRAME, BORROW_READY, BORROW_REQUIRES_CDP, BorrowCommandToClient,
     BorrowEnded, BorrowFrameFromClient, BorrowReady, BorrowRequiresCdpDetails, RUN_BORROW,
     RunBorrowParams,
 };
-use jiff::Timestamp;
+use goodfetch_protocol::page::session::LOGIN_BORROWED;
 use serde_json::json;
 
 use super::Pages;
+use crate::approvals::{ApprovalAction, ApprovalWait, caller_actor_label, record_login_audit};
 use crate::cdp::borrowed::connect_relayed;
 use crate::cdp::driver::BorrowedBrowser;
 use crate::trace;
@@ -64,6 +63,7 @@ impl Pages {
         check_borrow_browser(params.browser.as_deref())?;
 
         let run = self.sessions.live_run(&params.run_id, &context).await?;
+        self.approve_borrow(&run, &context).await?;
         let browser_owner = run.identity.owner().child();
         let on = run.identity.starting_on(&browser_owner);
         let (connection, outgoing, incoming) =
@@ -108,7 +108,7 @@ impl Pages {
             }
         };
 
-        record_borrow_audit(&run, &session_id, page_id.as_ref()).await;
+        record_borrow_audit(&context, &run, &session_id, page_id.as_ref()).await;
         trace::provenance(
             &run.trace,
             json!({
@@ -158,6 +158,31 @@ impl Pages {
         Ok(BorrowEnded {
             reason: reason.to_owned(),
         })
+    }
+
+    async fn approve_borrow(
+        &self,
+        run: &crate::browser_run::BrowserRun,
+        context: &CallContext,
+    ) -> Result<(), CallError> {
+        let is_recipe_run = run.identity.is_recipe_run();
+        if !(context.surface().acts_for_model() || is_recipe_run) {
+            return Ok(());
+        }
+        self.approvals
+            .wait_for_approval(ApprovalWait {
+                action: ApprovalAction::BorrowLogin {
+                    source_kind: "client_browser",
+                    domains: Vec::new(),
+                    target: format!("Run `{}`", run.identity.id().as_str()),
+                },
+                actor: caller_actor_label(context, is_recipe_run),
+                run: Some(run),
+                engine: context.engine(),
+                cancellation: context.cancellation().clone(),
+            })
+            .await?;
+        Ok(())
     }
 
     /// Resolves the borrowed browser context, opens or joins its Session, and
@@ -383,33 +408,22 @@ fn check_borrow_browser(browser: Option<&str>) -> Result<(), CallError> {
 }
 
 async fn record_borrow_audit(
+    context: &CallContext,
     run: &crate::browser_run::BrowserRun,
     session_id: &goodfetch_protocol::page::SessionId,
     page_id: Option<&goodfetch_protocol::page::PageId>,
 ) {
-    let origin = Origin {
-        actor: Actor::Engine,
-        surface: None,
-        layer: None,
-        run_id: Some(run.identity.id().clone()),
-    };
-    let now = Timestamp::try_from(run.identity.point_in_time()).unwrap_or(Timestamp::UNIX_EPOCH);
     let details = json!({
         "session_id": session_id,
         "page_id": page_id,
-        "source": "client_browser",
+        "source_kind": "client_browser",
     });
-    if let Err(error) = run
-        .engine
-        .audit()
-        .record(
-            &origin,
-            &goodfetch_protocol::audit::RAW_CDP_ATTACHED,
-            details,
-            now,
-        )
-        .await
-    {
-        tracing::warn!(%error, session_id = %session_id.0, "could not record run.borrow() attach in Audit log");
-    }
+    record_login_audit(
+        context,
+        Some(run.identity.id().clone()),
+        None,
+        &LOGIN_BORROWED,
+        details,
+    )
+    .await;
 }

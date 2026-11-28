@@ -495,6 +495,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A top-level navigation, new tab, or cookie operation targeted a registrable domain outside the Session source's bound `domains` (ADRs 0056 and 0092).",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "domain_not_allowed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The program runs on an edge runtime, Cloudflare Workers, Vercel's edge runtime or Deno Deploy, which ends what it runs with its request, and asked for code the engine would call after it: a crawl's handlers, an SDK handler, a Hook in code or a lent page. Nothing was sent. Run that code as a Recipe on the Daemon, and start or poll its Run from the edge function.",
       "details": {
         "$ref": "#/$defs/EdgeHandlersUnsupportedDetails"
@@ -4497,6 +4507,27 @@
       "reach": "person_only",
       "result": {
         "$ref": "#/$defs/ConsentDomainAllowed"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Approves or declines a pending Human pause waiting for a person's approval (such as a model's or Recipe's unlisted domain navigation or login import, borrow, save, deletion, or export, ADR 0056). Offered only on a person's Client.",
+      "events": [
+        "needs_you.changed"
+      ],
+      "kind": "round_trip",
+      "name": "needs_you.answer_approval",
+      "params": {
+        "$ref": "#/$defs/NeedsYouAnswerApprovalParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/ApprovalAnswered"
       },
       "stability": "experimental"
     },
@@ -16756,6 +16787,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Client acting for a model or a Recipe run waits for a person's approval of an unlisted domain navigation or a login import, borrow, save, deletion, or export (ADR 0056).",
+      "name": "approval_requested",
+      "product": "collie",
+      "type": "needs_you_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The first entry of a pruned Audit log, in place of the entries `audit.retention` pruned: the last pruned sequence, its hash, from which the rest chains, and the time and layer of the pruning that left it.",
       "name": "audit_log_anchor",
       "product": "collie",
@@ -17257,6 +17295,20 @@
       "name": "local_address_rotated_within_block",
       "product": "foxhound",
       "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A browser login was borrowed (`running_browser`, `cdp_url`, or `client_browser`) for a Session (ADR 0056).",
+      "name": "login_borrowed",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A login was imported from a Session source (`state_file`, `cookie_header`, `installed_browser`, or `profile_directory`) into a Session (ADR 0056).",
+      "name": "login_imported",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

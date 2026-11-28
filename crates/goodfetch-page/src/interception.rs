@@ -138,7 +138,9 @@ use self::navigations::{NavigatingPage, Pending, PendingNavigation};
 use self::pipeline::{PageContext, Sender};
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
+use crate::approvals::{Approvals, SourceDomains};
 use crate::blocks::{BlockClassifier, NoBlocks};
+use crate::browser_run::BrowserRun;
 use crate::cdp::driver::{OnWorker, PageDriver, ServiceWorkers};
 use crate::cdp::{
     CdpPage, ContinueRequest, Fulfill, Header, InitScriptId, PausedId, RequestHeaders,
@@ -381,6 +383,12 @@ pub(crate) struct SessionInterception {
     /// What its requests are answered from before they leave, and kept in
     /// after, when its Run's cache or recording is on (ADR 0046).
     caching: Option<Arc<Caching>>,
+    /// The registrable domains this Session's source binds top-level
+    /// navigations and new tabs to (ADR 0056; ticket #745).
+    source_domains: Option<Arc<SourceDomains>>,
+    /// Shared Human pause approval registry and owning `BrowserRun` for
+    /// unlisted-domain approvals on model / Recipe runs (ADR 0056; #745).
+    approvals: Option<(Approvals, Arc<BrowserRun>, String)>,
 }
 
 impl SessionInterception {
@@ -410,6 +418,8 @@ impl SessionInterception {
             own_settings,
             failure: LeftFailure::default(),
             caching: None,
+            source_domains: None,
+            approvals: None,
         }
     }
 
@@ -417,6 +427,21 @@ impl SessionInterception {
     /// kept in it after, when it is some (ADR 0046).
     pub(crate) fn with_caching(self, caching: Option<Arc<Caching>>) -> Self {
         Self { caching, ..self }
+    }
+
+    /// The same, binding top-level navigations and new tabs to `source_domains`
+    /// and routing model/Recipe unlisted-domain approvals through `approvals`
+    /// (ADR 0056; ticket #745).
+    pub(crate) fn with_source_domains(
+        self,
+        source_domains: Option<Arc<SourceDomains>>,
+        approvals: Option<(Approvals, Arc<BrowserRun>, String)>,
+    ) -> Self {
+        Self {
+            source_domains,
+            approvals,
+            ..self
+        }
     }
 
     /// What its requests are answered from and kept in, when its Run's
@@ -878,7 +903,12 @@ impl Interception {
                 refusals,
                 run.clone(),
             )
-            .with_lookups(lookups),
+            .with_lookups(lookups)
+            .with_source_domains(
+                session.id.clone(),
+                session.source_domains.clone(),
+                session.approvals.clone(),
+            ),
         );
         run.identity().spawn(pipeline::dispatch(events, context));
         Ok(HeldPage {

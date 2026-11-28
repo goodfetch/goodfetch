@@ -57,6 +57,8 @@ use super::lookups::Lookups;
 use super::routes::Route;
 use super::steps::{self, Blocking, Overrides, Stopped, entries};
 use super::{PageState, RunPowers, lock};
+use crate::approvals::{ApprovalAction, ApprovalWait, Approvals, SourceDomains};
+use crate::browser_run::BrowserRun;
 use crate::cdp::driver::{PageDriver, cdp_response};
 use crate::cdp::{
     AuthChallenge, CdpPage, ContinueRequest, Fulfill, Header, InterceptionEvent,
@@ -165,6 +167,12 @@ pub(super) struct PageContext {
     /// Run's `network.resolve` mapping first, and judges its answers, since
     /// no relay is under that browser (ADR 0056; #2435).
     lookups: Option<Arc<Lookups>>,
+    /// Source domain bounds checked on top-level navigations at step 3
+    /// (ADR 0056; ticket #745).
+    source_domains: Option<(SessionId, Arc<SourceDomains>)>,
+    /// Shared Human pause approval registry for model/Recipe unlisted-domain
+    /// navigation prompts (ADR 0056; ticket #745).
+    approvals: Option<(Approvals, Arc<BrowserRun>, String)>,
     /// The Run trace's request log, where a refusal no page's event
     /// reports is recorded.
     log: Arc<RequestLog>,
@@ -243,6 +251,8 @@ impl PageContext {
             permit: Mutex::new(None),
             proxy_permit: Mutex::new(None),
             lookups: None,
+            source_domains: None,
+            approvals: None,
             log: Arc::new(RequestLog::new(&run.lists.trace)),
             run,
         }
@@ -262,6 +272,21 @@ impl PageContext {
     /// engine resolves through `lookups`, when it is one.
     pub(super) fn with_lookups(self, lookups: Option<Arc<Lookups>>) -> Self {
         Self { lookups, ..self }
+    }
+
+    /// The same, checking top-level navigations against `source_domains` at
+    /// step 3 (ADR 0056; ticket #745).
+    pub(super) fn with_source_domains(
+        self,
+        session_id: SessionId,
+        source_domains: Option<Arc<SourceDomains>>,
+        approvals: Option<(Approvals, Arc<BrowserRun>, String)>,
+    ) -> Self {
+        Self {
+            source_domains: source_domains.map(|bounds| (session_id, bounds)),
+            approvals,
+            ..self
+        }
     }
 }
 
@@ -544,6 +569,12 @@ impl PageContext {
         }
         let gated = self.driver.value().gate().is_some();
         if self.main_document(paused) {
+            if let Some((_, bounds)) = &self.source_domains
+                && bounds.requires_human_approval()
+                && bounds.check_url(url).is_err()
+            {
+                return true;
+            }
             gated || self.driver.proxy().is_some()
         } else {
             gated && matches!(self.sender, Sender::ServiceWorker { .. })
@@ -947,14 +978,8 @@ impl PageContext {
             }
             other => other,
         };
-        // Step 7's guard of the Session's cookies: none goes to a host the
-        // egress relay terminates for a certificate exception (ADR 0042).
-        // The browser adds them itself as the request leaves, so a request
-        // that would carry one is failed instead.
-        if matches!(stepped, Ok(steps::Sent::Continue(_)))
-            && let Some(withheld) = self.withhold_cookies(held).await
-        {
-            return Err(withheld);
+        if matches!(stepped, Ok(steps::Sent::Continue(_))) {
+            self.guard_continue(held).await?;
         }
         // The page whose navigation a service worker's request carries.
         let mut gated: Option<Arc<PageState>> = None;
@@ -1023,6 +1048,72 @@ impl PageContext {
         // redirect stripping (ADR 0092, ticket #733).
         self.step_seven_secrets(held, &mut command).await?;
         self.sent_on(held, command, fetch, gated.as_deref()).await
+    }
+
+    /// Runs post-egress guards on a request cleared to continue: step 3's
+    /// source-domain bounds on top-level navigations (ADR 0056; ticket #745)
+    /// and step 7's cookie guard for certificate-exception hosts (ADR 0042).
+    async fn guard_continue(&self, held: &Held) -> Result<(), CallError> {
+        if held.navigation {
+            self.step_three_source_domains(held).await?;
+        }
+        if let Some(withheld) = self.withhold_cookies(held).await {
+            return Err(withheld);
+        }
+        Ok(())
+    }
+
+    /// Runs [`Self::check_source_domains`] and fails `held` if it refuses.
+    async fn step_three_source_domains(&self, held: &Held) -> Result<(), CallError> {
+        let Err(refused) = self.check_source_domains(held).await else {
+            return Ok(());
+        };
+        self.state.leave(refused.clone());
+        record_outcome(self.run.identity(), refused.code());
+        self.fail(held.paused.id(), AbortReason::BlockedByClient)
+            .await;
+        Err(refused)
+    }
+
+    /// Checks top-level navigation `held` against the Session source's bound
+    /// registrable domains (ADR 0056; ticket #745): fails immediately with
+    /// `domain_not_allowed` for the person's own code, or waits in a Human
+    /// pause for a Client acting for a model or a Recipe run.
+    async fn check_source_domains(&self, held: &Held) -> Result<(), CallError> {
+        let Some((session_id, bounds)) = &self.source_domains else {
+            return Ok(());
+        };
+        let Err(unlisted_domain) = bounds.check_url(held.url()) else {
+            return Ok(());
+        };
+        if !bounds.requires_human_approval() {
+            return Err(bounds.refused_error(&unlisted_domain, Some(held.url())));
+        }
+        let Some((approvals, browser_run, actor)) = &self.approvals else {
+            return Err(bounds.refused_error(&unlisted_domain, Some(held.url())));
+        };
+        let page_id = match &self.sender {
+            Sender::Page(id) | Sender::Frame(id) => id.borrow().clone(),
+            Sender::ServiceWorker { .. } | Sender::SharedWorker => PageId(String::new()),
+        };
+        approvals
+            .wait_for_approval(ApprovalWait {
+                action: ApprovalAction::NavigateUnlistedDomain {
+                    session_id: session_id.clone(),
+                    page_id,
+                    source_kind: bounds.source_kind(),
+                    domain: unlisted_domain.clone(),
+                    url: held.url().to_owned(),
+                    allowed: bounds.allowed_list(),
+                },
+                actor: actor.clone(),
+                run: Some(browser_run),
+                engine: &browser_run.engine,
+                cancellation: self.run.identity().owner().child_token(),
+            })
+            .await?;
+        bounds.allow_domain(&unlisted_domain);
+        Ok(())
     }
 
     /// Runs [`Self::apply_secret_headers`] and fails `held` if it refuses.

@@ -35,6 +35,9 @@ struct Identity {
     folder: PathBuf,
     clock: Clock,
     settings: Option<RunSettings>,
+    /// Whether this Run was started as a Recipe run (via a Recipe settings
+    /// layer or the reserved `goodfetch.recipe` tag, ADRs 0036 and 0056).
+    recipe_run: bool,
     /// The reason it was asked to stop at its next safe point, once asked,
     /// or the reason it stopped at once.
     stop: watch::Receiver<Option<StopReason>>,
@@ -49,6 +52,7 @@ pub(crate) struct Parts {
     pub(crate) folder: PathBuf,
     pub(crate) clock: Clock,
     pub(crate) settings: Option<RunSettings>,
+    pub(crate) recipe_run: bool,
     pub(crate) metrics: Metrics,
     /// Its `tracing` span, a root of its own (ADR 0132), which each of its
     /// tasks runs in.
@@ -76,6 +80,7 @@ impl RunIdentity {
             folder,
             clock,
             settings,
+            recipe_run,
             metrics,
             span,
             owner,
@@ -87,6 +92,7 @@ impl RunIdentity {
                 folder,
                 clock,
                 settings,
+                recipe_run,
                 stop,
                 metrics,
                 span,
@@ -115,6 +121,17 @@ impl RunIdentity {
     /// The settings it was started with, when its start resolved them.
     pub fn settings(&self) -> Option<&RunSettings> {
         self.0.settings.as_ref()
+    }
+
+    /// Whether this Run is a Recipe run (either its settings carry a Recipe
+    /// layer or its tags carry the reserved `goodfetch.recipe` tag, ADR 0056).
+    pub fn is_recipe_run(&self) -> bool {
+        self.0.recipe_run
+            || self
+                .0
+                .settings
+                .as_ref()
+                .is_some_and(|settings| settings.resolved().recipe_run())
     }
 
     /// The runtime's metrics, which what the Run runs records in (ADR

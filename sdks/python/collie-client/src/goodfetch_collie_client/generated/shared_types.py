@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Literal, TypeAlias
 
-AuditKind: TypeAlias = Literal["audit_log_anchor", "audit_log_pruned", "cdp_session_attached", "certificate_any_used", "certificate_change_accepted", "certificate_exceptions_used", "certificate_pin_forgotten", "certificate_pinned", "consent_domain_allowed", "effect_reconciled", "endpoint_authentication_failed", "endpoint_refusals_folded", "exposed_daemon_set_up", "fingerprint_method_chosen", "human_pause_ended", "lent_page_attached", "operator_policy_written", "pressing_harder_value_set", "private_addresses_allowed", "raw_cdp_attached", "refetch_domain_removed", "run_rolled_back", "saved_identity_deleted", "saved_identity_exported", "saved_identity_reused", "saved_identity_saved", "secret_reference_used", "security_switch_turned_off", "session_exported", "session_imported", "tls_terminated_upstream", "user_configuration_written", "wall_allowance_used", "wall_domain_denied"] | str
+AuditKind: TypeAlias = Literal["audit_log_anchor", "audit_log_pruned", "cdp_session_attached", "certificate_any_used", "certificate_change_accepted", "certificate_exceptions_used", "certificate_pin_forgotten", "certificate_pinned", "consent_domain_allowed", "effect_reconciled", "endpoint_authentication_failed", "endpoint_refusals_folded", "exposed_daemon_set_up", "fingerprint_method_chosen", "human_pause_ended", "lent_page_attached", "login_borrowed", "login_imported", "operator_policy_written", "pressing_harder_value_set", "private_addresses_allowed", "raw_cdp_attached", "refetch_domain_removed", "run_rolled_back", "saved_identity_deleted", "saved_identity_exported", "saved_identity_reused", "saved_identity_saved", "secret_reference_used", "security_switch_turned_off", "session_exported", "session_imported", "tls_terminated_upstream", "user_configuration_written", "wall_allowance_used", "wall_domain_denied"] | str
 """A `audit_kind`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
@@ -29,6 +29,8 @@ received (ADR 0079).
 - `fingerprint_method_chosen`: A `stealth` Session opened with a Fingerprint method: the Session, the method, whether it fell back to `basic` because no Goodfetch Chromium exists for the machine (ADR 0035), and whether `stealth.allow_runtime` let its pages turn on the browser's `Runtime` domain.
 - `human_pause_ended`: A Human pause ended by a person's answer (Done, Hand back or Decline) or by its page or browser closing outside every Client (ADR 0113).
 - `lent_page_attached`: A page was lent to the program's own Playwright client (ADR 0089).
+- `login_borrowed`: A browser login was borrowed (`running_browser`, `cdp_url`, or `client_browser`) for a Session (ADR 0056).
+- `login_imported`: A login was imported from a Session source (`state_file`, `cookie_header`, `installed_browser`, or `profile_directory`) into a Session (ADR 0056).
 - `operator_policy_written`: A person wrote the Operator policy through `config.policy_write`, with its digest before and after and each key's values before and after.
 - `pressing_harder_value_set`: A run set a value that presses a site harder than its default, with the setting and its value (ADR 0086).
 - `private_addresses_allowed`: A run allowed private addresses through `egress.private_ranges`, with the ranges it listed.
@@ -87,12 +89,13 @@ received (ADR 0079).
 - `token`: Every run a Connection holding a named token starts.
 """
 
-NeedsYouKind: TypeAlias = Literal["certificate_changed", "consent_wall", "run_stopped_by_limit", "run_stopped_by_storage", "storage_level", "wall_refetch_stopped"] | str
+NeedsYouKind: TypeAlias = Literal["approval_requested", "certificate_changed", "consent_wall", "run_stopped_by_limit", "run_stopped_by_storage", "storage_level", "wall_refetch_stopped"] | str
 """A `needs_you_kind`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
 received (ADR 0079).
 
+- `approval_requested`: A Client acting for a model or a Recipe run waits for a person's approval of an unlisted domain navigation or a login import, borrow, save, deletion, or export (ADR 0056).
 - `certificate_changed`: A pinned host whose certificate presented another public key, stopped with `certificate_changed` (ADR 0042); `details` give the `host`, the `person` whose known-certificates store holds the pin, and both keys' SHA-256 as `pinned_spki_sha256` and `presented_spki_sha256`; `run` is the Run that met it. Its actions offer `certs.accept` and `certs.forget`, which that person alone answers. It leaves the list once they answer.
 - `consent_wall`: A domain whose consent wall a Run met and left at `consent_required` (ADR 0048), offered for `consent.domains` with `needs_you.allow_consent_domain`, a domain in `wall.denied_domains` too (ADR 0052); `details` give the `domain`, and `run` the last Run that met it. It leaves the list once `consent.domains` in the Operator policy or user configuration covers the domain, or when a person dismisses it.
 - `run_stopped_by_limit`: A Run stopped by a Limit that still holds it (ADR 0041): the Limit's period has not started again since the stop, and it was not set again since then with something left. `details` give the `limit` as `limit_reached` names it, the `amount` it allows now, the Product the Run `needs` and, for a Recipe's Run, its `recipe`. Its actions offer `usage.raise`, a person's answer, and for a Recipe's Run `run.resume`, which resumes it in the Daemon once the Limit is raised; an SDK script's Run then waits for its script, which resumes it by its Run ID (ADR 0031). It leaves the list once a person raises the Limit or its period starts again, once the Run runs again, or when a person dismisses it.

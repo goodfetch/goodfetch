@@ -10,6 +10,7 @@ use goodfetch_protocol::page::identity::{
 };
 
 use super::in_call;
+use crate::approvals::Approvals;
 use crate::cdp::launch::Launcher;
 use crate::saved_identity;
 
@@ -17,7 +18,11 @@ use crate::saved_identity;
 pub(super) fn with_identity_handlers(
     contribution: Contribution,
     launcher: Launcher,
+    approvals: Approvals,
 ) -> Contribution {
+    let import_approvals = approvals.clone();
+    let delete_approvals = approvals.clone();
+    let export_approvals = approvals;
     contribution
         .with_handler(Handler::new(
             &IDENTITY_LIST,
@@ -31,24 +36,27 @@ pub(super) fn with_identity_handlers(
             &IDENTITY_IMPORT,
             move |params: IdentityImportParams, context: CallContext| {
                 let launcher = launcher.clone();
+                let approvals = import_approvals.clone();
                 in_call((IDENTITY_IMPORT.name, context.form()), async move {
-                    saved_identity::import_identity(params, &launcher, &context).await
+                    saved_identity::import_identity(params, &launcher, &approvals, &context).await
                 })
             },
         ))
         .with_handler(Handler::new(
             &IDENTITY_DELETE,
-            |params: IdentityDeleteParams, context: CallContext| {
+            move |params: IdentityDeleteParams, context: CallContext| {
+                let approvals = delete_approvals.clone();
                 in_call((IDENTITY_DELETE.name, context.form()), async move {
-                    saved_identity::delete(params, &context).await
+                    saved_identity::delete(params, &approvals, &context).await
                 })
             },
         ))
         .with_handler(Handler::new(
             &IDENTITY_EXPORT,
-            |params: IdentityExportParams, context: CallContext| {
+            move |params: IdentityExportParams, context: CallContext| {
+                let approvals = export_approvals.clone();
                 in_call((IDENTITY_EXPORT.name, context.form()), async move {
-                    saved_identity::export_bundle(params, &context).await
+                    saved_identity::export_bundle(params, &approvals, &context).await
                 })
             },
         ))

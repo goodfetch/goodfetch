@@ -2044,6 +2044,7 @@ pub const ENTRIES: Entries = Entries {
         LOCATOR_WAIT_FOR_COUNT,
         pause::PAGE_PAUSE,
         pause::PAGE_PAUSE_ANSWER,
+        pause::NEEDS_YOU_ANSWER_APPROVAL,
         session::SESSION_SAVE_IDENTITY,
         cdp_session::PAGE_NEW_CDP_SESSION,
         cdp_session::CDP_SESSION_SEND,
@@ -2109,6 +2110,7 @@ pub const ENTRIES: Entries = Entries {
         session::SESSION_NOT_SAVABLE,
         session::REMOTE_DEBUGGING_DISABLED_BY_POLICY,
         session::RUNNING_BROWSER_UNSUPPORTED,
+        session::DOMAIN_NOT_ALLOWED,
         cdp_session::CDP_COMMAND_REFUSED,
         lend::SESSION_RESERVED,
         borrow::BORROW_REQUIRES_CDP,
@@ -2128,7 +2130,12 @@ pub const ENTRIES: Entries = Entries {
         EXTRACTION_READABILITY,
     ],
     hook_stages: &[],
-    shared_type_values: &[cdp_session::CDP_SESSION_ATTACHED],
+    shared_type_values: &[
+        cdp_session::CDP_SESSION_ATTACHED,
+        session::LOGIN_IMPORTED,
+        session::LOGIN_BORROWED,
+        pause::APPROVAL_REQUESTED,
+    ],
 };
 
 #[cfg(test)]

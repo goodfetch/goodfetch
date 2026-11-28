@@ -55,8 +55,9 @@ use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, DuplexStrea
 use tokio::sync::watch;
 
 use super::life::{Ending, PageLife};
-use super::{Opener, Sessions, held_browser, set_outside_code};
+use super::{Opener, ResolvedSource, Sessions, held_browser, set_outside_code};
 use crate::access_mode::{AccessMode, SessionIdentityPlan};
+use crate::approvals::Approvals;
 use crate::browser_run::BrowserRun;
 use crate::cdp::borrowed::CdpUrl;
 use crate::cdp::launch::Launcher;
@@ -186,8 +187,18 @@ fn table() -> Sessions {
         (Vec::new(), Launcher::Executable),
         Interception::default(),
         Dialogs::default(),
+        Approvals::default(),
         Arc::new(ProgramPages),
     )
+}
+
+/// A fresh Session source with no domain bounds or login audit entry.
+fn fresh_source() -> ResolvedSource {
+    ResolvedSource {
+        opened: super::OpenedSource::Fresh,
+        source_domains: None,
+        login_audit: None,
+    }
 }
 
 /// `test.ended_past_cap`: starts the Run `run_id` and reaches it in a
@@ -248,9 +259,10 @@ async fn stopped_open(params: Value, context: CallContext) -> Result<Value, Call
     };
     let opened = {
         let emulation = super::SessionEmulation::default();
+        let fresh = fresh_source();
         let mut open = std::pin::pin!(sessions.open_held(
             &browser,
-            &super::OpenedSource::Fresh,
+            &fresh,
             (&STANDARD, &emulation),
             Opener::Default,
             &context
@@ -299,7 +311,7 @@ async fn session_ended(params: Value, context: CallContext) -> Result<Value, Cal
     let position = sessions
         .open_held(
             &browser,
-            &super::OpenedSource::Fresh,
+            &fresh_source(),
             (&STANDARD, &super::SessionEmulation::default()),
             opener,
             &context,
@@ -331,7 +343,7 @@ async fn session_panicked(params: Value, context: CallContext) -> Result<Value, 
     let position = sessions
         .open_held(
             &browser,
-            &super::OpenedSource::Fresh,
+            &fresh_source(),
             (&STANDARD, &super::SessionEmulation::default()),
             Opener::Default,
             &context,
@@ -457,6 +469,7 @@ async fn browser_panicked(params: Value, context: CallContext) -> Result<Value, 
         (Vec::new(), launcher),
         Interception::default(),
         Dialogs::default(),
+        Approvals::default(),
         Arc::new(ProgramPages),
     );
     let browser = browser_run(&run, &context);
@@ -464,7 +477,7 @@ async fn browser_panicked(params: Value, context: CallContext) -> Result<Value, 
     let position = sessions
         .open_held(
             &browser,
-            &super::OpenedSource::Fresh,
+            &fresh_source(),
             (&STANDARD, &super::SessionEmulation::default()),
             Opener::Default,
             &context,
@@ -540,6 +553,7 @@ async fn request_replaced(params: Value, context: CallContext) -> Result<Value, 
         (Vec::new(), launcher),
         Interception::default(),
         Dialogs::default(),
+        Approvals::default(),
         Arc::new(ProgramPages),
     );
     let browser = browser_run(&run, &context);
@@ -547,7 +561,7 @@ async fn request_replaced(params: Value, context: CallContext) -> Result<Value, 
     let position = sessions
         .open_held(
             &browser,
-            &super::OpenedSource::Fresh,
+            &fresh_source(),
             (&STANDARD, &super::SessionEmulation::default()),
             Opener::Default,
             &context,

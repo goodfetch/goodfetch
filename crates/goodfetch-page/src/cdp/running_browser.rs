@@ -90,7 +90,13 @@ pub(crate) async fn discover(
         data_dir,
         cdp_url: CdpUrl {
             url: ws_url,
-            origin: request.origin,
+            // `DevToolsActivePort` always points to the person's consented
+            // local browser on loopback (never an arbitrary URL chosen by a
+            // model or Recipe; model/Recipe approval ran before discovery).
+            origin: CdpUrlOrigin {
+                layer: SettingsLayer::UserConfiguration,
+                acting_for_model: false,
+            },
         },
     })
 }

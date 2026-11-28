@@ -992,7 +992,7 @@ impl Opening {
         let run = self
             .go_live(Lifecycle::Running, times, move |registry| {
                 let (run, let_finish) =
-                    registry.new_run(&run_id, kind, state, connection, settings, keys);
+                    registry.new_run(&run_id, kind, state, connection, (settings, &tags), keys);
                 run.shared.charging.hold(charging);
                 Live {
                     id: run_id,
@@ -1269,10 +1269,15 @@ impl Opening {
             .await
             .map_err(|error| RunError::of_state(&run_id, &folder, error))?;
         let keys = unlocked.keys(&weakened);
-        let (id, kind, connection) = (run_id.clone(), recorded.kind, self.connection);
+        let (id, kind, connection, tags) = (
+            run_id.clone(),
+            recorded.kind,
+            self.connection,
+            recorded.tags.clone(),
+        );
         let (run, let_finish) = self
             .decisions
-            .decide(move |registry| registry.new_run(&id, kind, state, connection, settings, keys))
+            .decide(move |r| r.new_run(&id, kind, state, connection, (settings, &tags), keys))
             .await?;
         trace_changes(&run, &changed).await;
         run.shared.charging.read_limits(&self.disk.owner).await;

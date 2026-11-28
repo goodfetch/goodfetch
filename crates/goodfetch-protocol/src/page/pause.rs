@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use super::route::UrlMatcher;
 use super::{ARRIVED_IN, PageId};
 use crate::catalog::{
-    ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind, Reach, Stability,
-    schema_of,
+    ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind, Reach, SharedType,
+    SharedTypeValue, Stability, schema_of,
 };
 
 /// The condition that ends a Human pause by itself (ADR 0092): a locator
@@ -183,6 +183,65 @@ pub const PAGE_PAUSE_ANSWER: Operation = Operation {
     params: schema_of::<PagePauseAnswerParams>,
     result: schema_of::<PagePauseAnswered>,
     events: &[],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// The "Needs you" kind for a Client acting for a model or a Recipe run
+/// waiting for a person's approval (ADR 0056; ticket #745).
+pub const APPROVAL_REQUESTED_KIND: &str = "approval_requested";
+
+/// Shared-type registration for `approval_requested` in `needs_you_kind`.
+pub const APPROVAL_REQUESTED: SharedTypeValue = SharedTypeValue {
+    shared_type: SharedType::NeedsYouKind,
+    name: APPROVAL_REQUESTED_KIND,
+    description: "A Client acting for a model or a Recipe run waits for a person's approval of an unlisted domain navigation or a login import, borrow, save, deletion, or export (ADR 0056).",
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `needs_you.answer_approval` takes: the approval item's ID, whether the
+/// person approves, and an optional note when declining (ADR 0056; #745).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct NeedsYouAnswerApprovalParams {
+    /// The pending approval item's ID from `needs_you.list`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub id: String,
+    /// `true` to approve and continue; `false` to decline with `human_pause_declined`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub approve: bool,
+    /// Optional note carried by `human_pause_declined` when declining.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub note: Option<String>,
+}
+
+/// What `needs_you.answer_approval` answers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ApprovalAnswered {
+    /// Whether the pending approval accepted the answer.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub accepted: bool,
+    /// Why the answer was not accepted, when `accepted` is false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub reason: Option<String>,
+}
+
+/// `needs_you.answer_approval` (ADR 0056; ticket #745).
+pub const NEEDS_YOU_ANSWER_APPROVAL: Operation = Operation {
+    name: "needs_you.answer_approval",
+    description: "Approves or declines a pending Human pause waiting for a person's approval (such as a model's or Recipe's unlisted domain navigation or login import, borrow, save, deletion, or export, ADR 0056). Offered only on a person's Client.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::PersonOnly,
+    params: schema_of::<NeedsYouAnswerApprovalParams>,
+    result: schema_of::<ApprovalAnswered>,
+    events: &[&crate::needs_you::NEEDS_YOU_CHANGED],
     cancellable: false,
     input: None,
     bound: None,

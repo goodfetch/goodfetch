@@ -12,7 +12,7 @@ use std::time::SystemTime;
 
 use data_encoding::HEXLOWER;
 use goodfetch_engine::audit::Origin;
-use goodfetch_engine::run::secret_error;
+use goodfetch_engine::run::{secret_error, settings_error};
 use goodfetch_engine::run_key::KeyError;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::saved_identities::{
@@ -20,6 +20,7 @@ use goodfetch_engine::saved_identities::{
 };
 use goodfetch_engine::session_bundle::{EXPORT_WORK_FACTOR, IMPORT_LIMITS, PublicKey};
 use goodfetch_engine::session_transfer::{Recipient, TransferError, export, import};
+use goodfetch_engine::settings::check_session_source;
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_identity_profile::IdentitySeed;
 use goodfetch_protocol::audit::Actor;
@@ -53,6 +54,7 @@ use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
 use crate::access_mode::{AccessMode, BrowserFamily};
+use crate::approvals::{ApprovalAction, ApprovalWait, Approvals, caller_actor_label};
 use crate::cdp::driver::Carried;
 
 /// Maximum length of a Saved identity name.
@@ -518,12 +520,39 @@ pub(crate) async fn list(context: &CallContext) -> Result<IdentityList, CallErro
     Ok(IdentityList { identities })
 }
 
+async fn approve_model_action(
+    approvals: &Approvals,
+    context: &CallContext,
+    action: ApprovalAction,
+) -> Result<(), CallError> {
+    if !context.surface().acts_for_model() {
+        return Ok(());
+    }
+    approvals
+        .wait_for_approval(ApprovalWait {
+            action,
+            actor: caller_actor_label(context, false),
+            run: None,
+            engine: context.engine(),
+            cancellation: context.cancellation().clone(),
+        })
+        .await?;
+    Ok(())
+}
+
 /// Handles `identity.delete`.
 pub(crate) async fn delete(
     params: IdentityDeleteParams,
+    approvals: &Approvals,
     context: &CallContext,
 ) -> Result<IdentityDeleted, CallError> {
     let name = validate_name(&params.name)?;
+    approve_model_action(
+        approvals,
+        context,
+        ApprovalAction::DeleteIdentity { name: name.clone() },
+    )
+    .await?;
     let deleted = context
         .engine()
         .saved_identities()
@@ -547,23 +576,28 @@ pub(crate) async fn delete(
 pub(crate) async fn import_identity(
     params: IdentityImportParams,
     launcher: &crate::cdp::launch::Launcher,
+    approvals: &Approvals,
     context: &CallContext,
 ) -> Result<SavedIdentityInfo, CallError> {
     let name = validate_name(&params.name)?;
-    let requested_mode = params.access_mode.as_deref().unwrap_or("standard");
-    if requested_mode == "identified" {
-        return Err(CallError::protocol(
-            ProtocolFailure::InvalidParams,
-            "`identified` Access mode is refused at import: a person's login is not a declared agent's (ADR 0056)",
-        ));
-    }
-    if !matches!(requested_mode, "standard" | "stealth") {
-        return Err(CallError::protocol(
-            ProtocolFailure::InvalidParams,
-            format!("invalid `access_mode` `{requested_mode}`: expected `standard` or `stealth`"),
-        ));
-    }
+    let requested_mode = validate_import_mode(params.access_mode.as_deref())?;
+    check_session_source(&params.source, Some(SettingsLayer::Run))
+        .map_err(|error| settings_error(&error, context))?;
     let source_kind = params.source.kind().to_owned();
+    let domains: Vec<String> = match &params.source {
+        SessionSource::CookieHeader { domain, .. } => vec![domain.clone()],
+        other => other.domains().to_vec(),
+    };
+    approve_model_action(
+        approvals,
+        context,
+        ApprovalAction::ImportLogin {
+            source_kind: params.source.kind(),
+            domains,
+            target: format!("Saved identity `{name}`"),
+        },
+    )
+    .await?;
     let read = read_import_source(params.source, launcher, context).await?;
 
     let carried = Carried::from_imported(read.state);
@@ -912,14 +946,28 @@ async fn read_chromium_import_source(
     })
 }
 
-/// Handles `identity.export`: encrypts the Saved identity into ADR 0015's
-/// `age`-encrypted `session-export` bundle.
-pub(crate) async fn export_bundle(
-    params: IdentityExportParams,
-    context: &CallContext,
-) -> Result<IdentityExported, CallError> {
-    let name = validate_name(&params.name)?;
-    let recipient = match (params.public_key.as_deref(), params.passphrase.as_deref()) {
+fn validate_import_mode(access_mode: Option<&str>) -> Result<&str, CallError> {
+    let requested_mode = access_mode.unwrap_or("standard");
+    if requested_mode == "identified" {
+        return Err(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            "`identified` Access mode is refused at import: a person's login is not a declared agent's (ADR 0056)",
+        ));
+    }
+    if !matches!(requested_mode, "standard" | "stealth") {
+        return Err(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!("invalid `access_mode` `{requested_mode}`: expected `standard` or `stealth`"),
+        ));
+    }
+    Ok(requested_mode)
+}
+
+fn parse_export_recipient(
+    public_key: Option<&str>,
+    passphrase: Option<&str>,
+) -> Result<Recipient, CallError> {
+    match (public_key, passphrase) {
         (Some(pk), None) => {
             let key: PublicKey = pk.parse().map_err(|error| {
                 CallError::protocol(
@@ -927,7 +975,7 @@ pub(crate) async fn export_bundle(
                     format!("invalid `public_key`: {error}"),
                 )
             })?;
-            Recipient::PublicKey(key)
+            Ok(Recipient::PublicKey(key))
         }
         (None, Some(passphrase)) => {
             let reference = SecretReference::parse(passphrase).map_err(|error| {
@@ -936,24 +984,38 @@ pub(crate) async fn export_bundle(
                     format!("`passphrase` must be a Secret reference: {error}"),
                 )
             })?;
-            Recipient::Passphrase {
+            Ok(Recipient::Passphrase {
                 reference,
                 work_factor: EXPORT_WORK_FACTOR,
-            }
+            })
         }
-        (Some(_), Some(_)) => {
-            return Err(CallError::protocol(
-                ProtocolFailure::InvalidParams,
-                "specify either `public_key` or `passphrase`, not both",
-            ));
-        }
-        (None, None) => {
-            return Err(CallError::protocol(
-                ProtocolFailure::InvalidParams,
-                "specify either `public_key` (`age1…`) or `passphrase` (a Secret reference)",
-            ));
-        }
-    };
+        (Some(_), Some(_)) => Err(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            "specify either `public_key` or `passphrase`, not both",
+        )),
+        (None, None) => Err(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            "specify either `public_key` (`age1…`) or `passphrase` (a Secret reference)",
+        )),
+    }
+}
+
+/// Handles `identity.export`: encrypts the Saved identity into ADR 0015's
+/// `age`-encrypted `session-export` bundle.
+pub(crate) async fn export_bundle(
+    params: IdentityExportParams,
+    approvals: &Approvals,
+    context: &CallContext,
+) -> Result<IdentityExported, CallError> {
+    let name = validate_name(&params.name)?;
+    let recipient =
+        parse_export_recipient(params.public_key.as_deref(), params.passphrase.as_deref())?;
+    approve_model_action(
+        approvals,
+        context,
+        ApprovalAction::ExportIdentity { name: name.clone() },
+    )
+    .await?;
 
     let loaded = load_for_export(&name, context).await?;
     let carried = Carried::from_bytes(&loaded.payload_plaintext).map_err(|error| {

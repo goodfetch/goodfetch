@@ -14,6 +14,7 @@
 //! names a Foxhound type.
 
 mod access_mode;
+mod approvals;
 pub mod blocks;
 mod browser_fetch;
 mod browser_host;

@@ -423,3 +423,15 @@ reason = "The `installed_browser` Session source gains optional `path` and `exec
 [[announced]]
 entry = "typescript @goodfetch/collie-client/generated/types SessionSource"
 reason = "The `installed_browser` Session source gains optional `path` and `executable` fields for non-default Profile directories and custom browser installs (ADR 0056, issue 738): existing values remain valid."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated EngineStep"
+reason = "`approval` joins the `EngineStep` union for Human pauses waiting on a person to approve a model's or Recipe's login action or unlisted domain navigation (ADR 0056, issue 745): a switch over every step gains that member."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated/types EngineStep"
+reason = "`approval` joins the `EngineStep` union for Human pauses waiting on a person to approve a model's or Recipe's login action or unlisted domain navigation (ADR 0056, issue 745): a switch over every step gains that member."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated NeedsYouKind"
+reason = "`approval_requested` joins the open list of Needs you kinds for Human pauses waiting on a person's approval (ADR 0056, issue 745): the type's closed members gain it; a program that reads any kind still reads it."

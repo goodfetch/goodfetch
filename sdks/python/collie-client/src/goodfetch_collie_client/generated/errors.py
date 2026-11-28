@@ -417,6 +417,14 @@ class DialogAlreadyHandledError(ProgramError):
         self.typed_details = details_of(DialogAlreadyHandledDetails, self.details)
 
 
+class DomainNotAllowedError(RefusedError):
+    """A top-level navigation, new tab, or cookie operation targeted a registrable domain outside the Session source's bound `domains` (ADRs 0056 and 0092)."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="domain_not_allowed", group="refused", retryable=False, **fields)
+
+
 class EdgeHandlersUnsupportedError(ProgramError):
     """The program runs on an edge runtime, Cloudflare Workers, Vercel's edge runtime or Deno Deploy, which ends what it runs with its request, and asked for code the engine would call after it: a crawl's handlers, an SDK handler, a Hook in code or a lent page. Nothing was sent. Run that code as a Recipe on the Daemon, and start or poll its Run from the edge function."""
 
@@ -1731,6 +1739,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "daemon_unreachable": DaemonUnreachableError,
     "detach_unsupported": DetachUnsupportedError,
     "dialog_already_handled": DialogAlreadyHandledError,
+    "domain_not_allowed": DomainNotAllowedError,
     "edge_handlers_unsupported": EdgeHandlersUnsupportedError,
     "effect_key_invalid": EffectKeyInvalidError,
     "effect_key_reused": EffectKeyReusedError,

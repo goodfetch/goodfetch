@@ -27,9 +27,10 @@ use goodfetch_protocol::connection::{
 };
 use goodfetch_protocol::page::functions::World;
 use goodfetch_protocol::page::pause::{
-    HUMAN_PAUSE_DECLINED, HumanPauseDeclinedDetails, HumanPauseResult, PAGE_PAUSE,
-    PAGE_PAUSE_ANSWER, PagePauseAnswerParams, PagePauseAnswered, PagePauseParams, PauseAnswer,
-    PauseResolvedBy, PauseUntil,
+    ApprovalAnswered, HUMAN_PAUSE_DECLINED, HumanPauseDeclinedDetails, HumanPauseResult,
+    NEEDS_YOU_ANSWER_APPROVAL, NeedsYouAnswerApprovalParams, PAGE_PAUSE, PAGE_PAUSE_ANSWER,
+    PagePauseAnswerParams, PagePauseAnswered, PagePauseParams, PauseAnswer, PauseResolvedBy,
+    PauseUntil,
 };
 use goodfetch_protocol::page::waits::{ElementState, LoadState};
 use goodfetch_protocol::page::{PageId, SessionId};
@@ -99,9 +100,10 @@ impl Drop for PauseSlot {
     }
 }
 
-/// Adds the handlers of `page.pause` and `page.pause_answer`.
+/// Adds the handlers of `page.pause`, `page.pause_answer`, and
+/// `needs_you.answer_approval`.
 pub(super) fn with_pause_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
-    let (pausing, answering) = (pages.clone(), pages.clone());
+    let (pausing, answering, approving) = (pages.clone(), pages.clone(), pages.clone());
     contribution
         .with_handler(Handler::new(
             &PAGE_PAUSE,
@@ -117,6 +119,13 @@ pub(super) fn with_pause_handlers(contribution: Contribution, pages: &Pages) -> 
             move |params: PagePauseAnswerParams, context: CallContext| {
                 let pages = answering.clone();
                 async move { pages.answer_pause(params, context).await }
+            },
+        ))
+        .with_handler(Handler::new(
+            &NEEDS_YOU_ANSWER_APPROVAL,
+            move |params: NeedsYouAnswerApprovalParams, context: CallContext| {
+                let pages = approving.clone();
+                async move { Ok(pages.answer_approval(params, &context)) }
             },
         ))
 }
@@ -503,6 +512,14 @@ impl Pages {
         params: PagePauseAnswerParams,
         context: CallContext,
     ) -> Result<PagePauseAnswered, CallError> {
+        if let Some(answered) = self.approvals.answer_for_page(
+            &params.page_id,
+            params.answer,
+            context.person(),
+            params.note.clone(),
+        ) {
+            return Ok(answered);
+        }
         let Some(sender) = self.pauses.sender(&params.page_id) else {
             return Ok(PagePauseAnswered {
                 accepted: false,
@@ -529,6 +546,16 @@ impl Pages {
             accepted: false,
             reason: Some("the Human pause ended before accepting the answer".to_owned()),
         }))
+    }
+
+    /// Delivers a person's answer to a pending `approval_requested` Human pause.
+    fn answer_approval(
+        &self,
+        params: NeedsYouAnswerApprovalParams,
+        context: &CallContext,
+    ) -> ApprovalAnswered {
+        self.approvals
+            .answer(&params.id, params.approve, context.person(), params.note)
     }
 }
 

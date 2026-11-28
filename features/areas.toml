@@ -1256,6 +1256,12 @@ number = 5
 kind = "error"
 prefix = "running_browser_unsupported"
 
+# Source domain bounds (#745, ADR 0056); `needs_you.answer_approval` is covered by `needs_you.`.
+[[area]]
+number = 5
+kind = "error"
+prefix = "domain_not_allowed"
+
 # Raw CDP sessions (page.newCDPSession(), #751, ADR 0085).
 [[area]]
 number = 5

@@ -4610,9 +4610,10 @@ impl Registry {
         kind: RunKind,
         state: RunState,
         connection: Option<ConnectionId>,
-        settings: Option<RunSettings>,
+        (settings, tags): (Option<RunSettings>, &Tags),
         keys: Keys,
     ) -> (LiveRun, watch::Sender<bool>) {
+        let recipe_run = tags.reserved(goodfetch_protocol::run::RECIPE_TAG).is_some();
         let folder = &self.folder(run_id);
         let epoch = state.epoch();
         let progress = self.progress(run_id, Progressing::live(epoch, Lifecycle::Running, None));
@@ -4632,6 +4633,7 @@ impl Registry {
             folder: folder.to_owned(),
             clock: self.setup.engine.clock(),
             settings,
+            recipe_run,
             metrics: self.setup.metrics.clone(),
             span: tracing::info_span!(parent: None, "run", run_id = %run_id),
             owner: Arc::clone(&owner),

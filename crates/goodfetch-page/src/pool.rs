@@ -82,25 +82,36 @@ use rules::{Limits, Opens, Seats, Stage, Use};
 
 /// How a Session's seat is placed in its Run's browser pool: shared with
 /// other Sessions of the Run, or in a browser process of its own, which
-/// alone may enable browser-wide Global Privacy Control (`gpc`, ADR 0048).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// alone may enable browser-wide Global Privacy Control (`gpc`, ADR 0048)
+/// or launch on an in-place Profile directory (ADR 0056, ticket #737).
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum BrowserPlacement {
     /// Shares the first browser of the Run with room.
     Shared,
     /// A browser process of its own, never shared with another Session.
-    OwnProcess { gpc: bool },
+    OwnProcess {
+        gpc: bool,
+        profile: Option<crate::profile_directory::ProfileDirectory>,
+    },
 }
 
 impl BrowserPlacement {
-    const fn rule(self) -> Placement {
+    const fn rule(&self) -> Placement {
         match self {
             Self::Shared => Placement::Shared,
             Self::OwnProcess { .. } => Placement::OwnProcess,
         }
     }
 
-    const fn gpc(self) -> bool {
-        matches!(self, Self::OwnProcess { gpc: true })
+    const fn gpc(&self) -> bool {
+        matches!(self, Self::OwnProcess { gpc: true, .. })
+    }
+
+    fn profile(&self) -> Option<&crate::profile_directory::ProfileDirectory> {
+        match self {
+            Self::OwnProcess { profile, .. } => profile.as_ref(),
+            Self::Shared => None,
+        }
     }
 }
 
@@ -652,7 +663,7 @@ impl Pool {
                         self.shared.pins.clone(),
                         number,
                         self.shared.authority.clone(),
-                        seat.placement.gpc(),
+                        (seat.placement.gpc(), seat.placement.profile().cloned()),
                     )),
                     own: seat.placement.rule() == Placement::OwnProcess,
                     seated: BTreeMap::new(),

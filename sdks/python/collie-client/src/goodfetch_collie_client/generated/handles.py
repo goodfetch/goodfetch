@@ -213,6 +213,14 @@ class AsyncSession(AsyncHandle):
         warn_experimental("session.pages")
         return result_of(models.SessionPages, await self._host.call("session.pages", models.SessionParams(session_id=self._host.id))).pages
 
+    async def save_identity(self, name: str) -> str:
+        """Saves the Session's cookies and storage as a named Saved identity (ADR 0092). Refused with `session_not_savable` on a Profile directory used in place, naming the import that would work.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("session.save_identity")
+        return result_of(models.IdentitySaved, await self._host.call("session.save_identity", models.SaveIdentityParams(session_id=self._host.id, name=name))).name
+
     def on(self, event: Literal["page"], listener: AsyncListener[AsyncPage]) -> Subscription:
         """Listens to one of the Session's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the Session on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call removes the listener; it answers when the Session closes or its Run ends.
 
@@ -1052,6 +1060,14 @@ class Session(Handle):
         """
         warn_experimental("session.pages")
         return result_of(models.SessionPages, self._host.call("session.pages", models.SessionParams(session_id=self._host.id))).pages
+
+    def save_identity(self, name: str) -> str:
+        """Saves the Session's cookies and storage as a named Saved identity (ADR 0092). Refused with `session_not_savable` on a Profile directory used in place, naming the import that would work.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("session.save_identity")
+        return result_of(models.IdentitySaved, self._host.call("session.save_identity", models.SaveIdentityParams(session_id=self._host.id, name=name))).name
 
     def on(self, event: Literal["page"], listener: Listener[Page]) -> Subscription:
         """Listens to one of the Session's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the Session on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call removes the listener; it answers when the Session closes or its Run ends.

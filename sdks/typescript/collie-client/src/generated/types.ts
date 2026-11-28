@@ -5224,6 +5224,18 @@ export interface HumanPauseResult {
   waited: number;
 }
 /**
+ * What `session.save_identity` answers once the Saved identity is written.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "IdentitySaved".
+ */
+export interface IdentitySaved {
+  /**
+   * The Saved identity's name.
+   */
+  name: string;
+}
+/**
  * An image of the page: an `<img src>`, in document order.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -9777,6 +9789,23 @@ export interface SampleStorePutResult {
    * Whether a value was already kept under the key.
    */
   replaced: boolean;
+}
+/**
+ * What `session.save_identity` takes: the Session and the name under which
+ * to save its cookies and storage (ADR 0092).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SaveIdentityParams".
+ */
+export interface SaveIdentityParams {
+  /**
+   * The Saved identity's name.
+   */
+  name: string;
+  /**
+   * The Session whose login is saved.
+   */
+  sessionId: SessionId;
 }
 /**
  * What `schedule.create` takes.

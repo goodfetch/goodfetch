@@ -11,7 +11,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use super::{ARRIVED_IN, PageOpened, SessionId};
-use crate::catalog::{Operation, OperationClass, OperationKind, Reach, Stability, schema_of};
+use crate::catalog::{
+    ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind, Reach, Stability,
+    schema_of,
+};
 use crate::run::RunId;
 use crate::settings::session_source::SessionSource;
 
@@ -141,5 +144,137 @@ pub const SESSION_CLOSE: Operation = Operation {
     bound: None,
     stability: Stability::Experimental,
     deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `session.save_identity` takes: the Session and the name under which
+/// to save its cookies and storage (ADR 0092).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SaveIdentityParams {
+    /// The Session whose login is saved.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub session_id: SessionId,
+    /// The Saved identity's name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+}
+
+/// What `session.save_identity` answers once the Saved identity is written.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct IdentitySaved {
+    /// The Saved identity's name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+}
+
+/// `session.save_identity`.
+pub const SESSION_SAVE_IDENTITY: Operation = Operation {
+    name: "session.save_identity",
+    description: "Saves the Session's cookies and storage as a named Saved identity (ADR 0092). Refused with `session_not_savable` on a Profile directory used in place, naming the import that would work.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<SaveIdentityParams>,
+    result: schema_of::<IdentitySaved>,
+    events: &[],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `profile_directory_in_use` details (ADR 0056; ticket #737).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ProfileDirectoryInUseDetails {
+    /// The Profile directory path that could not be opened.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub path: String,
+    /// Why it is refused (active lock file or Chrome's default user data directory).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub reason: String,
+    /// Suggested alternative or action (e.g. `running_browser` or closing the running browser).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
+/// What `profile_directory_browser_mismatch` details (ADR 0056; ticket #737).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ProfileDirectoryBrowserMismatchDetails {
+    /// The Profile directory path.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub path: String,
+    /// The browser family requested in `session.source`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub expected: String,
+    /// The browser family detected in the directory.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub found: String,
+}
+
+/// What `profile_directory_newer_than_browser` details (ADR 0056; ticket #737).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ProfileDirectoryNewerThanBrowserDetails {
+    /// The Profile directory path.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub path: String,
+    /// The version recorded in the Profile directory.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub profile_version: String,
+    /// The browser version the engine would launch.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub browser_version: String,
+}
+
+/// What `session_not_savable` details (ADR 0092; ticket #737).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SessionNotSavableDetails {
+    /// The Session source kind that cannot be saved directly.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub source: String,
+    /// The import kind that works instead (e.g. `state_file` or `installed_browser`).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub alternative: String,
+}
+
+/// `profile_directory_in_use`.
+pub const PROFILE_DIRECTORY_IN_USE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "profile_directory_in_use",
+    description: "The Profile directory holds an active browser lock (`SingletonLock`, `lockfile`, `parent.lock`, `.parentlock`) or is a browser's default user data directory, which must be reached via `running_browser` instead (ADR 0056).",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `profile_directory_browser_mismatch`.
+pub const PROFILE_DIRECTORY_BROWSER_MISMATCH: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "profile_directory_browser_mismatch",
+    description: "The Profile directory was written by a different browser family than `session.source.browser` names, so launching on it would corrupt it (ADR 0056).",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `profile_directory_newer_than_browser`.
+pub const PROFILE_DIRECTORY_NEWER_THAN_BROWSER: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "profile_directory_newer_than_browser",
+    description: "The Profile directory was last written by a newer browser version than the engine would launch, so opening it in place would downgrade and corrupt its databases (ADR 0056).",
+    group: ErrorGroup::Unavailable,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `session_not_savable`.
+pub const SESSION_NOT_SAVABLE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "session_not_savable",
+    description: "This Session's source cannot be saved as a Saved identity directly (for example, a Profile directory used in place); import via the named alternative instead (ADR 0092).",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
     arrived_in: ARRIVED_IN,
 };

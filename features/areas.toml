@@ -1185,6 +1185,22 @@ number = 5
 kind = "setting"
 prefix = "session.http_credentials"
 
+# Profile directory used in place and session.save_identity (#737, ADRs 0056, 0092).
+[[area]]
+number = 5
+kind = "operation"
+prefix = "session.save_identity"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "profile_directory_"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "session_not_savable"
+
 # A Block cause on a Session a program or an Agent opened (#711, ADRs 0088
 # and 0092).
 [[area]]

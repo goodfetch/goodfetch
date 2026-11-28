@@ -965,6 +965,30 @@ class PolicyConflictError(RefusedError):
         self.typed_details = details_of(PolicyConflictDetails, self.details)
 
 
+class ProfileDirectoryBrowserMismatchError(ProgramError):
+    """The Profile directory was written by a different browser family than `session.source.browser` names, so launching on it would corrupt it (ADR 0056)."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="profile_directory_browser_mismatch", group="program", retryable=False, **fields)
+
+
+class ProfileDirectoryInUseError(RefusedError):
+    """The Profile directory holds an active browser lock (`SingletonLock`, `lockfile`, `parent.lock`, `.parentlock`) or is a browser's default user data directory, which must be reached via `running_browser` instead (ADR 0056)."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="profile_directory_in_use", group="refused", retryable=False, **fields)
+
+
+class ProfileDirectoryNewerThanBrowserError(UnavailableError):
+    """The Profile directory was last written by a newer browser version than the engine would launch, so opening it in place would downgrade and corrupt its databases (ADR 0056)."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="profile_directory_newer_than_browser", group="unavailable", retryable=False, **fields)
+
+
 class ProtocolVersionUnsupportedError(UnavailableError):
     """The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side."""
 
@@ -1409,6 +1433,14 @@ class SessionExportOpenFailedError(ProgramError):
         self.typed_details = details_of(SessionExportOpenFailedDetails, self.details)
 
 
+class SessionNotSavableError(ProgramError):
+    """This Session's source cannot be saved as a Saved identity directly (for example, a Profile directory used in place); import via the named alternative instead (ADR 0092)."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="session_not_savable", group="program", retryable=False, **fields)
+
+
 class SettingInvalidError(ProgramError):
     """A value of the wrong type or out of the setting's own range, an empty or unparsable deployment variable, or a settings file that does not parse."""
 
@@ -1661,6 +1693,9 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "plugin_protocol_unsupported": PluginProtocolUnsupportedError,
     "plugin_quarantined": PluginQuarantinedError,
     "policy_conflict": PolicyConflictError,
+    "profile_directory_browser_mismatch": ProfileDirectoryBrowserMismatchError,
+    "profile_directory_in_use": ProfileDirectoryInUseError,
+    "profile_directory_newer_than_browser": ProfileDirectoryNewerThanBrowserError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
     "proxy_auth_failed": ProxyAuthFailedError,
     "proxy_provider_unavailable": ProxyProviderUnavailableError,
@@ -1699,6 +1734,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "secret_unbound": SecretUnboundError,
     "session_bound_to_machine": SessionBoundToMachineError,
     "session_export_open_failed": SessionExportOpenFailedError,
+    "session_not_savable": SessionNotSavableError,
     "setting_invalid": SettingInvalidError,
     "setting_locked": SettingLockedError,
     "setting_not_applicable": SettingNotApplicableError,

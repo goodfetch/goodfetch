@@ -1357,6 +1357,33 @@ export class PolicyConflictError extends RefusedError<"policy_conflict"> {
 }
 
 /**
+ * The Profile directory was written by a different browser family than `session.source.browser` names, so launching on it would corrupt it (ADR 0056).
+ */
+export class ProfileDirectoryBrowserMismatchError extends ProgramError<"profile_directory_browser_mismatch"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "ProfileDirectoryBrowserMismatchError", code: "profile_directory_browser_mismatch", group: "program", retryable: false });
+  }
+}
+
+/**
+ * The Profile directory holds an active browser lock (`SingletonLock`, `lockfile`, `parent.lock`, `.parentlock`) or is a browser's default user data directory, which must be reached via `running_browser` instead (ADR 0056).
+ */
+export class ProfileDirectoryInUseError extends RefusedError<"profile_directory_in_use"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "ProfileDirectoryInUseError", code: "profile_directory_in_use", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * The Profile directory was last written by a newer browser version than the engine would launch, so opening it in place would downgrade and corrupt its databases (ADR 0056).
+ */
+export class ProfileDirectoryNewerThanBrowserError extends UnavailableError<"profile_directory_newer_than_browser"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "ProfileDirectoryNewerThanBrowserError", code: "profile_directory_newer_than_browser", group: "unavailable", retryable: false });
+  }
+}
+
+/**
  * The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side.
  */
 export class ProtocolVersionUnsupportedError extends UnavailableError<"protocol_version_unsupported"> {
@@ -1944,6 +1971,15 @@ export class SessionExportOpenFailedError extends ProgramError<"session_export_o
 }
 
 /**
+ * This Session's source cannot be saved as a Saved identity directly (for example, a Profile directory used in place); import via the named alternative instead (ADR 0092).
+ */
+export class SessionNotSavableError extends ProgramError<"session_not_savable"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "SessionNotSavableError", code: "session_not_savable", group: "program", retryable: false });
+  }
+}
+
+/**
  * A value of the wrong type or out of the setting's own range, an empty or unparsable deployment variable, or a settings file that does not parse.
  */
 export class SettingInvalidError extends ProgramError<"setting_invalid"> {
@@ -2206,6 +2242,9 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   plugin_protocol_unsupported: PluginProtocolUnsupportedError,
   plugin_quarantined: PluginQuarantinedError,
   policy_conflict: PolicyConflictError,
+  profile_directory_browser_mismatch: ProfileDirectoryBrowserMismatchError,
+  profile_directory_in_use: ProfileDirectoryInUseError,
+  profile_directory_newer_than_browser: ProfileDirectoryNewerThanBrowserError,
   protocol_version_unsupported: ProtocolVersionUnsupportedError,
   proxy_auth_failed: ProxyAuthFailedError,
   proxy_provider_unavailable: ProxyProviderUnavailableError,
@@ -2244,6 +2283,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   secret_unbound: SecretUnboundError,
   session_bound_to_machine: SessionBoundToMachineError,
   session_export_open_failed: SessionExportOpenFailedError,
+  session_not_savable: SessionNotSavableError,
   setting_invalid: SettingInvalidError,
   setting_locked: SettingLockedError,
   setting_not_applicable: SettingNotApplicableError,
@@ -2345,6 +2385,9 @@ export type CollieErrorCode =
   | "plugin_protocol_unsupported"
   | "plugin_quarantined"
   | "policy_conflict"
+  | "profile_directory_browser_mismatch"
+  | "profile_directory_in_use"
+  | "profile_directory_newer_than_browser"
   | "protocol_version_unsupported"
   | "proxy_auth_failed"
   | "proxy_provider_unavailable"
@@ -2383,6 +2426,7 @@ export type CollieErrorCode =
   | "secret_unbound"
   | "session_bound_to_machine"
   | "session_export_open_failed"
+  | "session_not_savable"
   | "setting_invalid"
   | "setting_locked"
   | "setting_not_applicable"
@@ -2396,7 +2440,7 @@ export type CollieErrorCode =
   | "value_invalid"
   | "webhook_invalid";
 
-const collieErrorCodes: ReadonlySet<string> = new Set<CollieErrorCode>(["address_family_unavailable", "artifact_download_failed", "artifact_unavailable_offline", "blocked", "body_not_found", "body_unavailable", "browser_host_outdated", "browser_host_unreachable", "browser_launch_failed", "browser_needs_gui_session", "browser_not_installed", "browser_sandbox_unavailable", "call_cancelled", "capability_unavailable", "cdp_url_not_allowed", "cdp_url_not_browser", "cdp_url_unauthorized", "cdp_url_unreachable", "certificate_changed", "certificate_invalid", "challenge_unsolved", "checkpoint_behind", "closed", "confinement_unavailable", "connection_forked", "connection_lost", "connection_overloaded", "daemon_draining", "daemon_unreachable", "deadline_exceeded", "detach_unsupported", "dialog_already_handled", "edge_handlers_unsupported", "effect_key_invalid", "effect_key_reused", "effect_output_invalid", "effect_uncertain", "egress_refused", "engine_exited", "engine_not_found", "engine_output_invalid", "engine_panicked", "event_loop_mismatch", "executable_blocked_by_smart_app_control", "extract_handler_failed", "extractor_unavailable", "file_write_failed", "format_version_unsupported", "header_value_invalid", "hook_failed", "human_pause_declined", "internal", "limit_not_understood", "limit_raise_refused", "limit_reached", "listener_events_lost", "listener_failed", "live_view_viewer_limit", "local_address_unavailable", "logged_out", "model_unavailable", "name_lookup_failed", "name_not_resolved", "navigation_failed", "navigation_interrupted", "not_a_daemon", "not_in_product", "not_verified", "page_check_failed", "page_crashed", "page_events_lost", "page_function_failed", "page_handler_failed", "page_memory_exceeded", "page_navigated_during_call", "page_value_invalid", "path_not_writable", "path_unsafe", "pattern_unsupported", "person_required", "plugin_crashed", "plugin_manifest_mismatch", "plugin_protocol_unsupported", "plugin_quarantined", "policy_conflict", "protocol_version_unsupported", "proxy_auth_failed", "proxy_provider_unavailable", "proxy_relay_unavailable", "proxy_unavailable", "recipe_invalid", "recording_invalid", "replay_not_allowed", "resources_exhausted", "response_limit_exceeded", "response_not_json", "response_not_recorded", "response_truncated", "route_already_handled", "run_busy", "run_conflict", "run_ended", "run_id_invalid", "run_in_use", "run_interrupted", "run_key_mismatch", "run_live", "run_not_found", "run_not_owned", "run_state_filesystem_unsupported", "run_state_unavailable", "run_target_unbuilt", "sample_refused", "schedule_exists", "schedule_not_found", "schedule_trigger_invalid", "schema_validator_failed", "secret_domain_not_allowed", "secret_input_refused", "secret_unavailable", "secret_unbound", "session_bound_to_machine", "session_export_open_failed", "setting_invalid", "setting_locked", "setting_not_applicable", "setting_unknown", "site_preferences_refused", "skill_install_refused", "target_not_unique", "too_many_calls", "too_many_redirects", "upgrade_source_unsupported", "value_invalid", "webhook_invalid"]);
+const collieErrorCodes: ReadonlySet<string> = new Set<CollieErrorCode>(["address_family_unavailable", "artifact_download_failed", "artifact_unavailable_offline", "blocked", "body_not_found", "body_unavailable", "browser_host_outdated", "browser_host_unreachable", "browser_launch_failed", "browser_needs_gui_session", "browser_not_installed", "browser_sandbox_unavailable", "call_cancelled", "capability_unavailable", "cdp_url_not_allowed", "cdp_url_not_browser", "cdp_url_unauthorized", "cdp_url_unreachable", "certificate_changed", "certificate_invalid", "challenge_unsolved", "checkpoint_behind", "closed", "confinement_unavailable", "connection_forked", "connection_lost", "connection_overloaded", "daemon_draining", "daemon_unreachable", "deadline_exceeded", "detach_unsupported", "dialog_already_handled", "edge_handlers_unsupported", "effect_key_invalid", "effect_key_reused", "effect_output_invalid", "effect_uncertain", "egress_refused", "engine_exited", "engine_not_found", "engine_output_invalid", "engine_panicked", "event_loop_mismatch", "executable_blocked_by_smart_app_control", "extract_handler_failed", "extractor_unavailable", "file_write_failed", "format_version_unsupported", "header_value_invalid", "hook_failed", "human_pause_declined", "internal", "limit_not_understood", "limit_raise_refused", "limit_reached", "listener_events_lost", "listener_failed", "live_view_viewer_limit", "local_address_unavailable", "logged_out", "model_unavailable", "name_lookup_failed", "name_not_resolved", "navigation_failed", "navigation_interrupted", "not_a_daemon", "not_in_product", "not_verified", "page_check_failed", "page_crashed", "page_events_lost", "page_function_failed", "page_handler_failed", "page_memory_exceeded", "page_navigated_during_call", "page_value_invalid", "path_not_writable", "path_unsafe", "pattern_unsupported", "person_required", "plugin_crashed", "plugin_manifest_mismatch", "plugin_protocol_unsupported", "plugin_quarantined", "policy_conflict", "profile_directory_browser_mismatch", "profile_directory_in_use", "profile_directory_newer_than_browser", "protocol_version_unsupported", "proxy_auth_failed", "proxy_provider_unavailable", "proxy_relay_unavailable", "proxy_unavailable", "recipe_invalid", "recording_invalid", "replay_not_allowed", "resources_exhausted", "response_limit_exceeded", "response_not_json", "response_not_recorded", "response_truncated", "route_already_handled", "run_busy", "run_conflict", "run_ended", "run_id_invalid", "run_in_use", "run_interrupted", "run_key_mismatch", "run_live", "run_not_found", "run_not_owned", "run_state_filesystem_unsupported", "run_state_unavailable", "run_target_unbuilt", "sample_refused", "schedule_exists", "schedule_not_found", "schedule_trigger_invalid", "schema_validator_failed", "secret_domain_not_allowed", "secret_input_refused", "secret_unavailable", "secret_unbound", "session_bound_to_machine", "session_export_open_failed", "session_not_savable", "setting_invalid", "setting_locked", "setting_not_applicable", "setting_unknown", "site_preferences_refused", "skill_install_refused", "target_not_unique", "too_many_calls", "too_many_redirects", "upgrade_source_unsupported", "value_invalid", "webhook_invalid"]);
 
 /** An error with one of the Error codes Collie raises, which its `code` narrows to the code's class. */
 export type CollieError =
@@ -2485,6 +2529,9 @@ export type CollieError =
   | PluginProtocolUnsupportedError
   | PluginQuarantinedError
   | PolicyConflictError
+  | ProfileDirectoryBrowserMismatchError
+  | ProfileDirectoryInUseError
+  | ProfileDirectoryNewerThanBrowserError
   | ProtocolVersionUnsupportedError
   | ProxyAuthFailedError
   | ProxyProviderUnavailableError
@@ -2523,6 +2570,7 @@ export type CollieError =
   | SecretUnboundError
   | SessionBoundToMachineError
   | SessionExportOpenFailedError
+  | SessionNotSavableError
   | SettingInvalidError
   | SettingLockedError
   | SettingNotApplicableError

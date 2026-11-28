@@ -202,6 +202,7 @@ export type CollieWireType =
   | "RunStopping"
   | "RunStorage"
   | "RunUsage"
+  | "SaveIdentityParams"
   | "ScheduleCreateParams"
   | "ScheduleCreated"
   | "ScheduleDefinition"
@@ -445,6 +446,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "RunStopping": { fields: { "cause": ["cause", { type: "StopReason" }], "run_id": "runId" } },
     "RunStorage": { fields: { "free_bytes": "freeBytes" } },
     "RunUsage": { fields: { "browser_time": "browserTime", "limits": ["limits", { items: { type: "AppliedLimit" } }], "model": ["model", { type: "ModelUsage" }], "model_allowance": ["modelAllowance", { items: { type: "ModelAllowance" } }], "other": ["other", { items: { type: "KindUsage" } }], "paid_fetches": "paidFetches", "paid_solves": "paidSolves", "proxy_bytes": "proxyBytes", "proxy_bytes_by_kind": "proxyBytesByKind", "proxy_price": "proxyPrice" } },
+    "SaveIdentityParams": { fields: { "session_id": "sessionId" } },
     "ScheduleCreateParams": { fields: { "definition": ["definition", { type: "ScheduleDefinition" }] } },
     "ScheduleCreated": { fields: { "schedule_id": "scheduleId" } },
     "ScheduleDefinition": { fields: { "time_zone": "timeZone", "trigger": ["trigger", { type: "ScheduleTrigger" }] } },
@@ -578,6 +580,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "session.on": { type: "SessionOnParams" },
     "session.pages": { type: "SessionParams" },
     "session.route": { type: "SessionRouteParams" },
+    "session.save_identity": { type: "SaveIdentityParams" },
     "signing_key.create": { type: "SigningKeyCreateParams" },
     "signing_key.directory": { type: "SigningKeyDirectoryParams" },
     "usage.set": { type: "UsageSetParams" },

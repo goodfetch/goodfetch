@@ -2037,6 +2037,7 @@ pub const ENTRIES: Entries = Entries {
         LOCATOR_WAIT_FOR_COUNT,
         pause::PAGE_PAUSE,
         pause::PAGE_PAUSE_ANSWER,
+        session::SESSION_SAVE_IDENTITY,
     ],
     events: &[
         PAGE_DOWNLOAD,
@@ -2087,6 +2088,10 @@ pub const ENTRIES: Entries = Entries {
         NOT_VERIFIED,
         PAGE_NAVIGATED_DURING_CALL,
         pause::HUMAN_PAUSE_DECLINED,
+        session::PROFILE_DIRECTORY_IN_USE,
+        session::PROFILE_DIRECTORY_BROWSER_MISMATCH,
+        session::PROFILE_DIRECTORY_NEWER_THAN_BROWSER,
+        session::SESSION_NOT_SAVABLE,
     ],
     plugin_kinds: &[],
     metrics: &[],

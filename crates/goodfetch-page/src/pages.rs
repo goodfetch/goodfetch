@@ -451,7 +451,12 @@ fn pattern_of(matcher: &UrlMatcher) -> Result<UrlPattern, CallError> {
 /// `session.close`, `session.pages`, `session.on` and `page.close`.
 fn with_session_handlers(contribution: Contribution, sessions: &Sessions) -> Contribution {
     let (opening, paging, closing) = (sessions.clone(), sessions.clone(), sessions.clone());
-    let (listing, listening, closing_page) = (sessions.clone(), sessions.clone(), sessions.clone());
+    let (listing, listening, closing_page, saving) = (
+        sessions.clone(),
+        sessions.clone(),
+        sessions.clone(),
+        sessions.clone(),
+    );
     contribution
         .with_handler(Handler::new(
             &SESSION_PAGES,
@@ -518,6 +523,14 @@ fn with_session_handlers(contribution: Contribution, sessions: &Sessions) -> Con
                     sessions.close(&params.session_id, &context).await?;
                     Ok::<SessionClosed, CallError>(SessionClosed {})
                 }
+            },
+        ))
+        .with_handler(Handler::new(
+            &goodfetch_protocol::page::session::SESSION_SAVE_IDENTITY,
+            move |params: goodfetch_protocol::page::session::SaveIdentityParams,
+                  context: CallContext| {
+                let sessions = saving.clone();
+                async move { sessions.save_identity(&params.session_id, &params.name, &context) }
             },
         ))
 }

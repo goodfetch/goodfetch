@@ -276,6 +276,10 @@ struct Session {
     /// The engine's Run index, where its pages' consent walls are recorded
     /// for "Needs you".
     run_index: RunIndex,
+    /// Whether this Session was opened on a user's Profile directory in place
+    /// (ADR 0056; ticket #737): `session.save_identity` refuses it with
+    /// `session_not_savable`.
+    is_profile_directory: bool,
     /// The cookies and `localStorage` last persisted to `page_sessions.state`,
     /// serialized per Session so concurrent navigations cannot overwrite newer
     /// state with older state.
@@ -662,7 +666,7 @@ impl Sessions {
                 &runs.pool,
                 borrowed,
                 carried,
-                placement(fingerprint.as_ref(), gpc),
+                placement(fingerprint.as_ref(), gpc, opened.profile()),
                 egress(proxy.as_ref(), relay.as_ref(), http_credentials.as_ref()),
                 TaskStarter::clone(&owner),
             );
@@ -703,6 +707,7 @@ impl Sessions {
                 interception,
                 page_listeners: session_pages::PageListeners::default(),
                 run_index: context.engine().run_index().clone(),
+                is_profile_directory: opened.profile().is_some(),
                 saved_state,
             });
             self.index.opened(&session, Arc::clone(&open));
@@ -839,7 +844,7 @@ impl Sessions {
             &pool,
             borrowed,
             carried,
-            placement(fingerprint.as_ref(), gpc),
+            placement(fingerprint.as_ref(), gpc, source.profile()),
             egress(proxy.as_ref(), relay.as_ref(), http_credentials.as_ref()),
             TaskStarter::clone(&owner),
         );
@@ -886,6 +891,7 @@ impl Sessions {
             interception,
             page_listeners: session_pages::PageListeners::default(),
             run_index: context.engine().run_index().clone(),
+            is_profile_directory: source.profile().is_some(),
             saved_state: Arc::default(),
         });
         {
@@ -964,6 +970,41 @@ impl Sessions {
     /// Closes the Session `session`: its pages and its browser context
     /// close, and its pages' admissions go back; a Session closed already,
     /// or ended with its Run, stays as it is (ADR 0078).
+    /// Saves a Session's login as a named Saved identity (`session.save_identity`,
+    /// ADR 0092): refuses a Profile directory used in place with
+    /// `session_not_savable` naming `state_file` (ticket #737).
+    pub(crate) fn save_identity(
+        &self,
+        session_id: &SessionId,
+        _name: &str,
+        _context: &CallContext,
+    ) -> Result<goodfetch_protocol::page::session::IdentitySaved, CallError> {
+        let open = self
+            .index
+            .session(session_id)
+            .ok_or_else(|| self.closed_session(session_id))?;
+        if open.is_profile_directory {
+            return Err(CallError::new(
+                &goodfetch_protocol::page::session::SESSION_NOT_SAVABLE,
+                "A Session opened on a Profile directory in place cannot be saved directly as a Saved identity; export or import via `state_file` instead (ADR 0092).",
+                &goodfetch_protocol::page::session::SessionNotSavableDetails {
+                    source: "profile_directory".to_owned(),
+                    alternative: "state_file".to_owned(),
+                },
+            ));
+        }
+        Err(CallError::new(
+            &CAPABILITY_UNAVAILABLE,
+            "Saved identities are not built yet; use `state_file` for a run-only import.",
+            &CapabilityUnavailableDetails {
+                key: "session.save_identity".to_owned(),
+                layer: SettingsLayer::Run,
+                kind: "saved_identity".to_owned(),
+                fix: "`state_file`".to_owned(),
+            },
+        ))
+    }
+
     pub(crate) async fn close(
         &self,
         session: &SessionId,
@@ -2037,7 +2078,7 @@ async fn reopened_session(
         ),
         None => (
             pool.seat_with_carried(
-                placement(fingerprint.as_ref(), gpc),
+                placement(fingerprint.as_ref(), gpc, None),
                 egress(proxy.as_ref(), relay.as_ref(), http_credentials.as_ref()),
                 carried,
                 TaskStarter::clone(&owner),
@@ -2077,6 +2118,7 @@ async fn reopened_session(
         interception,
         page_listeners: session_pages::PageListeners::default(),
         run_index: context.engine().run_index().clone(),
+        is_profile_directory: false,
         saved_state,
     })
 }
@@ -2219,20 +2261,28 @@ enum OpenedSource {
     Fresh,
     Borrowed(CdpUrl),
     Carried(Carried),
+    ProfileDirectory(crate::profile_directory::ProfileDirectory),
 }
 
 impl OpenedSource {
     fn borrowed(&self) -> Option<&CdpUrl> {
         match self {
             Self::Borrowed(cdp_url) => Some(cdp_url),
-            Self::Fresh | Self::Carried(_) => None,
+            Self::Fresh | Self::Carried(_) | Self::ProfileDirectory(_) => None,
         }
     }
 
     fn carried(&self) -> Option<&Carried> {
         match self {
             Self::Carried(carried) => Some(carried),
-            Self::Fresh | Self::Borrowed(_) => None,
+            Self::Fresh | Self::Borrowed(_) | Self::ProfileDirectory(_) => None,
+        }
+    }
+
+    fn profile(&self) -> Option<&crate::profile_directory::ProfileDirectory> {
+        match self {
+            Self::ProfileDirectory(profile) => Some(profile),
+            Self::Fresh | Self::Borrowed(_) | Self::Carried(_) => None,
         }
     }
 }
@@ -2276,6 +2326,28 @@ async fn opening_source(
                     CallError::protocol(ProtocolFailure::InvalidParams, error.to_string())
                 })?;
             Ok(OpenedSource::Carried(Carried::from_imported(imported)))
+        }
+        SessionSource::ProfileDirectory {
+            path,
+            browser,
+            chromium_profile,
+            ..
+        } => {
+            let profile = run
+                .identity
+                .owner()
+                .blocking(move || {
+                    crate::profile_directory::inspect(
+                        std::path::Path::new(&path),
+                        browser,
+                        chromium_profile.as_deref(),
+                        Some(135),
+                        None,
+                        layer,
+                    )
+                })
+                .await?;
+            Ok(OpenedSource::ProfileDirectory(profile))
         }
         source => {
             let kind = source.kind();
@@ -2558,11 +2630,26 @@ fn open_seat(
 /// says, and whose Global Privacy Control plan is `gpc`, is placed in its
 /// Run's browser pool (ADRs 0048 and 0129): a dedicated GPC browser is
 /// never shared with another Session.
-fn placement(fingerprint: Option<&FingerprintPlan>, gpc: GpcPlan) -> BrowserPlacement {
-    if gpc.own_browser_gpc() {
-        BrowserPlacement::OwnProcess { gpc: true }
+fn placement(
+    fingerprint: Option<&FingerprintPlan>,
+    gpc: GpcPlan,
+    profile: Option<&crate::profile_directory::ProfileDirectory>,
+) -> BrowserPlacement {
+    if let Some(profile) = profile {
+        BrowserPlacement::OwnProcess {
+            gpc: gpc.own_browser_gpc(),
+            profile: Some(profile.clone()),
+        }
+    } else if gpc.own_browser_gpc() {
+        BrowserPlacement::OwnProcess {
+            gpc: true,
+            profile: None,
+        }
     } else if fingerprint.is_some_and(|plan| plan.placement() == Placement::OwnProcess) {
-        BrowserPlacement::OwnProcess { gpc: false }
+        BrowserPlacement::OwnProcess {
+            gpc: false,
+            profile: None,
+        }
     } else {
         BrowserPlacement::Shared
     }

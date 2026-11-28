@@ -50,6 +50,7 @@ mod pages;
 mod paused_body;
 mod placeholders;
 mod pool;
+mod profile_directory;
 mod proxy;
 mod proxy_provider;
 mod proxy_status;

@@ -257,6 +257,16 @@ export class Session extends Handle implements AsyncDisposable {
   }
 
   /**
+   * Saves the Session's cookies and storage as a named Saved identity (ADR 0092). Refused with `session_not_savable` on a Profile directory used in place, naming the import that would work.
+   *
+   * @experimental
+   */
+  async saveIdentity(name: types.SaveIdentityParams["name"]): Promise<types.IdentitySaved["name"]> {
+    warnExperimental("session.save_identity");
+    return (await this.#host.call("session.save_identity", { sessionId: this.#host.id, name }, {})).name;
+  }
+
+  /**
    * Listens to one of the Session's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the Session on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call removes the listener; it answers when the Session closes or its Run ends.
    *
    * @experimental

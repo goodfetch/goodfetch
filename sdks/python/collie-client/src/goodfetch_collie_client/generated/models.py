@@ -1572,6 +1572,16 @@ class HttpMethod(RootModel[str]):
     """The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused."""
 
 
+class IdentitySaved(BaseModel):
+    """What `session.save_identity` answers once the Saved identity is written."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    name: str
+    """The Saved identity's name."""
+
+
 class Image(BaseModel):
     """An image of the page: an `<img src>`, in document order."""
 
@@ -8641,6 +8651,21 @@ class RunStorage(BaseModel):
     """The space left on it to the engine's user, in bytes."""
     level: StorageLevel
     """The level."""
+
+
+class SaveIdentityParams(BaseModel):
+    """
+    What `session.save_identity` takes: the Session and the name under which
+    to save its cookies and storage (ADR 0092).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    """The Saved identity's name."""
+    session_id: SessionId
+    """The Session whose login is saved."""
 
 
 class ScheduleCreated(BaseModel):

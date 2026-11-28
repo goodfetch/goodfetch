@@ -2,7 +2,7 @@
 
 import type { CallOptions, Caller } from "../caller.ts";
 import { type EntryMarkers, warnDeprecated, warnExperimental } from "../markers.ts";
-import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, HumanPauseResult, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, KeyboardInsertTextParams, KeyboardKeyParams, KeyboardPressParams, KeyboardTypeParams, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, MouseButtonParams, MouseClickParams, MouseDblclickParams, MouseMoveParams, MouseWheelParams, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PagePauseParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TouchscreenTapParams, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
+import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, HumanPauseResult, IdentitySaved, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, KeyboardInsertTextParams, KeyboardKeyParams, KeyboardPressParams, KeyboardTypeParams, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, MouseButtonParams, MouseClickParams, MouseDblclickParams, MouseMoveParams, MouseWheelParams, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PagePauseParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SaveIdentityParams, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TouchscreenTapParams, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
 import { warnDeprecatedSettings } from "./settings.ts";
 
 export type { CallOptions, Caller, OperationTypes } from "../caller.ts";
@@ -111,6 +111,7 @@ export interface CollieOperationTypes {
   "session.on": { params: SessionOnParams; result: SessionOnEnded };
   "session.pages": { params: SessionParams; result: SessionPages };
   "session.route": { params: SessionRouteParams; result: RouteEnded };
+  "session.save_identity": { params: SaveIdentityParams; result: IdentitySaved };
   "signing_key.create": { params: SigningKeyCreateParams; result: SigningKeyCreated };
   "signing_key.directory": { params: SigningKeyDirectoryParams; result: SigningKeyDirectory };
   "usage.list": { params: UsageListParams; result: UsageListResult };
@@ -221,6 +222,7 @@ export const collieOperations: Readonly<Record<keyof CollieOperationTypes, Entry
   "session.on": { experimental: true, deprecated: undefined },
   "session.pages": { experimental: true, deprecated: undefined },
   "session.route": { experimental: true, deprecated: undefined },
+  "session.save_identity": { experimental: true, deprecated: undefined },
   "signing_key.create": { experimental: true, deprecated: undefined },
   "signing_key.directory": { experimental: true, deprecated: undefined },
   "usage.list": { experimental: true, deprecated: undefined },
@@ -331,6 +333,7 @@ export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, s
   "session.on": "session.on",
   "session.pages": "session.pages",
   "session.route": "session.route",
+  "session.save_identity": "session.saveIdentity",
   "signing_key.create": "signingKey.create",
   "signing_key.directory": "signingKey.directory",
   "usage.list": "usage.list",
@@ -441,6 +444,7 @@ export const collieOperationClasses: Readonly<Record<keyof CollieOperationTypes,
   "session.on": "read",
   "session.pages": "read",
   "session.route": "idempotent_write",
+  "session.save_identity": "effect",
   "signing_key.create": "idempotent_write",
   "signing_key.directory": "read",
   "usage.list": "read",
@@ -1458,6 +1462,16 @@ export class CollieOperations {
   sessionRoute(params: SessionRouteParams, options: CallOptions = {}): Promise<RouteEnded> {
     warnExperimental("session.route");
     return this.#caller.call("session.route", params, options);
+  }
+
+  /**
+   * Saves the Session's cookies and storage as a named Saved identity (ADR 0092). Refused with `session_not_savable` on a Profile directory used in place, naming the import that would work.
+   *
+   * @experimental
+   */
+  sessionSaveIdentity(params: SaveIdentityParams): Promise<IdentitySaved> {
+    warnExperimental("session.save_identity");
+    return this.#caller.call("session.save_identity", params, {});
   }
 
   /**

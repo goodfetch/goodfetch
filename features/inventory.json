@@ -1226,6 +1226,17 @@
       ]
     },
     {
+      "id": "command:session.save-identity",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:signing-key.create",
       "kind": "command",
       "area": 8,
@@ -2428,6 +2439,39 @@
       ]
     },
     {
+      "id": "error:profile_directory_browser_mismatch",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:profile_directory_in_use",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:profile_directory_newer_than_browser",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:protocol_version_unsupported",
       "kind": "error",
       "area": 3,
@@ -2928,6 +2972,17 @@
       "id": "error:session_export_open_failed",
       "kind": "error",
       "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:session_not_savable",
+      "kind": "error",
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -5308,6 +5363,17 @@
     },
     {
       "id": "operation:session.route",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:session.save_identity",
       "kind": "operation",
       "area": 5,
       "milestone": null,

@@ -683,6 +683,9 @@ pub(crate) struct LocalBrowser {
     /// (`GlobalPrivacyControlTest` + `Browser.setGlobalPrivacyControl`,
     /// ADR 0048, issue 758).
     gpc: bool,
+    /// When this dedicated browser launches on a user's Profile directory in
+    /// place (ADR 0056, ticket #737).
+    profile: Option<crate::profile_directory::ProfileDirectory>,
 }
 
 impl LocalBrowser {
@@ -692,7 +695,7 @@ impl LocalBrowser {
         pins: Pins,
         number: u64,
         authority: Option<Arc<Authority>>,
-        gpc: bool,
+        (gpc, profile): (bool, Option<crate::profile_directory::ProfileDirectory>),
     ) -> Self {
         let owner = run.identity.owner().child();
         Self {
@@ -707,6 +710,7 @@ impl LocalBrowser {
             released: Mutex::new(None),
             authority,
             gpc,
+            profile,
         }
     }
 
@@ -798,6 +802,7 @@ impl Connect for LocalBrowser {
                         self.number,
                         self.authority.as_deref().map(Authority::spki_sha256),
                         self.gpc,
+                        self.profile.as_ref(),
                     ),
                     attempt.clone(),
                 )

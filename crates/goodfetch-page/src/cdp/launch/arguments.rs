@@ -409,6 +409,17 @@ pub(crate) enum GlobalPrivacyControl {
     On,
 }
 
+/// Whether Chromium launches on an engine-owned fresh data folder or on a
+/// user's Profile directory in place (ADR 0056; ticket #737).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ProfileMode<'a> {
+    /// Engine-owned fresh data folder.
+    Fresh,
+    /// User's Profile directory used in place: omits `--use-mock-keychain` and
+    /// `--password-store=basic`, and optionally selects `--profile-directory`.
+    InPlace { chromium_profile: Option<&'a str> },
+}
+
 /// What a launch decided.
 pub(crate) struct Launch<'a> {
     /// The Browser data folder, the Run's own.
@@ -435,6 +446,8 @@ pub(crate) struct Launch<'a> {
     /// `GlobalPrivacyControlTest` feature for `Browser.setGlobalPrivacyControl`
     /// (ADR 0048, issue 758).
     pub(crate) gpc: GlobalPrivacyControl,
+    /// Fresh engine folder or in-place user Profile directory.
+    pub(crate) profile_mode: ProfileMode<'a>,
 }
 
 /// The command line, the variables the browser starts with beside the
@@ -479,6 +492,13 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
         "--remote-debugging-pipe".to_owned(),
         format!("--user-data-dir={}", launch.data_folder.display()),
     ];
+    let in_place_profile = matches!(launch.profile_mode, ProfileMode::InPlace { .. });
+    if let ProfileMode::InPlace {
+        chromium_profile: Some(profile),
+    } = launch.profile_mode
+    {
+        arguments.push(format!("--profile-directory={profile}"));
+    }
     if launch.headless {
         arguments.push("--headless".to_owned());
     }
@@ -497,7 +517,16 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
         .filter(|entry| entry.disposition == Disposition::Taken)
     {
         match entry.switch {
-            SwitchKind::Flag(flag) => push_unique(&mut arguments, flag),
+            SwitchKind::Flag(flag) => {
+                // An in-place Profile directory keeps its real OS keychain and
+                // password store (ADR 0056; ticket #737).
+                if in_place_profile
+                    && matches!(flag, "--use-mock-keychain" | "--password-store=basic")
+                {
+                    continue;
+                }
+                push_unique(&mut arguments, flag);
+            }
             SwitchKind::DisabledFeature(feature) => push_unique(&mut disabled_features, feature),
             SwitchKind::EnabledFeature(_) => {}
         }

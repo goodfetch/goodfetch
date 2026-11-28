@@ -7906,6 +7906,20 @@
       ],
       "type": "object"
     },
+    "IdentitySaved": {
+      "description": "What `session.save_identity` answers once the Saved identity is written.",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Saved identity's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
     "Image": {
       "additionalProperties": false,
       "description": "An image of the page: an `<img src>`, in document order.",
@@ -18277,6 +18291,31 @@
         }
       ]
     },
+    "SaveIdentityParams": {
+      "additionalProperties": false,
+      "description": "What `session.save_identity` takes: the Session and the name under which\nto save its cookies and storage (ADR 0092).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Saved identity's name.",
+          "type": "string"
+        },
+        "session_id": {
+          "$ref": "#/$defs/SessionId",
+          "arrived_in": "0.1",
+          "description": "The Session whose login is saved."
+        }
+      },
+      "required": [
+        "session_id",
+        "name"
+      ],
+      "type": "object"
+    },
     "ScheduleCreateParams": {
       "additionalProperties": false,
       "description": "What `schedule.create` takes.",
@@ -23804,6 +23843,36 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Profile directory was written by a different browser family than `session.source.browser` names, so launching on it would corrupt it (ADR 0056).",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "profile_directory_browser_mismatch",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Profile directory holds an active browser lock (`SingletonLock`, `lockfile`, `parent.lock`, `.parentlock`) or is a browser's default user data directory, which must be reached via `running_browser` instead (ADR 0056).",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "profile_directory_in_use",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Profile directory was last written by a newer browser version than the engine would launch, so opening it in place would downgrade and corrupt its databases (ADR 0056).",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "profile_directory_newer_than_browser",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side.",
       "details": {
         "$ref": "#/$defs/ProtocolVersionUnsupportedDetails"
@@ -24389,6 +24458,16 @@
       "group": "program",
       "json_rpc_class": -32001,
       "name": "session_export_open_failed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "This Session's source cannot be saved as a Saved identity directly (for example, a Profile directory used in place); import via the named alternative instead (ADR 0092).",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "session_not_savable",
       "product": "collie",
       "retryable": false
     },
@@ -28329,6 +28408,25 @@
       "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/RouteEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Saves the Session's cookies and storage as a named Saved identity (ADR 0092). Refused with `session_not_savable` on a Profile directory used in place, naming the import that would work.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "session.save_identity",
+      "params": {
+        "$ref": "#/$defs/SaveIdentityParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/IdentitySaved"
       },
       "stability": "experimental"
     },

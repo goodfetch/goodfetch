@@ -296,6 +296,10 @@
           {
             "commands": [],
             "name": "pages"
+          },
+          {
+            "commands": [],
+            "name": "save-identity"
           }
         ],
         "name": "session"
@@ -836,6 +840,10 @@
           {
             "commands": [],
             "name": "pages"
+          },
+          {
+            "commands": [],
+            "name": "save-identity"
           }
         ],
         "name": "session"

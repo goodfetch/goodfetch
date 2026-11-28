@@ -13,7 +13,7 @@ from typing_extensions import deprecated
 from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 from goodfetch_collie_client.markers import warn_deprecated, warn_deprecated_settings, warn_experimental
 
-from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, HumanPauseResult, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, KeyboardInsertTextParams, KeyboardKeyParams, KeyboardPressParams, KeyboardTypeParams, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, MouseButtonParams, MouseClickParams, MouseDblclickParams, MouseMoveParams, MouseWheelParams, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PagePauseParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TouchscreenTapParams, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
+from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, HumanPauseResult, IdentitySaved, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, KeyboardInsertTextParams, KeyboardKeyParams, KeyboardPressParams, KeyboardTypeParams, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, MouseButtonParams, MouseClickParams, MouseDblclickParams, MouseMoveParams, MouseWheelParams, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PagePauseParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SaveIdentityParams, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TouchscreenTapParams, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
 from .settings import DEPRECATED_SETTINGS
 
 
@@ -823,6 +823,14 @@ class AsyncCollieOperations:
         """
         warn_experimental("session.route")
         return result_of(RouteEnded, await self._caller.call("session.route", params))
+
+    async def session_save_identity(self, params: SaveIdentityParams) -> IdentitySaved:
+        """Saves the Session's cookies and storage as a named Saved identity (ADR 0092). Refused with `session_not_savable` on a Profile directory used in place, naming the import that would work.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("session.save_identity")
+        return result_of(IdentitySaved, await self._caller.call("session.save_identity", params))
 
     async def signing_key_create(self, params: SigningKeyCreateParams) -> SigningKeyCreated:
         """Makes a new Ed25519 key for an `identified` Session's Web Bot Auth signatures, from the OS generator, and keeps it as a private JSON Web Key in the item a `keychain:` or `secretfile:` Secret reference names; answers the reference, the key's ID and its public key, never the private key. An item that holds an Ed25519 key already keeps it and answers it with `created` false; one that holds anything else is refused. Set `identified.signing_key` to the reference, then export the key directory with `signing_key.directory`.
@@ -1664,6 +1672,14 @@ class CollieOperations:
         warn_experimental("session.route")
         return result_of(RouteEnded, self._caller.call("session.route", params))
 
+    def session_save_identity(self, params: SaveIdentityParams) -> IdentitySaved:
+        """Saves the Session's cookies and storage as a named Saved identity (ADR 0092). Refused with `session_not_savable` on a Profile directory used in place, naming the import that would work.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("session.save_identity")
+        return result_of(IdentitySaved, self._caller.call("session.save_identity", params))
+
     def signing_key_create(self, params: SigningKeyCreateParams) -> SigningKeyCreated:
         """Makes a new Ed25519 key for an `identified` Session's Web Bot Auth signatures, from the OS generator, and keeps it as a private JSON Web Key in the item a `keychain:` or `secretfile:` Secret reference names; answers the reference, the key's ID and its public key, never the private key. An item that holds an Ed25519 key already keeps it and answers it with `created` false; one that holds anything else is refused. Set `identified.signing_key` to the reference, then export the key directory with `signing_key.directory`.
 
@@ -1794,6 +1810,7 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "session.on",
     "session.pages",
     "session.route",
+    "session.save_identity",
     "signing_key.create",
     "signing_key.directory",
     "usage.list",
@@ -1909,6 +1926,7 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "session.on": "read",
     "session.pages": "read",
     "session.route": "idempotent_write",
+    "session.save_identity": "effect",
     "signing_key.create": "idempotent_write",
     "signing_key.directory": "read",
     "usage.list": "read",

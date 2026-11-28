@@ -9794,6 +9794,20 @@
       ],
       "type": "object"
     },
+    "IdentitySaved": {
+      "description": "What `session.save_identity` answers once the Saved identity is written.",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Saved identity's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
     "Image": {
       "additionalProperties": false,
       "description": "An image of the page: an `<img src>`, in document order.",
@@ -24238,6 +24252,31 @@
           "type": "string"
         }
       ]
+    },
+    "SaveIdentityParams": {
+      "additionalProperties": false,
+      "description": "What `session.save_identity` takes: the Session and the name under which\nto save its cookies and storage (ADR 0092).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Saved identity's name.",
+          "type": "string"
+        },
+        "session_id": {
+          "$ref": "#/$defs/SessionId",
+          "arrived_in": "0.1",
+          "description": "The Session whose login is saved."
+        }
+      },
+      "required": [
+        "session_id",
+        "name"
+      ],
+      "type": "object"
     },
     "ScheduleCreateParams": {
       "additionalProperties": false,

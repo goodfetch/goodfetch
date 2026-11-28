@@ -11,8 +11,8 @@ use goodfetch_engine::pinned_download::{CHROMIUM_BACKGROUND_TRAFFIC_OFF, Chromiu
 #[cfg(target_os = "linux")]
 use super::shared_memory_of;
 use super::{
-    Arguments, Disposition, GlobalPrivacyControl, Launch, PLAYWRIGHT_SWITCHES, SwitchKind, Warning,
-    arguments,
+    Arguments, Disposition, GlobalPrivacyControl, Launch, PLAYWRIGHT_SWITCHES, ProfileMode,
+    SwitchKind, Warning, arguments,
 };
 
 const MEBIBYTE: u64 = 1024 * 1024;
@@ -36,7 +36,23 @@ fn launch(headless: bool, shared_memory: Option<u64>) -> Launch<'static> {
         sandbox: true,
         relay_authority: None,
         gpc: GlobalPrivacyControl::Off,
+        profile_mode: ProfileMode::Fresh,
     }
+}
+
+/// Covers: story:5-66
+#[test]
+fn in_place_profile_omits_mock_keychain_and_basic_password_store_and_passes_profile_dir() {
+    let built = arguments(&Launch {
+        profile_mode: ProfileMode::InPlace {
+            chromium_profile: Some("Profile 2"),
+        },
+        ..launch(false, None)
+    });
+    assert!(!has(&built, "--use-mock-keychain"));
+    assert!(!has(&built, "--password-store=basic"));
+    assert!(has(&built, "--profile-directory=Profile 2"));
+    assert!(has(&built, "--user-data-dir=/runs/r/browser-data/1"));
 }
 
 fn has(built: &Arguments, flag: &str) -> bool {

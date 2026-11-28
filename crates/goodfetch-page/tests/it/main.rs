@@ -26,6 +26,7 @@ mod navigation_gate;
 mod page_events_lost;
 mod page_navigation;
 mod page_request;
+mod profile_directory;
 mod proxy_challenge;
 mod robots_txt;
 mod root_events_lost;

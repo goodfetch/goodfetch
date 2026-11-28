@@ -342,7 +342,12 @@ fn exit_of(status: std::process::ExitStatus) -> BrowserExit {
 pub(crate) async fn launch(
     (run, on): (&BrowserRun, &RunIdentity),
     (launcher, home, pins): (&Launcher, &Home, &Pins),
-    (number, relay_authority, gpc_feature): (u64, Option<&str>, bool),
+    (number, relay_authority, gpc_feature, profile): (
+        u64,
+        Option<&str>,
+        bool,
+        Option<&crate::profile_directory::ProfileDirectory>,
+    ),
     stopping: CancellationToken,
 ) -> Result<Launched, CallError> {
     if let Launcher::Scripted(scripted) = launcher {
@@ -373,14 +378,7 @@ pub(crate) async fn launch(
         return Err(refusal);
     }
     let (executable, held, kind) = executable(on, (home, pins), shell).await?;
-    let data_folder = run
-        .identity
-        .folder()
-        .join(DATA_FOLDERS)
-        .join(number.to_string());
-    write_preferences(on, &data_folder)
-        .await
-        .map_err(|error| launch_failed(&executable, None, &error.to_string()))?;
+    let data_folder = prepare_data_folder(run, on, number, profile, &executable).await?;
     let (arguments, environment) = command_line(
         on,
         settings,
@@ -388,6 +386,7 @@ pub(crate) async fn launch(
         (headless, shell.is_some()),
         (sandbox, gpc_feature),
         relay_authority,
+        profile,
     )
     .await;
     let mut command = Command::new(&executable);
@@ -567,6 +566,7 @@ async fn command_line(
     (headless, headless_shell): (bool, bool),
     (sandbox, gpc_feature): (bool, bool),
     relay_authority: Option<&str>,
+    profile: Option<&crate::profile_directory::ProfileDirectory>,
 ) -> (Vec<String>, &'static [(&'static str, &'static str)]) {
     let resolve = settings.map(HostMapping::of).unwrap_or_default();
     // A policy that is no policy opens no page anyway (`setting_invalid`).
@@ -591,11 +591,38 @@ async fn command_line(
         } else {
             arguments::GlobalPrivacyControl::Off
         },
+        profile_mode: match profile {
+            Some(profile) => arguments::ProfileMode::InPlace {
+                chromium_profile: profile.chromium_profile.as_deref(),
+            },
+            None => arguments::ProfileMode::Fresh,
+        },
     });
     for warning in &built.warnings {
         tracing::warn!(%warning, "the Run's browser launches degraded");
     }
     (built.command_line, built.environment)
+}
+
+async fn prepare_data_folder(
+    run: &BrowserRun,
+    on: &RunIdentity,
+    number: u64,
+    profile: Option<&crate::profile_directory::ProfileDirectory>,
+    executable: &Path,
+) -> Result<PathBuf, CallError> {
+    if let Some(profile) = profile {
+        return Ok(profile.path.clone());
+    }
+    let data_folder = run
+        .identity
+        .folder()
+        .join(DATA_FOLDERS)
+        .join(number.to_string());
+    write_preferences(on, &data_folder)
+        .await
+        .map_err(|error| launch_failed(executable, None, &error.to_string()))?;
+    Ok(data_folder)
 }
 
 /// The size of `/dev/shm`, where Linux mounts one of its own.

@@ -848,7 +848,16 @@ fn assert_frontier_enqueue_and_sitemap_refuse_ssrf(
         );
     }
 
-    // Sitemap admission to a private target is also refused with zero connections.
+    assert_frontier_sitemap_refuses_ssrf(engine, proving_ground, port);
+}
+
+/// Verifies that Frontier sitemap admission refuses private SSRF URLs with
+/// zero connections to the Proving ground's watched target.
+fn assert_frontier_sitemap_refuses_ssrf(
+    engine: &mut goodfetch_test_client::Attached,
+    proving_ground: &ProvingGround,
+    port: u16,
+) {
     let before_sitemap = listener_connections(proving_ground, "target");
     let sitemap_report = crawl_with(
         engine,

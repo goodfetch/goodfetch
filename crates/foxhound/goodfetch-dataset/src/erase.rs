@@ -472,6 +472,62 @@ fn erase_baselines(
     Ok(deleted)
 }
 
+fn scrub_key_values(
+    connection: &Connection,
+    criteria: &MatchCriteria,
+    value_needles: &mut BTreeSet<String>,
+) -> rusqlite::Result<u64> {
+    if !has_table(connection, "key_values")? {
+        return Ok(0);
+    }
+    let matched: Vec<String> = {
+        let mut stmt = connection.prepare_cached("SELECT key, value, content FROM key_values")?;
+        let rows = stmt.query_map([], |row| {
+            let key: String = row.get(0)?;
+            let value: Option<String> = row.get(1)?;
+            let content: Option<Vec<u8>> = row.get(2)?;
+            Ok((key, value, content))
+        })?;
+        let mut keys = Vec::new();
+        for row in rows {
+            let (key, value, content) = row?;
+            let exact_key = criteria.key.as_deref() == Some(key.as_str());
+            if exact_key
+                && criteria.value.is_none()
+                && let Some(val_text) = value.as_deref()
+                && !val_text.is_empty()
+            {
+                if let Ok(parsed) = serde_json::from_str::<Value>(val_text) {
+                    collect_json_scalars(&parsed, value_needles);
+                } else {
+                    value_needles.insert(val_text.to_owned());
+                }
+            }
+            let hit = exact_key
+                || matches_any_needle(&key, value_needles)
+                || value.as_deref().is_some_and(|t| {
+                    criteria.matches_record(t, &[], value_needles)
+                        || matches_any_needle(t, value_needles)
+                })
+                || content
+                    .as_deref()
+                    .is_some_and(|bytes| bytes_contain_any_needle(bytes, value_needles));
+            if hit {
+                keys.push(key);
+            }
+        }
+        keys
+    };
+    let mut scrubbed = 0_u64;
+    if !matched.is_empty() {
+        let mut delete = connection.prepare_cached("DELETE FROM key_values WHERE key = ?1")?;
+        for key in matched {
+            scrubbed += count(delete.execute([&key])?);
+        }
+    }
+    Ok(scrubbed)
+}
+
 /// Scrubs matching fields/rows across all other run-state and Checkpoint
 /// tables (`key_values`, `run_file_chunks`, `run`, `work_items`, `outcomes`,
 /// `seeds`, `visited`, `warnings`, etc.) so no copy of an erased value remains
@@ -481,57 +537,10 @@ fn scrub_run_tables(
     criteria: &MatchCriteria,
     value_needles: &mut BTreeSet<String>,
 ) -> rusqlite::Result<u64> {
-    let mut scrubbed = 0_u64;
     if value_needles.is_empty() && criteria.key.is_none() {
         return Ok(0);
     }
-    if has_table(connection, "key_values")? {
-        let matched: Vec<String> = {
-            let mut stmt =
-                connection.prepare_cached("SELECT key, value, content FROM key_values")?;
-            let rows = stmt.query_map([], |row| {
-                let key: String = row.get(0)?;
-                let value: Option<String> = row.get(1)?;
-                let content: Option<Vec<u8>> = row.get(2)?;
-                Ok((key, value, content))
-            })?;
-            let mut keys = Vec::new();
-            for row in rows {
-                let (key, value, content) = row?;
-                let exact_key = criteria.key.as_deref() == Some(key.as_str());
-                if exact_key
-                    && criteria.value.is_none()
-                    && let Some(val_text) = value.as_deref()
-                    && !val_text.is_empty()
-                {
-                    if let Ok(parsed) = serde_json::from_str::<Value>(val_text) {
-                        collect_json_scalars(&parsed, value_needles);
-                    } else {
-                        value_needles.insert(val_text.to_owned());
-                    }
-                }
-                let hit = exact_key
-                    || matches_any_needle(&key, value_needles)
-                    || value.as_deref().is_some_and(|t| {
-                        criteria.matches_record(t, &[], value_needles)
-                            || matches_any_needle(t, value_needles)
-                    })
-                    || content
-                        .as_deref()
-                        .is_some_and(|bytes| bytes_contain_any_needle(bytes, value_needles));
-                if hit {
-                    keys.push(key);
-                }
-            }
-            keys
-        };
-        if !matched.is_empty() {
-            let mut delete = connection.prepare_cached("DELETE FROM key_values WHERE key = ?1")?;
-            for key in matched {
-                scrubbed += count(delete.execute([&key])?);
-            }
-        }
-    }
+    let mut scrubbed = scrub_key_values(connection, criteria, value_needles)?;
     if !value_needles.is_empty() && has_table(connection, "run_file_chunks")? {
         let matched: Vec<(String, i64)> = {
             let mut stmt =

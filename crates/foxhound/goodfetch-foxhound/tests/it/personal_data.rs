@@ -519,58 +519,15 @@ fn run_erase_removes_matching_records_checkpoint_and_response_cache_and_writes_a
     );
 }
 
-/// `run.erase` handles `key`-only erasure (collecting erased personal values
-/// without rewriting JSON property names), dotted `key` paths
-/// (`profile.phone`), `rejected_records`, and `<run>/bodies/` files, while
-/// `datasets.<name>.retention` on a Label is refused with
-/// `setting_not_applicable` (ADR 0016; ticket 694).
-///
-/// Covers: story:4-120, operation:run.erase, setting:datasets, error:setting_not_applicable
-#[test]
-fn run_erase_handles_key_only_dotted_key_rejected_records_and_bodies_and_label_refuses_retention() {
-    let env = TestEnv::new();
-    let site = Site::start(&env);
-    let ada_email = "ada-keyonly-4120@example.test";
-    let ada_phone = "+33102039999";
-    let rejected_email = "rejected-4120@example.test";
-
-    let mut person = crate::opened_by(
-        Attached::start(&env, FOXHOUND),
-        Hello::needing(Product::Foxhound).surface(Surface::Cli),
-    )
-    .settings_by_default(&site.settings());
-
-    // `datasets.<name>.retention` on a Label is refused with `setting_not_applicable`.
-    let label_refused = person.ask(
-        "label-retention",
-        "crawl.start",
-        &json!({
-            "labels": {
-                "page": {
-                    "settings": { "datasets": { "contacts": { "retention": 10_000 } } }
-                }
-            },
-            "run_id": "retention-on-label",
-            "seeds": [{ "url": site.page("/a"), "label": "page" }],
-            "datasets": [{ "name": "contacts" }],
-        }),
-    );
-    assert_eq!(
-        (
-            &label_refused["error"]["data"]["code"],
-            &label_refused["error"]["data"]["key"]
-        ),
-        (
-            &json!("setting_not_applicable"),
-            &json!("datasets.contacts.retention")
-        ),
-        "{label_refused}"
-    );
-
-    // Crawl commits a valid record with nested `profile.phone`, a valid record
-    // without `profile.phone`, and a schema-invalid rejected record.
+fn crawl_contacts_with_nested_phone_and_rejected(
+    person: &mut Attached,
+    site: &Site,
+    ada_email: &str,
+    ada_phone: &str,
+    rejected_email: &str,
+) {
     let report = crawl_from(
-        &mut person,
+        person,
         &json!({
             "labels": { "page": {} },
             "run_id": "erase-key-run",
@@ -632,11 +589,68 @@ fn run_erase_handles_key_only_dotted_key_rejected_records_and_bodies_and_label_r
         },
     );
     assert_eq!(report["result"]["lifecycle"], json!("finished"), "{report}");
+}
 
-    // Place a body file in `<run>/bodies/` and a trace JSONL file with property names
-    // to prove `<run>/bodies/` is scrubbed and JSON property names are preserved.
-    let layout = HomeLayout::of(env.home());
-    let run_folder = layout.run_folder("erase-key-run");
+fn assert_label_refuses_dataset_retention(person: &mut Attached, site: &Site) {
+    let label_refused = person.ask(
+        "label-retention",
+        "crawl.start",
+        &json!({
+            "labels": {
+                "page": {
+                    "settings": { "datasets": { "contacts": { "retention": 10_000 } } }
+                }
+            },
+            "run_id": "retention-on-label",
+            "seeds": [{ "url": site.page("/a"), "label": "page" }],
+            "datasets": [{ "name": "contacts" }],
+        }),
+    );
+    assert_eq!(
+        (
+            &label_refused["error"]["data"]["code"],
+            &label_refused["error"]["data"]["key"]
+        ),
+        (
+            &json!("setting_not_applicable"),
+            &json!("datasets.contacts.retention")
+        ),
+        "{label_refused}"
+    );
+}
+
+/// `run.erase` handles `key`-only erasure (collecting erased personal values
+/// without rewriting JSON property names), dotted `key` paths
+/// (`profile.phone`), `rejected_records`, and `<run>/bodies/` files, while
+/// `datasets.<name>.retention` on a Label is refused with
+/// `setting_not_applicable` (ADR 0016; ticket 694).
+///
+/// Covers: story:4-120, operation:run.erase, setting:datasets, error:setting_not_applicable
+#[test]
+fn run_erase_handles_key_only_dotted_key_rejected_records_and_bodies_and_label_refuses_retention() {
+    let env = TestEnv::new();
+    let site = Site::start(&env);
+    let ada_email = "ada-keyonly-4120@example.test";
+    let ada_phone = "+33102039999";
+    let rejected_email = "rejected-4120@example.test";
+
+    let mut person = crate::opened_by(
+        Attached::start(&env, FOXHOUND),
+        Hello::needing(Product::Foxhound).surface(Surface::Cli),
+    )
+    .settings_by_default(&site.settings());
+
+    assert_label_refuses_dataset_retention(&mut person, &site);
+
+    crawl_contacts_with_nested_phone_and_rejected(
+        &mut person,
+        &site,
+        ada_email,
+        ada_phone,
+        rejected_email,
+    );
+
+    let run_folder = HomeLayout::of(env.home()).run_folder("erase-key-run");
     let bodies_dir = run_folder.join("bodies");
     let trace_dir = run_folder.join("trace");
     std::fs::create_dir_all(&bodies_dir).unwrap();
@@ -669,13 +683,11 @@ fn run_erase_handles_key_only_dotted_key_rejected_records_and_bodies_and_label_r
     assert!(person.finished());
 
     assert_eq!(
-        phone_erased["result"]["records"],
-        json!(1),
-        "{phone_erased}"
-    );
-    assert_eq!(
-        phone_erased["result"]["rejected_records"],
-        json!(1),
+        (
+            &phone_erased["result"]["records"],
+            &phone_erased["result"]["rejected_records"],
+        ),
+        (&json!(1), &json!(1)),
         "{phone_erased}"
     );
     let remaining = page_after["result"]["records"].as_array().unwrap();
@@ -683,19 +695,14 @@ fn run_erase_handles_key_only_dotted_key_rejected_records_and_bodies_and_label_r
     assert_eq!(remaining[0]["value"]["public_name"], json!("NoContact"));
     assert_eq!(
         files_containing(&run_folder, ada_phone.as_bytes()),
-        Vec::<String>::new(),
-        "dotted key personal value remained in run folder"
+        Vec::<String>::new()
     );
     assert_eq!(
         files_containing(&run_folder, rejected_email.as_bytes()),
-        Vec::<String>::new(),
-        "rejected record remained in run folder"
+        Vec::<String>::new()
     );
     let body_after = std::fs::read_to_string(&body_file).unwrap();
-    assert!(
-        !body_after.contains(ada_phone) && body_after.contains("phone [erased]"),
-        "{body_after}"
-    );
+    assert!(!body_after.contains(ada_phone) && body_after.contains("phone [erased]"));
     let trace_after: Value =
         serde_json::from_str(std::fs::read_to_string(&trace_file).unwrap().trim()).unwrap();
     assert_eq!(
@@ -721,7 +728,6 @@ fn run_erase_handles_key_only_dotted_key_rejected_records_and_bodies_and_label_r
     assert_eq!(trace_final, json!({ "profile": { "city": "Paris" } }));
     assert_eq!(
         files_containing(&run_folder, ada_email.as_bytes()),
-        Vec::<String>::new(),
-        "key-only email value remained in run folder"
+        Vec::<String>::new()
     );
 }

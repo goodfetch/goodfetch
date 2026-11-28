@@ -146,6 +146,10 @@ fn key_only_erasure_collects_actual_values_and_never_rewrites_json_keys() {
 }
 
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "unit test creates and reads fixture files in its test folder"
+)]
 fn scrub_json_value_traverses_dotted_key_paths_and_scrubs_bodies_dir() {
     let mut doc = json!({
         "id": "1",

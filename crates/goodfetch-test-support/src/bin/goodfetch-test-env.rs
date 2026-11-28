@@ -249,8 +249,8 @@ fn main() -> ExitCode {
 /// Runs a command on a pseudo-terminal (`ConPTY` on Windows) for TypeScript
 /// and Python interactive CLI tests (ADR 0062).
 #[expect(
-    clippy::disallowed_types,
-    reason = "goodfetch-test-env spawns the child process directly on a pseudo-terminal"
+    clippy::disallowed_methods,
+    reason = "goodfetch-test-env spawns the child process directly on a pseudo-terminal outside any async worker"
 )]
 fn run_pty(arguments: &PtyArguments) -> ExitCode {
     let Some((program, args)) = arguments.child.split_first() else {

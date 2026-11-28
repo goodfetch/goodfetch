@@ -174,22 +174,8 @@ impl Editing {
             }
         }
         let checkpoint_count = if let Some(checkpoint_work) = checkpoint_work {
-            let checkpoint = self.folder.join(CHECKPOINT_FILE);
-            let checkpoint_at = checkpoint.clone();
-            let (updated, count, truncated) = self
-                .owner
-                .blocking(move || {
-                    let (count, truncated) = edit_checkpoint_file(&checkpoint_at, |connection| {
-                        checkpoint_work(connection, &mut written)
-                    })?;
-                    Ok::<_, rusqlite::Error>((written, count, truncated))
-                })
-                .await
-                .map_err(|error| self.unavailable(&error))?;
+            let (updated, count) = self.run_checkpoint(written, checkpoint_work).await?;
             written = updated;
-            if !truncated {
-                self.truncate_with_retry(&checkpoint, None).await?;
-            }
             count
         } else {
             0
@@ -213,6 +199,33 @@ impl Editing {
             .await
             .map_err(|error| self.unavailable(&error))?;
         Ok((written, checkpoint_count))
+    }
+
+    async fn run_checkpoint<T, C>(
+        &mut self,
+        mut written: T,
+        checkpoint_work: C,
+    ) -> Result<(T, u64), RunError>
+    where
+        T: Send + 'static,
+        C: FnOnce(&Connection, &mut T) -> rusqlite::Result<u64> + Send + 'static,
+    {
+        let checkpoint = self.folder.join(CHECKPOINT_FILE);
+        let checkpoint_at = checkpoint.clone();
+        let (updated, count, truncated) = self
+            .owner
+            .blocking(move || {
+                let (count, truncated) = edit_checkpoint_file(&checkpoint_at, |connection| {
+                    checkpoint_work(connection, &mut written)
+                })?;
+                Ok::<_, rusqlite::Error>((written, count, truncated))
+            })
+            .await
+            .map_err(|error| self.unavailable(&error))?;
+        if !truncated {
+            self.truncate_with_retry(&checkpoint, None).await?;
+        }
+        Ok((updated, count))
     }
 
     async fn truncate_with_retry(

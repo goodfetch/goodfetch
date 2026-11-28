@@ -14,7 +14,7 @@ const NAME_MAX_BYTES: usize = 255;
 
 /// The ASCII bytes Windows forbids in a name, beside the separators and the
 /// colon, which the checks name on their own.
-const FORBIDDEN_BYTES: [u8; 6] = [b'<', b'>', b'"', b'|', b'?', b'*'];
+const FORBIDDEN_BYTES: [u8; 6] = *b"<>\"|?*";
 
 /// The device names Windows reserves, in upper case, alone or before an
 /// extension: the console's, the ports, with their superscript digits, and
@@ -378,136 +378,11 @@ mod tests {
     }
 
     #[cfg(unix)]
-    #[test]
-    fn non_utf8_hostile_and_escape_paths_are_refused_for_every_shape() {
+    fn assert_non_utf8_refused(shape: PathShape, cases: &[(&[u8], PathIssue)]) {
         use std::ffi::OsStr;
         use std::os::unix::ffi::OsStrExt as _;
 
-        let overlong = vec![b'\xff'; 256];
-        let cases: &[(&[u8], PathShape, PathIssue)] = &[
-            (b"/\xff", PathShape::Name, PathIssue::Absolute),
-            (b"../\xff", PathShape::Name, PathIssue::ParentTraversal),
-            (b"sub/\xff", PathShape::Name, PathIssue::Separator),
-            (b"sub\\\xff", PathShape::Name, PathIssue::Separator),
-            (b"CON.\xff", PathShape::Name, PathIssue::ReservedName),
-            (
-                b"\xff\x00name",
-                PathShape::Name,
-                PathIssue::ControlCharacter,
-            ),
-            (
-                b"\xff:stream",
-                PathShape::Name,
-                PathIssue::AlternateDataStream,
-            ),
-            (b"\xff<bad", PathShape::Name, PathIssue::ForbiddenCharacter),
-            (b"\xff.", PathShape::Name, PathIssue::TrailingDotOrSpace),
-            (b"\xff ", PathShape::Name, PathIssue::TrailingDotOrSpace),
-            (overlong.as_slice(), PathShape::Name, PathIssue::Overlong),
-            (b"/\xff", PathShape::RelativePath, PathIssue::Absolute),
-            (
-                b"../\xff",
-                PathShape::RelativePath,
-                PathIssue::ParentTraversal,
-            ),
-            (
-                b"a/../\xff",
-                PathShape::RelativePath,
-                PathIssue::ParentTraversal,
-            ),
-            (b"C:\\\xff", PathShape::RelativePath, PathIssue::Drive),
-            (
-                b"\\\\?\\foo\\\xff",
-                PathShape::RelativePath,
-                PathIssue::Verbatim,
-            ),
-            (
-                b"\\\\host\\share\\\xff",
-                PathShape::RelativePath,
-                PathIssue::Unc,
-            ),
-            (
-                b"dir/CON.\xff",
-                PathShape::RelativePath,
-                PathIssue::ReservedName,
-            ),
-            (
-                b"dir/\xff:ads",
-                PathShape::RelativePath,
-                PathIssue::AlternateDataStream,
-            ),
-            (
-                b"dir/\xff?",
-                PathShape::RelativePath,
-                PathIssue::ForbiddenCharacter,
-            ),
-            (
-                b"dir/\xff.",
-                PathShape::RelativePath,
-                PathIssue::TrailingDotOrSpace,
-            ),
-            (b"../\xff", PathShape::SavePath, PathIssue::ParentTraversal),
-            (
-                b"dir/../\xff",
-                PathShape::SavePath,
-                PathIssue::ParentTraversal,
-            ),
-            (b"C:\\\xff", PathShape::SavePath, PathIssue::Drive),
-            (
-                b"\\\\?\\foo\\\xff",
-                PathShape::SavePath,
-                PathIssue::Verbatim,
-            ),
-            (
-                b"\\\\.\\pipe\\\xff",
-                PathShape::SavePath,
-                PathIssue::DeviceNamespace,
-            ),
-            (
-                b"\\\\host\\share\\\xff",
-                PathShape::SavePath,
-                PathIssue::Unc,
-            ),
-            (b"dir\\\xff", PathShape::SavePath, PathIssue::Separator),
-            (
-                b"dir/CON.\xff",
-                PathShape::SavePath,
-                PathIssue::ReservedName,
-            ),
-            (
-                b"dir/\xff\x07",
-                PathShape::SavePath,
-                PathIssue::ControlCharacter,
-            ),
-            (
-                b"dir/\xff:ads",
-                PathShape::SavePath,
-                PathIssue::AlternateDataStream,
-            ),
-            (
-                b"dir/\xff*",
-                PathShape::SavePath,
-                PathIssue::ForbiddenCharacter,
-            ),
-            (
-                b"dir/\xff.",
-                PathShape::SavePath,
-                PathIssue::TrailingDotOrSpace,
-            ),
-            (
-                b"dir/\xff ",
-                PathShape::SavePath,
-                PathIssue::TrailingDotOrSpace,
-            ),
-            (
-                overlong.as_slice(),
-                PathShape::SavePath,
-                PathIssue::Overlong,
-            ),
-            (b"\xff/.", PathShape::SavePath, PathIssue::DotName),
-        ];
-
-        for &(bytes, shape, expected) in cases {
+        for &(bytes, expected) in cases {
             let path = Path::new(OsStr::from_bytes(bytes));
             assert_eq!(
                 check_path(path, shape),
@@ -515,6 +390,66 @@ mod tests {
                 "{bytes:?} {shape:?}"
             );
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_hostile_and_escape_paths_are_refused_for_every_shape() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt as _;
+
+        let overlong = vec![b'\xff'; 256];
+        assert_non_utf8_refused(
+            PathShape::Name,
+            &[
+                (b"/\xff", PathIssue::Absolute),
+                (b"../\xff", PathIssue::ParentTraversal),
+                (b"sub/\xff", PathIssue::Separator),
+                (b"sub\\\xff", PathIssue::Separator),
+                (b"CON.\xff", PathIssue::ReservedName),
+                (b"\xff\x00name", PathIssue::ControlCharacter),
+                (b"\xff:stream", PathIssue::AlternateDataStream),
+                (b"\xff<bad", PathIssue::ForbiddenCharacter),
+                (b"\xff.", PathIssue::TrailingDotOrSpace),
+                (b"\xff ", PathIssue::TrailingDotOrSpace),
+                (overlong.as_slice(), PathIssue::Overlong),
+            ],
+        );
+        assert_non_utf8_refused(
+            PathShape::RelativePath,
+            &[
+                (b"/\xff", PathIssue::Absolute),
+                (b"../\xff", PathIssue::ParentTraversal),
+                (b"a/../\xff", PathIssue::ParentTraversal),
+                (b"C:\\\xff", PathIssue::Drive),
+                (b"\\\\?\\foo\\\xff", PathIssue::Verbatim),
+                (b"\\\\host\\share\\\xff", PathIssue::Unc),
+                (b"dir/CON.\xff", PathIssue::ReservedName),
+                (b"dir/\xff:ads", PathIssue::AlternateDataStream),
+                (b"dir/\xff?", PathIssue::ForbiddenCharacter),
+                (b"dir/\xff.", PathIssue::TrailingDotOrSpace),
+            ],
+        );
+        assert_non_utf8_refused(
+            PathShape::SavePath,
+            &[
+                (b"../\xff", PathIssue::ParentTraversal),
+                (b"dir/../\xff", PathIssue::ParentTraversal),
+                (b"C:\\\xff", PathIssue::Drive),
+                (b"\\\\?\\foo\\\xff", PathIssue::Verbatim),
+                (b"\\\\.\\pipe\\\xff", PathIssue::DeviceNamespace),
+                (b"\\\\host\\share\\\xff", PathIssue::Unc),
+                (b"dir\\\xff", PathIssue::Separator),
+                (b"dir/CON.\xff", PathIssue::ReservedName),
+                (b"dir/\xff\x07", PathIssue::ControlCharacter),
+                (b"dir/\xff:ads", PathIssue::AlternateDataStream),
+                (b"dir/\xff*", PathIssue::ForbiddenCharacter),
+                (b"dir/\xff.", PathIssue::TrailingDotOrSpace),
+                (b"dir/\xff ", PathIssue::TrailingDotOrSpace),
+                (overlong.as_slice(), PathIssue::Overlong),
+                (b"\xff/.", PathIssue::DotName),
+            ],
+        );
 
         // Benign non-UTF-8 file names with no hostile bytes or escape components stay accepted.
         assert_eq!(

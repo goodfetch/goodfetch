@@ -14,6 +14,7 @@ import { randomBytes } from "node:crypto";
 import { mkdir, open, rename, rm, stat, type FileHandle } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import type { ClientConnection } from "./client-connection.ts";
+import type { RunCopyConnection } from "./handle.ts";
 import { FileWriteFailedError, PathNotWritableError } from "./generated/errors.ts";
 
 /** What a write names in its errors' `fix`: the call whose path argument it was, such as `saveAs`. */
@@ -360,6 +361,17 @@ function chunkOf(params: unknown): Uint8Array | undefined {
  */
 export async function saveFile<Result extends Saved>(
   connection: ClientConnection,
+  method: string,
+  params: Readonly<Record<string, unknown>>,
+  path: string,
+  options: FileWriteOptions,
+): Promise<Result> {
+  return saveFileOver(connection, method, params, path, options);
+}
+
+/** Internal file-saving helper accepting the narrow `RunCopyConnection` interface. */
+export async function saveFileOver<Result extends Saved>(
+  connection: RunCopyConnection,
   method: string,
   params: Readonly<Record<string, unknown>>,
   path: string,

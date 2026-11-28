@@ -5,8 +5,8 @@
 // or not at all through a hidden temporary file, and `stream()` yields its
 // bytes in order.
 import { Buffer } from "node:buffer";
-import type { ClientConnection } from "./client-connection.ts";
-import { saveFile } from "./file-saving.ts";
+import { saveFileOver } from "./file-saving.ts";
+import type { RunCopyConnection } from "./handle.ts";
 import {
   collieOperations,
   type Checkpoint as WireCheckpoint,
@@ -64,7 +64,7 @@ function chunkOf(params: unknown): Uint8Array | undefined {
  * machine.
  */
 export class Checkpoint {
-  readonly #connection: ClientConnection;
+  readonly #connection: RunCopyConnection;
 
   /** The Run's ID. */
   readonly runId: string;
@@ -82,7 +82,7 @@ export class Checkpoint {
   readonly time: Date;
 
   /** @internal `run.checkpoint()` builds a Checkpoint; a program never constructs one. */
-  constructor(connection: ClientConnection, descriptor: WireCheckpoint) {
+  constructor(connection: RunCopyConnection, descriptor: WireCheckpoint) {
     this.#connection = connection;
     this.runId = descriptor.runId;
     this.location = descriptor.location;
@@ -109,7 +109,7 @@ export class Checkpoint {
    */
   async saveAs(path: string, options: CheckpointSaveOptions = {}): Promise<CheckpointSaved> {
     warnEntry(collieOperations, "checkpoint.save_as");
-    const raw = await saveFile<{ readonly written: boolean }>(
+    const raw = await saveFileOver<{ readonly written: boolean }>(
       this.#connection,
       "checkpoint.save_as",
       { run_id: this.runId, location: this.location },
@@ -154,7 +154,7 @@ export class Checkpoint {
  * to the program's machine.
  */
 export class RunTrace {
-  readonly #connection: ClientConnection;
+  readonly #connection: RunCopyConnection;
 
   /** The Run's ID. */
   readonly runId: string;
@@ -166,7 +166,7 @@ export class RunTrace {
   readonly digest: string;
 
   /** @internal `run.trace()` and `RunView.trace()` build a RunTrace; a program never constructs one. */
-  constructor(connection: ClientConnection, descriptor: WireRunTrace) {
+  constructor(connection: RunCopyConnection, descriptor: WireRunTrace) {
     this.#connection = connection;
     this.runId = descriptor.runId;
     this.location = descriptor.location;
@@ -189,7 +189,7 @@ export class RunTrace {
    */
   async saveAs(path: string, options: RunTraceSaveOptions = {}): Promise<TraceSaved> {
     warnEntry(collieOperations, "trace.save_as");
-    const raw = await saveFile<TraceSaved>(
+    const raw = await saveFileOver<TraceSaved>(
       this.#connection,
       "trace.save_as",
       { run_id: this.runId, location: this.location },

@@ -536,7 +536,9 @@ impl TaskStarter {
     /// Starts an actor as [`TaskStarter::actor`] does, which also ends once
     /// `handle` breaks: its mailbox is dropped then, with every message it
     /// still holds, so a sender's later message is refused, whoever holds a
-    /// sender still.
+    /// sender still. It does not wait for already-reserved permits so an
+    /// owner can finish stopping even while a caller still holds one (issue
+    /// 1763); callers awaiting a reply race `sender.closed()` (issue 2594).
     ///
     /// # Errors
     ///

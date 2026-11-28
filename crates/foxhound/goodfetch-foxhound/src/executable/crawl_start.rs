@@ -489,11 +489,7 @@ fn run(
             Phase::Starting => {
                 shown = None;
                 let started = answer["run_id"].clone();
-                if json {
-                    output::json(&started);
-                } else {
-                    output::line(started.as_str().unwrap_or_default());
-                }
+                print_started(answer, &started, json);
                 if flags.follow {
                     *run_id.borrow_mut() = Some(started.clone());
                 }
@@ -569,6 +565,24 @@ fn run(
             ExitCode::from(exit)
         }
         (Err(failure), _) => call.failed(failure, human),
+    }
+}
+
+/// Prints the `crawl.start` result, emitting the full object with `partitions`
+/// when `--json` is set for a partitioned crawl.
+fn print_started(answer: &Value, started: &Value, json: bool) {
+    let is_partitioned = answer
+        .get("partitions")
+        .and_then(Value::as_array)
+        .is_some_and(|partitions| !partitions.is_empty());
+    if json {
+        if is_partitioned {
+            output::json(answer);
+        } else {
+            output::json(started);
+        }
+    } else {
+        output::line(started.as_str().unwrap_or_default());
     }
 }
 

@@ -33,6 +33,7 @@ mod invariants;
 mod labels;
 mod lease;
 mod outcomes;
+pub mod partition;
 mod policy;
 mod progress;
 mod push;
@@ -49,5 +50,5 @@ mod tier_choice;
 mod tier_race;
 mod work_items;
 
-pub use start::contribution;
+pub use start::{CrawlRuntime, contribution, contribution_with};
 pub use work_items::url_of;

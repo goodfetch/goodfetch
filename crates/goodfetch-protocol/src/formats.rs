@@ -18,10 +18,12 @@ use crate::catalog::{PROTOCOL_VERSION, ProtocolVersion, SchemaOf, Setting, Value
 use crate::clean_up_rules::CleanUpRulesManifest;
 use crate::entries::MODULES;
 use crate::executables::InstalledExecutables;
+use crate::group::PEER_PROTOCOL_VERSION;
 use crate::jsonrpc::Message;
 use crate::notifications::{NOTIFICATION_PAYLOAD_VERSION, NotificationPayload};
 use crate::plugin::{MANIFEST_VERSION, PLUGIN_PROTOCOL_VERSION, PluginManifest};
 use crate::politeness::PermitRow;
+use crate::politeness::store::{POLITENESS_STORE_LAYOUT_VERSION, PolitenessStoreLayout};
 use crate::published_catalog::{PUBLISHED_CATALOG_VERSION, PublishedCatalog};
 use crate::recipe::{RECIPE_MANIFEST_VERSION, RecipeManifest};
 use crate::response_cache::ResponseCacheEntry;
@@ -381,6 +383,19 @@ pub const POLITENESS_FILE: Format = Format {
     schema: schema_of::<PermitRow>,
 };
 
+/// The Politeness store's Valkey/Redis key and script layout (ADRs 0053 and
+/// 0066): engines of every major and of both Products share one namespace,
+/// so its major never changes and newer minors only add keys, parts or
+/// scripts, like the Usage ledger's family.
+pub const POLITENESS_STORE: Format = Format {
+    name: "politeness-store",
+    version: POLITENESS_STORE_LAYOUT_VERSION,
+    storage: Storage::Json,
+    rule: Rule::FrozenMajor,
+    hello_from: &[],
+    schema: schema_of::<PolitenessStoreLayout>,
+};
+
 /// The per-user Audit log in Goodfetch home (ADRs 0016 and 0098), outside
 /// the per-major folders: its append-only, hash-chained entries, and beside
 /// it the head file that names the last one. Engines of every major and of
@@ -489,6 +504,21 @@ pub const PLUGIN_MANIFEST: Format = Format {
     schema: schema_of::<PluginManifest>,
 };
 
+/// The peer protocol between the Group members of a Daemon group (ADRs
+/// 0055, 0066 and 0095): the Group member that connects opens it with
+/// `hello`, and both settle on the lower minor of their major, so only
+/// another major is refused, as is a Group member of the other Product. Its
+/// corpus holds what each side sends, `connecting.jsonl` and
+/// `accepting.jsonl`.
+pub const PEER_PROTOCOL: Format = Format {
+    name: "peer-protocol",
+    version: PEER_PROTOCOL_VERSION,
+    storage: Storage::Transcript,
+    rule: Rule::LowerMinor,
+    hello_from: &[HelloFrom::GroupMember],
+    schema: schema_of::<Message>,
+};
+
 /// The body of a `webhook` channel's delivery (ADRs 0027 and 0030), which
 /// a receiver's verification helper reads: programs of every SDK version
 /// receive it, so it is of the Usage ledger's family, its major never
@@ -540,6 +570,7 @@ pub const FORMATS: &[&Format] = &[
     &INSTALLED_EXECUTABLES,
     &USAGE_LEDGER,
     &POLITENESS_FILE,
+    &POLITENESS_STORE,
     &AUDIT_LOG,
     &KNOWN_CERTIFICATES,
     &RESPONSE_CACHE,
@@ -550,6 +581,7 @@ pub const FORMATS: &[&Format] = &[
     &RECIPE_MANIFEST,
     &PLUGIN_PROTOCOL,
     &PLUGIN_MANIFEST,
+    &PEER_PROTOCOL,
     &NOTIFICATION_PAYLOAD,
     &WARC,
     &PUBLISHED_CATALOG,

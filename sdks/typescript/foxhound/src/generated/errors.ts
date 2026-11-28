@@ -245,6 +245,24 @@ export class LeaseLostError extends UnavailableError<"lease_lost"> {
 }
 
 /**
+ * The requested Partition count exceeds the number of eligible Group members that can run this crawl. Lower `partitions`, use `auto`, or add eligible Group members.
+ */
+export class PartitionsExceedGroupMembersError extends RefusedError<"partitions_exceed_group_members"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "PartitionsExceedGroupMembersError", code: "partitions_exceed_group_members", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * A Partitioned crawl of more than one Partition needs a Daemon group: on a standalone Daemon or an Attached engine, `partitions` can only be 1.
+ */
+export class PartitionsNeedGroupError extends RefusedError<"partitions_need_group"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "PartitionsNeedGroupError", code: "partitions_need_group", group: "refused", retryable: false });
+  }
+}
+
+/**
  * A crawl request's Payload was refused when it was enqueued, as a seed, an added seed or a handler's enqueue: it does not fit its Label's JSON Schema, each issue named by its path, or its JSON is longer than `crawl.payload.max_size`, which `limit` names. Nothing was added. Large content goes to the Key-value store, and the Payload carries its key.
  */
 export class PayloadInvalidError extends ProgramError<"payload_invalid"> {
@@ -468,6 +486,8 @@ export const foxhoundErrorClasses: Readonly<Record<string, ErrorClass>> = {
   label_unhandled: LabelUnhandledError,
   label_unknown: LabelUnknownError,
   lease_lost: LeaseLostError,
+  partitions_exceed_group_members: PartitionsExceedGroupMembersError,
+  partitions_need_group: PartitionsNeedGroupError,
   payload_invalid: PayloadInvalidError,
   payload_schema_changed: PayloadSchemaChangedError,
   query_failed: QueryFailedError,
@@ -504,6 +524,8 @@ export type FoxhoundErrorCode =
   | "label_unhandled"
   | "label_unknown"
   | "lease_lost"
+  | "partitions_exceed_group_members"
+  | "partitions_need_group"
   | "payload_invalid"
   | "payload_schema_changed"
   | "query_failed"
@@ -519,7 +541,7 @@ export type FoxhoundErrorCode =
   | "sink_guarantee_unmet"
   | "staging_full";
 
-const foxhoundErrorCodes: ReadonlySet<string> = new Set<FoxhoundErrorCode>(["attempt_ended", "browser_required", "client_gone", "crawl_not_importable", "dataset_duplicate", "dataset_key_invalid", "dataset_unknown", "effect_staging_refused", "handler_failed", "handler_lost", "hook_duplicate", "hook_ineffective", "hook_undeclared", "hook_unknown", "label_duplicate", "label_unhandled", "label_unknown", "lease_lost", "payload_invalid", "payload_schema_changed", "query_failed", "query_invalid", "query_memory_exceeded", "record_invalid", "response_not_document", "response_not_ok", "response_unavailable", "retry_requested", "sample_crawl_refused", "sheet_capacity_exceeded", "sink_guarantee_unmet", "staging_full"]);
+const foxhoundErrorCodes: ReadonlySet<string> = new Set<FoxhoundErrorCode>(["attempt_ended", "browser_required", "client_gone", "crawl_not_importable", "dataset_duplicate", "dataset_key_invalid", "dataset_unknown", "effect_staging_refused", "handler_failed", "handler_lost", "hook_duplicate", "hook_ineffective", "hook_undeclared", "hook_unknown", "label_duplicate", "label_unhandled", "label_unknown", "lease_lost", "partitions_exceed_group_members", "partitions_need_group", "payload_invalid", "payload_schema_changed", "query_failed", "query_invalid", "query_memory_exceeded", "record_invalid", "response_not_document", "response_not_ok", "response_unavailable", "retry_requested", "sample_crawl_refused", "sheet_capacity_exceeded", "sink_guarantee_unmet", "staging_full"]);
 
 /** An error with one of the Error codes Foxhound raises, which its `code` narrows to the code's class. */
 export type FoxhoundError =
@@ -542,6 +564,8 @@ export type FoxhoundError =
   | LabelUnhandledError
   | LabelUnknownError
   | LeaseLostError
+  | PartitionsExceedGroupMembersError
+  | PartitionsNeedGroupError
   | PayloadInvalidError
   | PayloadSchemaChangedError
   | QueryFailedError

@@ -9,7 +9,8 @@
 //! Daemon a service manager started at the first connection takes the
 //! listening socket it was handed instead (launchd's, systemd's).
 //! This is the only module that opens stdin, stdout, the protocol's sockets,
-//! the Stub gateway's listener, the ops listener (ADR 0050) and the Politeness
+//! the Stub gateway's listener, the ops listener (ADR 0050), the peer
+//! listener and peer links of a Daemon group (ADR 0055) and the Politeness
 //! file's wake endpoints (a Unix socket on macOS and Linux, a named pipe on
 //! Windows, ADR 0053); the other listeners join here with the tickets that
 //! add them.
@@ -632,33 +633,47 @@ impl GatewayListener {
     }
 }
 
-impl AsyncRead for GatewayStream {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        context: &mut Context<'_>,
-        buffer: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.0).poll_read(context, buffer)
-    }
+/// Reads and writes each of the TCP connections `$stream`, a newtype over
+/// its socket, through that socket.
+macro_rules! tcp_stream_io {
+    ($($stream:ident),+) => {$(
+        impl AsyncRead for $stream {
+            fn poll_read(
+                mut self: Pin<&mut Self>,
+                context: &mut Context<'_>,
+                buffer: &mut ReadBuf<'_>,
+            ) -> Poll<io::Result<()>> {
+                Pin::new(&mut self.0).poll_read(context, buffer)
+            }
+        }
+
+        impl AsyncWrite for $stream {
+            fn poll_write(
+                mut self: Pin<&mut Self>,
+                context: &mut Context<'_>,
+                buffer: &[u8],
+            ) -> Poll<io::Result<usize>> {
+                Pin::new(&mut self.0).poll_write(context, buffer)
+            }
+
+            fn poll_flush(
+                mut self: Pin<&mut Self>,
+                context: &mut Context<'_>,
+            ) -> Poll<io::Result<()>> {
+                Pin::new(&mut self.0).poll_flush(context)
+            }
+
+            fn poll_shutdown(
+                mut self: Pin<&mut Self>,
+                context: &mut Context<'_>,
+            ) -> Poll<io::Result<()>> {
+                Pin::new(&mut self.0).poll_shutdown(context)
+            }
+        }
+    )+};
 }
 
-impl AsyncWrite for GatewayStream {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        context: &mut Context<'_>,
-        buffer: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.0).poll_write(context, buffer)
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.0).poll_flush(context)
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.0).poll_shutdown(context)
-    }
-}
+tcp_stream_io!(GatewayStream, OpsStream, PeerStream);
 
 /// The ops listener (ADR 0050): TCP at `ops.address`, on which a Daemon
 /// serves its probes and `/metrics` over HTTP.
@@ -721,30 +736,83 @@ impl OpsListener {
     }
 }
 
-impl AsyncRead for OpsStream {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        context: &mut Context<'_>,
-        buffer: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.0).poll_read(context, buffer)
-    }
+/// The peer listener of a Group member (ADR 0055): TCP at the `host:port`
+/// it formed or joined its Daemon group with, under the peer link's TLS.
+pub struct PeerListener(
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the transport module is the one place that opens sockets (ADR 0060)"
+    )]
+    tokio::net::TcpListener,
+);
+
+/// One peer link, opened by another Group member or to one, before its TLS.
+pub struct PeerStream(
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the transport module is the one place that opens sockets (ADR 0060)"
+    )]
+    tokio::net::TcpStream,
+);
+
+/// Listens for peer links at `address`, a `host:port`; port 0 takes a free
+/// port, which [`PeerListener::local_address`] answers.
+///
+/// # Errors
+///
+/// When the address resolves to nothing or the OS refuses it, such as a
+/// port another program holds (`AddrInUse`).
+///
+/// # Cancel safety
+///
+/// Dropping the future before it resolves leaves no listener.
+pub async fn listen_peer(address: &str) -> io::Result<PeerListener> {
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the transport module is the one place that opens sockets (ADR 0060)"
+    )]
+    let bound = tokio::net::TcpListener::bind(address).await?;
+    Ok(PeerListener(bound))
 }
 
-impl AsyncWrite for OpsStream {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        context: &mut Context<'_>,
-        buffer: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.0).poll_write(context, buffer)
+/// Opens a peer link to the Group member listening at `address`, a
+/// `host:port`.
+///
+/// # Errors
+///
+/// When the address resolves to nothing or no listener answers there.
+///
+/// # Cancel safety
+///
+/// Dropping the future before it resolves leaves no connection.
+pub async fn connect_peer(address: &str) -> io::Result<PeerStream> {
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the transport module is the one place that opens sockets (ADR 0060)"
+    )]
+    let opened = tokio::net::TcpStream::connect(address).await?;
+    opened.set_nodelay(true)?;
+    Ok(PeerStream(opened))
+}
+
+impl PeerListener {
+    /// The address it listens at, its port the one the OS chose for port 0.
+    ///
+    /// # Errors
+    ///
+    /// When the OS cannot say.
+    pub fn local_address(&self) -> io::Result<SocketAddr> {
+        self.0.local_addr()
     }
 
-    fn poll_flush(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.0).poll_flush(context)
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.0).poll_shutdown(context)
+    /// The next peer link another Group member opened.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses no connection.
+    pub(crate) async fn accept(&self) -> io::Result<PeerStream> {
+        let (opened, _) = self.0.accept().await?;
+        opened.set_nodelay(true)?;
+        Ok(PeerStream(opened))
     }
 }

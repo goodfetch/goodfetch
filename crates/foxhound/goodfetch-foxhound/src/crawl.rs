@@ -577,6 +577,8 @@ fn start_params(seeds: Vec<SeedRequest>) -> Result<CrawlStartParams, Error> {
         limits: Vec::new(),
         recording: None,
         detached: false,
+        group_member: None,
+        partitions: None,
     })
 }
 

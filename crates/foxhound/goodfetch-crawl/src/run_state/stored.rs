@@ -17,8 +17,8 @@
 //! crawl opened, no count is read from the run file (#2167).
 //!
 //! Size: one concern, the single-writer run-file jobs and reads behind a
-//! crawl's Run state, kept together so every admission, claim and outcome
-//! queues in one actor order.
+//! crawl's Run state (including Partition handoff), kept together so every
+//! admission, claim and outcome queues in one actor order.
 
 use std::pin::Pin;
 use std::sync::Arc;
@@ -1056,6 +1056,44 @@ impl Stored {
         Ok(self
             .writer
             .write_batch(Syncing::Deferred { charged: 0 }, journal)
+            .await?)
+    }
+
+    /// Exports and removes moving `domains` from the sealed run file and
+    /// re-reads the exact post-handoff [`Tally`] (ADR 0054 and ADR 0142).
+    pub(crate) async fn export_and_remove_domains(
+        &self,
+        domains: Vec<String>,
+    ) -> Result<(Vec<crate::partition::DomainHandoffSnapshot>, Tally), StateError> {
+        Ok(self
+            .writer
+            .write(move |connection| {
+                let snapshots = work_items::export_and_remove_domains(connection, &domains)?;
+                let tally = Tally::read(connection)?;
+                Ok((snapshots, tally))
+            })
+            .await?)
+    }
+
+    /// Installs a handed-off domain's seen fingerprints, pending URLs, and
+    /// per-domain state into this Partition's run file (ADR 0054).
+    pub(crate) async fn install_domain_handoff(
+        &self,
+        snapshot: crate::partition::DomainHandoffSnapshot,
+    ) -> Result<Given, StateError> {
+        let keys = self.keys.clone();
+        let invariants = self.invariants.clone();
+        Ok(self
+            .writer
+            .write(move |connection| {
+                let mut positions = Positions::keying(connection, keys)?;
+                work_items::install_domain_handoff(
+                    connection,
+                    &mut positions,
+                    &invariants,
+                    &snapshot,
+                )
+            })
             .await?)
     }
 }

@@ -700,6 +700,7 @@ async fn failed_run_keeps_its_own_error_and_records_write_failure_as_warning() {
         cache_mode: None,
         checkpoint: None,
         nothing_done: None,
+        redone: None,
         uncertain_effects: None,
         error: Some(goodfetch_protocol::run::EndingError {
             code: "limit_reached".to_owned(),

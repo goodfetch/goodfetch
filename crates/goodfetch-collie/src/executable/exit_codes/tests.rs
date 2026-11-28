@@ -115,6 +115,7 @@ fn report(lifecycle: Lifecycle, verdict: Verdict) -> RunReport {
         nothing_done: None,
         uncertain_effects: None,
         error: None,
+        redone: None,
         kind_parts: serde_json::Map::new(),
     }
 }

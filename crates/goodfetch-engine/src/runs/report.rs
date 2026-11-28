@@ -15,10 +15,11 @@ use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::page::proxy::ProxyKind;
 use goodfetch_protocol::run::completeness::{FAILED, STOPPED};
+use goodfetch_protocol::run::warning::NO_TRACE;
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, KindUsage, Lifecycle,
-    NothingDone, PluginUsage, ProxyKindBytes, RunId, RunReport, RunUsage, RunWarning, StopReason,
-    UNCERTAIN_EFFECTS, UsageAmount, Verdict,
+    NothingDone, PluginUsage, ProxyKindBytes, RedoneReport, RunId, RunKind, RunReport, RunUsage,
+    RunWarning, StopReason, UNCERTAIN_EFFECTS, UsageAmount, Verdict,
 };
 use goodfetch_protocol::settings::{ExplainedSetting, WeakenedSetting};
 use goodfetch_protocol::usage::{
@@ -35,6 +36,11 @@ use crate::run_state::{RunState, RunStateError, Syncing};
 /// named here since every Run's report carries them (ADR 0101).
 const PAID_FETCH: &str = "paid_fetch";
 
+/// The Verdict reason code when a Run's end could not be written to its run
+/// state (for a non-storage error), so state-dependent checks were not read
+/// (ADR 0029, issue 2549).
+pub(super) const END_NOT_WRITTEN: &str = "end_not_written";
+
 /// What an area adds to a Run's report when the Run ends (ADR 0102), such
 /// as a crawl's `requests` and `records`, the Plan's report or the Plugins
 /// that ran: given through its composition value, it reads the Run's
@@ -49,11 +55,17 @@ pub trait ReportPart: Send + Sync {
     /// When the Run's state cannot be read: the report then goes without
     /// this part, and the failure is logged.
     fn fill(&self, connection: &Connection, report: &mut RunReport) -> rusqlite::Result<()>;
+
+    /// Applies any Verdict rule that depends only on the end facts (such as
+    /// `weakened`) when the Run's end could not be written and its state was
+    /// not read (ADR 0029, issue 2549).
+    fn fill_without_state(&self, _kind: RunKind, _report: &mut RunReport) {}
 }
 
 /// What the engine knows of a Run's end beside its state.
 pub(super) struct EndFacts {
     pub(super) run_id: RunId,
+    pub(super) kind: RunKind,
     pub(super) lifecycle: Lifecycle,
     pub(super) stop_reason: Option<StopReason>,
     pub(super) started_at: SystemTime,
@@ -67,9 +79,33 @@ pub(super) struct EndFacts {
     /// Why a `finished` Run's driver found its results short of its scope,
     /// if it did (ADRs 0093, 0118 and 0120).
     pub(super) finished: Vec<CompletenessReason>,
+    /// The trace folder if the Run's trace stopped for `critical` storage
+    /// (ADRs 0031 and 0122), guaranteeing the `"no_trace"` warning is present
+    /// even if the background warning task raced with the Run's end.
+    pub(super) no_trace_folder: Option<String>,
     /// Set to `Some("replay")` when the Run used `cache.mode: replay`
     /// (ADR 0046); `None` otherwise.
     pub(super) cache_mode: Option<String>,
+}
+
+/// The report answered when a Run's end could not be written to its run state
+/// for a non-storage reason (ADR 0029, issue 2549): runs each part's fact-only
+/// Verdict rules without reading run state, and never claims `verified`
+/// because state-dependent Verdict checks (such as uncertain Effects) were
+/// not read.
+pub(super) fn unwritten(facts: &EndFacts, parts: &[Arc<dyn ReportPart>]) -> RunReport {
+    let mut report = facts.bare();
+    for part in parts {
+        part.fill_without_state(facts.kind, &mut report);
+    }
+    report.needs_review(AxisReason {
+        code: END_NOT_WRITTEN.to_owned(),
+        message: "The Run's end was not written to its run state, so its state was not read to verify the Verdict."
+            .to_owned(),
+        count: None,
+        call_id: None,
+    });
+    report
 }
 
 /// The report of a Run that ended as `ended` says, from its state on
@@ -87,7 +123,22 @@ pub(super) fn assemble(
     let mut report = facts.bare();
     report.usage = usage;
     report.warnings = warnings(connection)?;
+    if let Some(folder) = &facts.no_trace_folder
+        && !report.warnings.iter().any(|warning| {
+            warning.code == NO_TRACE && warning.folder.as_deref() == Some(folder.as_str())
+        })
+    {
+        report.warnings.push(RunWarning {
+            code: NO_TRACE.to_owned(),
+            message: format!(
+                "The Run trace in `{folder}` stopped at the `critical` storage level (no trace)."
+            ),
+            sessions: Vec::new(),
+            folder: Some(folder.clone()),
+        });
+    }
     report.nothing_done = nothing_done(connection)?;
+    report.redone = redone(connection)?;
     for part in parts {
         if let Err(error) = part.fill(connection, &mut report) {
             tracing::warn!(%error, run_id = %report.run_id, "a part of the Run's report could not be read; the report goes without it");
@@ -139,6 +190,7 @@ impl EndFacts {
             nothing_done: None,
             uncertain_effects: None,
             error: self.error.clone(),
+            redone: None,
             kind_parts: serde_json::Map::new(),
         }
     }
@@ -222,6 +274,9 @@ fn stopped_for(reason: &StopReason) -> String {
             "a Limit on {} {} this engine cannot evaluate covered it",
             limit.scope.kind, limit.usage_kind
         ),
+        StopReason::LeadUnreachable => {
+            "the Daemon group's Lead Daemon could not be reached for a new Slice".to_owned()
+        }
         StopReason::EngineLost => "its engine was lost".to_owned(),
         StopReason::EnginePanicked => "its engine stopped on a bug".to_owned(),
         StopReason::Resources { resource, .. } => match resource {
@@ -536,6 +591,25 @@ impl ReportWarnings {
             .write(move |connection| record_nothing_done(connection, &nothing_done))
             .await
     }
+
+    /// Adds `more` to how much work this resumed Run redid (ADRs 0122 and
+    /// 0142), persisted in run state so its final report states the total.
+    ///
+    /// # Errors
+    ///
+    /// When its run state cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after the write was queued still writes it.
+    pub async fn record_redone(&self, more: RedoneReport) -> Result<(), RunStateError> {
+        if more.is_empty() {
+            return Ok(());
+        }
+        self.state
+            .write(move |connection| add_redone(connection, more))
+            .await
+    }
 }
 
 /// Records `warning` among the Run's warnings, in the order handed over.
@@ -608,4 +682,34 @@ fn nothing_done(connection: &Connection) -> rusqlite::Result<Option<NothingDone>
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))
     })
     .transpose()
+}
+
+pub(super) fn add_redone(connection: &Connection, more: RedoneReport) -> rusqlite::Result<()> {
+    if more.is_empty() {
+        return Ok(());
+    }
+    let existing = redone(connection)?.unwrap_or_default();
+    let combined = RedoneReport {
+        attempts: existing.attempts.saturating_add(more.attempts),
+        batch_writes: existing.batch_writes.saturating_add(more.batch_writes),
+    };
+    let text = serde_json::to_string(&combined).expect("invariant: `redone` encodes");
+    connection
+        .prepare_cached("UPDATE run SET redone = ?1")
+        .and_then(|mut cached| cached.execute([text]))?;
+    Ok(())
+}
+
+fn redone(connection: &Connection) -> rusqlite::Result<Option<RedoneReport>> {
+    let text: Option<String> = connection
+        .prepare_cached("SELECT redone FROM run")
+        .and_then(|mut cached| cached.query_row([], |row| row.get(0)))
+        .optional()?
+        .flatten();
+    text.map(|text| {
+        serde_json::from_str::<RedoneReport>(&text)
+            .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))
+    })
+    .transpose()
+    .map(|opt| opt.filter(|r| !r.is_empty()))
 }

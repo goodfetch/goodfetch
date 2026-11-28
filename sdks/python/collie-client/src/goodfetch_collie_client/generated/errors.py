@@ -11,7 +11,7 @@ from typing import Final, Literal, Unpack
 
 from goodfetch_collie_client.caller import details_of
 from goodfetch_collie_client.goodfetch_error import ErrorClass, ErrorFields, GoodfetchError, retry_after_duration_of, retry_after_of
-from .models import AddressFamilyUnavailableDetails, ArtifactDownloadFailedDetails, ArtifactUnavailableOfflineDetails, BlockedDetails, BodyNotFoundDetails, BodyUnavailableDetails, BrowserLaunchFailedDetails, BrowserNeedsGuiSessionDetails, BrowserNotInstalledDetails, BrowserSandboxUnavailableDetails, CallCancelledDetails, CapabilityUnavailableDetails, CdpUrlNotAllowedDetails, CdpUrlNotBrowserDetails, CdpUrlUnauthorizedDetails, CdpUrlUnreachableDetails, CertificateChangedDetails, CertificateInvalidDetails, CheckpointBehindDetails, ConnectionOverloadedDetails, DaemonDrainingDetails, DaemonUnreachableDetails, DetachUnsupportedDetails, DialogAlreadyHandledDetails, EdgeHandlersUnsupportedDetails, EgressRefusedDetails, EngineExitedDetails, EnginePanickedDetails, ExecutableBlockedBySmartAppControlDetails, ExtractHandlerFailedDetails, ExtractorUnavailableDetails, FileWriteFailedDetails, FormatVersionUnsupportedDetails, HeaderForbiddenDetails, HeaderValueInvalidDetails, HookFailedDetails, LimitNotUnderstoodDetails, LimitRaiseRefusedDetails, ListenerEventsLostDetails, LiveViewViewerLimitDetails, LocalAddressUnavailableDetails, LoggedOutDetails, ModelUnavailableDetails, NameLookupFailedDetails, NameNotResolvedDetails, NavigationFailedDetails, NavigationInterruptedDetails, NotADaemonDetails, NotInProductDetails, NotVerifiedDetails, PageCheckFailedDetails, PageCrashedDetails, PageFunctionFailedDetails, PageHandlerFailedDetails, PageMemoryExceededDetails, PageNavigatedDuringCallDetails, PageValueInvalidDetails, PathNotWritableDetails, PathUnsafeDetails, PatternUnsupportedDetails, PersonRequiredDetails, PolicyConflictDetails, ProtocolVersionUnsupportedDetails, ProxyAuthFailedDetails, ProxyProviderUnavailableDetails, ProxyRelayUnavailableDetails, ProxyUnavailableDetails, ReachedLimit, RecipeInvalidDetails, RecordingInvalidDetails, ResourcesExhaustedDetails, ResponseLimitExceededDetails, ResponseNotRecordedDetails, ResponseTruncatedDetails, RouteAlreadyHandledDetails, RunConflictDetails, RunDetails, RunIdInvalidDetails, RunInterruptedDetails, RunKeyMismatchDetails, RunStateFilesystemUnsupportedDetails, RunTargetUnbuiltDetails, ScheduleCapExceededDetails, ScheduleExistsDetails, ScheduleNotFoundDetails, ScheduleTriggerInvalidDetails, SchemaValidatorFailedDetails, SecretDomainNotAllowedDetails, SecretInputRefusedDetails, SecretUnavailableDetails, SecretUnboundDetails, SessionBoundToMachineDetails, SessionExportOpenFailedDetails, SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails, SettingUnknownDetails, SitePreferencesRefusedDetails, TargetNotUniqueDetails, TooManyCallsDetails, TooManyRedirectsDetails, UncertainEffect, ValueInvalidDetails, WebhookInvalidDetails
+from .models import AddressFamilyUnavailableDetails, ArtifactDownloadFailedDetails, ArtifactUnavailableOfflineDetails, BlockedDetails, BodyNotFoundDetails, BodyUnavailableDetails, BrowserLaunchFailedDetails, BrowserNeedsGuiSessionDetails, BrowserNotInstalledDetails, BrowserSandboxUnavailableDetails, CallCancelledDetails, CapabilityUnavailableDetails, CdpUrlNotAllowedDetails, CdpUrlNotBrowserDetails, CdpUrlUnauthorizedDetails, CdpUrlUnreachableDetails, CertificateChangedDetails, CertificateInvalidDetails, CheckpointBehindDetails, ConnectionOverloadedDetails, DaemonDrainingDetails, DaemonUnreachableDetails, DetachUnsupportedDetails, DialogAlreadyHandledDetails, EdgeHandlersUnsupportedDetails, EgressRefusedDetails, EngineExitedDetails, EnginePanickedDetails, ExecutableBlockedBySmartAppControlDetails, ExtractHandlerFailedDetails, ExtractorUnavailableDetails, FileWriteFailedDetails, FormatVersionUnsupportedDetails, HeaderForbiddenDetails, HeaderValueInvalidDetails, HookFailedDetails, LeadEpochStaleDetails, LimitNotUnderstoodDetails, LimitRaiseRefusedDetails, ListenerEventsLostDetails, LiveViewViewerLimitDetails, LocalAddressUnavailableDetails, LoggedOutDetails, ModelUnavailableDetails, NameLookupFailedDetails, NameNotResolvedDetails, NavigationFailedDetails, NavigationInterruptedDetails, NotADaemonDetails, NotInProductDetails, NotVerifiedDetails, PageCheckFailedDetails, PageCrashedDetails, PageFunctionFailedDetails, PageHandlerFailedDetails, PageMemoryExceededDetails, PageNavigatedDuringCallDetails, PageValueInvalidDetails, PathNotWritableDetails, PathUnsafeDetails, PatternUnsupportedDetails, PersonRequiredDetails, PolicyConflictDetails, ProtocolVersionUnsupportedDetails, ProxyAuthFailedDetails, ProxyProviderUnavailableDetails, ProxyRelayUnavailableDetails, ProxyUnavailableDetails, ReachedLimit, RecipeInvalidDetails, RecordingInvalidDetails, ResourcesExhaustedDetails, ResponseLimitExceededDetails, ResponseNotRecordedDetails, ResponseTruncatedDetails, RouteAlreadyHandledDetails, RunConflictDetails, RunDetails, RunIdInvalidDetails, RunInterruptedDetails, RunKeyMismatchDetails, RunStateFilesystemUnsupportedDetails, RunTargetUnbuiltDetails, ScheduleCapExceededDetails, ScheduleExistsDetails, ScheduleNotFoundDetails, ScheduleTriggerInvalidDetails, SchemaValidatorFailedDetails, SecretDomainNotAllowedDetails, SecretInputRefusedDetails, SecretUnavailableDetails, SecretUnboundDetails, SessionBoundToMachineDetails, SessionExportOpenFailedDetails, SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails, SettingUnknownDetails, SitePreferencesRefusedDetails, TargetNotUniqueDetails, TooManyCallsDetails, TooManyRedirectsDetails, UncertainEffect, ValueInvalidDetails, WebhookInvalidDetails
 
 ErrorGroup = Literal["program", "refused", "page", "model", "deadline_exceeded", "unavailable", "internal"]
 """The seven groups of Error codes, named for their remedy."""
@@ -81,6 +81,14 @@ class ArtifactUnavailableOfflineError(RefusedError):
         self.typed_details = details_of(ArtifactUnavailableOfflineDetails, self.details)
 
 
+class AuthorityKeyMismatchError(RefusedError):
+    """The Daemon at the Lead Daemon's address presented no certificate authority whose public key has the SHA-256 that `group join` pins, so the Daemon sent it nothing: the address leads elsewhere, or the key was copied wrong. Take the key `group token` answers on the Lead Daemon."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="authority_key_mismatch", group="refused", retryable=False, **fields)
+
+
 class BlockedError(PageError):
     """The site refused the document a navigation reached with a Block cause the engine cannot get past, such as a rate limit, an IP block or a challenge: raised by the call that waited for that navigation, or else by the page's next call. The Session stays open with its cookies, never replaced, and nothing waits on the site's `Retry-After`: the program decides whether to wait, open another Session or pause for a person. The details name the cause, the URL, the status and `retry_after`, the time the site asked for or `null`."""
 
@@ -119,6 +127,14 @@ class BodyUnavailableError(UnavailableError):
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="body_unavailable", group="unavailable", retryable=False, **fields)
         self.typed_details = details_of(BodyUnavailableDetails, self.details)
+
+
+class BrowserBorrowedError(RefusedError):
+    """A Borrowed browser serves one Run at a time and cannot be shared across a second Run or across multiple Partitions of a Partitioned crawl."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="browser_borrowed", group="refused", retryable=False, **fields)
 
 
 class BrowserHostOutdatedError(UnavailableError):
@@ -561,6 +577,46 @@ class FormatVersionUnsupportedError(UnavailableError):
         self.typed_details = details_of(FormatVersionUnsupportedDetails, self.details)
 
 
+class GroupExistsError(RefusedError):
+    """This Daemon belongs to a Daemon group already, so `group init` forms no other: a Daemon forms or joins one group, and stays in it until it leaves."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="group_exists", group="refused", retryable=False, **fields)
+
+
+class GroupLeadUnreachableError(UnavailableError):
+    """Nothing answered at the Lead Daemon's peer address, or the peer link closed before its answer: check the address and that the Lead Daemon runs, then try again."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="group_lead_unreachable", group="unavailable", retryable=True, **fields)
+
+
+class GroupMemberExistsError(RefusedError):
+    """The Daemon group has a Group member of this name already, so the Daemon joins under another. The join token stays valid for it."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="group_member_exists", group="refused", retryable=False, **fields)
+
+
+class GroupMemberUnknownError(RefusedError):
+    """The Daemon group has no Group member of this name, so nothing was revoked: it left already, was revoked, or never joined."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="group_member_unknown", group="refused", retryable=False, **fields)
+
+
+class GroupPolitenessUnsharedError(RefusedError):
+    """A Daemon group of more than one Group member requires a shared Politeness store (`politeness.store`), or `politeness.sharing: per_daemon` in its Operator policy to keep Politeness per Daemon."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="group_politeness_unshared", group="refused", retryable=False, **fields)
+
+
 class HeaderForbiddenError(ProgramError):
     """A seed, enqueue or Hook tried to set a header the engine owns (`Host`, `Cookie`, `Authorization`, `Proxy-*`, or a method-override header), so nothing was added or changed. The details name the forbidden header. Remove the header, or use the engine's own session, proxy or method APIs instead."""
 
@@ -595,6 +651,50 @@ class HookFailedError(ProgramError):
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="hook_failed", group="program", retryable=True, **fields)
         self.typed_details = details_of(HookFailedDetails, self.details)
+
+
+class JoinTokenRefusedError(RefusedError):
+    """The Lead Daemon refused the join token: it minted no such token, or the token was used or is past its 30 minutes. Mint another with `group token` on the Lead Daemon and run `group join` with it."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="join_token_refused", group="refused", retryable=False, **fields)
+
+
+class LeadCannotLeaveError(RefusedError):
+    """The Lead Daemon cannot leave its Daemon group, nor be revoked from it, while it is the Lead Daemon: promote another Group member first, then remove this one."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="lead_cannot_leave", group="refused", retryable=False, **fields)
+
+
+class LeadEpochStaleError(RefusedError):
+    """A Group member received a peer message carrying a lower lead epoch than the highest it has recorded, so the sender is a former Lead Daemon, or a Group member that has not yet learnt of the current one, and the message is refused. The sender records the higher epoch from the details and acts as an ordinary Group member."""
+
+    typed_details: LeadEpochStaleDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="lead_epoch_stale", group="refused", retryable=False, **fields)
+        self.typed_details = details_of(LeadEpochStaleDetails, self.details)
+
+
+class LeadUnconfirmedError(UnavailableError):
+    """The Lead Daemon has not yet confirmed its lead epoch with a majority of its last-known Group members: wait for a majority to come within reach, or confirm by hand with `group lead --confirm` once you have verified no other Lead Daemon runs."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="lead_unconfirmed", group="unavailable", retryable=True, **fields)
+
+
+class LeadUnreachableError(UnavailableError):
+    """The Daemon group's Lead Daemon, or the local Group member named by this machine's group redirect row, cannot be reached to check or grant a Usage ledger Slice or verify a sign-in: live Runs continue spending held Slices until they need a new one, and new Runs needing a Slice or sign-in wait until the Lead Daemon or Group member returns (or `group leave` removes the redirect row)."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="lead_unreachable", group="unavailable", retryable=True, **fields)
 
 
 class LimitNotUnderstoodError(RefusedError):
@@ -765,6 +865,14 @@ class NotADaemonError(ProgramError):
         self.typed_details = details_of(NotADaemonDetails, self.details)
 
 
+class NotInAGroupError(RefusedError):
+    """This Daemon belongs to no Daemon group, so it has none to leave: form one with `group init`, or join one with `group join`."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="not_in_a_group", group="refused", retryable=False, **fields)
+
+
 class NotInProductError(UnavailableError):
     """The running engine's Product does not carry what was asked: a Client that needs Foxhound reached a Collie engine, or a call, a setting or a value only Foxhound carries reached one. Run it with Foxhound, which contains everything Collie does, or connect to a Foxhound engine."""
 
@@ -775,6 +883,14 @@ class NotInProductError(UnavailableError):
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="not_in_product", group="unavailable", retryable=False, **fields)
         self.typed_details = details_of(NotInProductDetails, self.details)
+
+
+class NotLeadDaemonError(RefusedError):
+    """Only a Daemon group's Lead Daemon mints join tokens, and this Daemon is not one: run `group token` on the Lead Daemon, or `group init` to form a group with this Daemon as its Lead Daemon."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="not_lead_daemon", group="refused", retryable=False, **fields)
 
 
 class NotVerifiedError(PageError):
@@ -1229,6 +1345,14 @@ class RunLiveError(ProgramError):
         self.typed_details = details_of(RunDetails, self.details)
 
 
+class RunMovedError(UnavailableError):
+    """The Run moved to another Group member, so this Group member no longer owns it: the receiving Group member refreshes its cached group Run index and retries once, and a Client that followed a redirect reconnects through any Group member and retries once."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="run_moved", group="unavailable", retryable=True, **fields)
+
+
 class RunNotFoundError(ProgramError):
     """No Run has this Run ID: the Run index does not list it."""
 
@@ -1601,9 +1725,11 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "address_family_unavailable": AddressFamilyUnavailableError,
     "artifact_download_failed": ArtifactDownloadFailedError,
     "artifact_unavailable_offline": ArtifactUnavailableOfflineError,
+    "authority_key_mismatch": AuthorityKeyMismatchError,
     "blocked": BlockedError,
     "body_not_found": BodyNotFoundError,
     "body_unavailable": BodyUnavailableError,
+    "browser_borrowed": BrowserBorrowedError,
     "browser_host_outdated": BrowserHostOutdatedError,
     "browser_host_unreachable": BrowserHostUnreachableError,
     "browser_launch_failed": BrowserLaunchFailedError,
@@ -1645,9 +1771,19 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "extractor_unavailable": ExtractorUnavailableError,
     "file_write_failed": FileWriteFailedError,
     "format_version_unsupported": FormatVersionUnsupportedError,
+    "group_exists": GroupExistsError,
+    "group_lead_unreachable": GroupLeadUnreachableError,
+    "group_member_exists": GroupMemberExistsError,
+    "group_member_unknown": GroupMemberUnknownError,
+    "group_politeness_unshared": GroupPolitenessUnsharedError,
     "header_forbidden": HeaderForbiddenError,
     "header_value_invalid": HeaderValueInvalidError,
     "hook_failed": HookFailedError,
+    "join_token_refused": JoinTokenRefusedError,
+    "lead_cannot_leave": LeadCannotLeaveError,
+    "lead_epoch_stale": LeadEpochStaleError,
+    "lead_unconfirmed": LeadUnconfirmedError,
+    "lead_unreachable": LeadUnreachableError,
     "limit_not_understood": LimitNotUnderstoodError,
     "limit_raise_refused": LimitRaiseRefusedError,
     "limit_reached": LimitReachedError,
@@ -1662,7 +1798,9 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "navigation_failed": NavigationFailedError,
     "navigation_interrupted": NavigationInterruptedError,
     "not_a_daemon": NotADaemonError,
+    "not_in_a_group": NotInAGroupError,
     "not_in_product": NotInProductError,
+    "not_lead_daemon": NotLeadDaemonError,
     "not_verified": NotVerifiedError,
     "page_check_failed": PageCheckFailedError,
     "page_crashed": PageCrashedError,
@@ -1703,6 +1841,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "run_interrupted": RunInterruptedError,
     "run_key_mismatch": RunKeyMismatchError,
     "run_live": RunLiveError,
+    "run_moved": RunMovedError,
     "run_not_found": RunNotFoundError,
     "run_not_owned": RunNotOwnedError,
     "run_state_filesystem_unsupported": RunStateFilesystemUnsupportedError,

@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","id":0,"method":"hello","params":{"_meta":{"traceparent":"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},"lead_epoch":4,"product":"foxhound","product_version":"0.4.0","protocol_version":"0.1"}}
+{"jsonrpc":"2.0","id":1,"method":"group.lead_epoch","params":{"_meta":{"traceparent":"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},"lead_epoch":3}}

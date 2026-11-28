@@ -767,7 +767,7 @@ pub fn fuzz_certificate_file(data: &[u8]) {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 #[cfg(test)]
 mod certificate_file {

@@ -30,7 +30,7 @@ use crate::foxhound::report::CrawlRunReport;
 use crate::foxhound::session_pool::ServingSession;
 use crate::page::read::PageField;
 use crate::page::{FormatsRequest, PageId, PageResponse};
-use crate::run::{RUN_ID_PATTERN, RunId, RunLimit, RunParams, RunStarted, Tags};
+use crate::run::{Partitions, RUN_ID_PATTERN, RunId, RunLimit, RunParams, RunStarted, Tags};
 use crate::settings::ProjectSettings;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -463,6 +463,15 @@ pub struct CrawlStartParams {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub detached: bool,
+    /// Optional Group member pin in a Daemon group (ADR 0055).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub group_member: Option<String>,
+    /// Partition count for a Partitioned crawl (ADR 0054): a positive integer
+    /// or `"auto"` for one Partition per eligible Group member.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub partitions: Option<Partitions>,
 }
 
 /// One work item of a crawl as its handler receives it (ADR 0093).
@@ -1102,6 +1111,39 @@ pub const WORK_ITEM_RETRIED: Metric = Metric {
     arrived_in: ARRIVED_IN,
 };
 
+/// Refusal when a Partitioned crawl asks for more than one Partition outside a
+/// Daemon group (ADR 0054).
+pub const PARTITIONS_NEED_GROUP: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "partitions_need_group",
+    description: "A Partitioned crawl of more than one Partition needs a Daemon group: on a standalone Daemon or an Attached engine, `partitions` can only be 1.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// Refusal when `partitions` exceeds the eligible Group members that can run
+/// the crawl (ADR 0054).
+pub const PARTITIONS_EXCEED_GROUP_MEMBERS: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "partitions_exceed_group_members",
+    description: "The requested Partition count exceeds the number of eligible Group members that can run this crawl. Lower `partitions`, use `auto`, or add eligible Group members.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `partitions_exceed_group_members` details.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PartitionsExceedGroupMembersDetails {
+    /// How many Partitions were requested.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub requested: u32,
+    /// How many eligible Group members can run the crawl.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub eligible: u32,
+}
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -1123,6 +1165,8 @@ pub const ENTRIES: Entries = Entries {
         CRAWL_NOT_IMPORTABLE,
         EFFECT_STAGING_REFUSED,
         STAGING_FULL,
+        PARTITIONS_NEED_GROUP,
+        PARTITIONS_EXCEED_GROUP_MEMBERS,
     ],
     plugin_kinds: &[],
     metrics: &[WORK_ITEM_QUEUED, WORK_ITEM_LEASED, WORK_ITEM_RETRIED],

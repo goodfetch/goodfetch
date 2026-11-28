@@ -53,6 +53,10 @@ pub enum ListenerKind {
     /// Daemon's `Host` and `Origin`, opened by an `open` carrying the
     /// Daemon's token.
     LiveView,
+    /// A Daemon group's peer link (ADRs 0055, 0060 and 0067): mutual TLS 1.3
+    /// carrying newline-delimited peer-protocol JSON-RPC, authenticated by
+    /// the group's certificate authority and revocation list.
+    PeerLink,
     /// The MCP server's Streamable HTTP listener (`POST /mcp`, ADRs 0017 and
     /// 0070): loopback by default, checked for `Host`, `Origin` and a
     /// per-launch bearer token.
@@ -61,7 +65,7 @@ pub enum ListenerKind {
 
 impl ListenerKind {
     /// Every listener, each of which must have a row.
-    pub(super) const ALL: [Self; 9] = [
+    pub(super) const ALL: [Self; 10] = [
         Self::DaemonSocket,
         Self::PrivateEndpoint,
         Self::OpsListener,
@@ -70,6 +74,7 @@ impl ListenerKind {
         Self::ExposedDaemon,
         Self::ProxyRelay,
         Self::LiveView,
+        Self::PeerLink,
         Self::McpHttp,
     ];
 
@@ -86,6 +91,7 @@ impl ListenerKind {
             Self::DaemonWebsocket => Transport::WebSocket,
             Self::ProxyRelay => Transport::HttpProxy,
             Self::LiveView => Transport::LiveViewChannel,
+            Self::PeerLink => Transport::PeerMutualTls,
             Self::McpHttp => Transport::McpHttp { path: "/mcp" },
         }
     }
@@ -115,6 +121,9 @@ pub(super) enum Transport {
     /// A Live view channel: a WebSocket that opens with an `open`
     /// carrying the token once its handshake is accepted (ADR 0031).
     LiveViewChannel,
+    /// Mutual TLS 1.3 carrying newline-delimited peer-protocol JSON-RPC
+    /// authenticated by client certificate rather than a token (ADR 0055).
+    PeerMutualTls,
 }
 
 impl Transport {
@@ -174,6 +183,13 @@ pub enum Rule {
     /// A connection opens in plain, with the valid `hello` or handshake,
     /// where the listener terminates TLS.
     PlainWhereTlsConfigured,
+    /// A mutual-TLS peer presents a certificate signed by another group's
+    /// certificate authority.
+    CertificateUnknownAuthority,
+    /// A mutual-TLS peer presents a revoked Group member certificate.
+    CertificateRevoked,
+    /// A mutual-TLS peer presents an expired Group member certificate.
+    CertificateExpired,
     /// The ops listener's probes answer with a status and no body.
     ProbesAnswerStatusOnly,
 }
@@ -191,13 +207,14 @@ impl Rule {
         );
         let websocket = transport.is_websocket();
         let proxy = transport == Transport::HttpProxy;
+        let peer_mtls = transport == Transport::PeerMutualTls;
         match self {
             Self::TokenMissing
             | Self::TokenWrong
             | Self::TokenFromAnotherListener
             | Self::TokenExpired
             | Self::TokenRevoked
-            | Self::TokenScopedElsewhere => true,
+            | Self::TokenScopedElsewhere => !peer_mtls,
             Self::TokenInQueryString
             | Self::OriginMissing
             | Self::HostForeign
@@ -206,6 +223,9 @@ impl Rule {
             Self::ProbesAnswerStatusOnly => matches!(transport, Transport::Http { .. }),
             Self::HelloNotFirst => !http && !proxy,
             Self::PlainWhereTlsConfigured => (!http || http_rpc) && !proxy,
+            Self::CertificateUnknownAuthority
+            | Self::CertificateRevoked
+            | Self::CertificateExpired => peer_mtls,
         }
     }
 
@@ -277,8 +297,10 @@ impl Expected {
         rule.tried_over(transport)
             && match self {
                 Self::Closed => {
-                    transport == Transport::JsonRpcStream
-                        || (websocket && !at_the_handshake)
+                    matches!(
+                        transport,
+                        Transport::JsonRpcStream | Transport::PeerMutualTls
+                    ) || (websocket && !at_the_handshake)
                         || (http_rpc && rule == Rule::PlainWhereTlsConfigured)
                 }
                 Self::Status { status } => {

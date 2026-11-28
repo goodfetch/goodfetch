@@ -19,7 +19,10 @@
 //!     only another major refused, and a Session needing more than an older
 //!     Browser host's minor is refused with `browser_host_outdated` (ADR
 //!     0096);
-//!   - a Group member is refused by a group of the other Product (ADR 0095).
+//!   - a Group member's carry the rule's versions to a group of the
+//!     smallest Product, settled on the lower minor of one major (ADR
+//!     0055), and a Group member is refused by a group of the other Product
+//!     before the version check, at a newer major too (ADR 0095).
 
 use std::collections::BTreeMap;
 
@@ -240,7 +243,7 @@ fn cases(
         match from {
             HelloFrom::Client => protocol.client(&mut cases)?,
             HelloFrom::BrowserHost => protocol.browser_host(&mut cases)?,
-            HelloFrom::GroupMember => protocol.group_member(&mut cases),
+            HelloFrom::GroupMember => protocol.group_member(&mut cases)?,
         }
     }
     Ok(cases)
@@ -428,34 +431,68 @@ impl Protocol<'_> {
         Ok(())
     }
 
-    /// A Group member's: refused by a group of the other Product.
-    fn group_member(&self, cases: &mut Vec<(String, RefusalCase)>) {
+    /// A Group member's: the rule's versions, settled on the lower minor of
+    /// one major, then refused by a group of the other Product.
+    fn group_member(&self, cases: &mut Vec<(String, RefusalCase)>) -> Result<()> {
         let current = self.format.version;
+        let fabricated_versions = table(self.format.rule, current)?;
+        let newer_major = fabricated_versions
+            .iter()
+            .find(|fabricated| fabricated.compatibility == Compatibility::NewerMajor)
+            .context("every rule fabricates a newer major")?
+            .found;
+        for fabricated in fabricated_versions {
+            let case = self.case(Hello {
+                rule: self.format.rule,
+                found: fabricated.found,
+                compatibility: fabricated.compatibility,
+                from: HelloFrom::GroupMember,
+                engine: self.smallest,
+                needs: Some(self.smallest),
+                session_needs: None,
+                reply: Self::version_reply(fabricated.compatibility, current),
+            });
+            cases.push((format!("group-member-{}", fabricated.name), case));
+        }
         for group in &self.products {
-            for member in &self.products {
-                let reply = if member == group {
+            for joining in &self.products {
+                let same = joining == group;
+                let reply = if same {
                     accepted(current)
                 } else {
                     refused(PRODUCT_REFUSED)
                 };
+                let name = format!(
+                    "group-member-of-{}-joining-a-{}-group",
+                    joining.as_str(),
+                    group.as_str()
+                );
+                let hello = |found, compatibility, reply| Hello {
+                    rule: self.format.rule,
+                    found,
+                    compatibility,
+                    from: HelloFrom::GroupMember,
+                    engine: *group,
+                    needs: Some(*joining),
+                    session_needs: None,
+                    reply,
+                };
                 cases.push((
-                    format!(
-                        "group-member-of-{}-joining-a-{}-group",
-                        member.as_str(),
-                        group.as_str()
-                    ),
-                    self.case(Hello {
-                        rule: self.format.rule,
-                        found: current,
-                        compatibility: Compatibility::Compatible,
-                        from: HelloFrom::GroupMember,
-                        engine: *group,
-                        needs: Some(*member),
-                        session_needs: None,
-                        reply,
-                    }),
+                    name.clone(),
+                    self.case(hello(current, Compatibility::Compatible, reply)),
                 ));
+                if !same {
+                    cases.push((
+                        format!("{name}-at-newer-major"),
+                        self.case(hello(
+                            newer_major,
+                            Compatibility::NewerMajor,
+                            refused(PRODUCT_REFUSED),
+                        )),
+                    ));
+                }
             }
         }
+        Ok(())
     }
 }

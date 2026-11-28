@@ -246,7 +246,7 @@ pub(crate) async fn serve(
 /// Whether a failure to accept is the connection's own, such as a peer that
 /// reset it before it was accepted, after which the next accept may
 /// succeed at once.
-fn connections_own(error: &std::io::Error) -> bool {
+pub(crate) fn connections_own(error: &std::io::Error) -> bool {
     matches!(
         error.kind(),
         std::io::ErrorKind::ConnectionAborted

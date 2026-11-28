@@ -707,7 +707,9 @@ pub struct NotInProductDetails {
     /// The running engine's Product version.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub product_version: ProductVersion,
-    /// The Product that carries what was asked.
+    /// The Product that carries what was asked; for a Group member's
+    /// `hello` on the peer link, the Product that Group member runs (ADR
+    /// 0095).
     #[schemars(extend("arrived_in" = "0.1"))]
     pub needs: Product,
     /// What was asked, such as an operation's name; `None` for a `hello`.
@@ -717,9 +719,10 @@ pub struct NotInProductDetails {
     /// What to do instead.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub fix: String,
-    /// The command that installs the Product `needs` from the engine's own
-    /// channel, which `fix` names; none behind Goodfetch Cloud's gateway,
-    /// where an install would not help (ADR 0096).
+    /// The command that installs, from the engine's own channel, the
+    /// Product `fix` names: `needs`, or for a Group member the group's
+    /// Product, `product`; none behind Goodfetch Cloud's gateway, where an
+    /// install would not help (ADR 0096).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub install: Option<String>,

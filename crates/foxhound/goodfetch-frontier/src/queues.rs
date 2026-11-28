@@ -230,6 +230,10 @@ pub struct DomainQueues {
     recount: BTreeSet<String>,
     /// The counted domains whose wait ends by itself, by when it ends.
     expiring: BTreeSet<(Instant, String)>,
+    /// Domains fenced during a Partition handoff (ADR 0054): excluded from
+    /// `turns` so no waiting request under a fenced key is admitted until
+    /// unfenced.
+    fenced: BTreeSet<String>,
 }
 
 impl DomainQueues {
@@ -252,6 +256,7 @@ impl DomainQueues {
             waits: Default::default(),
             recount: BTreeSet::new(),
             expiring: BTreeSet::new(),
+            fenced: BTreeSet::new(),
         }
     }
 
@@ -268,6 +273,9 @@ impl DomainQueues {
 
     /// `key` keeps its turn, as its state now stands.
     fn stand(&mut self, key: &str) {
+        if self.fenced.contains(key) {
+            return;
+        }
         if let Some(domain) = self.domains.get_mut(key) {
             let standing = domain.standing();
             self.turns
@@ -386,9 +394,11 @@ impl Gate for DomainQueues {
         let before = domain.waiting.len();
         if before == 0 {
             self.idle.remove(&request.key);
-            let standing = domain.standing();
-            self.turns
-                .join(&mut domain.turn, &request.key, domain.in_flight, standing);
+            if !self.fenced.contains(&request.key) {
+                let standing = domain.standing();
+                self.turns
+                    .join(&mut domain.turn, &request.key, domain.in_flight, standing);
+            }
         }
         self.ids.insert(place.1.clone());
         domain.waiting.insert(place);
@@ -423,6 +433,47 @@ impl Gate for DomainQueues {
             }
         }
         self.queue_changed(key, before, after);
+    }
+
+    fn fence_key(&mut self, key: &str) {
+        self.fenced.insert(key.to_owned());
+        if let Some(domain) = self.domains.get_mut(key) {
+            self.turns.leave(&mut domain.turn);
+        }
+    }
+
+    fn unfence_key(&mut self, key: &str) {
+        if !self.fenced.remove(key) {
+            return;
+        }
+        if let Some(domain) = self.domains.get_mut(key)
+            && !domain.waiting.is_empty()
+        {
+            let standing = domain.standing();
+            self.turns
+                .join(&mut domain.turn, key, domain.in_flight, standing);
+        }
+    }
+
+    fn remove_key(&mut self, key: &str) {
+        self.fenced.remove(key);
+        let Some(domain) = self.domains.get_mut(key) else {
+            return;
+        };
+        let before = domain.waiting.len();
+        for (_, id) in std::mem::take(&mut domain.waiting) {
+            self.ids.remove(&id);
+        }
+        domain.outside = false;
+        self.turns.leave(&mut domain.turn);
+        if domain.in_flight == 0 {
+            self.idle.insert(key.to_owned());
+        }
+        self.queue_changed(key, before, 0);
+    }
+
+    fn in_flight(&self, key: &str) -> usize {
+        self.domains.get(key).map_or(0, |domain| domain.in_flight)
     }
 
     fn ready_at(&self, now: Instant) -> Option<Instant> {
@@ -602,9 +653,11 @@ impl Gate for DomainQueues {
         } else if domain.is_ready(now) {
             domain.ready_at = None;
         }
-        let standing = domain.standing();
-        self.turns
-            .stand(&mut domain.turn, key, domain.in_flight, standing);
+        if !self.fenced.contains(key) {
+            let standing = domain.standing();
+            self.turns
+                .stand(&mut domain.turn, key, domain.in_flight, standing);
+        }
         if wait_until.is_some() || backed_off || domain.journaled {
             self.changed.insert(key.to_owned());
         }

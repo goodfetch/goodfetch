@@ -131,6 +131,46 @@ impl SettingsFiles {
     /// policy found only for an older major, and the refusals of
     /// [`Values::read`] for its keys.
     pub fn load(&self, engine: Product) -> Result<MachineLayers, SettingsError> {
+        let member = self.stored_group_member();
+        self.load_for(engine, member.as_deref())
+    }
+
+    /// Reads this home's Group member name from `<per_major>/group-store.sqlite`
+    /// when that store exists, so an Attached engine running on a Group member's
+    /// machine applies that Group member's `[group_member.<name>]` scope too
+    /// (ADR 0055). Does no SQLite work when no group store file exists.
+    fn stored_group_member(&self) -> Option<String> {
+        let path = self
+            .operator_policy
+            .parent()?
+            .join(goodfetch_protocol::home::GROUP_STORE);
+        if !path.is_file() {
+            return None;
+        }
+        let connection = rusqlite::Connection::open_with_flags(
+            &path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .ok()?;
+        connection
+            .query_row("SELECT name FROM identity LIMIT 1", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .ok()
+    }
+
+    /// Reads both files as [`Self::load`] does, applying the `[group_member.<name>]`
+    /// scope of `group_member` when this engine runs on that Group member
+    /// (ADRs 0028 and 0055). Blocking.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::load`].
+    pub fn load_for(
+        &self,
+        engine: Product,
+        group_member: Option<&str>,
+    ) -> Result<MachineLayers, SettingsError> {
         let policy_text = read(&self.operator_policy, SettingsLayer::OperatorPolicy)?;
         if policy_text.is_none()
             && let Some(older) = self.older_operator_policy()
@@ -150,18 +190,20 @@ impl SettingsFiles {
             Some(text) => operator_policy(text, engine, &self.version)?,
             None => Policy::default(),
         };
-        let user_configuration = match &user_text {
-            Some(text) => user_configuration(
+        let (user_configuration, user_group_members) = match &user_text {
+            Some(text) => user_configuration_with_members(
                 SettingsLayer::UserConfiguration,
                 text,
                 engine,
                 &self.version,
             )?,
-            None => Values::default(),
+            None => (Values::default(), BTreeMap::new()),
         };
         Ok(MachineLayers {
             operator_policy,
             user_configuration,
+            user_group_members,
+            group_member: group_member.map(str::to_owned),
             files: vec![
                 SettingsFile {
                     layer: SettingsLayer::OperatorPolicy,
@@ -236,13 +278,20 @@ impl SettingsFiles {
 }
 
 /// The layers a machine keeps: its Operator policy and user configuration,
-/// the files they came from, and the defaults its Product version gives.
+/// per-Group-member machine-specific overrides, the files they came from, and
+/// the defaults its Product version gives.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct MachineLayers {
     /// The Operator policy.
     pub operator_policy: Policy,
     /// User configuration.
     pub user_configuration: Values,
+    /// Per-Group-member machine-specific settings from user configuration
+    /// (`[group_member.<name>]`).
+    pub user_group_members: BTreeMap<String, Values>,
+    /// This Daemon's Group member name when it belongs to a Daemon group;
+    /// only this member's `[group_member.<name>]` scope applies.
+    pub group_member: Option<String>,
     /// The files read.
     pub files: Vec<SettingsFile>,
     /// The defaults that follow the Product version of the executable
@@ -258,6 +307,25 @@ impl MachineLayers {
         self.version_defaults.clone().and(host)
     }
 
+    /// The machine-specific settings scoped to this engine's Group member,
+    /// merging the Operator policy's `[group_member.<name>]` table with user
+    /// configuration's; empty when this engine is in no group or has no entry.
+    pub fn group_member_values(&self) -> Values {
+        let Some(member) = self.group_member.as_deref() else {
+            return Values::default();
+        };
+        let mut combined = self
+            .operator_policy
+            .group_members
+            .get(member)
+            .cloned()
+            .unwrap_or_default();
+        if let Some(user) = self.user_group_members.get(member) {
+            combined.merge_from(user);
+        }
+        combined
+    }
+
     /// These layers resolved on an engine of `engine` before any Run, on
     /// the catalog's defaults and those of the Product version.
     ///
@@ -265,11 +333,13 @@ impl MachineLayers {
     ///
     /// The refusals of [`resolve`].
     pub fn resolve(self, engine: Product) -> Result<Resolved, SettingsError> {
+        let group_member = self.group_member_values();
         resolve(
             &Layers {
                 host: self.version_defaults,
                 operator_policy: self.operator_policy,
                 user_configuration: self.user_configuration,
+                group_member,
                 ..Layers::default()
             },
             engine,
@@ -316,14 +386,32 @@ pub fn user_configuration(
     engine: Product,
     version: &ProductVersion,
 ) -> Result<Values, SettingsError> {
+    user_configuration_with_members(layer, text, engine, version).map(|(values, _)| values)
+}
+
+/// Reads user configuration's `[settings]` and `[group_member.<name>]` tables,
+/// checking its format version and lowest minor (ADRs 0055 and 0098).
+///
+/// # Errors
+///
+/// As [`user_configuration`], plus `setting_not_applicable` when a key outside
+/// the machine-specific group-member scope appears under `[group_member.<name>]`.
+pub fn user_configuration_with_members(
+    layer: SettingsLayer,
+    text: &str,
+    engine: Product,
+    version: &ProductVersion,
+) -> Result<(Values, BTreeMap<String, Values>), SettingsError> {
     let tables = file_tables(
         layer,
         text,
         &USER_CONFIGURATION,
-        &["settings"],
+        &["settings", "group_member"],
         Some(version),
     )?;
-    Values::read(layer, &tables[0], engine)
+    let values = Values::read(layer, &tables[0], engine)?;
+    let members = parse_group_members(&tables[1], engine)?;
+    Ok((values, members))
 }
 
 /// The settings of the project configuration at `path`, nested as the
@@ -399,7 +487,7 @@ pub fn operator_policy(
         layer,
         text,
         &OPERATOR_POLICY,
-        &["settings", "lock", "cap", "managed"],
+        &["settings", "lock", "cap", "managed", "group_member"],
         Some(version),
     )?;
     let marked_managed = text
@@ -422,11 +510,54 @@ pub fn operator_policy(
         settings: Values::read(layer, &tables[0], engine)?,
         lock: Values::read(layer, &tables[1], engine)?,
         cap: Values::read(layer, &tables[2], engine)?,
+        group_members: parse_group_members(&tables[4], engine)?,
         version: Some(policy_version(text)),
         managed,
     };
     policy.check_caps()?;
     Ok(policy)
+}
+
+/// Parses a `[group_member]` table mapping Group member names to their
+/// machine-specific settings (ADRs 0028 and 0055; #1617).
+fn parse_group_members(
+    table: &Map<String, Value>,
+    engine: Product,
+) -> Result<BTreeMap<String, Values>, SettingsError> {
+    let mut members = BTreeMap::new();
+    for (member, entry) in table {
+        if !goodfetch_protocol::group::is_group_member_name(member) {
+            return Err(SettingsError::Invalid {
+                key: format!("group_member.{member}"),
+                layer: Some(SettingsLayer::GroupMember),
+                reason: format!(
+                    "`{member}` cannot name a Group member: use 1 to 63 lowercase letters, digits or hyphens, \
+                     starting and ending with a letter or digit"
+                ),
+            });
+        }
+        let Some(nested) = entry.as_object() else {
+            return Err(SettingsError::Invalid {
+                key: format!("group_member.{member}"),
+                layer: Some(SettingsLayer::GroupMember),
+                reason: format!("`group_member.{member}` is not a table"),
+            });
+        };
+        let values = Values::read(SettingsLayer::GroupMember, nested, engine)?;
+        for key in values.every_key() {
+            if !goodfetch_protocol::setting_scopes::group_member_sets(key) {
+                return Err(SettingsError::NotApplicable {
+                    key: key.to_owned(),
+                    layer: SettingsLayer::GroupMember,
+                    fix: format!(
+                        "`{key}` is shared across the group: only machine-specific settings (local addresses, TLS files and browser paths) may be set at the group-member scope"
+                    ),
+                });
+            }
+        }
+        members.insert(member.clone(), values);
+    }
+    Ok(members)
 }
 
 /// An Operator policy's version: `sha256:` and the first 16 hex digits of

@@ -496,3 +496,34 @@ fn a_dismissed_item_stays_hidden_after_the_engine_starts_again() {
         again.stop().await;
     });
 }
+
+/// Issue 2594: a send permit reserved on `NeedsYou`'s mailbox before the driver
+/// stops still resolves with `Stopped` once sent while the `NeedsYou` handle
+/// remains alive.
+#[test]
+fn a_permit_reserved_before_needs_you_stops_still_resolves() {
+    let env = goodfetch_test_support::TestEnv::new();
+    let index = env.folder().join("run-index.sqlite");
+    let resolved = goodfetch_test_support::runtime().block_on(async {
+        let started = started(&index, Vec::new()).await;
+        // Reserve a permit BEFORE stopping the owner.
+        let permit = started.needs_you.commands.reserve().await.unwrap();
+        started.owner.token().cancel();
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+
+        let (answer, answered) = tokio::sync::oneshot::channel();
+        permit.send(super::Command::List {
+            params: NeedsYouListParams::default(),
+            answer,
+        });
+        let outcome = tokio::time::timeout(Duration::from_secs(1), answered).await;
+        started.owner.stop().await;
+        outcome
+    });
+
+    assert!(
+        matches!(resolved, Ok(Err(_))),
+        "reserved permit sent after NeedsYou stopped must resolve as Stopped, got {resolved:?}"
+    );
+}

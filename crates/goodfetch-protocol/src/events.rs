@@ -22,9 +22,11 @@ use crate::catalog::{
 };
 use crate::connection::EngineInstance;
 use crate::governor::SYSTEM_INFO;
+use crate::group::GROUP_LEAD_REACHABILITY_CHANGED;
 use crate::jsonrpc::RequestId;
 use crate::needs_you::{NEEDS_YOU_CHANGED, NeedsYouItem};
-use crate::run::{RUN_AXES_CHANGED, RunAxes};
+use crate::politeness::POLITENESS_STORE_DEGRADED_EVENT;
+use crate::run::{RUN_AXES_CHANGED, RunAxes, RunId};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -100,12 +102,37 @@ pub struct EventsSubscribeParams {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub system_info: bool,
+    /// The Run whose events are subscribed to in a Daemon group (ADR 0055):
+    /// when another Group member owns it, the stream redirects to its
+    /// `daemon.advertise_url` when set or forwards over the peer link.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: Option<RunId>,
+}
+
+/// Where a Client reconnects to receive a Run's event stream directly from its
+/// owning Group member (ADR 0055).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct StreamRedirect {
+    /// The owning Group member's `daemon.advertise_url`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// The owning Group member's name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub owner: String,
 }
 
 /// What `events.subscribe` answers when its subscription ends without the
-/// Client cancelling it: the engine stopped.
+/// Client cancelling it: the engine stopped, or the subscription redirected to
+/// the Run's owning Group member (ADR 0055).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct SubscriptionEnded {}
+pub struct SubscriptionEnded {
+    /// Set when the Run is owned by another Group member advertising a
+    /// reachable `daemon.advertise_url` (ADR 0055).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub redirect: Option<StreamRedirect>,
+}
 
 /// One event of a batch.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -184,7 +211,14 @@ pub const EVENTS_SUBSCRIBE: Operation = Operation {
     reach: Reach::AllSurfaces,
     params: schema_of::<EventsSubscribeParams>,
     result: schema_of::<SubscriptionEnded>,
-    events: &[&RESYNC, &RUN_AXES_CHANGED, &NEEDS_YOU_CHANGED, &SYSTEM_INFO],
+    events: &[
+        &RESYNC,
+        &RUN_AXES_CHANGED,
+        &NEEDS_YOU_CHANGED,
+        &SYSTEM_INFO,
+        &GROUP_LEAD_REACHABILITY_CHANGED,
+        &POLITENESS_STORE_DEGRADED_EVENT,
+    ],
     cancellable: true,
     input: None,
     bound: None,

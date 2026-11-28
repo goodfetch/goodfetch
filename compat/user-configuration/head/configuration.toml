@@ -64,6 +64,7 @@ idle_timeout = 30000
 address = "example"
 drain_grace = 30000
 trusted_proxies = ["10.0.0.0/8", "192.0.2.7"]
+advertise_url = "example"
 
 [settings.daemon.tls]
 cert_file = "example"
@@ -123,6 +124,7 @@ read_only = true
 
 [settings.browser]
 mirror = "https://mirror.example/chrome-for-testing-public"
+executable_path = "example"
 headless = true
 headless_shell = true
 cdp_command_log = true
@@ -230,6 +232,23 @@ budget = 4
 
 [settings.checkpoint]
 interval = 30000
+
+[settings.checkpoint.object_storage.s3]
+endpoint = "example"
+region = "example"
+access_key_id = "env:EXAMPLE"
+secret_access_key = "env:EXAMPLE"
+session_token = "env:EXAMPLE"
+
+[settings.checkpoint.object_storage.gs]
+endpoint = "example"
+access_token = "env:EXAMPLE"
+
+[settings.checkpoint.object_storage.az]
+endpoint = "example"
+account = "example"
+account_key = "env:EXAMPLE"
+sas_token = "env:EXAMPLE"
 
 [settings.effect.output]
 max_size = 4
@@ -343,6 +362,7 @@ max_requests_per_minute = 4
 
 [settings.usage]
 ledger_read_interval = 30000
+thresholds = [4]
 
 [settings.version]
 age_notice = true

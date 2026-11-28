@@ -1099,6 +1099,7 @@ fn measure_named_mcp_workloads() -> serde_json::Map<String, Value> {
         started_as: StartedAs::New,
         lifecycle: Lifecycle::Running,
         needs: Product::Collie,
+        partitions: Vec::new(),
     })
     .unwrap();
 

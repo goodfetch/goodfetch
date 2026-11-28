@@ -16,6 +16,11 @@ impl ErrorCode {
     /// The `offline` setting refused a pinned download the call needed. Run the Product's `browser install` beforehand where the cache is writable, point `GOODFETCH_BROWSERS_PATH` at a prepared cache, or lift `offline` where it was set.
     pub const ARTIFACT_UNAVAILABLE_OFFLINE: Self = ErrorCode::from_static("artifact_unavailable_offline");
 
+    /// `authority_key_mismatch`, in the `refused` group, not retryable.
+    ///
+    /// The Daemon at the Lead Daemon's address presented no certificate authority whose public key has the SHA-256 that `group join` pins, so the Daemon sent it nothing: the address leads elsewhere, or the key was copied wrong. Take the key `group token` answers on the Lead Daemon.
+    pub const AUTHORITY_KEY_MISMATCH: Self = ErrorCode::from_static("authority_key_mismatch");
+
     /// `blocked`, in the `page` group, not retryable.
     ///
     /// The site refused the document a navigation reached with a Block cause the engine cannot get past, such as a rate limit, an IP block or a challenge: raised by the call that waited for that navigation, or else by the page's next call. The Session stays open with its cookies, never replaced, and nothing waits on the site's `Retry-After`: the program decides whether to wait, open another Session or pause for a person. The details name the cause, the URL, the status and `retry_after`, the time the site asked for or `null`.
@@ -30,6 +35,11 @@ impl ErrorCode {
     ///
     /// The browser no longer holds the response's body, as after the page navigated away or once its buffer evicted it, or the response has none, as a redirect's: the engine keeps a body only for a response obtained through `page.wait_for_request_finished`, `route.fetch` or `page.request`, which the fix names. Where Playwright and Puppeteer say "Request content was evicted from inspector cache". A retry finds the body gone all the same.
     pub const BODY_UNAVAILABLE: Self = ErrorCode::from_static("body_unavailable");
+
+    /// `browser_borrowed`, in the `refused` group, not retryable.
+    ///
+    /// A Borrowed browser serves one Run at a time and cannot be shared across a second Run or across multiple Partitions of a Partitioned crawl.
+    pub const BROWSER_BORROWED: Self = ErrorCode::from_static("browser_borrowed");
 
     /// `browser_host_outdated`, in the `unavailable` group, not retryable.
     ///
@@ -241,6 +251,31 @@ impl ErrorCode {
     /// A file, such as a run state or a Checkpoint, is of a format version this engine cannot read: a newer minor or major, written by a newer engine, which `fix` says to upgrade to, or an older major, which `upgrade-files` upgrades. The file is left as it is.
     pub const FORMAT_VERSION_UNSUPPORTED: Self = ErrorCode::from_static("format_version_unsupported");
 
+    /// `group_exists`, in the `refused` group, not retryable.
+    ///
+    /// This Daemon belongs to a Daemon group already, so `group init` forms no other: a Daemon forms or joins one group, and stays in it until it leaves.
+    pub const GROUP_EXISTS: Self = ErrorCode::from_static("group_exists");
+
+    /// `group_lead_unreachable`, in the `unavailable` group, retryable.
+    ///
+    /// Nothing answered at the Lead Daemon's peer address, or the peer link closed before its answer: check the address and that the Lead Daemon runs, then try again.
+    pub const GROUP_LEAD_UNREACHABLE: Self = ErrorCode::from_static("group_lead_unreachable");
+
+    /// `group_member_exists`, in the `refused` group, not retryable.
+    ///
+    /// The Daemon group has a Group member of this name already, so the Daemon joins under another. The join token stays valid for it.
+    pub const GROUP_MEMBER_EXISTS: Self = ErrorCode::from_static("group_member_exists");
+
+    /// `group_member_unknown`, in the `refused` group, not retryable.
+    ///
+    /// The Daemon group has no Group member of this name, so nothing was revoked: it left already, was revoked, or never joined.
+    pub const GROUP_MEMBER_UNKNOWN: Self = ErrorCode::from_static("group_member_unknown");
+
+    /// `group_politeness_unshared`, in the `refused` group, not retryable.
+    ///
+    /// A Daemon group of more than one Group member requires a shared Politeness store (`politeness.store`), or `politeness.sharing: per_daemon` in its Operator policy to keep Politeness per Daemon.
+    pub const GROUP_POLITENESS_UNSHARED: Self = ErrorCode::from_static("group_politeness_unshared");
+
     /// `header_forbidden`, in the `program` group, not retryable.
     ///
     /// A seed, enqueue or Hook tried to set a header the engine owns (`Host`, `Cookie`, `Authorization`, `Proxy-*`, or a method-override header), so nothing was added or changed. The details name the forbidden header. Remove the header, or use the engine's own session, proxy or method APIs instead.
@@ -260,6 +295,31 @@ impl ErrorCode {
     ///
     /// A bug in Goodfetch: an object such as a Session or a page received an event its state cannot receive. Report it with the object, the state and the event its details carry.
     pub const INTERNAL: Self = ErrorCode::from_static("internal");
+
+    /// `join_token_refused`, in the `refused` group, not retryable.
+    ///
+    /// The Lead Daemon refused the join token: it minted no such token, or the token was used or is past its 30 minutes. Mint another with `group token` on the Lead Daemon and run `group join` with it.
+    pub const JOIN_TOKEN_REFUSED: Self = ErrorCode::from_static("join_token_refused");
+
+    /// `lead_cannot_leave`, in the `refused` group, not retryable.
+    ///
+    /// The Lead Daemon cannot leave its Daemon group, nor be revoked from it, while it is the Lead Daemon: promote another Group member first, then remove this one.
+    pub const LEAD_CANNOT_LEAVE: Self = ErrorCode::from_static("lead_cannot_leave");
+
+    /// `lead_epoch_stale`, in the `refused` group, not retryable.
+    ///
+    /// A Group member received a peer message carrying a lower lead epoch than the highest it has recorded, so the sender is a former Lead Daemon, or a Group member that has not yet learnt of the current one, and the message is refused. The sender records the higher epoch from the details and acts as an ordinary Group member.
+    pub const LEAD_EPOCH_STALE: Self = ErrorCode::from_static("lead_epoch_stale");
+
+    /// `lead_unconfirmed`, in the `unavailable` group, retryable.
+    ///
+    /// The Lead Daemon has not yet confirmed its lead epoch with a majority of its last-known Group members: wait for a majority to come within reach, or confirm by hand with `group lead --confirm` once you have verified no other Lead Daemon runs.
+    pub const LEAD_UNCONFIRMED: Self = ErrorCode::from_static("lead_unconfirmed");
+
+    /// `lead_unreachable`, in the `unavailable` group, retryable.
+    ///
+    /// The Daemon group's Lead Daemon, or the local Group member named by this machine's group redirect row, cannot be reached to check or grant a Usage ledger Slice or verify a sign-in: live Runs continue spending held Slices until they need a new one, and new Runs needing a Slice or sign-in wait until the Lead Daemon or Group member returns (or `group leave` removes the redirect row).
+    pub const LEAD_UNREACHABLE: Self = ErrorCode::from_static("lead_unreachable");
 
     /// `limit_not_understood`, in the `refused` group, not retryable.
     ///
@@ -331,10 +391,20 @@ impl ErrorCode {
     /// The call asks a Daemon about itself, and this engine is an Attached engine. Ask the Daemon of the major, found through its runtime file, or run `daemon status`.
     pub const NOT_A_DAEMON: Self = ErrorCode::from_static("not_a_daemon");
 
+    /// `not_in_a_group`, in the `refused` group, not retryable.
+    ///
+    /// This Daemon belongs to no Daemon group, so it has none to leave: form one with `group init`, or join one with `group join`.
+    pub const NOT_IN_A_GROUP: Self = ErrorCode::from_static("not_in_a_group");
+
     /// `not_in_product`, in the `unavailable` group, not retryable.
     ///
     /// The running engine's Product does not carry what was asked: a Client that needs Foxhound reached a Collie engine, or a call, a setting or a value only Foxhound carries reached one. Run it with Foxhound, which contains everything Collie does, or connect to a Foxhound engine.
     pub const NOT_IN_PRODUCT: Self = ErrorCode::from_static("not_in_product");
+
+    /// `not_lead_daemon`, in the `refused` group, not retryable.
+    ///
+    /// Only a Daemon group's Lead Daemon mints join tokens, and this Daemon is not one: run `group token` on the Lead Daemon, or `group init` to form a group with this Daemon as its Lead Daemon.
+    pub const NOT_LEAD_DAEMON: Self = ErrorCode::from_static("not_lead_daemon");
 
     /// `not_verified`, in the `page` group, not retryable.
     ///
@@ -536,6 +606,11 @@ impl ErrorCode {
     /// The engine still runs the Run, so it cannot be discarded, nor a Dataset of it erased: stop it first with `run.stop` or `run.abort`, or let it finish, then try again. The details name the Run.
     pub const RUN_LIVE: Self = ErrorCode::from_static("run_live");
 
+    /// `run_moved`, in the `unavailable` group, retryable.
+    ///
+    /// The Run moved to another Group member, so this Group member no longer owns it: the receiving Group member refreshes its cached group Run index and retries once, and a Client that followed a redirect reconnects through any Group member and retries once.
+    pub const RUN_MOVED: Self = ErrorCode::from_static("run_moved");
+
     /// `run_not_found`, in the `program` group, not retryable.
     ///
     /// No Run has this Run ID: the Run index does not list it.
@@ -682,5 +757,5 @@ impl ErrorCode {
     pub const WEBHOOK_INVALID: Self = ErrorCode::from_static("webhook_invalid");
 
     /// Every Error code of Collie's catalog, in the catalog's order.
-    pub const COLLIE: &[Self] = &[Self::ADDRESS_FAMILY_UNAVAILABLE, Self::ARTIFACT_DOWNLOAD_FAILED, Self::ARTIFACT_UNAVAILABLE_OFFLINE, Self::BLOCKED, Self::BODY_NOT_FOUND, Self::BODY_UNAVAILABLE, Self::BROWSER_HOST_OUTDATED, Self::BROWSER_HOST_UNREACHABLE, Self::BROWSER_LAUNCH_FAILED, Self::BROWSER_NEEDS_GUI_SESSION, Self::BROWSER_NOT_INSTALLED, Self::BROWSER_SANDBOX_UNAVAILABLE, Self::CALL_CANCELLED, Self::CAPABILITY_UNAVAILABLE, Self::CDP_URL_NOT_ALLOWED, Self::CDP_URL_NOT_BROWSER, Self::CDP_URL_UNAUTHORIZED, Self::CDP_URL_UNREACHABLE, Self::CERTIFICATE_CHANGED, Self::CERTIFICATE_INVALID, Self::CHALLENGE_UNSOLVED, Self::CHECKPOINT_BEHIND, Self::CLOSED, Self::CONFINEMENT_UNAVAILABLE, Self::CONNECTION_FORKED, Self::CONNECTION_LOST, Self::CONNECTION_OVERLOADED, Self::DAEMON_DRAINING, Self::DAEMON_UNREACHABLE, Self::DEADLINE_EXCEEDED, Self::DETACH_UNSUPPORTED, Self::DIALOG_ALREADY_HANDLED, Self::EDGE_HANDLERS_UNSUPPORTED, Self::EFFECT_KEY_INVALID, Self::EFFECT_KEY_REUSED, Self::EFFECT_OUTPUT_INVALID, Self::EFFECT_UNCERTAIN, Self::EGRESS_REFUSED, Self::ENGINE_EXITED, Self::ENGINE_NOT_FOUND, Self::ENGINE_OUTPUT_INVALID, Self::ENGINE_PANICKED, Self::EVENT_LOOP_MISMATCH, Self::EXECUTABLE_BLOCKED_BY_SMART_APP_CONTROL, Self::EXTRACT_HANDLER_FAILED, Self::EXTRACTOR_UNAVAILABLE, Self::FILE_WRITE_FAILED, Self::FORMAT_VERSION_UNSUPPORTED, Self::HEADER_FORBIDDEN, Self::HEADER_VALUE_INVALID, Self::HOOK_FAILED, Self::INTERNAL, Self::LIMIT_NOT_UNDERSTOOD, Self::LIMIT_RAISE_REFUSED, Self::LIMIT_REACHED, Self::LISTENER_EVENTS_LOST, Self::LISTENER_FAILED, Self::LIVE_VIEW_VIEWER_LIMIT, Self::LOCAL_ADDRESS_UNAVAILABLE, Self::LOGGED_OUT, Self::MODEL_UNAVAILABLE, Self::NAME_LOOKUP_FAILED, Self::NAME_NOT_RESOLVED, Self::NAVIGATION_FAILED, Self::NAVIGATION_INTERRUPTED, Self::NOT_A_DAEMON, Self::NOT_IN_PRODUCT, Self::NOT_VERIFIED, Self::PAGE_CHECK_FAILED, Self::PAGE_CRASHED, Self::PAGE_EVENTS_LOST, Self::PAGE_FUNCTION_FAILED, Self::PAGE_HANDLER_FAILED, Self::PAGE_MEMORY_EXCEEDED, Self::PAGE_NAVIGATED_DURING_CALL, Self::PAGE_VALUE_INVALID, Self::PATH_NOT_WRITABLE, Self::PATH_UNSAFE, Self::PATTERN_UNSUPPORTED, Self::PERSON_REQUIRED, Self::PLUGIN_CRASHED, Self::PLUGIN_MANIFEST_MISMATCH, Self::PLUGIN_PROTOCOL_UNSUPPORTED, Self::PLUGIN_QUARANTINED, Self::POLICY_CONFLICT, Self::PROTOCOL_VERSION_UNSUPPORTED, Self::PROXY_AUTH_FAILED, Self::PROXY_PROVIDER_UNAVAILABLE, Self::PROXY_RELAY_UNAVAILABLE, Self::PROXY_UNAVAILABLE, Self::RECIPE_INVALID, Self::RECORDING_INVALID, Self::REPLAY_NOT_ALLOWED, Self::RESOURCES_EXHAUSTED, Self::RESPONSE_LIMIT_EXCEEDED, Self::RESPONSE_NOT_JSON, Self::RESPONSE_NOT_RECORDED, Self::RESPONSE_TRUNCATED, Self::ROUTE_ALREADY_HANDLED, Self::RUN_BUSY, Self::RUN_CONFLICT, Self::RUN_ENDED, Self::RUN_ID_INVALID, Self::RUN_IN_USE, Self::RUN_INTERRUPTED, Self::RUN_KEY_MISMATCH, Self::RUN_LIVE, Self::RUN_NOT_FOUND, Self::RUN_NOT_OWNED, Self::RUN_STATE_FILESYSTEM_UNSUPPORTED, Self::RUN_STATE_UNAVAILABLE, Self::RUN_TARGET_UNBUILT, Self::SAMPLE_REFUSED, Self::SCHEDULE_CAP_EXCEEDED, Self::SCHEDULE_EXISTS, Self::SCHEDULE_NOT_FOUND, Self::SCHEDULE_TRIGGER_INVALID, Self::SCHEMA_VALIDATOR_FAILED, Self::SECRET_DOMAIN_NOT_ALLOWED, Self::SECRET_INPUT_REFUSED, Self::SECRET_UNAVAILABLE, Self::SECRET_UNBOUND, Self::SESSION_BOUND_TO_MACHINE, Self::SESSION_EXPORT_OPEN_FAILED, Self::SETTING_INVALID, Self::SETTING_LOCKED, Self::SETTING_NOT_APPLICABLE, Self::SETTING_UNKNOWN, Self::SITE_PREFERENCES_REFUSED, Self::SKILL_INSTALL_REFUSED, Self::TARGET_NOT_UNIQUE, Self::TOO_MANY_CALLS, Self::TOO_MANY_REDIRECTS, Self::UPGRADE_SOURCE_UNSUPPORTED, Self::VALUE_INVALID, Self::WEBHOOK_INVALID];
+    pub const COLLIE: &[Self] = &[Self::ADDRESS_FAMILY_UNAVAILABLE, Self::ARTIFACT_DOWNLOAD_FAILED, Self::ARTIFACT_UNAVAILABLE_OFFLINE, Self::AUTHORITY_KEY_MISMATCH, Self::BLOCKED, Self::BODY_NOT_FOUND, Self::BODY_UNAVAILABLE, Self::BROWSER_BORROWED, Self::BROWSER_HOST_OUTDATED, Self::BROWSER_HOST_UNREACHABLE, Self::BROWSER_LAUNCH_FAILED, Self::BROWSER_NEEDS_GUI_SESSION, Self::BROWSER_NOT_INSTALLED, Self::BROWSER_SANDBOX_UNAVAILABLE, Self::CALL_CANCELLED, Self::CAPABILITY_UNAVAILABLE, Self::CDP_URL_NOT_ALLOWED, Self::CDP_URL_NOT_BROWSER, Self::CDP_URL_UNAUTHORIZED, Self::CDP_URL_UNREACHABLE, Self::CERTIFICATE_CHANGED, Self::CERTIFICATE_INVALID, Self::CHALLENGE_UNSOLVED, Self::CHECKPOINT_BEHIND, Self::CLOSED, Self::CONFINEMENT_UNAVAILABLE, Self::CONNECTION_FORKED, Self::CONNECTION_LOST, Self::CONNECTION_OVERLOADED, Self::DAEMON_DRAINING, Self::DAEMON_UNREACHABLE, Self::DEADLINE_EXCEEDED, Self::DETACH_UNSUPPORTED, Self::DIALOG_ALREADY_HANDLED, Self::EDGE_HANDLERS_UNSUPPORTED, Self::EFFECT_KEY_INVALID, Self::EFFECT_KEY_REUSED, Self::EFFECT_OUTPUT_INVALID, Self::EFFECT_UNCERTAIN, Self::EGRESS_REFUSED, Self::ENGINE_EXITED, Self::ENGINE_NOT_FOUND, Self::ENGINE_OUTPUT_INVALID, Self::ENGINE_PANICKED, Self::EVENT_LOOP_MISMATCH, Self::EXECUTABLE_BLOCKED_BY_SMART_APP_CONTROL, Self::EXTRACT_HANDLER_FAILED, Self::EXTRACTOR_UNAVAILABLE, Self::FILE_WRITE_FAILED, Self::FORMAT_VERSION_UNSUPPORTED, Self::GROUP_EXISTS, Self::GROUP_LEAD_UNREACHABLE, Self::GROUP_MEMBER_EXISTS, Self::GROUP_MEMBER_UNKNOWN, Self::GROUP_POLITENESS_UNSHARED, Self::HEADER_FORBIDDEN, Self::HEADER_VALUE_INVALID, Self::HOOK_FAILED, Self::INTERNAL, Self::JOIN_TOKEN_REFUSED, Self::LEAD_CANNOT_LEAVE, Self::LEAD_EPOCH_STALE, Self::LEAD_UNCONFIRMED, Self::LEAD_UNREACHABLE, Self::LIMIT_NOT_UNDERSTOOD, Self::LIMIT_RAISE_REFUSED, Self::LIMIT_REACHED, Self::LISTENER_EVENTS_LOST, Self::LISTENER_FAILED, Self::LIVE_VIEW_VIEWER_LIMIT, Self::LOCAL_ADDRESS_UNAVAILABLE, Self::LOGGED_OUT, Self::MODEL_UNAVAILABLE, Self::NAME_LOOKUP_FAILED, Self::NAME_NOT_RESOLVED, Self::NAVIGATION_FAILED, Self::NAVIGATION_INTERRUPTED, Self::NOT_A_DAEMON, Self::NOT_IN_A_GROUP, Self::NOT_IN_PRODUCT, Self::NOT_LEAD_DAEMON, Self::NOT_VERIFIED, Self::PAGE_CHECK_FAILED, Self::PAGE_CRASHED, Self::PAGE_EVENTS_LOST, Self::PAGE_FUNCTION_FAILED, Self::PAGE_HANDLER_FAILED, Self::PAGE_MEMORY_EXCEEDED, Self::PAGE_NAVIGATED_DURING_CALL, Self::PAGE_VALUE_INVALID, Self::PATH_NOT_WRITABLE, Self::PATH_UNSAFE, Self::PATTERN_UNSUPPORTED, Self::PERSON_REQUIRED, Self::PLUGIN_CRASHED, Self::PLUGIN_MANIFEST_MISMATCH, Self::PLUGIN_PROTOCOL_UNSUPPORTED, Self::PLUGIN_QUARANTINED, Self::POLICY_CONFLICT, Self::PROTOCOL_VERSION_UNSUPPORTED, Self::PROXY_AUTH_FAILED, Self::PROXY_PROVIDER_UNAVAILABLE, Self::PROXY_RELAY_UNAVAILABLE, Self::PROXY_UNAVAILABLE, Self::RECIPE_INVALID, Self::RECORDING_INVALID, Self::REPLAY_NOT_ALLOWED, Self::RESOURCES_EXHAUSTED, Self::RESPONSE_LIMIT_EXCEEDED, Self::RESPONSE_NOT_JSON, Self::RESPONSE_NOT_RECORDED, Self::RESPONSE_TRUNCATED, Self::ROUTE_ALREADY_HANDLED, Self::RUN_BUSY, Self::RUN_CONFLICT, Self::RUN_ENDED, Self::RUN_ID_INVALID, Self::RUN_IN_USE, Self::RUN_INTERRUPTED, Self::RUN_KEY_MISMATCH, Self::RUN_LIVE, Self::RUN_MOVED, Self::RUN_NOT_FOUND, Self::RUN_NOT_OWNED, Self::RUN_STATE_FILESYSTEM_UNSUPPORTED, Self::RUN_STATE_UNAVAILABLE, Self::RUN_TARGET_UNBUILT, Self::SAMPLE_REFUSED, Self::SCHEDULE_CAP_EXCEEDED, Self::SCHEDULE_EXISTS, Self::SCHEDULE_NOT_FOUND, Self::SCHEDULE_TRIGGER_INVALID, Self::SCHEMA_VALIDATOR_FAILED, Self::SECRET_DOMAIN_NOT_ALLOWED, Self::SECRET_INPUT_REFUSED, Self::SECRET_UNAVAILABLE, Self::SECRET_UNBOUND, Self::SESSION_BOUND_TO_MACHINE, Self::SESSION_EXPORT_OPEN_FAILED, Self::SETTING_INVALID, Self::SETTING_LOCKED, Self::SETTING_NOT_APPLICABLE, Self::SETTING_UNKNOWN, Self::SITE_PREFERENCES_REFUSED, Self::SKILL_INSTALL_REFUSED, Self::TARGET_NOT_UNIQUE, Self::TOO_MANY_CALLS, Self::TOO_MANY_REDIRECTS, Self::UPGRADE_SOURCE_UNSUPPORTED, Self::VALUE_INVALID, Self::WEBHOOK_INVALID];
 }

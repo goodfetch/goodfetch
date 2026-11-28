@@ -6,9 +6,13 @@
 //! engine refuses a scope's own setting outside its scopes with
 //! `setting_not_applicable`, as the scope opens.
 
+use crate::browser_cache::BROWSER_EXECUTABLE_PATH;
 use crate::catalog::SettingScope::{Connection, Label, Page, Run, Session};
 use crate::catalog::{Authority, Setting, SettingScope};
-use crate::egress::EGRESS_LOCAL_ADDRESSES;
+use crate::daemon::{ADVERTISE_URL, TLS_CERT_FILE, TLS_KEY_FILE, TLS_UPSTREAM};
+use crate::egress::{
+    EGRESS_LOCAL_ADDRESSES, EGRESS_ROTATION_BLOCK_IPV4, EGRESS_ROTATION_BLOCK_IPV6,
+};
 use crate::foxhound::crawl::{CRAWL_CONTENT_TYPES, CRAWL_RETRY_HANDLER_FAILED};
 use crate::foxhound::fetch::{
     FETCH_ENCODING, FETCH_HTTP_FROM, FETCH_KEPT_RESPONSES_URLS, FETCH_TIER,
@@ -25,6 +29,7 @@ use crate::settings::{
     FILTER_LISTS_ADS, FILTER_LISTS_ANNOYANCES, FILTER_LISTS_FIRST_PARTY_SCRIPTS,
     FILTER_LISTS_TRACKERS, SESSION_PAGE_CHECK, SESSION_SOURCE, TIMEOUT_HOOK, TIMEOUT_RUN,
 };
+use crate::tls::{TLS_CLIENT_CERTIFICATES, TLS_TRUSTED_CAS};
 
 /// What starts the `proxy.*` keys, which a Session chooses as it opens.
 const PROXY_PREFIX: &str = "proxy.";
@@ -99,6 +104,32 @@ pub fn of(setting: &Setting) -> &'static [SettingScope] {
     } else {
         &[Connection, Run]
     }
+}
+
+/// The machine-specific settings a Group member's scope may set (ADRs 0028,
+/// 0055 and 0056; #1617): local addresses and their rotation blocks, TLS
+/// files, and browser executable and profile paths. Any other key set at
+/// `[group_member.<name>]` is refused with `setting_not_applicable`.
+pub const GROUP_MEMBER_SETTINGS: [&Setting; 11] = [
+    &EGRESS_LOCAL_ADDRESSES,
+    &EGRESS_ROTATION_BLOCK_IPV4,
+    &EGRESS_ROTATION_BLOCK_IPV6,
+    &TLS_CERT_FILE,
+    &TLS_KEY_FILE,
+    &TLS_UPSTREAM,
+    &TLS_TRUSTED_CAS,
+    &TLS_CLIENT_CERTIFICATES,
+    &BROWSER_EXECUTABLE_PATH,
+    &SESSION_SOURCE,
+    &ADVERTISE_URL,
+];
+
+/// Whether the group-member scope may set the setting `key` names (ADRs
+/// 0028 and 0055; #1617).
+pub fn group_member_sets(key: &str) -> bool {
+    GROUP_MEMBER_SETTINGS
+        .iter()
+        .any(|setting| setting.name == key)
 }
 
 /// Whether a crawl's Label sets the setting `key` names (ADR 0093).

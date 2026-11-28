@@ -161,6 +161,26 @@ impl Values {
     pub(crate) fn into_applied(self) -> impl Iterator<Item = (&'static str, Value)> {
         self.applied.into_iter()
     }
+
+    /// Merges `other`'s entries over this layer's, combining each key's
+    /// values under [`over`] so maps merge and scalars override.
+    pub fn merge_from(&mut self, other: &Self) {
+        for (name, value) in &other.applied {
+            match self.applied.get(*name) {
+                Some(existing) => {
+                    let merged = keys::find(name)
+                        .map_or_else(|| value.clone(), |key| over(key.setting, existing, value));
+                    self.applied.insert(name, merged);
+                }
+                None => {
+                    self.applied.insert(name, value.clone());
+                }
+            }
+        }
+        for (name, aside) in &other.others {
+            self.others.insert(name, aside.clone());
+        }
+    }
 }
 
 fn walk(

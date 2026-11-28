@@ -78,7 +78,8 @@ use goodfetch_engine::egress::Policy;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::metrics::Metrics;
-use goodfetch_engine::run_state::{Durability, RunStateOptions, RunStateTables, Syncing};
+use goodfetch_engine::run_state::{Durability, RunStateOptions, RunStateTables, Syncing, run_row};
+use goodfetch_engine::runs::lifecycle::{self, Next, RunEvent};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::foxhound::crawl::{RequestSeed, Seed};
 use goodfetch_protocol::foxhound::frontier::{
@@ -87,8 +88,8 @@ use goodfetch_protocol::foxhound::frontier::{
 };
 use goodfetch_protocol::foxhound::outcomes::OutcomeKind;
 use goodfetch_protocol::page::{Locator, PageId};
-use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::run::durability::BatchThreshold;
+use goodfetch_protocol::run::{Lifecycle, RunId};
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use proptest::prelude::*;
 use proptest::sample::Index;
@@ -382,10 +383,15 @@ struct Model {
     next_place: u64,
     attempts: Vec<Attempt>,
     closed: bool,
+    /// The Run's Lifecycle, changed only through `runs::lifecycle::apply`
+    /// (ADR 0128).
+    lifecycle: Lifecycle,
+    /// The Run's Lifecycle as the last commit left it: what a reader sees.
+    written_lifecycle: Lifecycle,
     answered: Answer,
-    /// The work items after each write since the last one that was synced,
-    /// that one's first: what a power cut may leave.
-    unsynced: Vec<Vec<Item>>,
+    /// The Run's Lifecycle and work items after each write since the last one
+    /// that was synced, that one's first: what a power cut may leave.
+    unsynced: Vec<(Lifecycle, Vec<Item>)>,
     crashed: bool,
     level: Level,
     /// How many seeds the crawl's start gave, the first pages: what a
@@ -493,6 +499,12 @@ impl Model {
         None
     }
 
+    /// Applies `event` to the Run's Lifecycle through the Run's transition
+    /// table (ADR 0128), failing the test if the table refuses it.
+    fn apply_lifecycle(&mut self, event: RunEvent) {
+        self.lifecycle = step_lifecycle(self.lifecycle, event);
+    }
+
     /// A write left the work items as they are now: `synced`, a write that
     /// needs a sync, it is the oldest a power cut may leave at `full`. At
     /// `full`, `fast` and `periodic` it commits as it is answered; at
@@ -505,15 +517,17 @@ impl Model {
         if synced && self.level.syncs() {
             self.unsynced.clear();
         }
-        self.unsynced.push(self.items.clone());
+        self.unsynced.push((self.lifecycle, self.items.clone()));
         self.written.clone_from(&self.items);
+        self.written_lifecycle = self.lifecycle;
     }
 
     /// The process crashed: the OS wrote every commit it was given, so the
     /// work items as they are now are the oldest a power cut may leave.
     fn landed(&mut self) {
-        self.unsynced = vec![self.items.clone()];
+        self.unsynced = vec![(self.lifecycle, self.items.clone())];
         self.written.clone_from(&self.items);
+        self.written_lifecycle = self.lifecycle;
     }
 
     /// At `batch` and `off`, a barrier commits the open batch with its own
@@ -521,8 +535,9 @@ impl Model {
     /// now.
     fn committed(&mut self) {
         if self.level.batches() {
-            self.unsynced = vec![self.items.clone()];
+            self.unsynced = vec![(self.lifecycle, self.items.clone())];
             self.written.clone_from(&self.items);
+            self.written_lifecycle = self.lifecycle;
         }
     }
 
@@ -659,6 +674,7 @@ impl Model {
             self.committed();
             return Answer::Readmitted(None);
         }
+        self.apply_lifecycle(RunEvent::RetryFailed);
         let mut readmitted = 0;
         for item in &mut self.items {
             if matches!(item.status, Status::Failed(_)) {
@@ -688,6 +704,9 @@ impl Model {
             return Answer::Drained(None);
         }
         self.closed = !any(&self.items, Status::Pending);
+        if self.closed {
+            self.apply_lifecycle(RunEvent::Finish);
+        }
         self.wrote(false);
         Answer::Drained(Some(self.closed))
     }
@@ -701,6 +720,7 @@ impl Model {
                 item.attempts -= 1;
             }
         }
+        self.apply_lifecycle(RunEvent::Pause);
         self.wrote(false);
         self.committed();
     }
@@ -711,12 +731,12 @@ impl Model {
     fn crash(&mut self) {
         if self.level.batches() {
             self.items.clone_from(&self.written);
+            self.lifecycle = self.written_lifecycle;
         } else {
             self.landed();
         }
+        self.apply_lifecycle(RunEvent::EngineLost);
         self.items = recovered(std::mem::take(&mut self.items));
-        self.wrote(false);
-        self.committed();
         self.resume();
     }
 
@@ -737,8 +757,11 @@ impl Model {
     /// The crawl resumes: nothing of its process is left but the work
     /// items, which it keys, a sealed batch at a time.
     fn resume(&mut self) {
+        self.apply_lifecycle(RunEvent::Resume);
         self.attempts.clear();
-        self.closed = false;
+        self.closed = self.lifecycle == Lifecycle::Finished;
+        self.wrote(false);
+        self.committed();
         while !self.seal().is_empty() {}
     }
 }
@@ -751,13 +774,16 @@ impl Model {
         let items: Vec<Item> = (0..count)
             .map(|page| Item::added(page, u64::try_from(page).unwrap(), false))
             .collect();
+        let lifecycle = step_lifecycle(Lifecycle::Running, RunEvent::Start);
         Self {
-            unsynced: vec![items.clone()],
+            unsynced: vec![(lifecycle, items.clone())],
             written: items.clone(),
             items,
             next_place: u64::try_from(count).unwrap(),
             attempts: Vec::new(),
             closed: false,
+            lifecycle,
+            written_lifecycle: lifecycle,
             answered: Answer::Nothing,
             crashed: false,
             level,
@@ -766,6 +792,40 @@ impl Model {
             bound,
         }
     }
+}
+
+/// Applies `event` to `state` through the Run's transition table (ADR 0128),
+/// panicking if the table refuses it.
+fn step_lifecycle(state: Lifecycle, event: RunEvent) -> Lifecycle {
+    match lifecycle::apply(state, event) {
+        Ok(Next::To(next)) => next,
+        Ok(Next::Unchanged) => state,
+        Err(refused) => panic!("the Run's table refused {refused}"),
+    }
+}
+
+fn lifecycle_str(lifecycle: Lifecycle) -> &'static str {
+    match lifecycle {
+        Lifecycle::Running => "running",
+        Lifecycle::Stopped => "stopped",
+        Lifecycle::Finished => "finished",
+        Lifecycle::Failed => "failed",
+    }
+}
+
+/// Applies `event` to the `run` row's persisted Lifecycle through the Run's
+/// transition table, writing any state change back to the run file.
+fn write_lifecycle(connection: &Connection, event: RunEvent) -> rusqlite::Result<Lifecycle> {
+    let current = run_row::lifecycle(connection)?;
+    let next = match lifecycle::apply(current, event) {
+        Ok(Next::To(next)) => {
+            connection.execute("UPDATE run SET lifecycle = ?1", [lifecycle_str(next)])?;
+            next
+        }
+        Ok(Next::Unchanged) => current,
+        Err(refused) => panic!("the Run's table refused {refused}"),
+    };
+    Ok(next)
 }
 
 impl ReferenceStateMachine for Model {
@@ -1078,6 +1138,56 @@ fn counts(tally: &Tally) -> Counts {
     (tally.left(), succeeded, ended(OutcomeKind::Failed))
 }
 
+/// Starts a fresh run file with `seeds` and `bound`, or resumes an existing
+/// one (recovering leases and moving the persisted `run` Lifecycle through the
+/// Run's transition table).
+fn open_run_file(
+    connection: &Connection,
+    bound: Bound,
+    egress: &Policy,
+    start: Option<Vec<Seed>>,
+    crashed: bool,
+    intake: &Intake,
+) -> rusqlite::Result<Invariants> {
+    if start.is_some() {
+        connection.execute(
+            "INSERT INTO run (run_id, kind, needs, caller, epoch, inputs, lifecycle, started_at)
+             VALUES ('model', 'crawl', 'foxhound', 'os_user', 1, '{}', 'running', '2026-01-05T09:00:00Z')",
+            [],
+        )?;
+        record(connection, bound)?;
+    }
+    let invariants = fixture::within(connection, goodfetch_frontier::Scope::default())?;
+    if let Some(seeds) = start {
+        work_items::admit_seeds(
+            connection,
+            &mut work_items::Positions::of(connection)?,
+            &invariants,
+            egress,
+            &fixture::checked(&invariants, seeds),
+        )?;
+    } else {
+        work_items::recover_leases(
+            connection,
+            &failure(HANDLER_LOST),
+            POLICY.retry_max,
+            ended_at(),
+            &mut Changed::default(),
+        )?;
+        if crashed {
+            write_lifecycle(connection, RunEvent::EngineLost)?;
+        }
+        let lifecycle = write_lifecycle(connection, RunEvent::Resume)?;
+        if lifecycle == Lifecycle::Finished {
+            assert!(
+                intake.close_if_drained(connection)?,
+                "a finished Run has no unsettled work items"
+            );
+        }
+    }
+    Ok(invariants)
+}
+
 impl Subject {
     /// A crawl started with the seeds of `pages` on a run file of its
     /// own, at `level`, within `budget` bytes of memory, under `bound`.
@@ -1104,7 +1214,7 @@ impl Subject {
             crawl: None,
             finished: false,
         };
-        subject.open(Some(pages.iter().copied().map(seed).collect()));
+        subject.open(Some(pages.iter().copied().map(seed).collect()), false);
         subject
     }
 
@@ -1145,7 +1255,7 @@ impl Subject {
     /// which no gate keys, or resumed, as its driver resumes it, each
     /// attempt in flight counted as `handler_lost` and every work item
     /// keyed before its Run state opens.
-    fn open(&mut self, start: Option<Vec<Seed>>) {
+    fn open(&mut self, start: Option<Vec<Seed>>, crashed: bool) {
         let (path, seed) = (self.path.clone(), self.env.seed());
         let options = RunStateOptions {
             vfs: Some(self.vfs.name().to_owned()),
@@ -1168,32 +1278,18 @@ impl Subject {
             let egress = Arc::new(Policy::new(&["*"], &[] as &[&str]).unwrap());
             let admitting = Arc::clone(&egress);
             let resumed = start.is_none();
+            let intake = Intake::default();
+            let intake_for_open = intake.clone();
             let invariants = writer
                 .write(move |connection| {
-                    if start.is_some() {
-                        record(connection, bound)?;
-                    }
-                    let invariants =
-                        fixture::within(connection, goodfetch_frontier::Scope::default())?;
-                    match start {
-                        Some(seeds) => {
-                            work_items::admit_seeds(
-                                connection,
-                                &mut work_items::Positions::of(connection)?,
-                                &invariants,
-                                &admitting,
-                                &fixture::checked(&invariants, seeds),
-                            )?;
-                        }
-                        None => work_items::recover_leases(
-                            connection,
-                            &failure(HANDLER_LOST),
-                            POLICY.retry_max,
-                            ended_at(),
-                            &mut Changed::default(),
-                        )?,
-                    }
-                    Ok(invariants)
+                    open_run_file(
+                        connection,
+                        bound,
+                        &admitting,
+                        start,
+                        crashed,
+                        &intake_for_open,
+                    )
                 })
                 .await
                 .unwrap();
@@ -1206,7 +1302,7 @@ impl Subject {
                     egress: Arc::clone(&egress),
                     invariants: invariants.clone(),
                     staging: staging.clone(),
-                    intake: Intake::default(),
+                    intake,
                 },
                 (keys.clone(), Clock::paused(start_time)),
                 &metrics,
@@ -1634,30 +1730,43 @@ impl Subject {
         state.changed(changed);
         if short.is_none() {
             state.spill();
+        } else {
+            let writer = self.crawl().writer.clone();
+            self.runtime
+                .block_on(writer.write_deferred(|connection| {
+                    write_lifecycle(connection, RunEvent::Finish).map(drop)
+                }))
+                .unwrap();
         }
         Some(short.is_some())
     }
 
-    /// The crawl stops cleanly: its last write releases its leases.
+    /// The crawl stops cleanly: its last write releases its leases and moves
+    /// the Run's Lifecycle through the Run's transition table.
     fn release(&mut self) {
-        let released = self.crawl().stored();
-        self.runtime.block_on(released.release()).unwrap();
+        let writer = self.crawl().writer.clone();
+        self.runtime
+            .block_on(writer.write(|connection| {
+                work_items::release_leases(connection)?;
+                write_lifecycle(connection, RunEvent::Pause).map(drop)
+            }))
+            .unwrap();
     }
 
     /// The crawl's process ends as `crash` says, cleanly with none, and
     /// the next process resumes it; a power cut ends the case with what
     /// the resumed crawl holds. At `off`, any crash discards the run file,
     /// and the crawl starts again.
-    fn ends(&mut self, crash: Option<CrashKind>, unsynced: &[Vec<Item>]) {
+    fn ends(&mut self, crash: Option<CrashKind>, unsynced: &[(Lifecycle, Vec<Item>)]) {
         match crash {
             None => {
                 self.close();
-                self.open(None);
+                self.open(None, false);
             }
             Some(kind) if self.level.discards() => self.discard(kind),
             Some(CrashKind::Process) => {
                 self.crash(CrashKind::Process);
-                self.open(None);
+                self.open(None, true);
             }
             Some(CrashKind::PowerCut) => {
                 self.power_cut(unsynced);
@@ -1667,14 +1776,14 @@ impl Subject {
         }
     }
 
-    /// The crawl's process crashes as `kind` says; answers what the file
-    /// the next process opens shows of each work item, once it passed
-    /// `PRAGMA integrity_check`.
-    fn crash(&mut self, kind: CrashKind) -> View {
+    /// The crawl's process crashes as `kind` says; answers the Run's Lifecycle
+    /// and what the file the next process opens shows of each work item, once
+    /// it passed `PRAGMA integrity_check`.
+    fn crash(&mut self, kind: CrashKind) -> (Lifecycle, View) {
         self.vfs.crash(kind);
         self.close();
         let connection = after_crash(&self.vfs, &self.path.to_string_lossy()).unwrap();
-        view(&connection)
+        (run_row::lifecycle(&connection).unwrap(), view(&connection))
     }
 
     /// The crawl's process crashes as `kind` says at `off`: the model
@@ -1716,42 +1825,51 @@ impl Subject {
             .folder()
             .join(format!("run-{}.sqlite", self.discarded));
         let seeds = self.seeds.iter().copied().map(seed).collect();
-        self.open(Some(seeds));
+        self.open(Some(seeds), false);
     }
 
-    /// The power goes, and the crawl resumes: the file holds the work
-    /// items as one of `unsynced` has them, the model's after each write
+    /// The power goes, and the crawl resumes: the file holds the Lifecycle and
+    /// work items as one of `unsynced` has them, the model's after each write
     /// from the last synced one on, and the resumed crawl, given every
     /// page again, adds each one it does not hold, once, until its work
-    /// items reach the bound.
-    fn power_cut(&mut self, unsynced: &[Vec<Item>]) {
-        let landed = self.crash(CrashKind::PowerCut);
-        let survived = unsynced
+    /// items reach the bound (or accepts none when it already finished).
+    fn power_cut(&mut self, unsynced: &[(Lifecycle, Vec<Item>)]) {
+        let (landed_lifecycle, landed) = self.crash(CrashKind::PowerCut);
+        let (survived_lifecycle, survived) = unsynced
             .iter()
-            .find(|items| view_of(items) == landed)
+            .find(|(lifecycle, items)| *lifecycle == landed_lifecycle && view_of(items) == landed)
             .unwrap_or_else(|| {
                 panic!(
-                    "the power cut left {landed:?}, which none of these writes left: {unsynced:?}"
+                    "the power cut left ({landed_lifecycle:?}, {landed:?}), which none of these writes left: {unsynced:?}"
                 )
             });
-        self.open(None);
+        let expected_lifecycle = step_lifecycle(
+            step_lifecycle(*survived_lifecycle, RunEvent::EngineLost),
+            RunEvent::Resume,
+        );
+        self.open(None, true);
         let resumed = keyed(recovered(survived.clone()));
-        self.holds(&resumed, &resumed);
+        self.holds(&resumed, &resumed, expected_lifecycle);
         let pages: Vec<usize> = (0..PAGES).collect();
         let mut held: Vec<usize> = resumed.iter().map(|item| item.page).collect();
-        let new = pages
-            .iter()
-            .map(|page| {
-                if held.contains(page) {
-                    return Some(NotAddedReason::Duplicate);
-                }
-                let past = self.bound.past(held.len());
-                if past.is_none() {
-                    held.push(*page);
-                }
-                past
-            })
-            .collect();
+        let expected_again = if expected_lifecycle == Lifecycle::Finished {
+            None
+        } else {
+            let new = pages
+                .iter()
+                .map(|page| {
+                    if held.contains(page) {
+                        return Some(NotAddedReason::Duplicate);
+                    }
+                    let past = self.bound.past(held.len());
+                    if past.is_none() {
+                        held.push(*page);
+                    }
+                    past
+                })
+                .collect();
+            Some(new)
+        };
         held.sort_unstable();
         let again = self.seeds(&pages);
         let mut all: Vec<usize> = view(&self.reader())
@@ -1759,15 +1877,15 @@ impl Subject {
             .map(|(page, ..)| page)
             .collect();
         all.sort_unstable();
-        assert_eq!((again, all), (Some(new), held));
+        assert_eq!((again, all), (expected_again, held));
     }
 
-    /// Checks that the run file holds the work items `written`, the last
-    /// commit's, each counted once as admitted, that the requests by state
-    /// the Run state counts in memory are those of `items`, every write's,
-    /// and the run file's those of `written`; with nothing left to commit,
-    /// the two counts are one.
-    fn holds(&self, items: &[Item], written: &[Item]) {
+    /// Checks that the run file holds the Lifecycle `written_lifecycle` and the
+    /// work items `written`, the last commit's, each counted once as admitted,
+    /// that the requests by state the Run state counts in memory are those of
+    /// `items`, every write's, and the run file's those of `written`; with
+    /// nothing left to commit, the two counts are one.
+    fn holds(&self, items: &[Item], written: &[Item], written_lifecycle: Lifecycle) {
         let connection = self.reader();
         let crawl = self
             .crawl
@@ -1776,6 +1894,7 @@ impl Subject {
         let tally = crawl.state.tally();
         let read = Tally::read(&connection).unwrap();
         let items_written = u64::try_from(written.len()).unwrap();
+        assert_eq!(run_row::lifecycle(&connection).unwrap(), written_lifecycle);
         assert_eq!(
             (
                 view(&connection),
@@ -1843,7 +1962,7 @@ impl StateMachineTest for Subject {
 
     fn check_invariants(subject: &Self, model: &Model) {
         if !subject.finished {
-            subject.holds(&model.items, &model.written);
+            subject.holds(&model.items, &model.written, model.written_lifecycle);
         }
     }
 
@@ -1855,7 +1974,7 @@ impl StateMachineTest for Subject {
 prop_state_machine! {
     #![proptest_config(goodfetch_test_support::proptest_config())]
 
-    /// Covers: story:3-176
+    /// Covers: story:3-176, story:3-151
     #[test]
     fn the_run_state_holds_its_models_work_items_and_counts_through_admissions_endings_panics_and_crashes(
         sequential 1..40 => Subject
@@ -1960,7 +2079,11 @@ impl Lockstep {
     }
 
     fn holds(&self) {
-        self.subject.holds(&self.model.items, &self.model.written);
+        self.subject.holds(
+            &self.model.items,
+            &self.model.written,
+            self.model.written_lifecycle,
+        );
     }
 
     /// The attempt at `index` enqueues `page`, which `refused` says why

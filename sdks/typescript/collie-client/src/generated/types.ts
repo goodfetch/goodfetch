@@ -217,7 +217,7 @@ export type Asked = true;
  * via the `definition` "SettingsLayer".
  */
 export type SettingsLayer =
-  "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
+  "default" | "operator_policy" | "user_configuration" | "group_member" | "project_configuration" | "recipe" | "run";
 /**
  * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
  *
@@ -225,6 +225,14 @@ export type SettingsLayer =
  * via the `definition` "RunId".
  */
 export type RunId = string;
+/**
+ * The `"auto"` value of `partitions` (ADR 0054): one Partition per eligible
+ * Group member.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "AutoPartitions".
+ */
+export type AutoPartitions = "auto";
 /**
  * Why a site refused a page (ADR 0035), on the wire as written.
  *
@@ -1082,6 +1090,15 @@ export type WaitUntil = "commit" | "domcontentloaded" | "load";
  */
 export type GovernorLevel = "normal" | "pressure" | "critical";
 /**
+ * A Daemon group's lead epoch (ADRs 0003 and 0055): each Lead Daemon
+ * promoted takes a higher one, and a Group member refuses a peer message
+ * carrying a lower epoch than the highest it has recorded.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LeadEpoch".
+ */
+export type LeadEpoch = number;
+/**
  * A character no header value may hold.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1601,6 +1618,14 @@ export type PageValueKind =
   | "error"
   | "object";
 /**
+ * How many Partitions a Partitioned crawl runs as (ADR 0054): a positive
+ * integer count or `"auto"` for one per eligible Group member.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Partitions".
+ */
+export type Partitions = number | AutoPartitions;
+/**
  * What makes a name or path unsafe.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1761,6 +1786,9 @@ export type RunOwner =
     }
   | {
       attached: PrivateEndpoint;
+    }
+  | {
+      groupMember: string;
     };
 /**
  * Why a Run stopped (ADRs 0029, 0080 and 0102).
@@ -1799,6 +1827,9 @@ export type StopReason =
   | (NotUnderstoodLimit & {
       kind: "limit_not_understood";
     })
+  | {
+      kind: "lead_unreachable";
+    }
   | {
       kind: "engine_lost";
     }
@@ -2767,6 +2798,10 @@ export interface CatalogRunStartParams {
    * `run.stop` stops it.
    */
   detached?: boolean;
+  /**
+   * Optional Group member pin in a Daemon group (ADR 0055).
+   */
+  groupMember?: string | null;
   /**
    * The Run's own Limits, as `run.start`'s.
    */
@@ -4651,6 +4686,12 @@ export interface EventsSubscribeParams {
    */
   after?: LastRead | null;
   /**
+   * The Run whose events are subscribed to in a Daemon group (ADR 0055):
+   * when another Group member owns it, the stream redirects to its
+   * `daemon.advertise_url` when set or forwards over the peer link.
+   */
+  runId?: RunId | null;
+  /**
    * Whether it also takes `engine.system_info`, the Resource governor's
    * periodic readings; false by default, so a subscription that reads
    * only what changes sees no periodic event.
@@ -5142,6 +5183,230 @@ export interface GotoParams {
   waitUntil?: WaitUntil | null;
 }
 /**
+ * What `group.init` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupFormed".
+ */
+export interface GroupFormed {
+  /**
+   * The SHA-256 of the group's certificate authority's public key, as
+   * `sha256/` and its standard base64.
+   */
+  authorityKey: string;
+  /**
+   * The group's lead epoch: 1, the first.
+   */
+  leadEpoch: LeadEpoch;
+  /**
+   * The `host:port` the peer listener took, which `group join` dials.
+   */
+  peerAddress: string;
+}
+/**
+ * What `group.init` takes: the Lead Daemon's Group member name and where
+ * its peer listener listens.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupInitParams".
+ */
+export interface GroupInitParams {
+  /**
+   * The Lead Daemon's Group member name: one lowercase DNS label, such
+   * as its host's or pod's name.
+   */
+  name: string;
+  /**
+   * The `host:port` its peer listener takes, which the Group members
+   * dial; port 0 takes a free one, which the answer names.
+   */
+  peerAddress: string;
+}
+/**
+ * What `group.join` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupJoinParams".
+ */
+export interface GroupJoinParams {
+  /**
+   * The SHA-256 of the group's certificate authority's public key, as
+   * `group token` answered it: `sha256/` and its standard base64.
+   */
+  authorityKey: string;
+  /**
+   * The `host:port` of the Lead Daemon's peer listener.
+   */
+  lead: string;
+  /**
+   * The Group member name this Daemon takes: one lowercase DNS label,
+   * such as its host's or pod's name.
+   */
+  name: string;
+  /**
+   * The `host:port` its own peer listener takes, which the other Group
+   * members dial; port 0 takes a free one, which the answer names.
+   */
+  peerAddress: string;
+  /**
+   * The join token `group token` minted on the Lead Daemon.
+   */
+  token: string;
+}
+/**
+ * What `group.join` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupJoined".
+ */
+export interface GroupJoined {
+  /**
+   * When the Group member certificate the Lead Daemon signed stops
+   * being valid, in RFC 3339, UTC; the Daemon renews it before.
+   */
+  certificateExpiresAt: PointInTime;
+  /**
+   * The group's lead epoch.
+   */
+  leadEpoch: LeadEpoch;
+  /**
+   * The `host:port` the peer listener took.
+   */
+  peerAddress: string;
+}
+/**
+ * What `group.lead` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupLeadParams".
+ */
+export interface GroupLeadParams {
+  /**
+   * Confirms this Lead Daemon's lead epoch by hand when no majority of its
+   * last-known Group members can be reached.
+   */
+  confirm?: boolean;
+}
+/**
+ * Payload of `group.lead_reachability_changed` (ADR 0055).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupLeadReachabilityChanged".
+ */
+export interface GroupLeadReachabilityChanged {
+  /**
+   * The Lead Daemon's Group member name.
+   */
+  leadName: string;
+  /**
+   * Whether the Lead Daemon is reachable now.
+   */
+  reachable: boolean;
+  /**
+   * Why the Lead Daemon became unreachable, when `reachable` is `false`.
+   */
+  reason?: string | null;
+}
+/**
+ * What `group.lead` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupLeadStatus".
+ */
+export interface GroupLeadStatus {
+  /**
+   * Whether this Lead Daemon has confirmed its lead epoch and may act.
+   */
+  confirmed: boolean;
+  /**
+   * Whether an operator confirmed it with `--confirm` rather than a
+   * majority of its last-known Group members.
+   */
+  confirmedByOperator: boolean;
+  /**
+   * The lead epoch this Lead Daemon leads at.
+   */
+  leadEpoch: LeadEpoch;
+  /**
+   * The Lead Daemon's Group member name.
+   */
+  name: string;
+  /**
+   * The warning ADR 0055 requires after hand confirmation.
+   */
+  warning?: string | null;
+}
+/**
+ * What `group.leave` takes: nothing.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupLeaveParams".
+ */
+export interface GroupLeaveParams {}
+/**
+ * What `group.leave` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupLeft".
+ */
+export interface GroupLeft {
+  /**
+   * Run IDs whose Checkpoints were handed off to another Group member during
+   * the removal drain (ADR 0055).
+   */
+  handedOff?: string[];
+  /**
+   * Run IDs left checkpointed and still assigned to this Group member
+   * because the drain grace expired before handoff completed; `runs adopt`
+   * brings them into another Group member (ADR 0055).
+   */
+  leftCheckpointed?: string[];
+  /**
+   * Run IDs bound to this machine (ADR 0056) that stayed checkpointed and
+   * assigned to this Group member.
+   */
+  machineBound?: string[];
+  /**
+   * The Group member name this Daemon had.
+   */
+  name: string;
+}
+/**
+ * What `group.revoke` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupMemberRevoked".
+ */
+export interface GroupMemberRevoked {
+  /**
+   * The Group member name removed.
+   */
+  name: string;
+  /**
+   * The number of the revocation list that revokes its certificates.
+   */
+  revocationList: number;
+}
+/**
+ * What `group.revoke` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupRevokeParams".
+ */
+export interface GroupRevokeParams {
+  /**
+   * The Group member name to remove.
+   */
+  name: string;
+}
+/**
+ * What `group.token` takes: nothing.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupTokenParams".
+ */
+export interface GroupTokenParams {}
+/**
  * What `header_forbidden` details.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -5446,6 +5711,27 @@ export interface InternalDetails {
   state: string;
 }
 /**
+ * What `group.token` answers: the join token, the one place it shows.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "JoinTokenMinted".
+ */
+export interface JoinTokenMinted {
+  /**
+   * The SHA-256 of the group's certificate authority's public key, as
+   * `sha256/` and its standard base64, which the Daemon that joins pins.
+   */
+  authorityKey: string;
+  /**
+   * When it stops being valid, in RFC 3339, UTC.
+   */
+  expiresAt: PointInTime;
+  /**
+   * The token, in lowercase hex.
+   */
+  token: string;
+}
+/**
  * A string of a JSON body that holds a Secret placeholder's value
  * (ADR 0092).
  *
@@ -5693,6 +5979,22 @@ export interface KindUsage {
    * The Usage kind, a value of a type both Products share.
    */
   usageKind: string;
+}
+/**
+ * What `lead_epoch_stale` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LeadEpochStaleDetails".
+ */
+export interface LeadEpochStaleDetails {
+  /**
+   * The highest lead epoch the receiver has recorded.
+   */
+  highestLeadEpoch: LeadEpoch;
+  /**
+   * The lead epoch the refused message carried.
+   */
+  leadEpoch: LeadEpoch;
 }
 /**
  * One Limit of the Usage ledger: a generic row, which a newer engine may
@@ -6836,13 +7138,16 @@ export interface NotInProductDetails {
    */
   handover?: boolean;
   /**
-   * The command that installs the Product `needs` from the engine's own
-   * channel, which `fix` names; none behind Goodfetch Cloud's gateway,
-   * where an install would not help (ADR 0096).
+   * The command that installs, from the engine's own channel, the
+   * Product `fix` names: `needs`, or for a Group member the group's
+   * Product, `product`; none behind Goodfetch Cloud's gateway, where an
+   * install would not help (ADR 0096).
    */
   install?: string | null;
   /**
-   * The Product that carries what was asked.
+   * The Product that carries what was asked; for a Group member's
+   * `hello` on the peer link, the Product that Group member runs (ADR
+   * 0095).
    */
   needs: Product;
   /**
@@ -7981,6 +8286,38 @@ export interface SettingDiff {
   table?: PolicyTable | null;
 }
 /**
+ * Payload of `politeness.store_degraded` (ADRs 0024 and 0053): emitted on
+ * each affected Run's event stream when the Politeness store becomes
+ * unreachable, when degraded admission stops at `politeness.degraded_max`,
+ * and when the store reconnects.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PolitenessStoreDegraded".
+ */
+export interface PolitenessStoreDegraded {
+  /**
+   * Whether `politeness.degraded_max` has elapsed and admission to shared
+   * keys is stopped until the store reconnects.
+   */
+  admissionStopped: boolean;
+  /**
+   * Whether the Politeness store is currently unreachable (degraded).
+   */
+  degraded: boolean;
+  /**
+   * The configured `politeness.degraded_max` window in milliseconds.
+   */
+  degradedMaxMs: number;
+  /**
+   * Why the Politeness store became unreachable, when `degraded` is `true`.
+   */
+  reason?: string | null;
+  /**
+   * The affected Run's ID.
+   */
+  runId: RunId;
+}
+/**
  * What `locator.press` takes: the locator whose element gets the key, and
  * the key.
  *
@@ -8217,6 +8554,10 @@ export interface RecipeStartParams {
    */
   detached?: boolean;
   /**
+   * Optional Group member pin in a Daemon group (ADR 0055).
+   */
+  groupMember?: string | null;
+  /**
    * The Run's own Limits, as `run.start`'s.
    */
   limits?: RunLimit[];
@@ -8401,6 +8742,24 @@ export interface RecordingSaved {
    * the SDK writes the path.
    */
   written: boolean;
+}
+/**
+ * How much work a resumed Run redid after its prior run epoch stopped on a
+ * failed write or crash (ADRs 0122 and 0142).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RedoneReport".
+ */
+export interface RedoneReport {
+  /**
+   * In-flight attempts recovered and redone on resume.
+   */
+  attempts: number;
+  /**
+   * Uncommitted writes from a rolled-back Run-state batch that had to be
+   * redone on resume (`0` at `full` or after a clean stop).
+   */
+  batchWrites: number;
 }
 /**
  * What `needs_you.remove_refetch_domain` answers.
@@ -8880,10 +9239,11 @@ export interface RunAborting {
  */
 export interface RunCheckpointParams {
   /**
-   * Where to write the Checkpoint, a path on the engine's machine; by
-   * default where the engine keeps the Run's Checkpoints, its own folder.
-   * The catalog's caller alone gives it, such as Goodfetch Cloud: an
-   * SDK's `checkpoint()` takes no path, which would break on a Daemon or
+   * Where to write the Checkpoint, a path on the engine's machine or an
+   * object-storage URL (`s3://`, `gs://`, `az://`); by default where the
+   * engine keeps the Run's Checkpoints, its own folder. The catalog's
+   * caller alone gives it, such as Goodfetch Cloud: an SDK's
+   * `checkpoint()` takes no path, which would break on a Daemon or
    * Goodfetch Cloud (ADR 0102).
    */
   location?: string | null;
@@ -9192,8 +9552,8 @@ export interface TimeRange {
 export interface RunMigrateParams {
   /**
    * Where to write the Checkpoint the Run is resumed from, a path on the
-   * engine's machine; by default where the engine keeps the Run's
-   * Checkpoints, its own folder.
+   * engine's machine or an object-storage URL (`s3://`, `gs://`, `az://`);
+   * by default where the engine keeps the Run's Checkpoints, its own folder.
    */
   location?: string | null;
   /**
@@ -9388,6 +9748,12 @@ export interface RunReport {
    */
   recording?: RecordingReport | null;
   /**
+   * How much work a resumed Run redid after its prior epoch stopped with
+   * uncommitted Run-state batch writes or in-flight attempts (ADRs 0122
+   * and 0142). Absent when nothing was redone.
+   */
+  redone?: RedoneReport | null;
+  /**
    * The Run's ID.
    */
   runId: RunId;
@@ -9571,11 +9937,16 @@ export interface WeakenedSetting {
  */
 export interface RunResumeParams {
   /**
-   * A Checkpoint to resume from, a path on the engine's machine, which
-   * becomes the Run's state in this engine's run folder; by default the
-   * Run resumes from its run file on this machine.
+   * A Checkpoint to resume from, a path on the engine's machine or an
+   * object-storage URL (`s3://`, `gs://`, `az://`), which becomes the
+   * Run's state in this engine's run folder; by default the Run resumes
+   * from its run file on this machine.
    */
   checkpoint?: string | null;
+  /**
+   * Optional Group member pin in a Daemon group (ADR 0055).
+   */
+  groupMember?: string | null;
   /**
    * The project configuration the Client found, layer 3 (ADR 0083).
    */
@@ -9630,11 +10001,22 @@ export interface RunStartParams {
    */
   acceptPluginChange?: string[];
   /**
+   * Optional Group member pin in a Daemon group (ADR 0055): the Lead Daemon
+   * places the Run on this named Group member when eligible.
+   */
+  groupMember?: string | null;
+  /**
    * The Run's own Limits (ADRs 0041 and 0080): at most one per Usage
    * kind and currency. A start that names the Run again lowers them and
    * never raises them (ADR 0102).
    */
   limits?: RunLimit[];
+  /**
+   * Partition count for a Partitioned crawl (ADR 0054, Foxhound only): a
+   * positive integer or `"auto"`. A Collie engine refuses it with
+   * `not_in_product` (ADRs 0087 and 0095).
+   */
+  partitions?: Partitions | null;
   /**
    * The Run's Plan file (ADR 0091), on the program's machine, relative
    * to its working directory: an input of the Run, which a start that
@@ -9700,13 +10082,39 @@ export interface RunStarted {
    */
   needs: Product;
   /**
-   * The Run's ID.
+   * For a Partitioned crawl (ADR 0054), each Partition's Run ID and Group
+   * member placement beside the Partitioned crawl ID; empty otherwise.
+   */
+  partitions?: StartedPartition[];
+  /**
+   * The Run's ID (or the Partitioned crawl ID for a Partitioned crawl).
    */
   runId: RunId;
   /**
    * Whether the start began it.
    */
   startedAs: StartedAs;
+}
+/**
+ * One Partition of a started Partitioned crawl (ADR 0054): its index, its
+ * own Run ID, and the Group member it was placed on.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "StartedPartition".
+ */
+export interface StartedPartition {
+  /**
+   * The Group member this Partition was placed on.
+   */
+  member: string;
+  /**
+   * Zero-based Partition index.
+   */
+  partition: number;
+  /**
+   * The Partition's Run ID.
+   */
+  runId: RunId;
 }
 /**
  * What `run.started_as` answers: how the start that opened the Run's
@@ -10872,13 +11280,37 @@ export interface SitePreferencesRefusedDetails {
   reason: SitePreference;
 }
 /**
+ * Where a Client reconnects to receive a Run's event stream directly from its
+ * owning Group member (ADR 0055).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "StreamRedirect".
+ */
+export interface StreamRedirect {
+  /**
+   * The owning Group member's name.
+   */
+  owner: string;
+  /**
+   * The owning Group member's `daemon.advertise_url`.
+   */
+  url: string;
+}
+/**
  * What `events.subscribe` answers when its subscription ends without the
- * Client cancelling it: the engine stopped.
+ * Client cancelling it: the engine stopped, or the subscription redirected to
+ * the Run's owning Group member (ADR 0055).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "SubscriptionEnded".
  */
-export interface SubscriptionEnded {}
+export interface SubscriptionEnded {
+  /**
+   * Set when the Run is owned by another Group member advertising a
+   * reachable `daemon.advertise_url` (ADR 0055).
+   */
+  redirect?: StreamRedirect | null;
+}
 /**
  * What the governor read and decided at one sample: the payload of
  * `engine.system_info`.

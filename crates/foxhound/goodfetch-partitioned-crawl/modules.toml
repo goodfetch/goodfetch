@@ -1,0 +1,9 @@
+# Which of goodfetch-partitioned-crawl's top-level modules may import which (ADR 0126).
+[modules]
+aggregation = []
+coordinator = ["aggregation", "forwarding", "handoff", "rendezvous", "store", "validation"]
+forwarding = ["rendezvous"]
+handoff = ["rendezvous", "store"]
+rendezvous = []
+store = ["rendezvous"]
+validation = []

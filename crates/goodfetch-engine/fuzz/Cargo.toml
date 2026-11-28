@@ -8,7 +8,7 @@
 # and likewise `settings_file`, `checkpoint`, `run_state_import`,
 # `secret_reference`, `address_classification`, `certificate_file`,
 # `robots_txt`, `audit_jsonl`, `live_view_viewer_message`,
-# `session_bundle` and `warc`.
+# `session_bundle`, `warc` and `peer_framing`.
 [package]
 name = "goodfetch-engine-fuzz"
 version = "0.0.0"
@@ -104,6 +104,13 @@ bench = false
 [[bin]]
 name = "warc"
 path = "fuzz_targets/warc.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "peer_framing"
+path = "fuzz_targets/peer_framing.rs"
 test = false
 doc = false
 bench = false

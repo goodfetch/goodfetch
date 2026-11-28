@@ -208,6 +208,48 @@ impl KeyState for RobotsCopy {
                 .insert(location.to_owned(), copy.clone());
         }
     }
+
+    const STORE_PART: Option<&'static str> = Some("robots_txt");
+
+    fn store_key(location: &str) -> Option<&str> {
+        Some(location)
+    }
+
+    fn encode_store(&self) -> Option<Vec<u8>> {
+        self.0.as_ref().and_then(|copy| {
+            let body: Vec<u8> = copy.body.clone();
+            serde_json::to_vec(&serde_json::json!({
+                "fetched_at": copy.fetched_at,
+                "status": copy.status,
+                "body": body,
+            }))
+            .ok()
+        })
+    }
+
+    fn load_store(bytes: Option<&[u8]>, reads: bool) -> Option<Self> {
+        Some(Self(if reads {
+            bytes
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+                .and_then(|value| {
+                    let fetched_at = value.get("fetched_at")?.as_i64()?;
+                    let status = u16::try_from(value.get("status")?.as_u64()?).ok()?;
+                    let body = value
+                        .get("body")?
+                        .as_array()?
+                        .iter()
+                        .map(|byte| u8::try_from(byte.as_u64()?).ok())
+                        .collect::<Option<Vec<u8>>>()?;
+                    Some(Copy {
+                        fetched_at,
+                        status,
+                        body,
+                    })
+                })
+        } else {
+            None
+        }))
+    }
 }
 
 /// The robots.txt copy a user's runs share, in the Politeness file they

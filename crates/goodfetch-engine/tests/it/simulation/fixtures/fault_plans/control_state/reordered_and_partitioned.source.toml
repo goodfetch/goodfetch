@@ -1,0 +1,8 @@
+# A committed Fault plan for the control_state Simulation scenario (ADR 0060):
+# lead is partitioned from worker-a while publishing versions, worker-b crashes
+# and restarts, delayed stale pushes arrive out of order, and once partitions
+# heal every Group member converges to the latest versions with zero regressions.
+generator = "proptest-state-machine, scenario control_state"
+version = 1
+seed = 1
+command = "just simulate control_state --plan crates/goodfetch-engine/tests/it/simulation/fixtures/fault_plans/control_state/reordered_and_partitioned.json"

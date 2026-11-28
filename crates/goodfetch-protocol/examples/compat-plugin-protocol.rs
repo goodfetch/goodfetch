@@ -11,13 +11,16 @@
     reason = "a synchronous corpus writer that writes files (ADR 0066)"
 )]
 
+#[path = "support/transcript.rs"]
+mod transcript;
+
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::jsonrpc::{
-    ErrorData, ErrorObject, ErrorResponse, META, Message, Notification, ProtocolFailure, Request,
-    RequestId, RequestMeta, Response, Version,
+    ErrorData, ErrorObject, ErrorResponse, Message, Notification, ProtocolFailure, RequestId,
+    Version,
 };
 use goodfetch_protocol::plugin::{
     CANCEL, DeclaredKind, HELLO, NetworkLevel, PING, PLUGIN_PROTOCOL, PLUGIN_PROTOCOL_VERSION,
@@ -25,8 +28,8 @@ use goodfetch_protocol::plugin::{
     PluginPingResult,
 };
 use goodfetch_protocol::run::RunId;
-use serde::Serialize;
-use serde_json::{Map, Value, json};
+use serde_json::{Map, json};
+use transcript::{call, result, to_value, write};
 
 /// The conformance harness's sample kind, which the toy Plugin implements.
 const SAMPLE_STORE: PluginKindName = PluginKindName::from_static("sample_store");
@@ -36,9 +39,6 @@ const PUT: &str = "sample_store.put";
 
 /// A method of the sample kind the Plugin does not have.
 const DELETE: &str = "sample_store.delete";
-
-/// The Trace context of the engine's span, which every call carries.
-const TRACEPARENT: &str = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
 
 fn main() {
     let output = PathBuf::from(
@@ -115,48 +115,4 @@ fn main() {
     ];
     write(&output.join("engine.jsonl"), &engine);
     write(&output.join("plugin.jsonl"), &plugin);
-}
-
-/// `value` as JSON.
-fn to_value(value: &impl Serialize) -> Value {
-    serde_json::to_value(value).expect("invariant: the protocol's types serialize")
-}
-
-/// The engine's call of `method` with `params`, which carries the engine's
-/// Trace context in its `_meta` (ADR 0132).
-fn call(id: RequestId, method: &str, params: &impl Serialize) -> Message {
-    let mut params = to_value(params);
-    let meta = to_value(&RequestMeta {
-        traceparent: Some(TRACEPARENT.to_owned()),
-        ..RequestMeta::default()
-    });
-    params
-        .as_object_mut()
-        .expect("invariant: every call's params are an object")
-        .insert(META.to_owned(), meta);
-    Message::Request(Request {
-        jsonrpc: Version,
-        id,
-        method: method.to_owned(),
-        params: Some(params),
-    })
-}
-
-/// The Plugin's success reply to the call `id`.
-fn result(id: RequestId, result: &impl Serialize) -> Message {
-    Message::Response(Response {
-        jsonrpc: Version,
-        id,
-        result: to_value(result),
-    })
-}
-
-/// Writes `messages` to `path`, one per line.
-fn write(path: &Path, messages: &[Message]) {
-    let mut text = String::new();
-    for message in messages {
-        text.push_str(&serde_json::to_string(message).expect("invariant: a message serializes"));
-        text.push('\n');
-    }
-    std::fs::write(path, text).expect("invariant: the output folder is writable");
 }

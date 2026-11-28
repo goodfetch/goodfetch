@@ -812,6 +812,106 @@ impl KeyState for DomainState {
     fn forget(tables: &mut MemoryTables, key: &str) {
         tables.get_mut::<Domains>().0.remove(key);
     }
+
+    const STORE_PART: Option<&'static str> = Some("domain_state");
+
+    fn store_key(key: &str) -> Option<&str> {
+        Some(key)
+    }
+
+    fn encode_store(&self) -> Option<Vec<u8>> {
+        let crawl_delays: serde_json::Map<String, Value> = self
+            .crawl_delays
+            .iter()
+            .map(|(loc, delay)| (loc.clone(), Value::from(duration_milliseconds(*delay))))
+            .collect();
+        serde_json::to_vec(&serde_json::json!({
+            "ready_at": self.limits.ready_at,
+            "backoff": self.limits.backoff,
+            "ceiling": self.limits.ceiling,
+            "ceiling_changed_at": self.limits.ceiling_changed_at,
+            "last_start": self.limits.last_start,
+            "last_send": self.limits.last_send,
+            "latency": self.pacing.latency,
+            "theoretical_start": self.pacing.theoretical_start,
+            "interval": self.pacing.interval,
+            "theoretical_send": self.pacing.theoretical_send,
+            "crawl_delays": crawl_delays,
+        }))
+        .ok()
+    }
+
+    fn load_store(bytes: Option<&[u8]>, reads: Parts) -> Option<Self> {
+        let value = bytes
+            .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok())
+            .unwrap_or(Value::Null);
+        let kept = Self::from_store_value(&value);
+        Some(Self {
+            limits: if reads.limits {
+                kept.limits
+            } else {
+                Limits::default()
+            },
+            pacing: if reads.pacing {
+                kept.pacing
+            } else {
+                Pacing::default()
+            },
+            crawl_delays: if reads.crawl_delays {
+                kept.crawl_delays
+            } else {
+                BTreeMap::new()
+            },
+        })
+    }
+
+    fn encode_store_from(tables: &MemoryTables, key: &str) -> Option<Vec<u8>> {
+        Domains::of(tables, key).and_then(Self::encode_store)
+    }
+
+    fn decode_store_into(tables: &mut MemoryTables, key: &str, bytes: &[u8]) {
+        if let Ok(value) = serde_json::from_slice::<Value>(bytes) {
+            tables
+                .get_mut::<Domains>()
+                .0
+                .insert(key.to_owned(), Self::from_store_value(&value));
+        }
+    }
+}
+
+impl DomainState {
+    fn from_store_value(value: &Value) -> Self {
+        let crawl_delays = value
+            .get("crawl_delays")
+            .and_then(Value::as_object)
+            .map(|map| {
+                map.iter()
+                    .filter_map(|(loc, ms)| {
+                        ms.as_i64()
+                            .and_then(|ms| u64::try_from(ms).ok())
+                            .map(|ms| (loc.clone(), Duration::from_millis(ms)))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        DomainState {
+            limits: Limits {
+                ready_at: value.get("ready_at").and_then(Value::as_i64),
+                backoff: value.get("backoff").and_then(Value::as_i64),
+                ceiling: value.get("ceiling").and_then(Value::as_u64),
+                ceiling_changed_at: value.get("ceiling_changed_at").and_then(Value::as_i64),
+                last_start: value.get("last_start").and_then(Value::as_i64),
+                last_send: value.get("last_send").and_then(Value::as_i64),
+            },
+            pacing: Pacing {
+                latency: value.get("latency").and_then(Value::as_i64),
+                theoretical_start: value.get("theoretical_start").and_then(Value::as_i64),
+                interval: value.get("interval").and_then(Value::as_i64),
+                theoretical_send: value.get("theoretical_send").and_then(Value::as_i64),
+            },
+            crawl_delays,
+        }
+    }
 }
 
 impl DomainState {
@@ -1129,6 +1229,21 @@ impl PermitRule for DomainRule {
     /// cap below it ([`Limits::admit`]).
     fn concurrency(&self) -> Option<u64> {
         self.concurrency
+    }
+
+    fn effective_cap(&self, state: &DomainState) -> Option<u64> {
+        match (self.concurrency, state.limits.ceiling) {
+            (Some(own), Some(ceiling)) => Some(own.min(ceiling)),
+            (own, ceiling) => own.or(ceiling),
+        }
+    }
+
+    fn store_pace(&self) -> Option<(Duration, u32)> {
+        self.pace.rate.map(|rate| {
+            let interval = Duration::from_millis(u64::try_from(rate.interval).unwrap_or(1).max(1));
+            let burst = u32::try_from(rate.burst.saturating_sub(1)).unwrap_or(u32::MAX);
+            (interval, burst)
+        })
     }
 
     fn reads(&self, step: Step) -> Parts {

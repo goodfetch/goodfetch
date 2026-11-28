@@ -33,6 +33,7 @@ use crate::attached::{ParentWatch, PrivateFiles, relay};
 use crate::audit::{AuditEvents, AuditLog};
 use crate::clock::Clock;
 use crate::composition::{Composition, CompositionError};
+use crate::control_state::ControlStateRegistry;
 use crate::controls::Controls;
 use crate::daemon::{self, DaemonEnd, DaemonOptions};
 use crate::endpoint::Refusals;
@@ -83,12 +84,18 @@ pub struct Engine {
     politeness_tables: Vec<PolitenessTables>,
     report_parts: Vec<Arc<dyn ReportPart>>,
     progress_parts: Vec<Arc<dyn ProgressPart>>,
+    limit_scope_readers: Arc<[crate::composition::LimitScopeReader]>,
+    peer_extensions: Arc<BTreeMap<&'static str, Arc<dyn crate::composition::PeerExtensionHandler>>>,
+    group_membership_hooks: Arc<[Arc<dyn crate::composition::GroupMembershipHook>]>,
+    run_adopt_hooks: Arc<[Arc<dyn crate::composition::RunAdoptHook>]>,
     clean_up: Option<Arc<dyn CleanUpVersions>>,
     send_window: Option<Arc<dyn SendWindow>>,
     gates: Option<Arc<dyn Gates>>,
     needs_you_sources: Vec<NeedsYouSource>,
+    notification_dispatcher: Option<Arc<dyn crate::composition::NotificationDispatcher>>,
     secret_providers: Vec<(Provider, ProviderFactory)>,
     user_stores: Vec<&'static UserStoreKind>,
+    control_stores: Arc<ControlStateRegistry>,
     controls: Controls,
     run_end_observers: Vec<RunEndObserver>,
     events: EventsOptions,
@@ -147,12 +154,18 @@ impl Engine {
             politeness_tables: composition.politeness_tables(),
             report_parts: composition.report_parts(),
             progress_parts: composition.progress_parts(),
+            limit_scope_readers: composition.limit_scope_readers(),
+            peer_extensions: Arc::new(composition.peer_extensions()),
+            group_membership_hooks: composition.group_membership_hooks(),
+            run_adopt_hooks: composition.run_adopt_hooks(),
             clean_up: composition.clean_up_versions()?,
             send_window: composition.send_window(),
             gates: composition.admission_gates()?,
             needs_you_sources: composition.needs_you_sources(),
+            notification_dispatcher: composition.notification_dispatcher(),
             secret_providers: composition.secret_providers(),
             user_stores: composition.user_stores(),
+            control_stores: Arc::new(composition.control_stores()?),
             controls: composition.controls(),
             run_end_observers: composition.run_end_observers(),
             events: EventsOptions::default(),
@@ -171,6 +184,31 @@ impl Engine {
         Arc::make_mut(&mut self.dispatch).metrics = metrics.clone();
         self.metrics = metrics;
         self
+    }
+
+    /// Adopts checkpointed Runs from a departed Group member (ADR 0055),
+    /// invoking every Contribution-registered [`crate::composition::RunAdoptHook`].
+    ///
+    /// # Errors
+    ///
+    /// Any group or storage error from [`crate::group::adopt_runs_with_hooks`].
+    pub async fn adopt_runs(
+        &self,
+        home: &Home,
+        identity: &Identity,
+        clock: Clock,
+        locations: &[std::path::PathBuf],
+        from_member: Option<&str>,
+    ) -> Result<crate::group::AdoptedSummary, crate::call_error::CallError> {
+        crate::group::adopt_runs_with_hooks(
+            home,
+            identity,
+            clock,
+            locations,
+            from_member,
+            &self.run_adopt_hooks,
+        )
+        .await
     }
 
     /// The same, its Resource governor sampling `system` (ADR 0040), as
@@ -303,12 +341,16 @@ impl Engine {
             Some(RunOwner::Daemon(options.endpoint.clone())),
             options.install.take(),
         );
+        // A Daemon in a Daemon group serves its peer link again before
+        // accepting calls, so its listener and lead-confirmation state are
+        // ready at once.
+        crate::group::resume(context.clone(), self.identity().clone()).await;
         let ended = daemon::serve(
             daemon::Serving {
                 dispatch: Arc::clone(&self.dispatch),
                 runs: runs.clone(),
                 events,
-                engine: context,
+                engine: context.clone(),
                 metrics: self.metrics.clone(),
             },
             listener,
@@ -316,6 +358,8 @@ impl Engine {
             &owner,
         )
         .await;
+        context.clear_runtime_handles();
+        drop(context);
         if matches!(
             ended,
             DaemonEnd::Drained | DaemonEnd::ListenerFailed | DaemonEnd::Panicked
@@ -451,9 +495,49 @@ impl Engine {
         let (context, secrets) = self.engine_context(
             &mut dependencies,
             settings,
-            (needs_you, sandbox_probe, stores, daemon),
+            (
+                needs_you,
+                sandbox_probe,
+                stores,
+                daemon,
+                events.clone(),
+                governor.clone(),
+            ),
             owner,
         );
+        let runs = self.start_runs_registry(
+            context.clone(),
+            secrets,
+            reached_at,
+            forwarder,
+            dependencies,
+            install,
+            events.clone(),
+            governor,
+            owner,
+        );
+        self.wire_group_handles(&context, &runs, &events, owner);
+        (runs, events, context)
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "constructs RunsSetup from the components assembled in start_runs"
+    )]
+    fn start_runs_registry(
+        &self,
+        context: EngineContext,
+        secrets: Secrets,
+        reached_at: Option<RunOwner>,
+        forwarder: Arc<ToOwner>,
+        dependencies: Dependencies,
+        install: Option<InstallDatabase>,
+        events: Events,
+        governor: Governor,
+        owner: &TaskOwner,
+    ) -> Runs {
+        let mut report_parts = self.report_parts.clone();
+        report_parts.push(Arc::new(RecordingReportPart(context.recordings().clone())));
         let run_state = match &install {
             Some(install) => RunStateOptions {
                 vfs: Some(install.vfs().to_owned()),
@@ -461,7 +545,7 @@ impl Engine {
             },
             None => dependencies.run_state,
         };
-        let runs = Runs::start_registry(
+        Runs::start_registry(
             RunsSetup {
                 engine: context.clone(),
                 secrets,
@@ -476,13 +560,14 @@ impl Engine {
                 driving: self.driving.clone(),
                 report_parts,
                 progress_parts: self.progress_parts.clone(),
+                limit_scope_readers: Arc::clone(&self.limit_scope_readers),
                 clean_up: self.clean_up.clone(),
                 send_window: self.send_window.clone(),
                 gates: self.gates.clone(),
                 politeness: dependencies.politeness,
                 politeness_tables: self.politeness_tables.clone(),
                 entropy: dependencies.entropy,
-                events: events.clone(),
+                events,
                 metrics: self.metrics.clone(),
                 governor,
                 controls: self.controls.clone(),
@@ -490,12 +575,33 @@ impl Engine {
                 masks: self.dispatch.masks.clone(),
             },
             Box::pin(write_managed(
-                context.clone(),
+                context,
                 self.identity().product_version.clone(),
             )),
             owner,
-        );
-        (runs, events, context)
+        )
+    }
+
+    fn wire_group_handles(
+        &self,
+        context: &EngineContext,
+        runs: &Runs,
+        events: &Events,
+        owner: &TaskOwner,
+    ) {
+        context.set_runs_handle(Some(Arc::new(runs.clone())));
+        context.set_local_dispatcher(Some(rpc::local_dispatcher(
+            Arc::clone(&self.dispatch),
+            runs.clone(),
+            events.clone(),
+            context.clone(),
+        )));
+        let cleanup = context.clone();
+        let token = owner.token().clone();
+        owner.spawn(async move {
+            token.cancelled().await;
+            cleanup.clear_runtime_handles();
+        });
     }
 
     fn start_needs_you(
@@ -532,7 +638,7 @@ impl Engine {
         forwarder: &Arc<ToOwner>,
     ) -> Option<Arc<dyn ToTheDaemon>> {
         let reach = match reached_at {
-            Some(RunOwner::Daemon(_)) => None,
+            Some(RunOwner::Daemon(_) | RunOwner::GroupMember(_)) => None,
             Some(RunOwner::Attached(_)) | None => self.daemon_reach.clone(),
         }?;
         Some(Arc::new(ThroughTheReach::new(reach, Arc::clone(forwarder))))
@@ -549,11 +655,13 @@ impl Engine {
         &self,
         dependencies: &mut Dependencies,
         settings: Settings,
-        (needs_you, sandbox_probe, stores, daemon): (
+        (needs_you, sandbox_probe, stores, daemon, events, governor): (
             NeedsYou,
             SandboxProbe,
             Stores,
             Option<Arc<dyn ToTheDaemon>>,
+            Events,
+            Governor,
         ),
         owner: &TaskOwner,
     ) -> (EngineContext, Secrets) {
@@ -589,6 +697,16 @@ impl Engine {
                 entropy: dependencies.entropy.stream(HANDLERS_STREAM),
                 places: places(&dependencies.home, &dependencies.environment),
                 daemon,
+                control_stores: Arc::clone(&self.control_stores),
+                events,
+                metrics: self.metrics.clone(),
+                governor,
+                sigterm_is_removal: crate::group::classify_sigterm_drain(&dependencies.environment)
+                    == crate::group::DrainMode::Removal,
+                peer_extensions: Arc::clone(&self.peer_extensions),
+                group_membership_hooks: Arc::clone(&self.group_membership_hooks),
+                notifier: self.notification_dispatcher.clone(),
+                secrets: self.driver_slot.clone(),
                 masks: self.dispatch.masks.clone(),
             },
         );
@@ -614,6 +732,13 @@ impl Engine {
         (context, secrets)
     }
 
+    async fn parent_gone(parent: Option<ParentWatch>) {
+        match parent {
+            Some(parent) => parent.gone().await,
+            None => std::future::pending().await,
+        }
+    }
+
     /// Runs as an Attached engine in the per-install layout, which hands
     /// its Runs to the Daemon (`run_state.layout`, ADR 0002): relays the
     /// one Connection `network` gives it to `daemon`, the Daemon of its
@@ -634,12 +759,7 @@ impl Engine {
     ) -> Result<(), TransportError> {
         let parent = matches!(network, Network::Os).then(ParentWatch::start);
         let client = network.attached_connection().await?;
-        let gone = async {
-            match parent {
-                Some(parent) => parent.gone().await,
-                None => std::future::pending().await,
-            }
-        };
+        let gone = Self::parent_gone(parent);
         tokio::select! {
             () = relay(client, daemon, &token) => {}
             () = gone => tracing::warn!("the Attached engine's parent is gone: its Runs on the Daemon stop"),
@@ -726,8 +846,6 @@ impl Engine {
         );
         let connection_owner = owner.child_for(OwnerKind::Connection);
         let reported = private.as_ref().map(|(_, endpoint, _)| endpoint.clone());
-        // The private endpoint's Connections, which the stdio Connection
-        // does not wait for.
         let accepting = owner.part("private endpoint");
         serve_attached_ops(ops, &runs, &owner, &context);
         let stdio = rpc::serve(
@@ -739,14 +857,8 @@ impl Engine {
             Access::Attached(reported),
             context.clone(),
         );
-        let gone = async {
-            match parent {
-                Some(parent) => parent.gone().await,
-                None => std::future::pending().await,
-            }
-        };
-        let mut private_files = None;
-        if let Some((listener, _, files)) = private {
+        let gone = Self::parent_gone(parent);
+        let private_files = private.map(|(listener, _, files)| {
             serve_private_endpoint(
                 &accepting,
                 Arc::clone(&self.dispatch),
@@ -754,10 +866,10 @@ impl Engine {
                 Arc::from(files.token()),
                 runs.clone(),
                 events,
-                context,
+                context.clone(),
             );
-            private_files = Some(files);
-        }
+            files
+        });
         let panicked = owner.panicked();
         let ended = tokio::select! {
             () = stdio => EngineEvent::StdioEnded,
@@ -772,6 +884,8 @@ impl Engine {
             let _ = refused.logged();
         }
         accepting.stop().await;
+        context.clear_runtime_handles();
+        drop(context);
         match ended {
             EngineEvent::PartPanicked | EngineEvent::RegistryPanicked => {
                 // A panic in a part every Run shares stops the engine with
@@ -855,6 +969,7 @@ fn part_stopped_with(owner: &TaskOwner, part: &'static str) -> Arc<TaskOwner> {
 /// the engine's snapshot of the machine's settings, read as the engine
 /// starts (ADR 0140), so no Run counts a read of its own for them.
 async fn write_managed(context: EngineContext, version: ProductVersion) {
+    sync_group_redirect_config(&context).await;
     let snapshot = context.settings().snapshot().await;
     let machine = match snapshot.layers() {
         Ok(machine) => machine,
@@ -879,6 +994,61 @@ async fn write_managed(context: EngineContext, version: ProductVersion) {
         .await;
     if let Err(error) = written {
         tracing::warn!(%error, "the Usage ledger could not be opened to write the managed Operator policy's Limits");
+    }
+}
+
+/// If this engine is an Attached or embedded engine starting on a Group
+/// member's machine (where the per-user Usage ledger carries a *group
+/// redirect* row for that Group member), fetches the Group member's cached
+/// Operator policy, user configuration and Politeness configuration through
+/// its local redirect endpoint (ADR 0055).
+async fn sync_group_redirect_config(context: &EngineContext) {
+    let ledger = context.ledger().clone();
+    if ledger.direct_authority().is_some() || ledger.own_redirect_member().is_some() {
+        return;
+    }
+    let found = context
+        .owner()
+        .blocking(move || ledger.external_group_redirect())
+        .await;
+    let Ok(Some(row)) = found else {
+        return;
+    };
+    context
+        .settings()
+        .set_group_member(Some(row.member_name.clone()));
+    let client = crate::ledger::RedirectClient::new(row);
+    let fetched = context
+        .owner()
+        .blocking(move || client.fetch_config())
+        .await;
+    let Ok(config) = fetched else {
+        return;
+    };
+    for (layer, content) in [
+        (
+            goodfetch_protocol::settings::SettingsLayer::OperatorPolicy,
+            config.operator_policy,
+        ),
+        (
+            goodfetch_protocol::settings::SettingsLayer::UserConfiguration,
+            config.user_configuration,
+        ),
+    ] {
+        if let Some(text) = content {
+            let existing = context
+                .settings()
+                .read_file_text(layer)
+                .await
+                .ok()
+                .flatten();
+            if existing.as_deref() != Some(text.as_str()) {
+                let _ = context
+                    .settings()
+                    .write_cached_file(layer, Some(text))
+                    .await;
+            }
+        }
     }
 }
 

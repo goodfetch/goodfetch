@@ -1,0 +1,13 @@
+# Lead Daemon confirmation, fencing and membership change (ADRs 0055 and 0060):
+# every Group member durably records the highest lead epoch it has seen, a Lead
+# Daemon acts only after majority or operator confirmation, and a higher epoch
+# fences it off. `group` traces these transitions under `goodfetch::group`.
+spec = "LeadEpoch.tla"
+traces = [
+  "crates/goodfetch-engine/src/group.rs",
+  "crates/goodfetch-engine/src/group/",
+]
+# The trace spec, checked with trace.cfg, and the committed trace of real
+# leadership and epoch transitions it validates.
+trace_spec = "TraceLeadEpoch.tla"
+trace_files = ["crates/goodfetch-engine/src/group/leadership/tests/trace/three-members.ndjson"]

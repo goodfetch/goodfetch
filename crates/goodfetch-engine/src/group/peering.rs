@@ -1,0 +1,1640 @@
+//! The peer link's network side (ADR 0055): the peer listener a Group
+//! member serves, and the one exchange of a Daemon that joins.
+//!
+//! The listener speaks mutual TLS 1.3 (ADR 0060). A Group member that
+//! presents a certificate the group's authority signed opens a
+//! [`PeerLink`], or sends one `group.renew` to have that certificate
+//! renewed ([`renewal`]) or one `group.leave` to leave the group
+//! ([`leaving`]); a Daemon that presents none may send one `group.join`.
+//! The Lead Daemon answers each of these before it closes the link. Each
+//! opening message is checked in ADR 0095's order, the Product first.
+//!
+//! The listener presents the identity the group store keeps and trusts
+//! the revocation list it holds, both read again at each link, so a
+//! renewal or a revocation counts from the next link on.
+//!
+//! Size: one concern, the peer listener's lifecycle and opening-message
+//! dispatch (join, renew, leave, Run index feed, control-state replication,
+//! and peer links) kept together so every peer link shares one TLS acceptor,
+//! lead-epoch gate, and refusal path.
+
+use std::collections::BTreeMap;
+use std::sync::{Arc, PoisonError};
+use std::time::Duration;
+
+use data_encoding::BASE64;
+use goodfetch_protocol::audit::{Listener, RefusalReason};
+use goodfetch_protocol::catalog::{Product, ProtocolVersion};
+use goodfetch_protocol::group::{
+    CONTROL_STATE_PUSH, CONTROL_STATE_SYNC, GROUP_ERASURE, GROUP_EVENTS_SUBSCRIBE,
+    GROUP_HEADROOM_REPORT, GROUP_LEDGER, GROUP_LIVE_VIEW_MINT, GROUP_LIVE_VIEW_RELAY,
+    GROUP_MEMBER_EXISTS, GROUP_MEMBERS_ELIGIBLE, GROUP_PEER_EXTENSION, GROUP_RPC_FORWARD,
+    GROUP_RUN_HANDOFF, GROUP_RUN_INDEX_LIST_ASSIGNED, GROUP_RUN_INDEX_LOOKUP, GROUP_RUN_PLACE,
+    GROUP_TOKEN_CHECK, HELLO, JOIN, JOIN_TOKEN_REFUSED, LEAVE, LeadEpoch, PEER_PROTOCOL_VERSION,
+    PeerControlStatePushParams, PeerControlStateSyncParams, PeerErasureParams,
+    PeerEventsSubscribeParams, PeerExtensionParams, PeerHeadroomReportParams, PeerJoinParams,
+    PeerJoinResult, PeerLeaveParams, PeerLedgerParams, PeerLiveViewMintParams,
+    PeerLiveViewRelayParams, PeerMembersEligibleParams, PeerRenewParams, PeerRpcForwardParams,
+    PeerRunHandoffParams, PeerRunIndexListAssignedParams, PeerRunIndexLookupParams,
+    PeerRunIndexReportParams, PeerRunPlaceParams, PeerTokenCheckParams, RENEW, RUN_INDEX_REPORT,
+};
+use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
+use goodfetch_protocol::tls::{CertificateFailure, KnownCertificateFailure};
+use rustls::pki_types::{CertificateDer, CertificateRevocationListDer};
+use rustls::server::ParsedCertificate;
+use serde::de::DeserializeOwned;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use tokio::sync::Semaphore;
+use tokio_rustls::TlsAcceptor;
+
+use super::errors::{internal, lead_unconfirmed, not_lead, store_failed};
+use super::identity::KeptIdentity;
+use super::leadership::{ExchangeOutcome, LeadRefusal, LeadSnapshot, Leadership};
+use super::store::{self, Admission, Certified, Joining};
+use super::{
+    Answer, GroupAuthority, GroupMemberName, GroupMemberPublicKey, LeadEpochs, PeerLink,
+    PeerTlsError, accepting, failure_line, opening_refusal, result_line, stale,
+};
+use crate::call_error::CallError;
+use crate::clock::Clock;
+use crate::composition::PeerExtensionHandler;
+use crate::control_state::{ControlStateRegistry, ReplicatedState};
+use crate::endpoint::Refusals;
+use crate::engine_context::{EngineContext, LocalDispatcher};
+use crate::events::Events;
+use crate::framing::{Call, Frame, Incoming, decode};
+use crate::governor::Governor;
+use crate::home::Home;
+use crate::ledger::Ledger;
+use crate::live_view::LiveView;
+use crate::metrics::Metrics;
+use crate::ops::connections_own;
+use crate::product::Identity;
+use crate::response_cache::ResponseCache;
+use crate::run_index::RunIndex;
+use crate::runs::Runs;
+use crate::settings::Settings;
+use crate::sync::Mutex;
+use crate::tasks::TaskOwner;
+use crate::transport::{PeerListener, PeerStream, listen_peer};
+use crate::user_store::UserStore;
+
+use self::wire::{Lines, OPENING_TIMEOUT, too_large, write};
+
+/// The most peer links open at once; the listener closes one past them.
+const OPEN_AT_MOST: usize = 64;
+
+/// How long the listener waits after a failure to accept that is not the
+/// connection's own, such as too many open files.
+const ACCEPT_PAUSE: Duration = Duration::from_secs(1);
+
+/// Engine services shared with the peer listener (production always provides
+/// all services; isolated loopback unit tests may leave unused ones empty).
+#[derive(Clone)]
+pub(super) struct PeerServices {
+    pub(super) settings: Option<Settings>,
+    pub(super) run_index: Option<RunIndex>,
+    pub(super) refusals: Option<Refusals>,
+    pub(super) control_stores: Arc<ControlStateRegistry>,
+    pub(super) ledger: Option<Ledger>,
+    pub(super) response_cache: Option<ResponseCache>,
+    pub(super) events: Option<Events>,
+    pub(super) metrics: Option<Metrics>,
+    pub(super) home: Option<Home>,
+    pub(super) owner: Option<Arc<TaskOwner>>,
+    pub(super) governor: Option<Governor>,
+    pub(super) runs: Option<Runs>,
+    pub(super) live_view: Option<LiveView>,
+    pub(super) live_view_slot: Option<crate::engine_context::LiveViewSlot>,
+    pub(super) local_dispatcher: Option<Arc<dyn LocalDispatcher>>,
+    /// Whether a `SIGTERM` drain on this Group member classifies as a
+    /// `StatefulSet` scale-down removal rather than a restart (ADR 0055).
+    pub(super) sigterm_is_removal: bool,
+    /// Contribution-registered peer-link extension handlers (ADR 0087).
+    pub(super) peer_extensions: Arc<BTreeMap<&'static str, Arc<dyn PeerExtensionHandler>>>,
+    /// Contribution-registered Daemon group membership hooks (ADR 0087).
+    pub(super) group_membership_hooks: Arc<[Arc<dyn crate::engine_context::GroupMembershipHook>]>,
+}
+
+impl Default for PeerServices {
+    fn default() -> Self {
+        Self {
+            settings: None,
+            run_index: None,
+            refusals: None,
+            control_stores: Arc::new(ControlStateRegistry::with_defaults()),
+            ledger: None,
+            response_cache: None,
+            events: None,
+            metrics: None,
+            home: None,
+            owner: None,
+            governor: None,
+            runs: None,
+            live_view: None,
+            live_view_slot: None,
+            local_dispatcher: None,
+            sigterm_is_removal: false,
+            peer_extensions: Arc::new(BTreeMap::new()),
+            group_membership_hooks: Arc::new([]),
+        }
+    }
+}
+
+fn peer_services_from_engine(engine: &EngineContext) -> PeerServices {
+    PeerServices {
+        settings: Some(engine.settings().clone()),
+        run_index: Some(engine.run_index().clone()),
+        refusals: Some(engine.refusals().clone()),
+        control_stores: Arc::clone(engine.control_stores()),
+        ledger: Some(engine.ledger().clone()),
+        response_cache: Some(engine.response_cache().clone()),
+        events: Some(engine.events().clone()),
+        metrics: Some(engine.metrics().clone()),
+        home: Some(engine.home().clone()),
+        owner: Some(Arc::clone(engine.owner())),
+        governor: Some(engine.governor().clone()),
+        runs: routing::runs_from_engine(engine),
+        live_view: routing::live_view_from_engine(engine),
+        live_view_slot: Some(engine.live_view_slot()),
+        local_dispatcher: engine.local_dispatcher(),
+        sigterm_is_removal: engine.sigterm_is_removal(),
+        peer_extensions: Arc::clone(engine.peer_extensions()),
+        group_membership_hooks: Arc::clone(engine.group_membership_hooks()),
+    }
+}
+
+/// What the peer listener answers with.
+pub(super) struct Peering {
+    /// The Daemon's identity, whose Product the group's is.
+    identity: Identity,
+    /// Its Group member name.
+    name: String,
+    /// What the listener presented at its last link.
+    presenting: Mutex<Presenting>,
+    /// The group store.
+    store: UserStore,
+    clock: Clock,
+    /// The lead epochs every peer link durably records; held across the
+    /// SQLite write so no concurrent link observes an unpersisted raise.
+    epochs: tokio::sync::Mutex<LeadEpochs>,
+    /// Lead Daemon confirmation and fencing state (ADR 0055).
+    leadership: Mutex<Leadership>,
+    /// Replicated read-mostly control-state snapshots and versions (ADR 0055).
+    control_state: tokio::sync::Mutex<ReplicatedState>,
+    /// Wakes the Lead Daemon's control-state replicator on new writes or joins.
+    control_wake: Arc<tokio::sync::Notify>,
+    /// Last observed Lead Daemon reachability for metrics & events.
+    lead_reachability: limits::LeadReachability,
+    /// 10-minute bounded cache of named-token verifications.
+    token_cache: limits::TokenCheckCache,
+    /// Erasures awaiting acknowledgement from temporarily offline Group members.
+    pending_erasures: erasure::PendingErasures,
+    /// Cached Run and Session ownership routes (ADR 0055).
+    route_cache: routing::RouteCache,
+    /// Lead Daemon's view of every Group member's headroom, capabilities and
+    /// `daemon.advertise_url` (ADR 0055).
+    directory: routing::MemberDirectory,
+    /// In-memory single-use Live view redirect tokens (ADRs 0055 and 0149).
+    live_view_tokens: routing::LiveViewTokens,
+    /// Runs that have moved off this Group member (ADR 0055).
+    moved_runs: routing::MovedRuns,
+    /// Engine services (settings, Run index, endpoint refusals, ledger, cache).
+    services: PeerServices,
+    /// Weak self-handle set once at `peering::start` so membership hooks can
+    /// build a [`GroupPeer`] without forming a strong `Arc` cycle.
+    self_peer: std::sync::OnceLock<std::sync::Weak<Self>>,
+}
+
+/// The TLS side of the listener, and the certificate and revocation list
+/// it was made of.
+#[derive(Clone)]
+struct Presenting {
+    certificate: CertificateDer<'static>,
+    /// The list it enforces, which the Lead Daemon hands a Group member
+    /// that joins or renews.
+    revocations: CertificateRevocationListDer<'static>,
+    acceptor: TlsAcceptor,
+}
+
+impl Presenting {
+    /// The TLS side presenting `kept` at `clock`.
+    ///
+    /// # Errors
+    ///
+    /// [`PeerTlsError`] when the kept certificate, key or authority is
+    /// unusable.
+    fn of(kept: &KeptIdentity, clock: Clock) -> Result<Self, PeerTlsError> {
+        Ok(Self {
+            certificate: kept.certificate.clone(),
+            revocations: kept.revocations.clone(),
+            acceptor: TlsAcceptor::from(Arc::new(accepting(
+                kept.presented(),
+                &kept.trust(),
+                clock,
+            )?)),
+        })
+    }
+}
+
+/// Starts the peer listener on `listener`, presenting `kept`'s
+/// certificate, for the Daemon `identity` of the group whose store is
+/// `store` and whose highest lead epoch it recorded is `lead_epoch`, and
+/// keeps that certificate renewed; both run until the engine stops or the
+/// Daemon leaves its group ([`stop`]).
+///
+/// # Errors
+///
+/// [`PeerTlsError`] when the kept certificate, key or authority is
+/// unusable.
+pub(super) async fn start(
+    engine: &EngineContext,
+    identity: Identity,
+    store: UserStore,
+    listener: PeerListener,
+    kept: &KeptIdentity,
+    lead_epoch: LeadEpoch,
+    members: Vec<String>,
+) -> Result<(), PeerTlsError> {
+    let peering = Arc::new(Peering::new(
+        identity,
+        store,
+        kept,
+        lead_epoch,
+        members,
+        engine.clock(),
+        peer_services_from_engine(engine),
+    )?);
+    peering.set_self_peer(Arc::downgrade(&peering));
+    peering.hydrate_control_state().await;
+    engine.settings().set_group_member(Some(kept.name.clone()));
+    engine
+        .ledger()
+        .set_own_redirect_member(Some(kept.name.clone()));
+    if !kept.is_lead() {
+        engine
+            .ledger()
+            .set_authority(Some(Arc::new(limits::GroupMemberLedger::new(
+                Arc::clone(&peering),
+                tokio::runtime::Handle::current(),
+            ))));
+    }
+    engine.set_erasure_broadcaster(Some(Arc::new(erasure::GroupErasureBroadcaster::new(
+        Arc::clone(&peering),
+    ))));
+    engine.set_group_router(Some(Arc::new(GroupRouterImpl::new(Arc::clone(&peering)))));
+    engine.set_group_peer(Some(Arc::new(GroupPeerImpl::new(Arc::clone(&peering)))));
+    let local_redirect = limits::start_local_redirect(&peering).await;
+    let group = engine.owner().part("daemon group");
+    group.spawn(Arc::clone(&peering).serve(listener, group.part("peer link")));
+    if let Some(redirect) = local_redirect {
+        group.spawn(limits::serve_local_redirect(
+            Arc::clone(&peering),
+            redirect,
+            group.part("group redirect"),
+        ));
+    }
+    group.spawn(renewal::keep_renewed(
+        Arc::clone(&peering),
+        group.part("certificate renewal"),
+    ));
+    group.spawn(routing::push_headroom(
+        Arc::clone(&peering),
+        group.part("headroom push"),
+    ));
+    if peering.is_unconfirmed() {
+        group.spawn(confirmation::confirm_majority(
+            Arc::clone(&peering),
+            group.part("lead confirmation"),
+        ));
+    }
+    if kept.is_lead() {
+        group.spawn(control_state::replicate_control_state(
+            Arc::clone(&peering),
+            group.part("control state replication"),
+        ));
+        group.spawn(erasure::retry_pending_erasures(
+            Arc::clone(&peering),
+            group.part("group erasure retries"),
+        ));
+    } else {
+        group.spawn(run_index::feed_run_index(
+            Arc::clone(&peering),
+            group.part("run index feed"),
+        ));
+        group.spawn(control_state::sync_control_state(
+            Arc::clone(&peering),
+            group.part("control state sync"),
+        ));
+    }
+    engine.hold_peer_link(group, peering);
+    Ok(())
+}
+
+/// The running peer link state on `engine`, if this Daemon is currently in a
+/// group.
+pub(super) fn running(engine: &EngineContext) -> Option<Arc<Peering>> {
+    engine.peer_link_state::<Peering>()
+}
+
+/// Stops the peer listener and the certificate's renewal of a Daemon that
+/// left its group: once this answers, the listener's address is free and its
+/// *group redirect* row has been removed from the per-user Usage ledger.
+pub(super) async fn stop(engine: &EngineContext) {
+    let member = engine.ledger().own_redirect_member();
+    let version = running(engine).map(|p| p.identity.product_version.clone());
+    engine.stop_peer_link().await;
+    engine.set_group_router(None);
+    engine.set_group_peer(None);
+    engine.set_erasure_broadcaster(None);
+    engine.ledger().set_authority(None);
+    engine.ledger().set_own_redirect_member(None);
+    if let Some(member) = member {
+        let ledger = engine.ledger().clone();
+        let _ = engine
+            .owner()
+            .blocking(move || ledger.remove_group_redirect(&member))
+            .await;
+    }
+    if let Some(version) = version {
+        let token_path = engine
+            .home()
+            .per_major(&version)
+            .join(limits::REDIRECT_TOKEN_FILE);
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "runs inside owner.blocking on a dedicated blocking thread, never on an async worker"
+        )]
+        let _ = engine
+            .owner()
+            .blocking(move || std::fs::remove_file(token_path))
+            .await;
+    }
+    engine.settings().set_group_member(None);
+    engine.settings().refresh().await;
+}
+
+/// Serves the peer link again when the Daemon starts in a group: listens
+/// at the address its group store keeps. A Daemon in no group, or whose
+/// engine keeps no group store, listens for nothing.
+pub(crate) async fn resume(engine: EngineContext, identity: Identity) {
+    let Some(store) = engine.user_store(&store::STORE).cloned() else {
+        return;
+    };
+    let (kept, lead_epoch) = match store::identity(&store).await {
+        Ok(Some(kept)) => kept,
+        Ok(None) => return,
+        Err(error) => {
+            tracing::warn!(%error, "the group store cannot be read; the peer listener stays closed");
+            return;
+        }
+    };
+    let members = if kept.is_lead() {
+        match store::members(&store).await {
+            Ok(members) => members.into_iter().map(|member| member.name).collect(),
+            Err(error) => {
+                tracing::warn!(%error, "the group store's members cannot be read; the peer listener stays closed");
+                return;
+            }
+        }
+    } else {
+        Vec::new()
+    };
+    let listener = match listen_peer(&kept.peer_address).await {
+        Ok(listener) => listener,
+        Err(error) => {
+            tracing::warn!(%error, address = %kept.peer_address, "the peer listener cannot listen again");
+            return;
+        }
+    };
+    if let Err(error) = start(
+        &engine, identity, store, listener, &kept, lead_epoch, members,
+    )
+    .await
+    {
+        tracing::warn!(%error, "the peer listener cannot present the kept identity");
+    } else {
+        engine.settings().refresh().await;
+        if let Some(peering) = running(&engine) {
+            let _ = peering.resume_assigned_runs().await;
+        }
+    }
+}
+
+/// Accepts peer links on `listener` until `owner` stops, each answered by
+/// a task of its own: at most [`OPEN_AT_MOST`] at once.
+///
+/// # Cancel safety
+///
+/// Dropping the future stops accepting; the links are `owner`'s, which its
+/// stop ends.
+/// Engine hook bridging `EngineContext::group_router()` into the running
+/// Daemon group [`Peering`].
+pub(super) struct GroupRouterImpl {
+    peering: Arc<Peering>,
+}
+
+impl GroupRouterImpl {
+    pub(super) fn new(peering: Arc<Peering>) -> Self {
+        Self { peering }
+    }
+}
+
+impl crate::engine_context::GroupRouter for GroupRouterImpl {
+    fn route_unary(
+        &self,
+        call: crate::engine_context::ForwardedCall,
+        run_id: Option<goodfetch_protocol::run::RunId>,
+        placement: Option<goodfetch_protocol::group::PlacementRequest>,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<crate::engine_context::RoutedCall, CallError>>
+                + Send,
+        >,
+    > {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move { peering.route_unary_call(call, run_id, placement).await })
+    }
+
+    fn route_events(
+        &self,
+        run_id: goodfetch_protocol::run::RunId,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<crate::engine_context::EventsRoute, CallError>>
+                + Send,
+        >,
+    > {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move { peering.route_events_for(&run_id).await })
+    }
+
+    fn forward_events(
+        &self,
+        owner: String,
+        peer_address: String,
+        params: goodfetch_protocol::events::EventsSubscribeParams,
+    ) -> crate::engine_context::ForwardedEventsFuture {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move {
+            peering
+                .forward_events_stream(owner, peer_address, params)
+                .await
+        })
+    }
+
+    fn route_live_view(
+        &self,
+        session: goodfetch_protocol::page::SessionId,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<crate::engine_context::LiveViewRoute, CallError>,
+                > + Send,
+        >,
+    > {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move { peering.route_live_view_for(&session).await })
+    }
+
+    fn open_live_view_relay(
+        &self,
+        owner: String,
+        peer_address: String,
+        session: goodfetch_protocol::page::SessionId,
+        screen: goodfetch_protocol::live_view::LiveViewScreen,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<crate::engine_context::LiveViewRelay, CallError>,
+                > + Send,
+        >,
+    > {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move {
+            peering
+                .open_live_view_relay_stream(owner, peer_address, session, screen)
+                .await
+        })
+    }
+
+    fn verify_live_view_token(
+        &self,
+        session: &goodfetch_protocol::page::SessionId,
+        token: &str,
+    ) -> bool {
+        self.peering.verify_live_view_token(session, token)
+    }
+
+    fn handoff_after_drain(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move {
+            peering.handoff_after_drain(deadline).await;
+        })
+    }
+
+    fn member_name(&self) -> &str {
+        self.peering.name()
+    }
+}
+
+/// Public [`crate::engine_context::GroupPeer`] bridge exposed on
+/// `EngineContext::group_peer()` for contribution crates (ADRs 0054, 0055 and
+/// 0087).
+pub(super) struct GroupPeerImpl {
+    peering: Arc<Peering>,
+}
+
+impl GroupPeerImpl {
+    pub(super) fn new(peering: Arc<Peering>) -> Self {
+        Self { peering }
+    }
+}
+
+impl crate::engine_context::GroupPeer for GroupPeerImpl {
+    fn member_name(&self) -> &str {
+        self.peering.name()
+    }
+
+    fn is_lead(
+        &self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, CallError>> + Send>> {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move { peering.is_lead_member().await })
+    }
+
+    fn eligible_members(
+        &self,
+        request: goodfetch_protocol::group::PlacementRequest,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<Vec<goodfetch_protocol::group::MemberRoute>, CallError>,
+                > + Send,
+        >,
+    > {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move { peering.query_eligible_members(&request).await })
+    }
+
+    fn member_route(
+        &self,
+        member: String,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<Option<goodfetch_protocol::group::MemberRoute>, CallError>,
+                > + Send,
+        >,
+    > {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move { peering.resolve_member_route(&member).await })
+    }
+
+    fn call_member_extension(
+        &self,
+        member: String,
+        peer_address: String,
+        extension_method: String,
+        payload: serde_json::Value,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<serde_json::Value, CallError>> + Send>,
+    > {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move {
+            peering
+                .invoke_member_extension(&member, &peer_address, extension_method, payload)
+                .await
+        })
+    }
+
+    fn call_lead_extension(
+        &self,
+        extension_method: String,
+        payload: serde_json::Value,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<serde_json::Value, CallError>> + Send>,
+    > {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move {
+            peering
+                .invoke_lead_extension(extension_method, payload)
+                .await
+        })
+    }
+
+    fn call_member_rpc(
+        &self,
+        member: String,
+        peer_address: String,
+        method: String,
+        params: serde_json::Value,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<serde_json::Value, CallError>> + Send>,
+    > {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move {
+            peering
+                .invoke_member_rpc(&member, &peer_address, method, params)
+                .await
+        })
+    }
+}
+
+#[cfg(test)]
+async fn serve(listener: PeerListener, peering: Arc<Peering>, owner: TaskOwner) {
+    peering.serve(listener, owner).await;
+}
+
+impl Peering {
+    /// Accepts links on `listener` until `owner` stops, answering each in
+    /// a task of its own: at most [`OPEN_AT_MOST`] at once.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future stops accepting; the links are `owner`'s, which its
+    /// stop ends.
+    pub(super) async fn serve(self: Arc<Self>, listener: PeerListener, owner: TaskOwner) {
+        let open = Arc::new(Semaphore::new(OPEN_AT_MOST));
+        loop {
+            let accepted = tokio::select! {
+                () = owner.token().cancelled() => return,
+                accepted = listener.accept() => accepted,
+            };
+            match accepted {
+                Ok(stream) => {
+                    let Ok(permit) = Arc::clone(&open).try_acquire_owned() else {
+                        tracing::debug!("a peer link past the ones open at once is closed");
+                        continue;
+                    };
+                    let stopping = owner.token().clone();
+                    let peering = Arc::clone(&self);
+                    owner.spawn(async move {
+                        let _permit = permit;
+                        tokio::select! {
+                            () = peering.answer(stream) => {}
+                            () = stopping.cancelled() => {}
+                        }
+                    });
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "the peer listener cannot accept a link");
+                    if !connections_own(&error) {
+                        tokio::select! {
+                            () = owner.token().cancelled() => return,
+                            () = self.clock.sleep(ACCEPT_PAUSE) => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub(super) fn set_self_peer(&self, weak: std::sync::Weak<Self>) {
+        let _ = self.self_peer.set(weak);
+    }
+
+    pub(super) fn current_live_view(&self) -> Option<LiveView> {
+        if let Some(lv) = &self.services.live_view {
+            return Some(lv.clone());
+        }
+        self.services
+            .live_view_slot
+            .as_ref()
+            .and_then(|slot| {
+                slot.lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .as_ref()
+                    .and_then(|held| Arc::clone(held).downcast::<LiveView>().ok())
+            })
+            .map(|lv| (*lv).clone())
+    }
+
+    pub(super) fn verify_live_view_token(
+        &self,
+        session: &goodfetch_protocol::page::SessionId,
+        token: &str,
+    ) -> bool {
+        self.live_view_tokens
+            .consume(session, token, self.clock.wall())
+    }
+
+    pub(super) async fn handoff_after_drain(&self, deadline: tokio::time::Instant) {
+        if self.services.sigterm_is_removal {
+            let _ = self.handoff_local_runs(deadline).await;
+        }
+    }
+
+    pub(super) async fn is_lead_member(&self) -> Result<bool, CallError> {
+        let Some((kept, _)) = store::identity(&self.store)
+            .await
+            .map_err(|error| store_failed(&error))?
+        else {
+            return Ok(false);
+        };
+        Ok(kept.is_lead())
+    }
+
+    /// Publishes a new version of a registered read-mostly control-state store
+    /// on the Lead Daemon, persists it durably, and wakes the push loop.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the store is unregistered, declared single-writer,
+    /// or cannot be persisted to the group store.
+    pub(super) async fn publish_control_store(
+        &self,
+        store_name: &str,
+        content: Option<String>,
+    ) -> Result<Option<goodfetch_protocol::group::ControlStateSnapshot>, CallError> {
+        let mut state = self.control_state.lock().await;
+        let snapshot = state.publish(store_name, content).map_err(|error| {
+            CallError::protocol(ProtocolFailure::InvalidParams, error.to_string())
+        })?;
+        if let Some(ref published) = snapshot {
+            store::save_replicated_store(&self.store, published.clone())
+                .await
+                .map_err(|error| store_failed(&error))?;
+            self.control_wake.notify_one();
+        }
+        Ok(snapshot)
+    }
+
+    /// What the Daemon `identity`, the Group member `kept` of the group
+    /// whose store is `store` and whose highest lead epoch it recorded is
+    /// `lead_epoch`, answers with, at `clock`.
+    ///
+    /// # Errors
+    ///
+    /// [`PeerTlsError`] when the kept certificate, key or authority is
+    /// unusable.
+    fn new(
+        identity: Identity,
+        store: UserStore,
+        kept: &KeptIdentity,
+        lead_epoch: LeadEpoch,
+        members: Vec<String>,
+        clock: Clock,
+        services: PeerServices,
+    ) -> Result<Self, PeerTlsError> {
+        let leadership = if kept.is_lead() {
+            Leadership::starting(&kept.name, lead_epoch, members)
+        } else {
+            Leadership::not_lead(&kept.name)
+        };
+        let control_state = ReplicatedState::new(Arc::clone(&services.control_stores));
+        Ok(Self {
+            identity,
+            name: kept.name.clone(),
+            presenting: Mutex::new(Presenting::of(kept, clock)?),
+            store,
+            clock,
+            epochs: tokio::sync::Mutex::new(LeadEpochs::for_member(kept.name.clone(), lead_epoch)),
+            leadership: Mutex::new(leadership),
+            control_state: tokio::sync::Mutex::new(control_state),
+            control_wake: Arc::new(tokio::sync::Notify::new()),
+            lead_reachability: limits::LeadReachability::default(),
+            token_cache: limits::TokenCheckCache::default(),
+            pending_erasures: erasure::PendingErasures::default(),
+            route_cache: routing::RouteCache::default(),
+            directory: routing::MemberDirectory::default(),
+            live_view_tokens: routing::LiveViewTokens::default(),
+            moved_runs: routing::MovedRuns::default(),
+            services,
+            self_peer: std::sync::OnceLock::new(),
+        })
+    }
+
+    /// This Group member's name.
+    pub(super) fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Whether this Lead Daemon is still waiting for majority confirmation.
+    pub(super) fn is_unconfirmed(&self) -> bool {
+        self.leadership
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_unconfirmed()
+    }
+
+    /// Last-known Group members that have not yet confirmed this Lead Daemon.
+    pub(super) fn unconfirmed_peers(&self) -> Vec<String> {
+        self.leadership
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .unconfirmed_peers()
+    }
+
+    /// Records the lead epoch `peer_epoch` that `peer` answered with.
+    pub(super) fn record_peer_exchange(
+        &self,
+        peer: &str,
+        peer_epoch: LeadEpoch,
+    ) -> ExchangeOutcome {
+        self.leadership
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .record_peer_exchange(peer, peer_epoch)
+    }
+
+    /// Fences this Lead Daemon when a higher lead epoch is observed.
+    fn fence_if_higher(&self, higher: LeadEpoch) {
+        self.leadership
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .fence_if_higher(higher);
+    }
+
+    /// Requires that this Daemon is a confirmed Lead Daemon before acting.
+    pub(super) fn require_confirmed_lead(&self) -> Result<LeadEpoch, CallError> {
+        self.leadership
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .can_act()
+            .map_err(lead_refusal)
+    }
+
+    /// Confirms this Lead Daemon by hand (`group lead --confirm`).
+    pub(super) fn confirm_by_operator(&self) -> Result<LeadSnapshot, CallError> {
+        self.leadership
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .confirm_by_operator()
+            .map_err(lead_refusal)
+    }
+
+    /// Current Lead Daemon confirmation status (`group lead`).
+    pub(super) fn lead_status(&self) -> Result<LeadSnapshot, CallError> {
+        self.leadership
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .status()
+            .map_err(lead_refusal)
+    }
+
+    /// Builds a [`GroupMembershipContext`] for contribution hooks when this
+    /// `Peering` is running inside a full engine.
+    pub(super) fn membership_context(
+        &self,
+    ) -> Option<crate::engine_context::GroupMembershipContext> {
+        let peering = self.self_peer.get()?.upgrade()?;
+        let home = self.services.home.clone()?;
+        let run_index = self.services.run_index.clone()?;
+        let owner = self.services.owner.clone()?;
+        let task_starter: &crate::tasks::TaskStarter = &owner;
+        Some(crate::engine_context::GroupMembershipContext {
+            peer: Arc::new(GroupPeerImpl::new(peering)),
+            home,
+            product_version: self.identity.product_version.clone(),
+            clock: self.clock,
+            run_index,
+            task_starter: task_starter.clone(),
+        })
+    }
+
+    /// Records an admitted Group member once confirmed.
+    pub(super) fn on_member_added(&self, member: String) {
+        self.leadership
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .on_member_added(member);
+    }
+
+    /// Notifies contribution membership hooks after a Group member is admitted.
+    fn notify_member_added(&self, member: String, peer_address: String) {
+        if self.services.group_membership_hooks.is_empty() {
+            return;
+        }
+        let Some(ctx) = self.membership_context() else {
+            return;
+        };
+        let hooks = Arc::clone(&self.services.group_membership_hooks);
+        ctx.task_starter.clone().spawn(async move {
+            for hook in hooks.iter() {
+                hook.on_member_added(member.clone(), peer_address.clone(), ctx.clone())
+                    .await;
+            }
+        });
+    }
+
+    /// Records a removed Group member once confirmed.
+    pub(super) fn on_member_removed(&self, member: &str) {
+        self.directory.remove(member);
+        self.leadership
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .on_member_removed(member);
+        if self.services.group_membership_hooks.is_empty() {
+            return;
+        }
+        let Some(ctx) = self.membership_context() else {
+            return;
+        };
+        let hooks = Arc::clone(&self.services.group_membership_hooks);
+        let removed = member.to_owned();
+        ctx.task_starter.clone().spawn(async move {
+            for hook in hooks.iter() {
+                hook.on_member_removed(removed.clone(), ctx.clone()).await;
+            }
+        });
+    }
+
+    /// The highest lead epoch durably recorded.
+    pub(super) async fn highest_epoch(&self) -> LeadEpoch {
+        self.epochs.lock().await.highest()
+    }
+
+    /// What the listener presents now: the identity the group store keeps,
+    /// made again when its certificate or revocation list changed since
+    /// the last link; none once the Daemon left its group. A store that
+    /// cannot be read, or an identity that cannot be presented, leaves the
+    /// last one in place.
+    async fn presenting(&self) -> Option<Presenting> {
+        let kept = match store::identity(&self.store).await {
+            Ok(Some((kept, _))) => Some(kept),
+            Ok(None) => return None,
+            Err(error) => {
+                tracing::warn!(%error, "the group store cannot be read; the peer listener presents what it read last");
+                None
+            }
+        };
+        let mut presenting = self
+            .presenting
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(kept) = kept
+            && (kept.certificate != presenting.certificate
+                || kept.revocations != presenting.revocations)
+        {
+            match Presenting::of(&kept, self.clock) {
+                Ok(current) => *presenting = current,
+                Err(error) => {
+                    tracing::warn!(%error, "the group store's identity cannot be presented; the peer listener presents what it read last");
+                }
+            }
+        }
+        Some(presenting.clone())
+    }
+
+    /// The highest lead epoch durably recorded, once `lead_epoch`, which a
+    /// Group member's message carries, is admitted and persisted.
+    ///
+    /// # Errors
+    ///
+    /// `lead_epoch_stale` when it is below the highest recorded, or the
+    /// store's error if a raised epoch cannot be persisted.
+    pub(super) async fn admit_epoch(&self, lead_epoch: LeadEpoch) -> Result<LeadEpoch, CallError> {
+        let mut epochs = self.epochs.lock().await;
+        let before = epochs.highest();
+        if lead_epoch < before {
+            return match epochs.admit(lead_epoch) {
+                Ok(()) => Ok(epochs.highest()),
+                Err(details) => Err(stale(&details)),
+            };
+        }
+        if lead_epoch > before {
+            match store::admit_epoch(&self.store, lead_epoch)
+                .await
+                .map_err(|error| store_failed(&error))?
+            {
+                Ok(persisted) => {
+                    let _ = epochs.admit(persisted);
+                    self.fence_if_higher(persisted);
+                }
+                Err(details) => {
+                    *epochs = LeadEpochs::new(details.highest_lead_epoch);
+                    self.fence_if_higher(details.highest_lead_epoch);
+                    return Err(stale(&details));
+                }
+            }
+        }
+        Ok(epochs.highest())
+    }
+
+    /// Records a peer-link refusal in the Audit log when refusals are wired.
+    async fn record_refusal(&self, reason: RefusalReason) {
+        if let Some(refusals) = &self.services.refusals {
+            refusals.refused(Listener::PeerLink, reason).await;
+        }
+    }
+
+    /// The group's certificate authority, which the Lead Daemon alone
+    /// keeps.
+    ///
+    /// # Errors
+    ///
+    /// `not_lead_daemon` on another Group member, and the store's.
+    async fn authority(&self) -> Result<GroupAuthority, CallError> {
+        let kept = store::authority(&self.store)
+            .await
+            .map_err(|error| store_failed(&error))?
+            .ok_or_else(not_lead)?;
+        GroupAuthority::restore(kept).map_err(|error| internal(&error))
+    }
+
+    /// Answers the peer link `stream` until it closes: a Group member's
+    /// messages or its one `group.renew` or `group.leave`, or a Daemon's
+    /// one `group.join`.
+    async fn answer(&self, stream: PeerStream) {
+        let mut lines = Lines::new();
+        let opened = tokio::select! {
+            opened = async {
+                let Some(presenting) = self.presenting().await else {
+                    tracing::debug!("a peer link reached a Daemon that left its group");
+                    return Ok(None);
+                };
+                let mut stream = presenting.acceptor.accept(stream).await?;
+                let first = lines.next(&mut stream).await;
+                Ok::<_, std::io::Error>(first.map(|first| (presenting.revocations, stream, first)))
+            } => opened,
+            () = self.clock.sleep(OPENING_TIMEOUT) => {
+                tracing::debug!("a peer link sent no opening message in time");
+                return;
+            }
+        };
+        let (revocations, mut stream, first) = match opened {
+            Ok(Some(opened)) => opened,
+            Ok(None) => return,
+            Err(error) => {
+                tracing::debug!(%error, "a peer link's handshake failed");
+                if let Some(reason) = handshake_refusal(&error) {
+                    self.record_refusal(reason).await;
+                }
+                return;
+            }
+        };
+        let presented = stream
+            .get_ref()
+            .1
+            .peer_certificates()
+            .and_then(|chain| chain.first())
+            .cloned();
+        let reply = if let Some(presented) = presented {
+            self.dispatch_authenticated(&presented, &revocations, first, &mut stream, &mut lines)
+                .await
+        } else {
+            self.join(first, &revocations).await
+        };
+        if let Some(reply) = reply {
+            write(&mut stream, &reply).await;
+        }
+        if let Err(error) = stream.shutdown().await {
+            tracing::debug!(%error, "a peer link did not close cleanly");
+        }
+    }
+
+    /// Dispatches the first message of an mTLS-authenticated peer link.
+    async fn dispatch_authenticated(
+        &self,
+        presented: &CertificateDer<'_>,
+        revocations: &rustls::pki_types::CertificateRevocationListDer<'_>,
+        first: Frame,
+        stream: &mut tokio_rustls::server::TlsStream<PeerStream>,
+        lines: &mut Lines,
+    ) -> Option<Vec<u8>> {
+        match opening(&self.identity, first) {
+            Opening::Renew(request) => Some(self.renewal(presented, revocations, request).await),
+            Opening::Leave(request) => Some(self.leaving(presented, request).await),
+            Opening::RunIndexReport(request) => {
+                Some(self.run_index_report(presented, request).await)
+            }
+            Opening::ControlStatePush(request) => {
+                Some(self.control_state_push(presented, request).await)
+            }
+            Opening::ControlStateSync(request) => {
+                Some(self.control_state_sync(presented, request).await)
+            }
+            Opening::Ledger(request) => Some(self.ledger_request(presented, *request).await),
+            Opening::Erasure(request) => Some(self.erasure_request(presented, request).await),
+            Opening::TokenCheck(request) => {
+                Some(self.token_check_request(presented, request).await)
+            }
+            Opening::HeadroomReport(request) => {
+                Some(self.headroom_report(presented, request).await)
+            }
+            Opening::RunIndexLookup(request) => {
+                Some(self.run_index_lookup(presented, request).await)
+            }
+            Opening::RunPlace(request) => Some(self.run_place(presented, *request).await),
+            Opening::RpcForward(request) => Some(self.rpc_forward(presented, *request).await),
+            Opening::LiveViewMint(request) => Some(self.live_view_mint(presented, request).await),
+            Opening::LiveViewRelay(request) => {
+                self.live_view_relay_peer(presented, request, stream, lines)
+                    .await;
+                None
+            }
+            Opening::EventsSubscribe(request) => {
+                self.events_subscribe_peer(presented, request, stream).await;
+                None
+            }
+            Opening::RunHandoff(request) => Some(self.receive_handoff(presented, *request).await),
+            Opening::RunIndexListAssigned(request) => {
+                Some(self.list_assigned_runs(presented, request).await)
+            }
+            Opening::MembersEligible(request) => {
+                Some(self.members_eligible(presented, *request).await)
+            }
+            Opening::PeerExtension(request) => Some(self.peer_extension(presented, *request).await),
+            Opening::Refused(reply) => Some(reply),
+            Opening::Other(first) => {
+                self.member(stream, lines, first).await;
+                None
+            }
+        }
+    }
+
+    /// Answers a Group member's messages, `first` the first, until the
+    /// link closes.
+    async fn member(
+        &self,
+        stream: &mut (impl AsyncRead + AsyncWrite + Unpin),
+        lines: &mut Lines,
+        first: Frame,
+    ) {
+        let mut link = PeerLink::accepting(self.identity.clone());
+        let mut frame = Some(first);
+        let mut first_message = true;
+        while let Some(received) = frame {
+            let answer = match received {
+                Frame::Line(sent) => {
+                    if first_message && is_not_hello(&sent) {
+                        self.record_refusal(RefusalReason::HelloNotFirst).await;
+                    }
+                    first_message = false;
+                    let mut epochs = self.epochs.lock().await;
+                    let before = epochs.highest();
+                    let mut staged = epochs.clone();
+                    let answer = link.receive(&mut staged, sent);
+                    let after = staged.highest();
+                    if after > before {
+                        match store::admit_epoch(&self.store, after).await {
+                            Ok(Ok(persisted)) => {
+                                *epochs = LeadEpochs::new(persisted);
+                                self.fence_if_higher(persisted);
+                                answer
+                            }
+                            Ok(Err(details)) => {
+                                *epochs = LeadEpochs::new(details.highest_lead_epoch);
+                                self.fence_if_higher(details.highest_lead_epoch);
+                                Answer {
+                                    reply: Some(failure_line(None, &stale(&details))),
+                                    close: answer.close,
+                                }
+                            }
+                            Err(error) => Answer {
+                                reply: Some(failure_line(None, &store_failed(&error))),
+                                close: true,
+                            },
+                        }
+                    } else {
+                        answer
+                    }
+                }
+                Frame::TooLarge => Answer {
+                    reply: Some(failure_line(None, &too_large())),
+                    close: false,
+                },
+            };
+            if let Some(reply) = &answer.reply
+                && !write(stream, reply).await
+            {
+                return;
+            }
+            if answer.close {
+                return;
+            }
+            frame = lines.next(stream).await;
+        }
+    }
+
+    /// The answer to a Daemon that presented no certificate and sent
+    /// `first`, the listener enforcing `revocations`: none when it sent no
+    /// request.
+    async fn join(
+        &self,
+        first: Frame,
+        revocations: &CertificateRevocationListDer<'_>,
+    ) -> Option<Vec<u8>> {
+        let line = match first {
+            Frame::Line(line) => line,
+            Frame::TooLarge => return Some(failure_line(None, &too_large())),
+        };
+        let request = match join_request(&self.identity, line) {
+            Ok(request) => request,
+            Err(refusal) => return refusal,
+        };
+        Some(
+            match self
+                .admit(request.settled, request.params, revocations)
+                .await
+            {
+                Ok(admitted) => result_line(&request.id, &admitted),
+                Err(error) => failure_line(Some(request.id), &error),
+            },
+        )
+    }
+
+    /// Admits the Daemon that asks with `params` into the group, the two
+    /// speaking peer protocol `settled`: signs a Group member certificate
+    /// for its public key once its join token and name are accepted, and
+    /// hands it `revocations`, the list the listener enforces.
+    async fn admit(
+        &self,
+        settled: ProtocolVersion,
+        params: PeerJoinParams,
+        revocations: &CertificateRevocationListDer<'_>,
+    ) -> Result<PeerJoinResult, CallError> {
+        let lead_epoch = self.require_confirmed_lead()?;
+        if let Some(settings) = &self.services.settings {
+            politeness::check_politeness_for_group(settings).await?;
+        }
+        let name = GroupMemberName::new(&params.name).map_err(|error| {
+            CallError::protocol(ProtocolFailure::InvalidParams, error.to_string())
+        })?;
+        let public_key = public_key_of(&params.public_key)?;
+        let authority = self.authority().await?;
+        let now = self.clock.wall();
+        let signed = authority
+            .sign(&name, &public_key, now)
+            .map_err(|error| internal(&error))?;
+        let joined_peer_address = params.peer_address.clone();
+        let joining = Joining {
+            name: params.name,
+            peer_address: params.peer_address,
+            certificate: Certified::from(&signed),
+        };
+        match store::admit(&self.store, params.token.expose(), joining, now)
+            .await
+            .map_err(|error| store_failed(&error))?
+        {
+            Admission::Admitted => {
+                self.on_member_added(name.as_str().to_owned());
+                self.notify_member_added(name.as_str().to_owned(), joined_peer_address);
+                self.notify_control_state();
+                Ok(PeerJoinResult {
+                    lead_name: self.name.clone(),
+                    protocol_version: settled,
+                    lead_epoch,
+                    certificate: BASE64.encode(&signed.certificate),
+                    certificate_expires_at: signed.not_after,
+                    authority: authority.certificate_base64(),
+                    revocations: BASE64.encode(revocations),
+                })
+            }
+            Admission::NotLead => Err(not_lead()),
+            Admission::Refused(refused) => Err(CallError::new(
+                &JOIN_TOKEN_REFUSED,
+                format!(
+                    "The Lead Daemon refused the join token: {refused}. Mint another with `group token` on the Lead Daemon."
+                ),
+                &(),
+            )),
+            Admission::NameTaken => Err(CallError::new(
+                &GROUP_MEMBER_EXISTS,
+                format!(
+                    "The Daemon group has a Group member named `{}` already; join under another name.",
+                    name.as_str()
+                ),
+                &(),
+            )),
+        }
+    }
+}
+
+/// The public key a Daemon sent as `text` for the Lead Daemon to sign.
+///
+/// # Errors
+///
+/// `invalid_params` when it is no uncompressed P-256 point in standard
+/// base64.
+fn public_key_of(text: &str) -> Result<GroupMemberPublicKey, CallError> {
+    BASE64
+        .decode(text.as_bytes())
+        .ok()
+        .and_then(|raw| GroupMemberPublicKey::from_raw(raw).ok())
+        .ok_or_else(|| {
+            CallError::protocol(
+                ProtocolFailure::InvalidParams,
+                "`public_key` is an uncompressed P-256 point in standard base64",
+            )
+        })
+}
+
+/// The name `name` a Group member gives, which the certificate it
+/// `presented` must name.
+///
+/// # Errors
+///
+/// `invalid_params` when `name` is no Group member name, or the
+/// certificate names another.
+fn presented_name(
+    presented: &CertificateDer<'_>,
+    name: &str,
+) -> Result<GroupMemberName, CallError> {
+    let name = GroupMemberName::new(name)
+        .map_err(|error| CallError::protocol(ProtocolFailure::InvalidParams, error.to_string()))?;
+    let names = ParsedCertificate::try_from(presented).is_ok_and(|parsed| {
+        rustls::client::verify_server_name(&parsed, &name.server_name()).is_ok()
+    });
+    if !names {
+        return Err(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!(
+                "the certificate this peer link presents is not `{}`'s",
+                name.as_str()
+            ),
+        ));
+    }
+    Ok(name)
+}
+
+/// A request a peer link opens with, accepted for its Product and version.
+#[derive(Debug)]
+struct Asked<P> {
+    id: RequestId,
+    /// The peer protocol version the two settle on.
+    settled: ProtocolVersion,
+    params: P,
+}
+
+/// What the opening message of a peer link that presents a certificate
+/// is.
+enum Opening {
+    /// A `group.renew` of the group's Product and of a version this
+    /// Daemon speaks.
+    Renew(Asked<PeerRenewParams>),
+    /// A `group.leave`, likewise.
+    Leave(Asked<PeerLeaveParams>),
+    /// A `group.run_index.report`, likewise.
+    RunIndexReport(Asked<PeerRunIndexReportParams>),
+    /// A `group.control_state.push`, likewise.
+    ControlStatePush(Asked<PeerControlStatePushParams>),
+    /// A `group.control_state.sync`, likewise.
+    ControlStateSync(Asked<PeerControlStateSyncParams>),
+    /// A `group.ledger` operation, likewise.
+    Ledger(Box<Asked<PeerLedgerParams>>),
+    /// A `group.erasure` broadcast or apply, likewise.
+    Erasure(Asked<PeerErasureParams>),
+    /// A `group.token.check`, likewise.
+    TokenCheck(Asked<PeerTokenCheckParams>),
+    /// A `group.headroom.report`, likewise.
+    HeadroomReport(Asked<PeerHeadroomReportParams>),
+    /// A `group.run_index.lookup`, likewise.
+    RunIndexLookup(Asked<PeerRunIndexLookupParams>),
+    /// A `group.run.place`, likewise.
+    RunPlace(Box<Asked<PeerRunPlaceParams>>),
+    /// A `group.rpc.forward`, likewise.
+    RpcForward(Box<Asked<PeerRpcForwardParams>>),
+    /// A `group.live_view.mint_token`, likewise.
+    LiveViewMint(Asked<PeerLiveViewMintParams>),
+    /// A `group.live_view.relay` stream, likewise.
+    LiveViewRelay(Asked<PeerLiveViewRelayParams>),
+    /// A `group.events.subscribe` stream, likewise.
+    EventsSubscribe(Asked<PeerEventsSubscribeParams>),
+    /// A `group.run.handoff` Checkpoint transfer, likewise.
+    RunHandoff(Box<Asked<PeerRunHandoffParams>>),
+    /// A `group.run_index.list_assigned` query, likewise.
+    RunIndexListAssigned(Asked<PeerRunIndexListAssignedParams>),
+    /// A `group.members.eligible` query, likewise.
+    MembersEligible(Box<Asked<PeerMembersEligibleParams>>),
+    /// A `group.peer.extension` call, likewise.
+    PeerExtension(Box<Asked<PeerExtensionParams>>),
+    /// The line refusing either.
+    Refused(Vec<u8>),
+    /// Another message, which opens a [`PeerLink`].
+    Other(Frame),
+}
+
+/// What `first`, the opening message of a peer link that presents a
+/// certificate, is to the Daemon `identity`.
+fn opening(identity: &Identity, first: Frame) -> Opening {
+    let Frame::Line(line) = first else {
+        return Opening::Other(first);
+    };
+    let Ok(Incoming::Request { id, call }) = decode(line.clone()) else {
+        return Opening::Other(Frame::Line(line));
+    };
+    let read = match call.method() {
+        RENEW => asked(identity, id, call, |params: &PeerRenewParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(Opening::Renew),
+        LEAVE => asked(identity, id, call, |params: &PeerLeaveParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(Opening::Leave),
+        RUN_INDEX_REPORT => asked(identity, id, call, |params: &PeerRunIndexReportParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(Opening::RunIndexReport),
+        CONTROL_STATE_PUSH => asked(identity, id, call, |params: &PeerControlStatePushParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(Opening::ControlStatePush),
+        CONTROL_STATE_SYNC => asked(identity, id, call, |params: &PeerControlStateSyncParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(Opening::ControlStateSync),
+        GROUP_LEDGER => asked(identity, id, call, |params: &PeerLedgerParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(|req| Opening::Ledger(Box::new(req))),
+        GROUP_ERASURE => asked(identity, id, call, |params: &PeerErasureParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(Opening::Erasure),
+        GROUP_TOKEN_CHECK => asked(identity, id, call, |params: &PeerTokenCheckParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(Opening::TokenCheck),
+        GROUP_HEADROOM_REPORT => asked(identity, id, call, |params: &PeerHeadroomReportParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(Opening::HeadroomReport),
+        GROUP_RUN_INDEX_LOOKUP => asked(identity, id, call, |params: &PeerRunIndexLookupParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(Opening::RunIndexLookup),
+        GROUP_RUN_PLACE => asked(identity, id, call, |params: &PeerRunPlaceParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(|req| Opening::RunPlace(Box::new(req))),
+        GROUP_RPC_FORWARD => asked(identity, id, call, |params: &PeerRpcForwardParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(|req| Opening::RpcForward(Box::new(req))),
+        GROUP_LIVE_VIEW_MINT => asked(identity, id, call, |params: &PeerLiveViewMintParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(Opening::LiveViewMint),
+        GROUP_LIVE_VIEW_RELAY => asked(identity, id, call, |params: &PeerLiveViewRelayParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(Opening::LiveViewRelay),
+        GROUP_EVENTS_SUBSCRIBE => {
+            asked(identity, id, call, |params: &PeerEventsSubscribeParams| {
+                (params.product, params.protocol_version)
+            })
+            .map(Opening::EventsSubscribe)
+        }
+        GROUP_RUN_HANDOFF => asked(identity, id, call, |params: &PeerRunHandoffParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(|req| Opening::RunHandoff(Box::new(req))),
+        GROUP_RUN_INDEX_LIST_ASSIGNED => asked(
+            identity,
+            id,
+            call,
+            |params: &PeerRunIndexListAssignedParams| (params.product, params.protocol_version),
+        )
+        .map(Opening::RunIndexListAssigned),
+        GROUP_MEMBERS_ELIGIBLE => {
+            asked(identity, id, call, |params: &PeerMembersEligibleParams| {
+                (params.product, params.protocol_version)
+            })
+            .map(|req| Opening::MembersEligible(Box::new(req)))
+        }
+        GROUP_PEER_EXTENSION => asked(identity, id, call, |params: &PeerExtensionParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(|req| Opening::PeerExtension(Box::new(req))),
+        _ => return Opening::Other(Frame::Line(line)),
+    };
+    read.unwrap_or_else(Opening::Refused)
+}
+
+/// `call`, the request `id`, read as the peer protocol's params `P` by the
+/// Daemon `identity` and accepted for the Product and version
+/// `opened_by` reads of them, or the line refusing it.
+fn asked<P: DeserializeOwned>(
+    identity: &Identity,
+    id: RequestId,
+    call: Call,
+    opened_by: impl FnOnce(&P) -> (Product, ProtocolVersion),
+) -> Result<Asked<P>, Vec<u8>> {
+    let method = call.method().to_owned();
+    let refuse = |error: CallError| failure_line(Some(id.clone()), &error);
+    let params: P = call.into_params().read().map_err(|error| {
+        refuse(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!("this `{method}` is not the peer protocol's: {error}"),
+        ))
+    })?;
+    let (product, version) = opened_by(&params);
+    if let Some(error) = opening_refusal(identity, product, version) {
+        return Err(refuse(error));
+    }
+    Ok(Asked {
+        id,
+        settled: PEER_PROTOCOL_VERSION.min(version),
+        params,
+    })
+}
+
+/// Reads `line`, the one message of a Daemon that presented no
+/// certificate, as the Daemon `identity`: a `group.join` of its Product and
+/// of a version it speaks, or the line refusing it, none when it sent no
+/// request.
+fn join_request(
+    identity: &Identity,
+    line: Vec<u8>,
+) -> Result<Asked<PeerJoinParams>, Option<Vec<u8>>> {
+    let (id, call) = match decode(line) {
+        Ok(Incoming::Request { id, call }) => (id, call),
+        Ok(Incoming::Notification(_) | Incoming::Reply { .. }) => return Err(None),
+        Err(error) => {
+            return Err(Some(failure_line(
+                error.id,
+                &CallError::protocol(error.failure, error.detail),
+            )));
+        }
+    };
+    if call.method() != JOIN {
+        return Err(Some(failure_line(
+            Some(id),
+            &CallError::protocol(
+                ProtocolFailure::InvalidRequest,
+                "a Daemon without a Group member certificate sends `group.join` alone",
+            ),
+        )));
+    }
+    asked(identity, id, call, |params: &PeerJoinParams| {
+        (params.product, params.protocol_version)
+    })
+    .map_err(Some)
+}
+
+/// Classifies a peer-link TLS handshake error into its endpoint-table Audit
+/// refusal reason (ADR 0067).
+fn handshake_refusal(error: &std::io::Error) -> Option<RefusalReason> {
+    let inner = error
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<rustls::Error>())?;
+    if let Some(CertificateFailure::Known(known)) = crate::tls::certificate_failure(inner) {
+        return match known {
+            KnownCertificateFailure::UnknownIssuer | KnownCertificateFailure::SelfSigned => {
+                Some(RefusalReason::CertificateUnknownAuthority)
+            }
+            KnownCertificateFailure::Revoked => Some(RefusalReason::CertificateRevoked),
+            KnownCertificateFailure::Expired | KnownCertificateFailure::NotYetValid => {
+                Some(RefusalReason::CertificateExpired)
+            }
+            KnownCertificateFailure::NameMismatch => None,
+        };
+    }
+    matches!(inner, rustls::Error::InvalidMessage(_)).then_some(RefusalReason::TlsRequired)
+}
+
+/// Whether `line`, the first message on an authenticated peer link that was
+/// neither `group.renew`, `group.leave`, nor `group.run_index.report`, is not
+/// a `hello` request.
+fn is_not_hello(line: &[u8]) -> bool {
+    !matches!(
+        decode(line.to_vec()),
+        Ok(Incoming::Request { call, .. }) if call.method() == HELLO
+    )
+}
+
+/// Maps a [`LeadRefusal`] to its wire [`CallError`].
+fn lead_refusal(refusal: LeadRefusal) -> CallError {
+    match refusal {
+        LeadRefusal::NotLead => not_lead(),
+        LeadRefusal::Unconfirmed {
+            lead_epoch,
+            confirmed_by,
+            total_members,
+        } => lead_unconfirmed(lead_epoch, confirmed_by, total_members),
+        LeadRefusal::Fenced(details) => stale(&details),
+    }
+}
+
+mod confirmation;
+mod control_state;
+mod erasure;
+mod handoff;
+mod leaving;
+mod limits;
+mod politeness;
+mod renewal;
+mod routing;
+mod run_index;
+mod wire;
+
+pub(in crate::group) use handoff::RemovalSummary;
+pub use handoff::{AdoptedSummary, adopt_runs, adopt_runs_with_hooks};
+pub(super) use leaving::ask_to_leave;
+pub use limits::{TOKEN_CHECK_CACHE_MAX_TTL, TokenCheckCache};
+pub use run_index::reindex_to_lead;
+pub(super) use wire::{Asking, ask_to_join};
+#[cfg(test)]
+use wire::{ask, connect_peer_tls};
+use wire::{ask_lead, ask_peer};
+
+#[cfg(test)]
+mod loopback;
+#[cfg(test)]
+mod tests;

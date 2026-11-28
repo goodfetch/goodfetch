@@ -152,6 +152,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     unreadable.charge("requests", 3, start)?;
     let mut live = charging("live-run");
     live.charge("requests", 5, start)?;
+    seed_threshold_crossings(&ledger, start)?;
     let used: BTreeMap<i64, u64> = journaled.used.into_iter().collect();
     ledger.reclaim(&|holder| match holder.run_id.as_str() {
         "dead-run" => Probed::Gone {
@@ -167,5 +168,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         output.join("usage-ledger.sql"),
         goodfetch_test_support::sql_dump(&connection)?,
     )?;
+    Ok(())
+}
+
+/// Seeds a small Limit that crosses 50 %, 80 % and 100 % so the corpus carries
+/// `limit_thresholds` (sent and unsent) and `limit_needs_you` rows.
+fn seed_threshold_crossings(
+    ledger: &Ledger,
+    start: jiff::Timestamp,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let small_id = ledger.add_limit(
+        &Limit {
+            scope: scope("connection", "threshold-corpus"),
+            usage_kind: "requests".to_owned(),
+            currency: None,
+            period: None,
+            amount: 2,
+            must_understand: true,
+            set_by: LimitSetter::Client,
+        },
+        start,
+    )?;
+    let mut crossed_run = Charging::new(
+        ledger.clone(),
+        Holder {
+            run_id: "threshold-run".to_owned(),
+            epoch: 1,
+            folder: PathBuf::from(RUNS).join("threshold-run"),
+        },
+        Placement {
+            product: Product::Foxhound,
+            scopes: vec![scope("connection", "threshold-corpus")],
+        },
+        SliceSizing::default(),
+    );
+    let (first, first_crossings) = crossed_run.charge_with_crossings("requests", 1, start);
+    first?;
+    for crossing in first_crossings {
+        ledger.mark_threshold_sent(&crossing, start)?;
+    }
+    let (second, second_crossings) = crossed_run.charge_with_crossings("requests", 1, start);
+    second?;
+    let _unsent = (small_id, second_crossings);
+    crossed_run.give_back()?;
     Ok(())
 }

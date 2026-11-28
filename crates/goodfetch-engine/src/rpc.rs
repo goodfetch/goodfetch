@@ -46,7 +46,7 @@ pub(crate) use crate::wire::{Line, notification_line, success_line};
 
 pub(crate) use connection::{
     Access, Dispatch, HttpAnswer, HttpContext, HttpRequest, HttpStatus, check_http_hello,
-    http_error_bytes, serve, serve_http_request, terminate_tls,
+    http_error_bytes, local_dispatcher, serve, serve_http_request, terminate_tls,
 };
 pub use handshake::version_refusal;
 

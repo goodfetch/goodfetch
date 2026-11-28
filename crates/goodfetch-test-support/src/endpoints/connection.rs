@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use rustls::pki_types::{CertificateDer, ServerName};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName};
 use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
 
 /// How long the runner waits to connect, and for each read of an answer,
@@ -34,12 +34,14 @@ pub enum ListenerAddress {
 }
 
 /// The TLS a listener terminates, as its Clients reach it: the name they
-/// reach it by, which its certificate is for, and the certificate they
-/// trust it with.
+/// reach it by, which its certificate is for, the certificate or authority
+/// they trust it with, and optionally the client certificate and PKCS #8 key
+/// a mutual-TLS peer presents.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ListenerTls {
     server_name: String,
     trusted: CertificateDer<'static>,
+    client: Option<(CertificateDer<'static>, Vec<u8>)>,
 }
 
 impl ListenerTls {
@@ -49,7 +51,20 @@ impl ListenerTls {
         Self {
             server_name: server_name.into(),
             trusted: CertificateDer::from(trusted.into()),
+            client: None,
         }
+    }
+
+    /// Presents `certificate` and PKCS #8 private `key` (both DER) during the
+    /// TLS handshake, for mutual-TLS listeners such as the peer link.
+    #[must_use]
+    pub fn with_client_certificate(
+        mut self,
+        certificate: impl Into<Vec<u8>>,
+        key: impl Into<Vec<u8>>,
+    ) -> Self {
+        self.client = Some((CertificateDer::from(certificate.into()), key.into()));
+        self
     }
 
     /// The name its Clients reach it by.
@@ -67,12 +82,20 @@ impl ListenerTls {
         roots
             .add(self.trusted.clone())
             .map_err(|error| invalid(&error))?;
-        let config =
+        let builder =
             ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
                 .with_safe_default_protocol_versions()
                 .map_err(|error| invalid(&error))?
-                .with_root_certificates(roots)
-                .with_no_client_auth();
+                .with_root_certificates(roots);
+        let config = match &self.client {
+            None => builder.with_no_client_auth(),
+            Some((certificate, key)) => builder
+                .with_client_auth_cert(
+                    vec![certificate.clone()],
+                    PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key.clone())),
+                )
+                .map_err(|error| invalid(&error))?,
+        };
         let name =
             ServerName::try_from(self.server_name.clone()).map_err(|error| invalid(&error))?;
         ClientConnection::new(Arc::new(config), name).map_err(|error| invalid(&error))
@@ -147,15 +170,21 @@ impl Write for Connection {
     }
 }
 
-/// Whether `error` means the listener closed or reset the connection.
+/// Whether `error` means the listener closed, reset, or rejected the
+/// connection with a TLS alert.
 pub(super) fn is_closed(error: &io::Error) -> bool {
-    matches!(
-        error.kind(),
-        io::ErrorKind::ConnectionReset
-            | io::ErrorKind::ConnectionAborted
-            | io::ErrorKind::BrokenPipe
-            | io::ErrorKind::UnexpectedEof
-    )
+    let tls_alert = error
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<rustls::Error>())
+        .is_some_and(|inner| matches!(inner, rustls::Error::AlertReceived(_)));
+    tls_alert
+        || matches!(
+            error.kind(),
+            io::ErrorKind::ConnectionReset
+                | io::ErrorKind::ConnectionAborted
+                | io::ErrorKind::BrokenPipe
+                | io::ErrorKind::UnexpectedEof
+        )
 }
 
 /// Whether `error` means the deadline passed with no data.

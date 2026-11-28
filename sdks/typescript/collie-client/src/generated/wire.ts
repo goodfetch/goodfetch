@@ -72,10 +72,19 @@ export type CollieWireType =
   | "FormatsParams"
   | "FullNotification"
   | "GotoParams"
+  | "GroupFormed"
+  | "GroupInitParams"
+  | "GroupJoinParams"
+  | "GroupJoined"
+  | "GroupLeadReachabilityChanged"
+  | "GroupLeadStatus"
+  | "GroupLeft"
+  | "GroupMemberRevoked"
   | "HelloParams"
   | "HelloResult"
   | "HookFailedDetails"
   | "HumanPause"
+  | "JoinTokenMinted"
   | "KeyValueStoreAttempt"
   | "KeyValueStoreBytes"
   | "KeyValueStoreBytesValue"
@@ -86,6 +95,7 @@ export type CollieWireType =
   | "KindConcurrency"
   | "KindUsage"
   | "LastRead"
+  | "LeadEpochStaleDetails"
   | "Limit"
   | "LimitNotUnderstoodDetails"
   | "LimitRaiseRefusedDetails"
@@ -145,6 +155,7 @@ export type CollieWireType =
   | "Period"
   | "PlanReport"
   | "PluginRun"
+  | "PolitenessStoreDegraded"
   | "PressParams"
   | "PreviewOccurrence"
   | "PrivateEndpoint"
@@ -155,6 +166,7 @@ export type CollieWireType =
   | "RecordRead"
   | "RecordingReport"
   | "RecordingSaveAsParams"
+  | "RedoneReport"
   | "RequestFailure"
   | "ResourcesExhaustedDetails"
   | "ResponseBodyParams"
@@ -225,6 +237,7 @@ export type CollieWireType =
   | "SigningKeyCreated"
   | "SigningKeyDirectory"
   | "SigningKeyDirectoryParams"
+  | "StartedPartition"
   | "StopReason"
   | "StructuredTriggerDescription"
   | "SystemInfo"
@@ -269,7 +282,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "CacheDamage": { fields: { "body_sha256": "bodySha256", "run_id": "runId" } },
     "CacheStats": { fields: { "body_bytes": "bodyBytes", "held_bytes": "heldBytes" } },
     "CacheVerified": { fields: { "damaged": ["damaged", { items: { type: "CacheDamage" } }] } },
-    "CatalogRunStartParams": { fields: { "limits": ["limits", { items: { type: "RunLimit" } }], "recording_bytes": "recordingBytes", "run_id": "runId", "target": ["target", { type: "CatalogTarget" }] } },
+    "CatalogRunStartParams": { fields: { "group_member": "groupMember", "limits": ["limits", { items: { type: "RunLimit" } }], "recording_bytes": "recordingBytes", "run_id": "runId", "target": ["target", { type: "CatalogTarget" }] } },
     "CatalogTarget": { fields: { "max_steps": "maxSteps" } },
     "CdpUrlNotBrowserDetails": { fields: { "browser_url": "browserURL" } },
     "CertificateChangedDetails": { fields: { "pinned_spki_sha256": "pinnedSpkiSha256", "presented_spki_sha256": "presentedSpkiSha256" } },
@@ -310,7 +323,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "EngineInfo": { fields: { "product_major": "productMajor", "product_version": "productVersion", "protocol_version": "protocolVersion" } },
     "EnginePanickedDetails": { fields: { "crash_report": "crashReport" } },
     "EvaluateParams": { fields: { "page_id": "pageId" } },
-    "EventsSubscribeParams": { fields: { "after": ["after", { type: "LastRead" }], "system_info": "systemInfo" } },
+    "EventsSubscribeParams": { fields: { "after": ["after", { type: "LastRead" }], "run_id": "runId", "system_info": "systemInfo" } },
     "EveryTrigger": { fields: { "anchor": ["anchor", "time"] } },
     "ExplainedSetting": { fields: { "fixed_for_run": "fixedForRun", "locked_by": "lockedBy", "user_settable": "userSettable", "yields_to": "yieldsTo" } },
     "ExportedAuditEntry": { fields: { "run_id": "runId", "time": ["time", "time"] } },
@@ -320,10 +333,19 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "FormatsParams": { fields: { "page_id": "pageId" } },
     "FullNotification": { fields: { "event_id": "eventId", "run_id": "runId", "schedule_id": "scheduleId" } },
     "GotoParams": { fields: { "page_id": "pageId", "wait_until": "waitUntil" } },
+    "GroupFormed": { fields: { "authority_key": "authorityKey", "lead_epoch": "leadEpoch", "peer_address": "peerAddress" } },
+    "GroupInitParams": { fields: { "peer_address": "peerAddress" } },
+    "GroupJoinParams": { fields: { "authority_key": "authorityKey", "peer_address": "peerAddress" } },
+    "GroupJoined": { fields: { "certificate_expires_at": ["certificateExpiresAt", "time"], "lead_epoch": "leadEpoch", "peer_address": "peerAddress" } },
+    "GroupLeadReachabilityChanged": { fields: { "lead_name": "leadName" } },
+    "GroupLeadStatus": { fields: { "confirmed_by_operator": "confirmedByOperator", "lead_epoch": "leadEpoch" } },
+    "GroupLeft": { fields: { "handed_off": "handedOff", "left_checkpointed": "leftCheckpointed", "machine_bound": "machineBound" } },
+    "GroupMemberRevoked": { fields: { "revocation_list": "revocationList" } },
     "HelloParams": { fields: { "client_surface": "clientSurface", "keep_daemon_alive": "keepDaemonAlive", "log_level": "logLevel", "product_version": "productVersion", "protocol_version": "protocolVersion" } },
     "HelloResult": { fields: { "engine_instance": "engineInstance", "max_calls_in_flight": "maxCallsInFlight", "private_endpoint": ["privateEndpoint", { type: "PrivateEndpoint" }], "product_version": "productVersion", "protocol_version": "protocolVersion" } },
     "HookFailedDetails": { fields: { "exception_message": "exceptionMessage", "exception_stack": "exceptionStack", "exception_type": "exceptionType", "wrapped_code": "wrappedCode" } },
     "HumanPause": { fields: { "deadline": ["deadline", "time"], "raised_by": "raisedBy", "since": ["since", "time"] } },
+    "JoinTokenMinted": { fields: { "authority_key": "authorityKey", "expires_at": ["expiresAt", "time"] } },
     "KeyValueStoreAttempt": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch" } },
     "KeyValueStoreBytes": { fields: { "content_type": "contentType" } },
     "KeyValueStoreBytesValue": { fields: { "bytes": ["bytes", { type: "KeyValueStoreBytes" }] } },
@@ -334,6 +356,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "KindConcurrency": { fields: { "in_use": "inUse" } },
     "KindUsage": { fields: { "usage_kind": "usageKind" } },
     "LastRead": { fields: { "engine_instance": "engineInstance" } },
+    "LeadEpochStaleDetails": { fields: { "highest_lead_epoch": "highestLeadEpoch", "lead_epoch": "leadEpoch" } },
     "Limit": { fields: { "must_understand": "mustUnderstand", "period": ["period", { type: "Period" }], "set_by": "setBy", "usage_kind": "usageKind" } },
     "LimitNotUnderstoodDetails": { fields: { "limit": ["limit", { type: "Limit" }] } },
     "LimitRaiseRefusedDetails": { fields: { "usage_kind": "usageKind" } },
@@ -393,16 +416,18 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "Period": { fields: { "time_zone": "timeZone" } },
     "PlanReport": { fields: { "steps_changed": "stepsChanged" } },
     "PluginRun": { fields: { "confinement_missing": "confinementMissing", "network_level": "networkLevel" } },
+    "PolitenessStoreDegraded": { fields: { "admission_stopped": "admissionStopped", "degraded_max_ms": "degradedMaxMs", "run_id": "runId" } },
     "PressParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
     "PreviewOccurrence": { fields: { "at": ["at", "time"] } },
     "PrivateEndpoint": { fields: { "token_file": "tokenFile" } },
     "ProtocolVersionUnsupportedDetails": { fields: { "client_protocol_version": "clientProtocolVersion", "engine_protocol_version": "engineProtocolVersion" } },
     "ReachedLimit": { fields: { "period": ["period", { type: "Period" }], "resets_at": ["resetsAt", "time"], "usage_kind": "usageKind" } },
-    "RecipeStartParams": { fields: { "limits": ["limits", { items: { type: "RunLimit" } }], "recording_bytes": "recordingBytes", "run_id": "runId" } },
+    "RecipeStartParams": { fields: { "group_member": "groupMember", "limits": ["limits", { items: { type: "RunLimit" } }], "recording_bytes": "recordingBytes", "run_id": "runId" } },
     "RecordProvenance": { fields: { "certificate_exception": ["certificateException", { type: "CertificateExceptionMark" }], "clean_up_rules": "cleanUpRules", "origin": ["origin", { type: "ResponseOrigin" }], "payment": ["payment", { type: "PaymentMark" }], "request_id": "requestId", "robots_txt": "robotsTxt", "tier": ["tier", { type: "TierProvenance" }], "unread_fields": "unreadFields", "value_transforms": ["valueTransforms", { items: { type: "TransformProvenance" } }] } },
     "RecordRead": { fields: { "record": ["record", { type: "DatasetRecord" }] } },
     "RecordingReport": { fields: { "recorded_from": ["recordedFrom", "time"], "recorded_to": ["recordedTo", "time"], "responses_used": "responsesUsed", "written_by": "writtenBy" } },
     "RecordingSaveAsParams": { fields: { "run_id": "runId" } },
+    "RedoneReport": { fields: { "batch_writes": "batchWrites" } },
     "RequestFailure": { fields: { "error_text": "errorText" } },
     "ResourcesExhaustedDetails": { fields: { "free_bytes": "freeBytes" } },
     "ResponseBodyParams": { fields: { "page_id": "pageId", "request_id": "requestId" } },
@@ -430,15 +455,15 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "RunListParams": { fields: { "ended": ["ended", { type: "TimeRange" }], "started": ["started", { type: "TimeRange" }], "watch_runs": "watchRuns" } },
     "RunMigrateParams": { fields: { "run_id": "runId" } },
     "RunMigrating": { fields: { "run_id": "runId" } },
-    "RunOwner": { fields: { "attached": ["attached", { type: "PrivateEndpoint" }] } },
+    "RunOwner": { fields: { "attached": ["attached", { type: "PrivateEndpoint" }], "group_member": "groupMember" } },
     "RunParams": { fields: { "run_id": "runId" } },
     "RunProgress": { fields: { "at": ["at", "time"], "checkpoint_at": ["checkpointAt", "time"], "pauses": ["pauses", { items: { type: "HumanPause" } }], "run_id": "runId", "stop_reason": ["stopReason", { type: "StopReason" }], "storage": ["storage", { type: "RunStorage" }] } },
     "RunProgressParams": { fields: { "run_id": "runId" } },
-    "RunReport": { fields: { "cache_mode": "cacheMode", "checkpoint": ["checkpoint", { type: "Checkpoint" }], "completeness_reasons": ["completenessReasons", { items: { type: "AxisReason" } }], "ended_at": ["endedAt", "time"], "nothing_done": ["nothingDone", { type: "NothingDone" }], "plan": ["plan", { type: "PlanReport" }], "plugins": ["plugins", { items: { type: "PluginRun" } }], "policy_version": "policyVersion", "recording": ["recording", { type: "RecordingReport" }], "run_id": "runId", "settings": ["settings", { items: { type: "ExplainedSetting" } }], "started_at": ["startedAt", "time"], "stop_reason": ["stopReason", { type: "StopReason" }], "uncertain_effects": ["uncertainEffects", { items: { type: "UncertainEffect" } }], "usage": ["usage", { type: "RunUsage" }], "verdict_reasons": ["verdictReasons", { items: { type: "AxisReason" } }] } },
-    "RunResumeParams": { fields: { "run_id": "runId" } },
+    "RunReport": { fields: { "cache_mode": "cacheMode", "checkpoint": ["checkpoint", { type: "Checkpoint" }], "completeness_reasons": ["completenessReasons", { items: { type: "AxisReason" } }], "ended_at": ["endedAt", "time"], "nothing_done": ["nothingDone", { type: "NothingDone" }], "plan": ["plan", { type: "PlanReport" }], "plugins": ["plugins", { items: { type: "PluginRun" } }], "policy_version": "policyVersion", "recording": ["recording", { type: "RecordingReport" }], "redone": ["redone", { type: "RedoneReport" }], "run_id": "runId", "settings": ["settings", { items: { type: "ExplainedSetting" } }], "started_at": ["startedAt", "time"], "stop_reason": ["stopReason", { type: "StopReason" }], "uncertain_effects": ["uncertainEffects", { items: { type: "UncertainEffect" } }], "usage": ["usage", { type: "RunUsage" }], "verdict_reasons": ["verdictReasons", { items: { type: "AxisReason" } }] } },
+    "RunResumeParams": { fields: { "group_member": "groupMember", "run_id": "runId" } },
     "RunSetProgressMessageParams": { fields: { "run_id": "runId" } },
-    "RunStartParams": { fields: { "accept_plugin_change": "acceptPluginChange", "limits": ["limits", { items: { type: "RunLimit" } }], "recording_bytes": "recordingBytes", "run_id": "runId" } },
-    "RunStarted": { fields: { "run_id": "runId", "started_as": "startedAs" } },
+    "RunStartParams": { fields: { "accept_plugin_change": "acceptPluginChange", "group_member": "groupMember", "limits": ["limits", { items: { type: "RunLimit" } }], "recording_bytes": "recordingBytes", "run_id": "runId" } },
+    "RunStarted": { fields: { "partitions": ["partitions", { items: { type: "StartedPartition" } }], "run_id": "runId", "started_as": "startedAs" } },
     "RunStartedAs": { fields: { "started_as": "startedAs" } },
     "RunStatePosition": { fields: { "journal_position": "journalPosition", "run_epoch": "runEpoch" } },
     "RunStopParams": { fields: { "run_id": "runId" } },
@@ -473,7 +498,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "SigningKeyCreated": { fields: { "key_id": "keyId", "public_key": "publicKey", "signing_key": "signingKey" } },
     "SigningKeyDirectory": { fields: { "content_type": "contentType", "expires": ["expires", "time"], "key_ids": "keyIds", "signature_input": "signatureInput" } },
     "SigningKeyDirectoryParams": { fields: { "signing_keys": "signingKeys", "valid_for": "validFor" } },
-    "StopReason": { union: { tag: "kind", known: ["abort", "pause", "migrate", "timeout", "drain", "limit", "limit_not_understood", "engine_lost", "engine_panicked", "resources"], path: { fields: { "period": ["period", { type: "Period" }], "resets_at": ["resetsAt", "time"], "usage_kind": "usageKind" } } } },
+    "StartedPartition": { fields: { "run_id": "runId" } },
+    "StopReason": { union: { tag: "kind", known: ["abort", "pause", "migrate", "timeout", "drain", "limit", "limit_not_understood", "lead_unreachable", "engine_lost", "engine_panicked", "resources"], path: { fields: { "period": ["period", { type: "Period" }], "resets_at": ["resetsAt", "time"], "usage_kind": "usageKind" } } } },
     "StructuredTriggerDescription": { fields: { "anchor": ["anchor", "time"], "day_of_month": "dayOfMonth", "day_of_week": "dayOfWeek", "fixed_time": "fixedTime" } },
     "SystemInfo": { fields: { "concurrency": ["concurrency", { type: "Concurrency" }], "cpu": ["cpu", { type: "CpuReading" }], "last_resort": "lastResort", "memory": ["memory", { type: "MemoryReading" }], "pressure_source": "pressureSource" } },
     "Table": { fields: { "body_rows": "bodyRows", "header_rows": "headerRows" } },
@@ -512,6 +538,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "effect.close": { type: "EffectCloseParams" },
     "effect.open": { type: "EffectOpenParams" },
     "events.subscribe": { type: "EventsSubscribeParams" },
+    "group.init": { type: "GroupInitParams" },
+    "group.join": { type: "GroupJoinParams" },
     "key_value_store.delete": { type: "KeyValueStoreKeyParams" },
     "key_value_store.get": { type: "KeyValueStoreKeyParams" },
     "key_value_store.get_bytes": { type: "KeyValueStoreKeyParams" },
@@ -602,6 +630,12 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "effect.close": { type: "EffectClosed" },
     "effect.open": { type: "EffectOpened" },
     "engine.info": { type: "EngineInfo" },
+    "group.init": { type: "GroupFormed" },
+    "group.join": { type: "GroupJoined" },
+    "group.lead": { type: "GroupLeadStatus" },
+    "group.leave": { type: "GroupLeft" },
+    "group.revoke": { type: "GroupMemberRevoked" },
+    "group.token": { type: "JoinTokenMinted" },
     "key_value_store.get_bytes": { type: "KeyValueStoreBytesValue" },
     "needs_you.list": { type: "NeedsYouList" },
     "page.formats": { type: "PageFormats" },
@@ -649,6 +683,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "browser_cache.download_progress": { type: "DownloadProgress" },
     "engine.system_info": { type: "SystemInfo" },
     "events.resync": { type: "Resync" },
+    "group.lead_reachability_changed": { type: "GroupLeadReachabilityChanged" },
     "needs_you.changed": { type: "NeedsYouChange" },
     "page.close": { type: "PageFired" },
     "page.console": { type: "ConsoleMessage" },
@@ -663,6 +698,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "page.request_finished": { type: "PageRequest" },
     "page.response": { type: "PageExchange" },
     "page.web_socket": { type: "PageWebSocket" },
+    "politeness.store_degraded": { type: "PolitenessStoreDegraded" },
     "run.aborting": { type: "RunAborting" },
     "run.axes_changed": { type: "RunAxes" },
     "run.checkpointing": { type: "RunCheckpointing" },

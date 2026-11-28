@@ -130,6 +130,7 @@ impl<'a> Session<'a> {
                 position: Position::default(),
             }),
             system_info: false,
+            run_id: None,
         };
         self.link
             .begin(SUBSCRIPTION, EVENTS_SUBSCRIBE.name, json!(params))

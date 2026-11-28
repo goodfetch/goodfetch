@@ -113,7 +113,12 @@ fn reason(rule: Rule) -> Option<&'static str> {
         Rule::HostForeign => "host_foreign",
         Rule::OriginForeign => "origin_foreign",
         Rule::PlainWhereTlsConfigured => "tls_required",
-        Rule::OriginMissing | Rule::HelloNotFirst | Rule::ProbesAnswerStatusOnly => return None,
+        Rule::OriginMissing
+        | Rule::HelloNotFirst
+        | Rule::ProbesAnswerStatusOnly
+        | Rule::CertificateUnknownAuthority
+        | Rule::CertificateRevoked
+        | Rule::CertificateExpired => return None,
     })
 }
 

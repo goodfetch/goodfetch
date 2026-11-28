@@ -267,6 +267,33 @@ impl Invariants {
         })
     }
 
+    /// Inserts transferred `identities` (seen fingerprints from a Partition
+    /// handoff or `runs adopt`, ADR 0054) into both SQLite `visited` and the
+    /// Frontier's in-memory [`UnwrittenVisits`].
+    ///
+    /// # Errors
+    ///
+    /// When the run file cannot be written.
+    pub fn install_transferred_visits(
+        &self,
+        connection: &Connection,
+        identities: &[String],
+    ) -> rusqlite::Result<()> {
+        if identities.is_empty() {
+            return Ok(());
+        }
+        let mut stmt = connection.prepare_cached(
+            "INSERT OR IGNORE INTO visited (identity, crawl_request) VALUES (?1, 'handoff')",
+        )?;
+        for identity in identities {
+            stmt.execute([identity.as_str()])?;
+        }
+        if let Some(unwritten) = self.unwritten() {
+            unwritten.note_transferred_visits(identities);
+        }
+        Ok(())
+    }
+
     /// The first path budget whose pattern the path and query of `url`
     /// match: the one that counts it.
     pub(crate) fn budget_of(&self, url: &Url) -> Option<&PathBudget> {

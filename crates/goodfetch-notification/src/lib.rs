@@ -16,6 +16,7 @@
 
 pub mod api;
 pub mod chat;
+pub mod dispatcher;
 pub mod driver;
 pub mod email;
 pub mod failure;
@@ -27,4 +28,11 @@ pub mod sns;
 pub mod subscriptions;
 pub mod webhook;
 
-pub use subscriptions::contribution;
+/// What `goodfetch-notification` contributes to an engine composition: its
+/// [`NotificationDispatcher`](goodfetch_engine::notification::NotificationDispatcher)
+/// and Integration Notification subscriptions (`notification.subscribe` /
+/// `notification.unsubscribe`, ADRs 0017, 0027 and 0087).
+#[must_use]
+pub fn contribution() -> goodfetch_engine::Contribution {
+    subscriptions::contribution().with_notification_dispatcher(dispatcher::new_dispatcher())
+}

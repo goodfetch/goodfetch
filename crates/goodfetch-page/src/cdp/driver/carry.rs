@@ -74,6 +74,15 @@ impl Watcher {
             None => std::future::pending().await,
         }
     }
+
+    /// Closes and drains any capture ask whose send already reserved a permit
+    /// before the page's reader ended (issue 2594).
+    pub(crate) async fn close(&mut self) {
+        self.asked.close();
+        while let Some(answer) = self.asked.recv().await {
+            let _ = answer.send(());
+        }
+    }
 }
 
 /// How many asks a watcher holds unread: its Session captures one at a time.
@@ -117,6 +126,11 @@ impl Origins {
             origins: self,
             asked,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_watchers(&self) -> Vec<mpsc::Sender<oneshot::Sender<()>>> {
+        self.watched().watchers.clone()
     }
 }
 

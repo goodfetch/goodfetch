@@ -32,6 +32,7 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 use crate::crawl_run::CrawlRun;
 use crate::intake::Intake;
 use crate::invariants::Invariants;
+use crate::partition::PartitionRouter;
 use crate::run_state::{self, Asked, Asking};
 use crate::staging::Staging;
 
@@ -98,15 +99,26 @@ pub(crate) struct Opened {
     /// The Datasets it declares, which each committed Record is checked
     /// against.
     pub(crate) datasets: Datasets,
+    /// Domains held fenced on start until their incoming Partition handoff is
+    /// acknowledged (ADR 0054).
+    pub(crate) initial_held_domains: Vec<String>,
 }
 
 /// How many joining Connections wait for a crawl's delivery to take them:
 /// one more waits in its `crawl.serve` call until the delivery takes one.
 const JOINING: usize = 16;
 
-/// The live crawls of one engine.
+/// The live crawls of one engine, plus registered Partition routers for
+/// Partitioned crawl runs (so resumes re-attach their router).
 #[derive(Clone, Default)]
-pub(crate) struct Crawls(Arc<Mutex<BTreeMap<RunId, Live>>>);
+pub(crate) struct Crawls {
+    live: Arc<Mutex<BTreeMap<RunId, Live>>>,
+    #[expect(
+        clippy::disallowed_types,
+        reason = "short in-memory PartitionRouter map lock held across no await, outside loom"
+    )]
+    routers: Arc<std::sync::Mutex<BTreeMap<RunId, Arc<dyn PartitionRouter>>>>,
+}
 
 /// Whether the crawl `run` keeps Records, its `dataset.records` (ADR 0138):
 /// off, it checks and commits none.
@@ -137,6 +149,18 @@ impl Crawls {
         invariants: Invariants,
         datasets: Datasets,
     ) -> Opened {
+        self.open_with_held(run, egress, invariants, datasets, Vec::new())
+            .await
+    }
+
+    pub(crate) async fn open_with_held(
+        &self,
+        run: &Arc<CrawlRun>,
+        egress: Policy,
+        invariants: Invariants,
+        datasets: Datasets,
+        initial_held_domains: Vec<String>,
+    ) -> Opened {
         let identity = &run.identity;
         let datasets = datasets.keeping_records(keeps_records(identity), indexes_records(identity));
         let (joining, joined) = mpsc::channel(JOINING);
@@ -147,7 +171,7 @@ impl Crawls {
         ));
         let egress = Arc::new(egress);
         let intake = Intake::default();
-        self.0.lock().await.insert(
+        self.live.lock().await.insert(
             identity.id().clone(),
             Live {
                 run: Arc::clone(run),
@@ -168,12 +192,30 @@ impl Crawls {
             invariants,
             intake,
             datasets,
+            initial_held_domains,
         }
+    }
+
+    /// Registers a [`PartitionRouter`] for `run_id` so a resume re-attaches it.
+    pub(crate) fn register_router(&self, run_id: RunId, router: Arc<dyn PartitionRouter>) {
+        self.routers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(run_id, router);
+    }
+
+    /// Looks up the registered [`PartitionRouter`] for `run_id`, if any.
+    pub(crate) fn router(&self, run_id: &RunId) -> Option<Arc<dyn PartitionRouter>> {
+        self.routers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(run_id)
+            .cloned()
     }
 
     /// What adds to the live crawl `run_id`, if this engine runs it.
     pub(crate) async fn live(&self, run_id: &RunId) -> Option<LiveCrawl> {
-        self.0.lock().await.get(run_id).map(|live| LiveCrawl {
+        self.live.lock().await.get(run_id).map(|live| LiveCrawl {
             run: Arc::clone(&live.run),
             egress: Arc::clone(&live.egress),
             invariants: live.invariants.clone(),
@@ -185,7 +227,7 @@ impl Crawls {
 
     /// Closes the crawl `run_id`: no Connection joins it again.
     pub(crate) async fn close(&self, run_id: &RunId) {
-        self.0.lock().await.remove(run_id);
+        self.live.lock().await.remove(run_id);
     }
 
     /// Joins the Connection of the call `context` to the live crawl
@@ -202,7 +244,7 @@ impl Crawls {
         context: CallContext,
     ) -> Option<oneshot::Sender<()>> {
         let (stays, left) = oneshot::channel();
-        let joining = self.0.lock().await.get(run_id)?.joining.clone();
+        let joining = self.live.lock().await.get(run_id)?.joining.clone();
         joining.send(Server { context, left }).await.ok()?;
         Some(stays)
     }
@@ -215,7 +257,7 @@ impl AttemptStaging for Crawls {
     /// `Runs::live` no longer finds the Run answers `run_not_found`.
     fn staging_of<'a>(&'a self, run_id: &'a RunId) -> StagingOf<'a> {
         Box::pin(async move {
-            let crawls = self.0.lock().await;
+            let crawls = self.live.lock().await;
             let live = crawls
                 .get(run_id)
                 .filter(|live| !live.run.end.is_decided())?;

@@ -169,6 +169,7 @@ impl State {
                 rollback: false,
                 settings: serde_json::Map::new(),
                 project: None,
+                group_member: None,
             }),
             Control::CopyResumeCommand => {
                 let Daemon::Reached(identity, _) = &self.daemon else {

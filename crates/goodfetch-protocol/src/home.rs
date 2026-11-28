@@ -11,6 +11,7 @@
 //!     runs/<run id>/trace/…       the run's trace files
 //!     run-index.sqlite            the Run index
 //!     schedule-store.sqlite       the Schedule store
+//!     group-store.sqlite          the group store (ADR 0055)
 //!     accounts-store.sqlite       the Accounts store (ADR 0149)
 //!     operator-policy.toml,       the major's settings files (ADR 0098)
 //!     configuration.toml
@@ -47,6 +48,10 @@ pub const RESPONSE_CACHE: &str = "response-cache";
 /// The Schedule store's file in the per-major folder, beside the Run index
 /// (ADRs 0036 and 0098).
 pub const SCHEDULE_STORE: &str = "schedule-store.sqlite";
+
+/// The group store's file in the per-major folder: the Daemon group's
+/// certificate authority, lead epoch and join tokens (ADR 0055).
+pub const GROUP_STORE: &str = "group-store.sqlite";
 
 /// The Accounts store's file in the per-major folder, beside the Operator
 /// policy (ADR 0149).
@@ -125,6 +130,10 @@ pub const RUN_TRACE_SETTINGS: &str = "trace/settings.jsonl";
 /// The run trace's calls into Plugin kinds' implementations (ADR 0033), in
 /// the run folder.
 pub const RUN_TRACE_PLUGIN_CALLS: &str = "trace/plugin-calls.jsonl";
+
+/// The stop mark written when a Run's trace stops at the `critical` storage
+/// level or on a failed write (ADRs 0031 and 0122), in the run folder.
+pub const RUN_TRACE_STOPPED: &str = "trace/stopped.json";
 
 /// The per-major folder of the Product version `version` in the home at
 /// `home`.

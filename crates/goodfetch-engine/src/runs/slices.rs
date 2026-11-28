@@ -58,7 +58,8 @@ impl Limits {
     /// The charging of the Run `run_id` under its run epoch `epoch`, its
     /// state in `folder`, placed at `placement`, reading its Limits again
     /// for another process's changes each `read_interval`, its
-    /// `usage.ledger_read_interval`.
+    /// `usage.ledger_read_interval`, and recording crossings at `thresholds`,
+    /// its `usage.thresholds`.
     pub(crate) fn charging(
         &self,
         run_id: &RunId,
@@ -66,6 +67,7 @@ impl Limits {
         epoch: u64,
         placement: Placement,
         read_interval: Duration,
+        thresholds: Vec<u64>,
     ) -> Charging {
         Charging::new(
             self.ledger.clone().counting(self.work.clone()),
@@ -78,6 +80,7 @@ impl Limits {
             SliceSizing::default(),
         )
         .reading_every(read_interval)
+        .with_thresholds(thresholds)
     }
 
     /// The scope of the Client connection `connection`: the one Connection
@@ -90,9 +93,15 @@ impl Limits {
     }
 
     /// Where the run `run_id` started on `connection` stands: the install,
-    /// its person, its Client connection, its own `run` scope and, on a
-    /// Daemon, the Daemon.
-    pub(crate) fn placement(&self, run_id: &RunId, connection: Option<ConnectionId>) -> Placement {
+    /// its person, its Client connection, its own `run` scope, on a Daemon the
+    /// Daemon, and any `extra` scopes contributed for the Run (such as a
+    /// composite crawl scope).
+    pub(crate) fn placement(
+        &self,
+        run_id: &RunId,
+        connection: Option<ConnectionId>,
+        extra: &[LimitScope],
+    ) -> Placement {
         let mut scopes = vec![
             LimitScope {
                 kind: INSTALL.to_owned(),
@@ -114,6 +123,7 @@ impl Limits {
                 id: major.clone(),
             });
         }
+        scopes.extend(extra.iter().cloned());
         Placement {
             product: self.product,
             scopes,

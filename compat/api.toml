@@ -397,6 +397,62 @@ entry = "typescript @goodfetch/collie-client/generated/types RunUsage"
 reason = "A Run report's durations are each language's duration type (ADR 0080, issue 1282): `RunUsage.browserTime` is `Milliseconds`, the alias of `number` that names a count of milliseconds, in place of a bare `number`; a program reads and writes the same values."
 
 [[announced]]
+entry = "typescript @goodfetch/collie-client/generated RunOwner"
+reason = "The group Run index names a run's owning Group member (ADR 0055, issue 242): `RunOwner` gains the `{ groupMember: string }` variant beside `daemon` and `attached`."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated/types RunOwner"
+reason = "The group Run index names a run's owning Group member (ADR 0055, issue 242): `RunOwner` gains the `{ groupMember: string }` variant beside `daemon` and `attached`."
+
+[[announced]]
+entry = "typescript @goodfetch/collie SettingsLayer"
+reason = "Daemon groups add the group-member settings scope for machine-specific settings (ADRs 0028 and 0055, issue 1617): `SettingsLayer` gains `group_member`."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client SettingsLayer"
+reason = "Daemon groups add the group-member settings scope for machine-specific settings (ADRs 0028 and 0055, issue 1617): `SettingsLayer` gains `group_member`."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated SettingsLayer"
+reason = "Daemon groups add the group-member settings scope for machine-specific settings (ADRs 0028 and 0055, issue 1617): `SettingsLayer` gains `group_member`."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated/types SettingsLayer"
+reason = "Daemon groups add the group-member settings scope for machine-specific settings (ADRs 0028 and 0055, issue 1617): `SettingsLayer` gains `group_member`."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound SettingsLayer"
+reason = "Daemon groups add the group-member settings scope for machine-specific settings (ADRs 0028 and 0055, issue 1617): `SettingsLayer` gains `group_member`."
+
+[[announced]]
+entry = "python goodfetch_collie_client.generated.models StopReason10"
+reason = "Daemon groups add `lead_unreachable` to `StopReason` when a live Run needs a new Usage ledger Slice while the Lead Daemon is unreachable (ADR 0055, issue 258): generated union member numbering shifts."
+
+[[announced]]
+entry = "python goodfetch_collie_client.generated.models StopReason11"
+reason = "Daemon groups add `lead_unreachable` to `StopReason` when a live Run needs a new Usage ledger Slice while the Lead Daemon is unreachable (ADR 0055, issue 258): generated union member numbering shifts."
+
+[[announced]]
+entry = "typescript @goodfetch/collie StopReason"
+reason = "Daemon groups add `lead_unreachable` to `StopReason` when a live Run needs a new Usage ledger Slice while the Lead Daemon is unreachable (ADR 0055, issue 258)."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client StopReason"
+reason = "Daemon groups add `lead_unreachable` to `StopReason` when a live Run needs a new Usage ledger Slice while the Lead Daemon is unreachable (ADR 0055, issue 258)."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated StopReason"
+reason = "Daemon groups add `lead_unreachable` to `StopReason` when a live Run needs a new Usage ledger Slice while the Lead Daemon is unreachable (ADR 0055, issue 258)."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated/types StopReason"
+reason = "Daemon groups add `lead_unreachable` to `StopReason` when a live Run needs a new Usage ledger Slice while the Lead Daemon is unreachable (ADR 0055, issue 258)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound StopReason"
+reason = "Daemon groups add `lead_unreachable` to `StopReason` when a live Run needs a new Usage ledger Slice while the Lead Daemon is unreachable (ADR 0055, issue 258)."
+
+[[announced]]
 entry = "typescript @goodfetch/collie-client/runtime SequenceOptions"
 reason = "A Product's sequence may make each item asynchronously, such as a Record its Dataset's schema parses (issue 1487): `SequenceOptions.itemOf` may answer a promise of the item; a program that answers the item itself still compiles."
 
@@ -423,6 +479,10 @@ reason = "The Daemon's HTTP JSON-RPC listener joins the `Surface` union as `http
 [[announced]]
 entry = "typescript @goodfetch/collie-client/generated/types Surface"
 reason = "The Daemon's HTTP JSON-RPC listener joins the `Surface` union as `http_listener` (ADR 0027, issue 1400): a switch over every surface gains that member."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated NeedsYouKind"
+reason = "An exhausted Usage limit records a `limit_reached` item in \"Needs you\" (ADR 0041, issue 233): the open `NeedsYouKind` union gains that member."
 
 [[announced]]
 entry = "python goodfetch_collie_client.run_view AsyncRunView"

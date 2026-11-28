@@ -219,13 +219,16 @@ goodfetch-frontier = { path = "crates/foxhound/goodfetch-frontier" }
 goodfetch-model-provider = { path = "crates/goodfetch-model-provider" }
 # The MCP server shared by Collie and Foxhound (spec #608; ADRs 0070 and 0087).
 goodfetch-mcp = { path = "crates/goodfetch-mcp" }
-# Notification channels, delivery ledger and Integration subscriptions (ADRs 0027 and 0129; spec #608).
-goodfetch-notification = { path = "crates/goodfetch-notification" }
 # The Memory site, a site served from memory through the fetch tiers' test
 # seam, a test adapter: only ever a dev-dependency (ADR 0125, issue 2512).
 goodfetch-memory-site = { path = "crates/foxhound/goodfetch-memory-site" }
+# Notification channels, delivery ledger and Integration subscriptions (ADRs 0027 and 0129; spec #608).
+goodfetch-notification = { path = "crates/goodfetch-notification" }
 # Collie's pages, Sessions and browsers (spec #577).
 goodfetch-page = { path = "crates/goodfetch-page" }
+# Foxhound's Partitioned crawls across Group members; only crates under
+# `crates/foxhound/` and `xtask` take it (ADRs 0054 and 0087).
+goodfetch-partitioned-crawl = { path = "crates/foxhound/goodfetch-partitioned-crawl" }
 goodfetch-protocol = { path = "crates/goodfetch-protocol" }
 # The page's recording navigation gate, lease check and response observer, a
 # test adapter: only ever a dev-dependency (ADR 0125).
@@ -346,6 +349,7 @@ hyper-util = { version = "0.1.21", default-features = false }
 loona-hpack = { version = "0.4.3", default-features = false }
 # The Proving ground's certificate authority, made from its seed (ADR 0059):
 # rcgen writes the certificates, p256 derives the keys and signs (RFC 6979).
+# rcgen also writes a Daemon group's, signed with ring (ADR 0055).
 p256 = { version = "0.14.0", default-features = false }
 rcgen = { version = "0.14.10", default-features = false }
 rustls = { version = "0.23.46", default-features = false }
@@ -462,7 +466,7 @@ tempfile = { version = "3.27.0", default-features = false }
 ignore = { version = "0.4.35", default-features = false }
 thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 # rcgen's dates; the Proving ground's leaf certificates are dated from its
-# clock.
+# clock, and a Daemon group's from the engine's.
 time = { version = "0.3.55", default-features = false, features = ["std"] }
 tokio = { version = "1.53.3", default-features = false }
 # PostgreSQL and Supabase Sinks (ADR 0026; issue 1162).

@@ -29,6 +29,7 @@ use goodfetch_protocol::checkpoint::{
 use goodfetch_protocol::connection::{StoppedBy, WaitedFor};
 use goodfetch_protocol::entries::operations_of;
 use goodfetch_protocol::formats::{Compatibility, Format};
+use goodfetch_protocol::group::{ErasureTarget, LEAD_UNREACHABLE};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::{
     Checkpoint, Lifecycle, RESOURCES_EXHAUSTED, Resource, ResourcesExhaustedDetails,
@@ -299,6 +300,9 @@ pub fn start_error(error: StartError) -> CallError {
         ),
         StartError::LimitReached(reached) => limit_reached(&reached),
         StartError::LimitNotUnderstood(limit) => limit_not_understood(*limit),
+        StartError::LeadUnreachable(message) => {
+            CallError::new(&LEAD_UNREACHABLE, message, &serde_json::json!({}))
+        }
         StartError::Internal { message, .. } => internal(message),
         StartError::Format {
             format,
@@ -810,17 +814,7 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
             compatibility,
             install,
             ..
-        } => {
-            let format = goodfetch_protocol::formats::FORMATS
-                .iter()
-                .find(|known| known.name == format)
-                .copied()
-                .unwrap_or(&goodfetch_protocol::formats::RUN_STATE);
-            match install {
-                Some(install) => store_refusal(format, &found, &install),
-                None => format_refusal(format, &found, compatibility),
-            }
-        }
+        } => run_format_error(format, &found, compatibility, install.as_deref()),
         RunError::ReopenRefused(refused) => *refused,
         RunError::BoundToMachine(run_id) => bound_to_machine(run_id),
         RunError::Behind(behind) => checkpoint_behind(behind),
@@ -830,17 +824,27 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
             reason,
             os_code,
             message,
-        } => CallError::new(
-            &FILE_WRITE_FAILED,
+        } => file_write_failed(
             format!(
                 "A Checkpoint of the Run `{run_id}` could not be written ({message}); free space where the engine keeps its Runs, or ask the Daemon's operator, then checkpoint again."
             ),
-            &FileWriteFailedDetails {
-                reason: reason.to_owned(),
-                os_code: os_code.map(str::to_owned),
-                path: Some(folder.display().to_string()),
-                side: WriteSide::Engine,
-            },
+            &folder,
+            reason,
+            os_code,
+        ),
+        RunError::TraceWriteFailed {
+            run_id,
+            folder,
+            reason,
+            os_code,
+            message,
+        } => file_write_failed(
+            format!(
+                "A Run trace copy of the Run `{run_id}` could not be written ({message}); free space where the engine keeps its Runs, or ask the Daemon's operator, then copy the trace again."
+            ),
+            &folder,
+            reason,
+            os_code,
         ),
         RunError::FilesystemUnsupported(run_id, refused) => {
             filesystem_unsupported(run_id, &refused)
@@ -866,6 +870,43 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
         RunError::FixedSetting(changed) => changed.into(),
         RunError::Stopped => stopped(),
     }
+}
+
+/// Refusal for a run-file or install-store format mismatch.
+fn run_format_error(
+    format: &str,
+    found: &str,
+    compatibility: Compatibility,
+    install: Option<&str>,
+) -> CallError {
+    let format = goodfetch_protocol::formats::FORMATS
+        .iter()
+        .find(|known| known.name == format)
+        .copied()
+        .unwrap_or(&goodfetch_protocol::formats::RUN_STATE);
+    match install {
+        Some(install) => store_refusal(format, found, install),
+        None => format_refusal(format, found, compatibility),
+    }
+}
+
+/// `file_write_failed` on the engine side for `folder`.
+fn file_write_failed(
+    message: String,
+    folder: &std::path::Path,
+    reason: &str,
+    os_code: Option<&str>,
+) -> CallError {
+    CallError::new(
+        &FILE_WRITE_FAILED,
+        message,
+        &FileWriteFailedDetails {
+            reason: reason.to_owned(),
+            os_code: os_code.map(str::to_owned),
+            path: Some(folder.display().to_string()),
+            side: WriteSide::Engine,
+        },
+    )
 }
 
 /// `run_state_unavailable`: the state of `run_id` in `folder` failed with
@@ -1106,6 +1147,34 @@ fn key_mismatch(run_id: RunId, reference: &SecretReference, wrapped_by: String) 
     )
 }
 
+fn check_run_start_partitions(
+    partitions: Option<goodfetch_protocol::run::Partitions>,
+    context: &CallContext,
+) -> Result<(), CallError> {
+    let Some(partitions) = partitions else {
+        return Ok(());
+    };
+    if !context.identity().product.contains(Product::Foxhound) {
+        let (message, details) = context.identity().not_in_product(
+            crate::product::Requested::Name("partitions"),
+            Product::Foxhound,
+            context.behind_gateway(),
+        );
+        return Err(CallError::new(
+            &goodfetch_protocol::connection::NOT_IN_PRODUCT,
+            message,
+            &details,
+        ));
+    }
+    if partitions.is_multi() {
+        return Err(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            "Multi-partition runs require `crawl.start` rather than `run.start`.",
+        ));
+    }
+    Ok(())
+}
+
 /// Where run-layer values from `surface` come from (ADR 0083; issue 1403):
 /// an Integration reaching the HTTP listener supplies values from its form;
 /// every other surface supplies values from its `settings` option.
@@ -1125,6 +1194,7 @@ pub(crate) fn run_origin(surface: goodfetch_protocol::connection::Surface) -> Ru
 }
 
 async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarted, CallError> {
+    check_run_start_partitions(params.partitions, &context)?;
     let run_id = run_id(params.run_id.as_deref())?;
     client_tags(&params.tags)?;
     // A `timeout` of 0 is refused before any Run starts; one given is the
@@ -1193,6 +1263,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
                 started_as: StartedAs::New,
                 lifecycle: goodfetch_protocol::run::Lifecycle::Running,
                 needs: Product::Collie,
+                partitions: Vec::new(),
             }
         }
         // The resumed Run counts its timeout on a fresh clock (ADR 0102).
@@ -1447,6 +1518,15 @@ async fn discard(params: RunParams, context: CallContext) -> Result<RunDiscarded
     context.engine().response_cache().forget_run(&run_id).await.map_err(|error| {
         internal(format!("the Run `{run_id}` was discarded, but the Response cache keeps what it fetched: {error}; `cache clear --run-id {run_id}` deletes it"))
     })?;
+    if let Err(error) = context
+        .engine()
+        .broadcast_erasure(ErasureTarget::Run {
+            run_id: run_id.clone(),
+        })
+        .await
+    {
+        tracing::warn!(%run_id, %error, "the discarded Run's group erasure broadcast did not finish immediately");
+    }
     Ok(RunDiscarded { run_id })
 }
 
@@ -1578,6 +1658,7 @@ pub async fn resume_run(
                 started_as: StartedAs::Resumed,
                 lifecycle: Lifecycle::Running,
                 needs,
+                partitions: Vec::new(),
             };
             if let Some(driver) = context.driver(kind) {
                 identity.spawn(driver(*run.clone(), context.clone(), settings));
@@ -1595,6 +1676,7 @@ pub async fn resume_run(
             started_as: StartedAs::Ended,
             lifecycle,
             needs,
+            partitions: Vec::new(),
         }),
     }
 }

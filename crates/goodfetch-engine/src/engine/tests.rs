@@ -27,6 +27,7 @@ mod effect;
 mod events;
 mod following;
 mod governor;
+mod group;
 mod handler_requests;
 mod http_listener;
 mod in_flight_cap;

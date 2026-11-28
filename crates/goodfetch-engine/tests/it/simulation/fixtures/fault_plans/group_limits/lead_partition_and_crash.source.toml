@@ -1,0 +1,8 @@
+# A committed Fault plan for the group_limits Simulation scenario (ADRs 0055 and 0060):
+# lead is partitioned from worker-a (blocking both worker-a and the attached engine
+# behind it), then lead crashes and restarts while worker-b also contends for Slices;
+# charged + held Usage and completed charges never exceed the person Limit.
+generator = "proptest-state-machine, scenario group_limits"
+version = 1
+seed = 1
+command = "just simulate group_limits --plan crates/goodfetch-engine/tests/it/simulation/fixtures/fault_plans/group_limits/lead_partition_and_crash.json"

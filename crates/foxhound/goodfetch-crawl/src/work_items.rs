@@ -55,6 +55,7 @@ use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::{Map, Value};
 
 use crate::invariants::Invariants;
+use crate::partition::{ForwardedItem, PartitionRouter};
 
 /// The tables of a crawl's work items, Records and outcomes.
 pub(crate) const TABLES: RunStateTables = RunStateTables {
@@ -670,7 +671,12 @@ pub(crate) fn admit(
         adding,
         via: Via::Request,
     };
-    let (enqueued, again) = coming.admit(connection, positions, invariants.frontier())?;
+    let (enqueued, again) = coming.admit(
+        connection,
+        positions,
+        invariants.frontier(),
+        invariants.partition_router(),
+    )?;
     if again {
         positions.decide(|| Decided::Request(Box::new(coming.kept(invariants))));
     }
@@ -704,7 +710,12 @@ pub(crate) fn admit_keyed(
         adding,
         via: Via::Link(suspected),
     };
-    let (enqueued, again) = coming.admit(connection, positions, invariants.frontier())?;
+    let (enqueued, again) = coming.admit(
+        connection,
+        positions,
+        invariants.frontier(),
+        invariants.partition_router(),
+    )?;
     if again {
         positions.decide(|| Decided::Request(Box::new(coming.kept(invariants))));
     } else if let Enqueued::NotAdded {
@@ -768,7 +779,42 @@ impl Coming<'_> {
         connection: &Connection,
         positions: &mut Positions,
         invariants: &goodfetch_frontier::Invariants,
+        partition_router: Option<&Arc<dyn PartitionRouter>>,
     ) -> rusqlite::Result<(Enqueued, bool)> {
+        // Partitioned crawl F3 routing (ADR 0054, ADR 0140): check domain
+        // ownership from the partition map built once per map epoch before
+        // touching the local Frontier. Zero extra work when `None`.
+        if let Some(router) = partition_router
+            && let Some(resolved_url) = self.keyed.url_str()
+            && let Some((domain_key, target_partition)) = router.route_url(resolved_url)
+        {
+            if positions.decided.is_none() {
+                let payload_json = self
+                    .adding
+                    .payload
+                    .and_then(|p| serde_json::from_str::<Value>(p.json()).ok());
+                positions.forwarded.push(ForwardedItem {
+                    url: resolved_url.to_owned(),
+                    label: self.adding.label.to_owned(),
+                    payload: payload_json,
+                    method: self.adding.method.clone(),
+                    body: self.adding.body.cloned(),
+                    key: None,
+                    priority: self.adding.priority,
+                    forefront: self.adding.forefront,
+                    domain_key,
+                    target_partition,
+                    map_epoch: router.map_epoch(),
+                });
+            }
+            return Ok((
+                Enqueued::Added {
+                    id: format!("fwd:{target_partition}"),
+                    url: resolved_url.to_owned(),
+                },
+                positions.decided.is_some(),
+            ));
+        }
         let left = positions.admitting.left();
         let mut admitting = std::mem::take(&mut positions.admitting);
         let answer = goodfetch_frontier::admit_keyed(
@@ -811,6 +857,7 @@ impl Coming<'_> {
     fn kept(self, invariants: &Invariants) -> Request {
         Request {
             invariants: invariants.shared_frontier(),
+            partition_router: invariants.partition_router().cloned(),
             given: self.given.to_owned(),
             keyed: self.keyed.clone(),
             from: self.entering.from.cloned(),
@@ -854,6 +901,7 @@ pub(crate) enum Decided {
 #[derive(Debug)]
 pub(crate) struct Request {
     invariants: Arc<goodfetch_frontier::Invariants>,
+    partition_router: Option<Arc<dyn PartitionRouter>>,
     given: String,
     keyed: Keyed,
     from: Option<Url>,
@@ -872,6 +920,14 @@ pub(crate) struct Request {
 }
 
 impl Decided {
+    /// The [`PartitionRouter`] carried by this decided admission, if any.
+    pub(crate) fn partition_router(&self) -> Option<&Arc<dyn PartitionRouter>> {
+        match self {
+            Self::Request(request) => request.partition_router.as_ref(),
+            Self::Sitemap(_) | Self::SeenAgain(_) => None,
+        }
+    }
+
     /// Applies it in `connection`'s transaction, at its attempt's commit,
     /// at the position `positions` kept for it. A candidate is judged
     /// again by the part of its admission that needs the Run's state,
@@ -911,7 +967,12 @@ impl Decided {
                     via: request.via,
                 };
                 coming
-                    .admit(connection, positions, &request.invariants)
+                    .admit(
+                        connection,
+                        positions,
+                        &request.invariants,
+                        request.partition_router.as_ref(),
+                    )
                     .map(drop)
             }
             Self::Sitemap(seed) => {
@@ -955,9 +1016,22 @@ pub(crate) struct Positions {
     added: u64,
     /// Whether a sitemap seed is among them.
     sitemap_seed: bool,
+    /// Remote-Partition items discovered during this admission batch (always
+    /// empty for single-run crawls).
+    forwarded: Vec<ForwardedItem>,
 }
 
 impl Positions {
+    /// Hands any remote-Partition items collected during this admission batch
+    /// to `router` in one call (ADR 0140, F3).
+    pub(crate) fn flush_forwarded(&mut self, router: Option<&Arc<dyn PartitionRouter>>) {
+        if !self.forwarded.is_empty()
+            && let Some(router) = router
+        {
+            router.forward(std::mem::take(&mut self.forwarded));
+        }
+    }
+
     /// The positions after everything the run file `connection` holds,
     /// admitting against the run file alone.
     pub(crate) fn of(connection: &Connection) -> rusqlite::Result<Self> {
@@ -979,6 +1053,7 @@ impl Positions {
             decided: None,
             added: 0,
             sitemap_seed: false,
+            forwarded: Vec::new(),
         })
     }
 
@@ -2237,7 +2312,7 @@ pub(crate) fn recover_leases(
     retry_max: u32,
     ended_at: SystemTime,
     changed: &mut Changed,
-) -> rusqlite::Result<()> {
+) -> rusqlite::Result<u64> {
     let lost = connection
         .prepare_cached(
             "SELECT id, lease_epoch, attempts - retried_from <= ?1 FROM work_items
@@ -2251,6 +2326,7 @@ pub(crate) fn recover_leases(
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let recovered = u64::try_from(lost.len()).unwrap_or(u64::MAX);
     for (id, lease_epoch, retried) in lost {
         let unsuccessful = if retried {
             Unsuccessful::Retried(failure.clone())
@@ -2266,7 +2342,7 @@ pub(crate) fn recover_leases(
             changed,
         )?;
     }
-    Ok(())
+    Ok(recovered)
 }
 
 /// Whether any work item is still pending or leased: what a crawl's
@@ -2287,6 +2363,299 @@ pub(crate) fn pending(connection: &Connection, limit: usize) -> rusqlite::Result
             row.get(0)
         })?
         .collect()
+}
+
+/// Checks whether the `partition_domain_state` table exists in `connection`
+/// (added by `goodfetch-partitioned-crawl` for per-domain state attachments).
+fn has_partition_domain_state_table(connection: &Connection) -> rusqlite::Result<bool> {
+    Ok(connection
+        .prepare_cached(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'partition_domain_state'",
+        )?
+        .query_row([], |_| Ok(()))
+        .optional()?
+        .is_some())
+}
+
+/// Exports and removes every pending work item, seen fingerprint (for already
+/// handled URLs), and attached per-domain state for each domain key in
+/// `domains`, and excludes handed-off domains' non-succeeded outcomes from
+/// `request_counts` so this Partition's Completeness counts only the domains it
+/// still owned at its end (ADR 0054).
+///
+/// Must run after the crawl's open Run-state batch has been sealed (ADR 0142).
+pub(crate) fn export_and_remove_domains(
+    connection: &Connection,
+    domains: &[String],
+) -> rusqlite::Result<Vec<crate::partition::DomainHandoffSnapshot>> {
+    let has_state_table = has_partition_domain_state_table(connection)?;
+    let mut snapshots = Vec::with_capacity(domains.len());
+    for domain_key in domains {
+        snapshots.push(export_and_remove_one_domain(
+            connection,
+            domain_key,
+            has_state_table,
+        )?);
+    }
+    Ok(snapshots)
+}
+
+struct PendingHandoffRow {
+    id: String,
+    url: String,
+    method: String,
+    body: Option<Vec<u8>>,
+    label: String,
+    depth: i64,
+    priority: i64,
+    forefront: Option<i64>,
+}
+
+fn export_and_remove_one_domain(
+    connection: &Connection,
+    domain_key: &str,
+    has_state_table: bool,
+) -> rusqlite::Result<crate::partition::DomainHandoffSnapshot> {
+    let pending_rows: Vec<PendingHandoffRow> = connection
+        .prepare_cached(
+            "SELECT id, url, method, body, label, depth, priority, forefront
+             FROM work_items
+             WHERE domain_key = ?1 AND status = 'pending'
+             ORDER BY position",
+        )?
+        .query_map([domain_key], |row| {
+            Ok(PendingHandoffRow {
+                id: row.get(0)?,
+                url: row.get(1)?,
+                method: row.get(2)?,
+                body: row.get(3)?,
+                label: row.get(4)?,
+                depth: row.get(5)?,
+                priority: row.get(6)?,
+                forefront: row.get(7)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let mut pending = Vec::with_capacity(pending_rows.len());
+    for row in pending_rows {
+        let payload_val = payload::of_request(connection, &row.id)?;
+        let method = HttpMethod::parse(&row.method).unwrap_or_else(|_| HttpMethod::get());
+        let body = row.body.map(HttpBody::new);
+        pending.push(crate::partition::DomainHandoffItem {
+            url: row.url,
+            label: row.label,
+            payload: payload_val,
+            method,
+            body,
+            key: None,
+            priority: row.priority,
+            forefront: row.forefront.is_some(),
+            depth: u32::try_from(row.depth).unwrap_or(0),
+            domain_key: domain_key.to_owned(),
+        });
+    }
+
+    let seen = collect_domain_seen_fingerprints(connection, domain_key)?;
+    let domain_state = take_domain_attached_state(connection, domain_key, has_state_table)?;
+    remove_domain_pending_and_counts(connection, domain_key)?;
+
+    Ok(crate::partition::DomainHandoffSnapshot {
+        domain_key: domain_key.to_owned(),
+        pending,
+        seen_fingerprints: seen.into_iter().collect(),
+        domain_state,
+    })
+}
+
+fn collect_domain_seen_fingerprints(
+    connection: &Connection,
+    domain_key: &str,
+) -> rusqlite::Result<BTreeSet<String>> {
+    let mut seen: BTreeSet<String> = connection
+        .prepare_cached(
+            "SELECT v.identity
+             FROM visited AS v
+             INNER JOIN work_items AS w ON w.id = v.crawl_request
+             WHERE w.domain_key = ?1 AND w.status <> 'pending'",
+        )?
+        .query_map([domain_key], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<BTreeSet<_>>>()?;
+    let handoff_visits: Vec<String> = connection
+        .prepare_cached("SELECT identity FROM visited WHERE crawl_request = 'handoff'")?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for identity in handoff_visits {
+        if identity.contains(domain_key) {
+            seen.insert(identity);
+        }
+    }
+    Ok(seen)
+}
+
+fn take_domain_attached_state(
+    connection: &Connection,
+    domain_key: &str,
+    has_state_table: bool,
+) -> rusqlite::Result<BTreeMap<String, Value>> {
+    let mut domain_state = BTreeMap::new();
+    if !has_state_table {
+        return Ok(domain_state);
+    }
+    let rows: Vec<(String, String)> = connection
+        .prepare_cached(
+            "SELECT area, state_json FROM partition_domain_state WHERE domain_key = ?1",
+        )?
+        .query_map([domain_key], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (area, json_str) in rows {
+        if let Ok(value) = serde_json::from_str::<Value>(&json_str) {
+            domain_state.insert(area, value);
+        }
+    }
+    connection
+        .prepare_cached("DELETE FROM partition_domain_state WHERE domain_key = ?1")?
+        .execute([domain_key])?;
+    Ok(domain_state)
+}
+
+fn remove_domain_pending_and_counts(
+    connection: &Connection,
+    domain_key: &str,
+) -> rusqlite::Result<()> {
+    connection
+        .prepare_cached(
+            "DELETE FROM visited WHERE crawl_request IN (
+                SELECT id FROM work_items WHERE domain_key = ?1 AND status = 'pending'
+             )",
+        )?
+        .execute([domain_key])?;
+    connection
+        .prepare_cached(
+            "DELETE FROM payloads WHERE request IN (
+                SELECT id FROM work_items WHERE domain_key = ?1 AND status = 'pending'
+             )",
+        )?
+        .execute([domain_key])?;
+    connection
+        .prepare_cached("DELETE FROM work_items WHERE domain_key = ?1 AND status = 'pending'")?
+        .execute([domain_key])?;
+
+    let decrement_rows: Vec<(String, String, i64)> = connection
+        .prepare_cached(
+            "SELECT o.kind,
+                    COALESCE(w.error_code, ''),
+                    COUNT(*)
+             FROM work_items AS w
+             INNER JOIN outcomes AS o ON o.work_item = w.id
+             WHERE w.domain_key = ?1
+               AND w.status IN ('failed', 'skipped', 'blocked')
+               AND o.position = (
+                   SELECT MAX(o2.position) FROM outcomes AS o2 WHERE o2.work_item = w.id
+               )
+             GROUP BY o.kind, COALESCE(w.error_code, '')",
+        )?
+        .query_map([domain_key], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (kind, name, count) in decrement_rows {
+        connection
+            .prepare_cached(
+                "UPDATE request_counts
+                 SET count = MAX(0, count - ?1)
+                 WHERE kind = ?2 AND (name = ?3 OR ?3 = '')",
+            )?
+            .execute((count, kind.as_str(), name.as_str()))?;
+    }
+    connection
+        .prepare_cached("DELETE FROM request_counts WHERE count <= 0")?
+        .execute([])?;
+    Ok(())
+}
+
+/// Installs one handed-off domain's seen fingerprints, pending work items, and
+/// per-domain state into the receiving Partition's run file (ADR 0054).
+pub(crate) fn install_domain_handoff(
+    connection: &Connection,
+    positions: &mut Positions,
+    invariants: &Invariants,
+    snapshot: &crate::partition::DomainHandoffSnapshot,
+) -> rusqlite::Result<(Vec<Leased>, Changed)> {
+    invariants
+        .frontier()
+        .install_transferred_visits(connection, &snapshot.seen_fingerprints)?;
+
+    if !snapshot.domain_state.is_empty() && has_partition_domain_state_table(connection)? {
+        let mut stmt = connection.prepare_cached(
+            "INSERT INTO partition_domain_state (domain_key, area, state_json)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT (domain_key, area) DO UPDATE SET state_json = excluded.state_json",
+        )?;
+        for (area, val) in &snapshot.domain_state {
+            let encoded =
+                serde_json::to_string(val).expect("invariant: domain state value encodes as JSON");
+            stmt.execute((snapshot.domain_key.as_str(), area.as_str(), encoded))?;
+        }
+    }
+
+    let mut visited_ids = Vec::new();
+    for item in &snapshot.pending {
+        let Ok(parsed_url) = Url::parse(&item.url) else {
+            continue;
+        };
+        let identity_key = format!("{} {}", item.method.as_str(), parsed_url.as_str());
+        let already_visited: bool = connection
+            .prepare_cached("SELECT 1 FROM visited WHERE identity = ?1 LIMIT 1")?
+            .query_row([identity_key.as_str()], |_| Ok(()))
+            .optional()?
+            .is_some();
+        if already_visited {
+            continue;
+        }
+        let already_pending: bool = connection
+            .prepare_cached(
+                "SELECT 1 FROM work_items WHERE url = ?1 AND method = ?2 AND label = ?3 LIMIT 1",
+            )?
+            .query_row(
+                (item.url.as_str(), item.method.as_str(), item.label.as_str()),
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if already_pending {
+            continue;
+        }
+        let payload_checked = item
+            .payload
+            .as_ref()
+            .map(|v| Arc::new(Payload::of(v.clone(), &CountedWork::default())));
+        let adding = Adding {
+            method: &item.method,
+            headers: None,
+            body: item.body.as_ref(),
+            label: &item.label,
+            payload: payload_checked.as_ref(),
+            priority: item.priority,
+            forefront: item.forefront,
+            depth: item.depth,
+        };
+        let id = add(connection, positions, &parsed_url, adding)?;
+        connection
+            .prepare_cached(
+                "INSERT OR IGNORE INTO visited (identity, crawl_request) VALUES (?1, ?2)",
+            )?
+            .execute((identity_key.as_str(), id.as_str()))?;
+        visited_ids.push(identity_key);
+    }
+    if !visited_ids.is_empty()
+        && let Some(unwritten) = invariants.frontier().unwritten()
+    {
+        unwritten.note_transferred_visits(&visited_ids);
+    }
+    let mut changed = Changed::default();
+    let added = leasable_added(connection, &changed.adds(positions))?;
+    Ok((added, changed.with_sitemaps(connection)?))
 }
 
 #[cfg(test)]

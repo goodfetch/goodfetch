@@ -156,6 +156,18 @@ impl LiveView {
         }))
     }
 
+    /// Whether this Live view currently knows an open Session with ID `session`
+    /// (already watched or offered by a [`WatchedSessions`] provider).
+    pub(crate) fn has_session(&self, session: &SessionId) -> bool {
+        if self.0.watches().open.contains_key(session) {
+            return true;
+        }
+        self.0
+            .sessions
+            .iter()
+            .any(|sessions| sessions.watch(session).is_some())
+    }
+
     /// Admits a viewer of `session` on `screen`, the first one starting its
     /// capture by one of `tiers`, unless `limit` viewers watch it already.
     ///

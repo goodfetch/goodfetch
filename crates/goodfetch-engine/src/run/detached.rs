@@ -50,7 +50,7 @@ pub fn client_start(
             fix,
         ));
     }
-    if context.daemon().is_none() {
+    if context.daemon().is_none() && context.engine().group_peer().is_none() {
         return Err(refused(
             "This engine ends with its Connection, so no Run it runs can be detached.".to_owned(),
             "engine",

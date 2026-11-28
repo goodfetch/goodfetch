@@ -96,10 +96,95 @@ number = 3
 kind = "error"
 prefix = "executable_blocked_by_smart_app_control"
 
+# Partitioned crawls and borrowed-browser refusal (#248, ADRs 0054 and 0056).
+[[area]]
+number = 3
+kind = "error"
+prefix = "browser_borrowed"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "partitions_need_group"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "partitions_exceed_group_members"
+
 [[area]]
 number = 3
 kind = "format"
 prefix = "protocol"
+
+# The Daemon group's peer link (spec #213, #242): its peer protocol and the
+# lead epoch's refusal.
+[[area]]
+number = 3
+kind = "format"
+prefix = "peer-protocol"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "lead_epoch"
+
+# Forming a Daemon group (spec #213, #242): `group.*` operations, commands and
+# their refusals.
+[[area]]
+number = 3
+kind = "operation"
+prefix = "group."
+
+[[area]]
+number = 3
+kind = "command"
+prefix = "group."
+
+[[area]]
+number = 3
+kind = "event"
+prefix = "group."
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "group_"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "authority_key_mismatch"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "join_token_refused"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "lead_cannot_leave"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "lead_unconfirmed"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "lead_unreachable"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "not_in_a_group"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "not_lead_daemon"
 
 # Area 3's Runs (spec #213, #215): the run operations, a crawl's start, their
 # Error codes, run state's location and the run-state and Run index formats.
@@ -459,6 +544,16 @@ prefix = "installed-executables"
 number = 3
 kind = "format"
 prefix = "politeness-file"
+
+[[area]]
+number = 3
+kind = "format"
+prefix = "politeness-store"
+
+[[area]]
+number = 3
+kind = "event"
+prefix = "politeness."
 
 [[area]]
 number = 3

@@ -693,7 +693,7 @@
                 "type": "object"
               },
               "degraded_max": {
-                "description": "The longest an engine cut off from its Politeness store stays in degraded mode, admitting one request at a time per domain, before it stops admitting new requests until the store answers again: 10 minutes. Set in user configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.",
+                "description": "How long a cut-off engine keeps admitting requests to shared keys within its last granted share when the Politeness store is unreachable, counted on each side's clock from the moment the engine sent its last acknowledged heartbeat: 10 minutes by default. Past it, the cut-off engine admits nothing to shared keys until it reconnects, while its Runs stay live and resumable, and the store frees its reservation once `politeness.degraded_max` plus its longest reported request timeout has passed. Set in user configuration or an Operator policy only.",
                 "minimum": 0,
                 "type": "integer"
               },
@@ -1274,6 +1274,17 @@
                 "exclusiveMinimum": 0.0,
                 "type": "number"
               },
+              "executable_path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The path of an installed Chromium-family browser executable on this machine, launched in place of the Browser cache's pinned Chrome for Testing build: `null` by default. Set in user configuration, an Operator policy, or a Group member's scope."
+              },
               "geolocation": {
                 "anyOf": [
                   {
@@ -1500,6 +1511,163 @@
                   }
                 ],
                 "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
+              },
+              "object_storage": {
+                "additionalProperties": false,
+                "properties": {
+                  "az": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "account": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Azure Storage account name used for `az://` Checkpoints."
+                      },
+                      "account_key": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Secret reference for the Base64-encoded Azure Storage `SharedKey` used for `az://` Checkpoints."
+                      },
+                      "endpoint": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Endpoint URL for `az://` Checkpoints, such as an Azurite emulator URL; defaults to `https://<account>.blob.core.windows.net`."
+                      },
+                      "sas_token": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Secret reference for the Azure Storage SAS query token used for `az://` Checkpoints when `account_key` is not set."
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "gs": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "access_token": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Secret reference for the `OAuth2` bearer access token used for `gs://` Checkpoints."
+                      },
+                      "endpoint": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Endpoint URL for `gs://` Checkpoints; defaults to `https://storage.googleapis.com`."
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "s3": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "access_key_id": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Secret reference for the AWS access key ID used for `s3://` Checkpoints."
+                      },
+                      "endpoint": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Endpoint URL for `s3://` Checkpoints, for S3-compatible stores such as R2 or `RustFS`; defaults to AWS S3 for the configured region."
+                      },
+                      "region": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Signing region for `s3://` Checkpoints; defaults to `us-east-1`."
+                      },
+                      "secret_access_key": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Secret reference for the AWS secret access key used for `s3://` Checkpoints."
+                      },
+                      "session_token": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Optional Secret reference for the AWS session token used for temporary credentials on `s3://` Checkpoints."
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "object"
               }
             },
             "type": "object"
@@ -1853,6 +2021,17 @@
               "address": {
                 "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Any other Daemon listens there for Live view channels alone, while `live_view.enabled` is on. Port 0 takes a free port, which its log and `daemon.status` name. An address other than loopback needs `daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`, so no token crosses a network in clear. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
                 "type": "string"
+              },
+              "advertise_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The URL Clients reach this Group member at, such as a per-pod Ingress or a VM address. When set, another Group member redirects a Client's event stream (`events.subscribe`) and Live view channel to this URL instead of forwarding them over the peer link. Unset by default, in which case those streams are forwarded over the peer link. Set in user configuration or an Operator policy, including under `[group_member.<name>]`."
               },
               "drain_grace": {
                 "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Any Daemon whose listener is closed for good drains the same way within it, then exits 1. An Attached engine that stops on a panic in a part every run shares waits as long for its runs to stop, leaving each one not stopped resumable from its run file, then exits 1. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
@@ -3307,7 +3486,7 @@
                 "type": "object"
               },
               "degraded_max": {
-                "description": "The longest an engine cut off from its Politeness store stays in degraded mode, admitting one request at a time per domain, before it stops admitting new requests until the store answers again: 10 minutes. Set in user configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.",
+                "description": "How long a cut-off engine keeps admitting requests to shared keys within its last granted share when the Politeness store is unreachable, counted on each side's clock from the moment the engine sent its last acknowledged heartbeat: 10 minutes by default. Past it, the cut-off engine admits nothing to shared keys until it reconnects, while its Runs stay live and resumable, and the store frees its reservation once `politeness.degraded_max` plus its longest reported request timeout has passed. Set in user configuration or an Operator policy only.",
                 "minimum": 0,
                 "type": "integer"
               },
@@ -6168,6 +6347,15 @@
                 "description": "How long a going Run charges on the Limits it holds before it reads them again from the Usage ledger for the changes an engine of another process made, such as a `usage set` through a Daemon while an SDK's engine crawls: 1000 ms. A change made by an engine of the Run's own process reaches its next charge, and a Run reads them again before each Slice it takes, so a Limit another process sets reaches a going Run at its next Slice or within this long, whichever comes first. A charge its Slices cover reads nothing in between: no SQL statement and no file operation. `0` reads them at every charge, one ledger read per charge. A Run reads it as it opens; set in user configuration or an Operator policy only.",
                 "minimum": 0,
                 "type": "integer"
+              },
+              "thresholds": {
+                "description": "The percentages of each Limit (0 to 100) at which the engine sends a `limit_threshold` Notification once per period (ADR 0041): `[50, 80, 100]` by default. A crossing is recorded in the Usage ledger inside the Slice's transaction so concurrent engines send it once; a 0 entry is ignored, and an empty list disables threshold Notifications. Reaching 100 % always records a `limit_reached` \"Needs you\" item in the Usage ledger. Set in user configuration or an Operator policy only.",
+                "items": {
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": "array"
               }
             },
             "type": "object"
@@ -6346,6 +6534,17 @@
                 "exclusiveMinimum": 0.0,
                 "type": "number"
               },
+              "executable_path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The path of an installed Chromium-family browser executable on this machine, launched in place of the Browser cache's pinned Chrome for Testing build: `null` by default. Set in user configuration, an Operator policy, or a Group member's scope."
+              },
               "geolocation": {
                 "anyOf": [
                   {
@@ -6572,6 +6771,163 @@
                   }
                 ],
                 "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
+              },
+              "object_storage": {
+                "additionalProperties": false,
+                "properties": {
+                  "az": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "account": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Azure Storage account name used for `az://` Checkpoints."
+                      },
+                      "account_key": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Secret reference for the Base64-encoded Azure Storage `SharedKey` used for `az://` Checkpoints."
+                      },
+                      "endpoint": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Endpoint URL for `az://` Checkpoints, such as an Azurite emulator URL; defaults to `https://<account>.blob.core.windows.net`."
+                      },
+                      "sas_token": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Secret reference for the Azure Storage SAS query token used for `az://` Checkpoints when `account_key` is not set."
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "gs": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "access_token": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Secret reference for the `OAuth2` bearer access token used for `gs://` Checkpoints."
+                      },
+                      "endpoint": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Endpoint URL for `gs://` Checkpoints; defaults to `https://storage.googleapis.com`."
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "s3": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "access_key_id": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Secret reference for the AWS access key ID used for `s3://` Checkpoints."
+                      },
+                      "endpoint": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Endpoint URL for `s3://` Checkpoints, for S3-compatible stores such as R2 or `RustFS`; defaults to AWS S3 for the configured region."
+                      },
+                      "region": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Signing region for `s3://` Checkpoints; defaults to `us-east-1`."
+                      },
+                      "secret_access_key": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Secret reference for the AWS secret access key used for `s3://` Checkpoints."
+                      },
+                      "session_token": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Optional Secret reference for the AWS session token used for temporary credentials on `s3://` Checkpoints."
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "object"
               }
             },
             "type": "object"
@@ -6925,6 +7281,17 @@
               "address": {
                 "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Any other Daemon listens there for Live view channels alone, while `live_view.enabled` is on. Port 0 takes a free port, which its log and `daemon.status` name. An address other than loopback needs `daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`, so no token crosses a network in clear. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
                 "type": "string"
+              },
+              "advertise_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The URL Clients reach this Group member at, such as a per-pod Ingress or a VM address. When set, another Group member redirects a Client's event stream (`events.subscribe`) and Live view channel to this URL instead of forwarding them over the peer link. Unset by default, in which case those streams are forwarded over the peer link. Set in user configuration or an Operator policy, including under `[group_member.<name>]`."
               },
               "drain_grace": {
                 "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Any Daemon whose listener is closed for good drains the same way within it, then exits 1. An Attached engine that stops on a panic in a part every run shares waits as long for its runs to stop, leaving each one not stopped resumable from its run file, then exits 1. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
@@ -8379,7 +8746,7 @@
                 "type": "object"
               },
               "degraded_max": {
-                "description": "The longest an engine cut off from its Politeness store stays in degraded mode, admitting one request at a time per domain, before it stops admitting new requests until the store answers again: 10 minutes. Set in user configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.",
+                "description": "How long a cut-off engine keeps admitting requests to shared keys within its last granted share when the Politeness store is unreachable, counted on each side's clock from the moment the engine sent its last acknowledged heartbeat: 10 minutes by default. Past it, the cut-off engine admits nothing to shared keys until it reconnects, while its Runs stay live and resumable, and the store frees its reservation once `politeness.degraded_max` plus its longest reported request timeout has passed. Set in user configuration or an Operator policy only.",
                 "minimum": 0,
                 "type": "integer"
               },
@@ -11240,6 +11607,15 @@
                 "description": "How long a going Run charges on the Limits it holds before it reads them again from the Usage ledger for the changes an engine of another process made, such as a `usage set` through a Daemon while an SDK's engine crawls: 1000 ms. A change made by an engine of the Run's own process reaches its next charge, and a Run reads them again before each Slice it takes, so a Limit another process sets reaches a going Run at its next Slice or within this long, whichever comes first. A charge its Slices cover reads nothing in between: no SQL statement and no file operation. `0` reads them at every charge, one ledger read per charge. A Run reads it as it opens; set in user configuration or an Operator policy only.",
                 "minimum": 0,
                 "type": "integer"
+              },
+              "thresholds": {
+                "description": "The percentages of each Limit (0 to 100) at which the engine sends a `limit_threshold` Notification once per period (ADR 0041): `[50, 80, 100]` by default. A crossing is recorded in the Usage ledger inside the Slice's transaction so concurrent engines send it once; a 0 entry is ignored, and an empty list disables threshold Notifications. Reaching 100 % always records a `limit_reached` \"Needs you\" item in the Usage ledger. Set in user configuration or an Operator policy only.",
+                "items": {
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": "array"
               }
             },
             "type": "object"

@@ -1,5 +1,8 @@
 //! `crawl.start` and Foxhound's crawl contribution (ADRs 0028, 0087, 0093
 //! and 0102): the start resolves the Run's settings, refused before the Run
+//!
+//! Size: one concern, wiring `crawl.start` (both standalone and Partitioned
+//! crawl member starts) into Foxhound's crawl contribution and `CrawlRuntime`.
 //! begins, begins a crawl's Run through the engine's Runs, its scope and
 //! bounds recorded and each seed admitted by the Frontier, under the Run's
 //! domain policy (`setting_invalid` for an entry that is no host), as its first work items,
@@ -79,6 +82,7 @@ use crate::hooks;
 use crate::invariants::Invariants;
 use crate::labels;
 use crate::outcomes;
+use crate::partition::{MembershipWriter, PartitionRouter, PartitionStartOptions};
 use crate::policy::domain_policy;
 use crate::push;
 use crate::redeclare::Redeclared;
@@ -89,6 +93,275 @@ use crate::servable;
 use crate::serving::Crawls;
 use crate::tier_choice::{self, TierChoices};
 use crate::work_items::{self, CheckedSeed};
+
+/// Shared runtime handle for Foxhound's crawl contribution, allowing
+/// `goodfetch-partitioned-crawl` to start Partition Runs, route forwarded links
+/// through Run-state admission, flush Run-state batches before handoff, and
+/// re-attach Partition routers on resume (ADRs 0054, 0087 and 0140).
+#[derive(Clone)]
+pub struct CrawlRuntime {
+    crawls: Crawls,
+    tiers: FetchTiers,
+    sinks: Sinks,
+    redeclared: Redeclared,
+    pages: code_free::Pages,
+}
+
+impl CrawlRuntime {
+    /// Creates a new crawl runtime bound to `tiers` and `sinks`.
+    #[must_use]
+    pub fn new(tiers: FetchTiers, sinks: Sinks) -> Self {
+        Self {
+            crawls: Crawls::default(),
+            tiers,
+            sinks,
+            redeclared: Redeclared::default(),
+            pages: code_free::Pages::default(),
+        }
+    }
+
+    /// Starts one Partition Run of a Partitioned crawl with its own
+    /// [`PartitionStartOptions`] (`extra_limit_scopes`, `PartitionRouter`,
+    /// membership persistence hook, and optional empty initial seeds).
+    ///
+    /// # Errors
+    ///
+    /// Any start refusal from `crawl.start`.
+    pub async fn start_partition(
+        &self,
+        params: CrawlStartParams,
+        initial_seeds: Vec<Seed>,
+        options: PartitionStartOptions,
+        context: CallContext,
+    ) -> Result<RunStarted, CallError> {
+        Box::pin(start_with_options(
+            params,
+            Some(initial_seeds),
+            Some(options),
+            context,
+            self.crawls.clone(),
+            (self.tiers.clone(), self.sinks),
+            self.redeclared.clone(),
+            self.pages.clone(),
+        ))
+        .await
+        .map(|started| started.started)
+    }
+
+    /// Admits links forwarded from another Partition through this Partition's
+    /// Run-state admission with its Run invariants (one actor round trip,
+    /// deduplicated by its Frontier; ADR 0140, F3).
+    ///
+    /// # Errors
+    ///
+    /// `run_not_found` when `run_id` is not live on this engine, or any
+    /// admission error.
+    pub async fn admit_forwarded(
+        &self,
+        run_id: &RunId,
+        seeds: Vec<Seed>,
+    ) -> Result<usize, CallError> {
+        let Some(live) = self.crawls.live(run_id).await else {
+            return Err(CallError::new(
+                &RUN_NOT_FOUND,
+                format!("Partition Run `{run_id}` is not live on this Group member."),
+                &RunDetails {
+                    run_id: run_id.clone(),
+                    path: None,
+                },
+            ));
+        };
+        let count = seeds.len();
+        match live.asking.seeds(seeds, None).await {
+            Ok(Some(Some(Ok(_)))) => Ok(count),
+            Ok(Some(Some(Err(refused)))) => Err(refused),
+            Ok(Some(None) | None) => Ok(0),
+            Err(error) => Err(CallError::protocol(
+                goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
+                format!("failed to admit forwarded links into `{run_id}`: {error}"),
+            )),
+        }
+    }
+
+    /// Flushes the current Run-state batch of live Partition `run_id` (required
+    /// before a Partition handoff, 2026-11-07 Foxhound refactor amendment).
+    ///
+    /// # Errors
+    ///
+    /// `run_not_found` when not live, or a run-state flush error.
+    pub async fn flush_run_state(&self, run_id: &RunId) -> Result<(), CallError> {
+        let Some(live) = self.crawls.live(run_id).await else {
+            return Err(CallError::new(
+                &RUN_NOT_FOUND,
+                format!("Partition Run `{run_id}` is not live on this Group member."),
+                &RunDetails {
+                    run_id: run_id.clone(),
+                    path: None,
+                },
+            ));
+        };
+        live.run.state.seal().await.map_err(|error| {
+            CallError::protocol(
+                goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
+                format!("failed to flush Run state for `{run_id}`: {error}"),
+            )
+        })
+    }
+
+    /// Registers `router` for `run_id` so resuming `run_id` re-attaches it.
+    pub fn register_router(&self, run_id: RunId, router: Arc<dyn PartitionRouter>) {
+        self.crawls.register_router(run_id, router);
+    }
+
+    /// Returns the current run epoch of live Partition `run_id`, if live.
+    pub async fn live_run_epoch(&self, run_id: &RunId) -> Option<u64> {
+        self.crawls
+            .live(run_id)
+            .await
+            .map(|live| live.run.state.epoch())
+    }
+
+    /// Returns the run folder of live Partition `run_id`, if live.
+    pub async fn live_folder(&self, run_id: &RunId) -> Option<std::path::PathBuf> {
+        self.crawls
+            .live(run_id)
+            .await
+            .map(|live| live.run.identity.folder().to_path_buf())
+    }
+
+    /// Returns whether Partition `run_id` is currently live on this engine.
+    pub async fn is_live(&self, run_id: &RunId) -> bool {
+        self.crawls.live(run_id).await.is_some()
+    }
+
+    /// Fences `domains` on live Partition `run_id`, waits for their in-flight
+    /// requests to end, seals the current Run-state batch, extracts their
+    /// pending URLs, seen fingerprints and per-domain state, and removes them
+    /// from `run_id` (ADR 0054 and ADR 0142).
+    ///
+    /// # Errors
+    ///
+    /// `run_not_found` when `run_id` is not live, or any Run-state error.
+    pub async fn fence_and_drain_domains(
+        &self,
+        run_id: &RunId,
+        domains: Vec<String>,
+    ) -> Result<Vec<crate::partition::DomainHandoffSnapshot>, CallError> {
+        let Some(live) = self.crawls.live(run_id).await else {
+            return Err(CallError::new(
+                &RUN_NOT_FOUND,
+                format!("Partition Run `{run_id}` is not live on this Group member."),
+                &RunDetails {
+                    run_id: run_id.clone(),
+                    path: None,
+                },
+            ));
+        };
+        live.asking
+            .fence_and_drain_domains(domains)
+            .await
+            .map_err(|error| {
+                CallError::protocol(
+                    goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
+                    format!("failed to drain domains on `{run_id}`: {error}"),
+                )
+            })
+    }
+
+    /// Fences incoming `domains` on live Partition `run_id` until their
+    /// handoff is acknowledged (ADR 0054).
+    ///
+    /// # Errors
+    ///
+    /// `run_not_found` when `run_id` is not live, or any Run-state error.
+    pub async fn hold_incoming_domains(
+        &self,
+        run_id: &RunId,
+        domains: Vec<String>,
+    ) -> Result<(), CallError> {
+        let Some(live) = self.crawls.live(run_id).await else {
+            return Err(CallError::new(
+                &RUN_NOT_FOUND,
+                format!("Partition Run `{run_id}` is not live on this Group member."),
+                &RunDetails {
+                    run_id: run_id.clone(),
+                    path: None,
+                },
+            ));
+        };
+        live.asking
+            .hold_incoming_domains(domains)
+            .await
+            .map_err(|error| {
+                CallError::protocol(
+                    goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
+                    format!("failed to hold incoming domains on `{run_id}`: {error}"),
+                )
+            })
+    }
+
+    /// Installs one moving domain's pending URLs, seen fingerprints and
+    /// per-domain state on live Partition `run_id` while keeping the domain
+    /// fenced until unfenced after acknowledgement (ADR 0054).
+    ///
+    /// # Errors
+    ///
+    /// `run_not_found` when `run_id` is not live, or any Run-state error.
+    pub async fn install_domain_handoff(
+        &self,
+        run_id: &RunId,
+        snapshot: crate::partition::DomainHandoffSnapshot,
+    ) -> Result<usize, CallError> {
+        let Some(live) = self.crawls.live(run_id).await else {
+            return Err(CallError::new(
+                &RUN_NOT_FOUND,
+                format!("Partition Run `{run_id}` is not live on this Group member."),
+                &RunDetails {
+                    run_id: run_id.clone(),
+                    path: None,
+                },
+            ));
+        };
+        live.asking
+            .install_domain_handoff(snapshot)
+            .await
+            .map_err(|error| {
+                CallError::protocol(
+                    goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
+                    format!("failed to install domain handoff on `{run_id}`: {error}"),
+                )
+            })
+    }
+
+    /// Lifts the handoff fence on `domains` on live Partition `run_id` once
+    /// the handoff has been acknowledged (ADR 0054).
+    ///
+    /// # Errors
+    ///
+    /// `run_not_found` when `run_id` is not live, or any Run-state error.
+    pub async fn unfence_domains(
+        &self,
+        run_id: &RunId,
+        domains: Vec<String>,
+    ) -> Result<(), CallError> {
+        let Some(live) = self.crawls.live(run_id).await else {
+            return Err(CallError::new(
+                &RUN_NOT_FOUND,
+                format!("Partition Run `{run_id}` is not live on this Group member."),
+                &RunDetails {
+                    run_id: run_id.clone(),
+                    path: None,
+                },
+            ));
+        };
+        live.asking.unfence_domains(domains).await.map_err(|error| {
+            CallError::protocol(
+                goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
+                format!("failed to unfence domains on `{run_id}`: {error}"),
+            )
+        })
+    }
+}
 
 /// What Foxhound's crawl adds to the engine: `crawl.start`, `crawl.serve`,
 /// a handler's enqueue and push, the seeds added to a running crawl, the reads of
@@ -101,7 +374,15 @@ use crate::work_items::{self, CheckedSeed};
 /// deliver their Records to the Sinks of `sinks` (ADR 0026), the value of
 /// Foxhound's composition.
 pub fn contribution(tiers: FetchTiers, sinks: Sinks) -> Contribution {
-    let crawls = Crawls::default();
+    contribution_with(&CrawlRuntime::new(tiers, sinks))
+}
+
+/// Same as [`contribution`], sharing `runtime` with sibling Foxhound crates
+/// such as `goodfetch-partitioned-crawl` (ADR 0087).
+pub fn contribution_with(runtime: &CrawlRuntime) -> Contribution {
+    let crawls = runtime.crawls.clone();
+    let tiers = runtime.tiers.clone();
+    let sinks = runtime.sinks;
     let starting = tiers.clone();
     let serving = crawls.clone();
     let enqueuing = crawls.clone();
@@ -109,9 +390,9 @@ pub fn contribution(tiers: FetchTiers, sinks: Sinks) -> Contribution {
     let retrying = crawls.clone();
     let resuming = crawls.clone();
     let staging = crawls.clone();
-    let redeclared = Redeclared::default();
+    let redeclared = runtime.redeclared.clone();
     let (redeclaring, redeclared_retry) = (redeclared.clone(), redeclared.clone());
-    let pages = code_free::Pages::default();
+    let pages = runtime.pages.clone();
     let [read_outcomes, read_failed_requests] = outcomes::handlers();
     let [add_seed, add_seeds] = seeding::handlers(&crawls);
     let [read_links, enqueue_links, enqueue_links_by_clicking] =
@@ -270,7 +551,34 @@ fn seed_inputs(
 }
 
 async fn start(
+    params: CrawlStartParams,
+    context: CallContext,
+    crawls: Crawls,
+    tiers_and_sinks: (FetchTiers, Sinks),
+    redeclared: Redeclared,
+    pages: code_free::Pages,
+) -> Result<CrawlStarted, CallError> {
+    Box::pin(start_with_options(
+        params,
+        None,
+        None,
+        context,
+        crawls,
+        tiers_and_sinks,
+        redeclared,
+        pages,
+    ))
+    .await
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "internal helper uniting crawl.start and Partitioned crawl member starts without duplicating validation"
+)]
+async fn start_with_options(
     mut params: CrawlStartParams,
+    override_seeds: Option<Vec<Seed>>,
+    partition_options: Option<PartitionStartOptions>,
     context: CallContext,
     crawls: Crawls,
     (tiers, sinks): (FetchTiers, Sinks),
@@ -292,7 +600,18 @@ async fn start(
     let datasets = pages.map_or_else(|| Datasets::declare(&params.datasets), Ok)?;
     FetchTiers::check(settings.resolved(), &labels.settings)?;
     sinks.check(settings.resolved(), datasets.declarations())?;
-    let invariants = Invariants::of_settings(settings.resolved(), &params.labels, fragments)?;
+    let (extra_limit_scopes, partition_router, membership_writer, initial_held_domains) =
+        match partition_options {
+            Some(opts) => (
+                opts.extra_limit_scopes,
+                Some(opts.router),
+                opts.membership_writer,
+                opts.initial_held_domains,
+            ),
+            None => (Vec::new(), None, None, Vec::new()),
+        };
+    let invariants = Invariants::of_settings(settings.resolved(), &params.labels, fragments)?
+        .with_partition_router(partition_router.clone());
     let egress = domain_policy(settings.resolved())?;
     let existing_seeds =
         schema_unchanged(&context, run_id.as_ref(), &invariants, &datasets).await?;
@@ -300,7 +619,7 @@ async fn start(
     // Each seed is keyed in the write that adds it, as its gate will key
     // it, so the crawl opens with no work item to key (#2168).
     let keys = context.runs().keys(settings.resolved());
-    let seeds: Vec<Seed> = params.seeds.iter().cloned().collect();
+    let seeds: Vec<Seed> = override_seeds.unwrap_or_else(|| params.seeds.iter().cloned().collect());
     let record_path = params
         .recording
         .as_ref()
@@ -322,36 +641,40 @@ async fn start(
     let new_answers: Arc<OnceLock<Vec<Enqueued>>> = Arc::default();
     let started = context
         .runs()
-        .start(Start {
-            run_id,
-            tags: params.tags,
-            kind: RunKind::Crawl,
-            needs: Product::Foxhound,
-            inputs,
-            ended_by: DRIVING.ended_by,
-            initialize: Some(initialize(
-                invariants,
-                (declared.clone(), datasets, recording, hooks.clone()),
-                keys,
-                seeding,
-                admitted,
-                Arc::clone(&new_answers),
-            )),
-            policy_version: settings.resolved().policy_version().map(str::to_owned),
-            weakened: settings.resolved().weakened(),
-            binding: None,
-            clean_up_digest: None,
-            checkpoint_interval: checkpoint_interval(settings.resolved()),
-            timeout: settings.resolved().get(&TIMEOUT_RUN),
-            settings: Some(settings.clone()),
-            detached: params.detached,
-        })
+        .start_with_scopes(
+            Start {
+                run_id,
+                tags: params.tags,
+                kind: RunKind::Crawl,
+                needs: Product::Foxhound,
+                inputs,
+                ended_by: DRIVING.ended_by,
+                initialize: Some(initialize(
+                    invariants,
+                    (declared.clone(), datasets, recording, hooks.clone()),
+                    keys,
+                    seeding,
+                    admitted,
+                    membership_writer,
+                    Arc::clone(&new_answers),
+                )),
+                policy_version: settings.resolved().policy_version().map(str::to_owned),
+                weakened: settings.resolved().weakened(),
+                binding: None,
+                clean_up_digest: None,
+                checkpoint_interval: checkpoint_interval(settings.resolved()),
+                timeout: settings.resolved().get(&TIMEOUT_RUN),
+                settings: Some(settings.clone()),
+                detached: params.detached,
+            },
+            extra_limit_scopes,
+        )
         .await
         .map_err(start_error)?;
     finish_started(
         started,
-        replayed,
-        record_path,
+        (replayed, record_path),
+        (partition_router, initial_held_domains),
         context,
         crawls,
         (tiers, sinks),
@@ -388,8 +711,11 @@ async fn open_replay(
 )]
 async fn finish_started(
     started: Started,
-    replayed: Option<goodfetch_engine::response_recording::Replayed>,
-    record_path: Option<String>,
+    (replayed, record_path): (
+        Option<goodfetch_engine::response_recording::Replayed>,
+        Option<String>,
+    ),
+    partition: (Option<Arc<dyn PartitionRouter>>, Vec<String>),
     context: CallContext,
     crawls: Crawls,
     (tiers, sinks): (FetchTiers, Sinks),
@@ -438,7 +764,7 @@ async fn finish_started(
             start_new(
                 (run, &context),
                 (limits, settings, new_answers, sinks),
-                (crawls, egress, serving, opening),
+                (crawls, egress, serving, opening, partition),
                 (tiers, labels, crawl, hooks),
             )
             .await
@@ -570,6 +896,8 @@ async fn notify_personal_data(
     }
 }
 
+type PartitionWiring = (Option<Arc<dyn PartitionRouter>>, Vec<String>);
+
 /// Starts delivery for a newly created crawl Run after applying its Limits.
 async fn start_new(
     (run, context): (goodfetch_engine::runs::RunParts, &CallContext),
@@ -579,7 +907,13 @@ async fn start_new(
         Arc<OnceLock<Vec<Enqueued>>>,
         Sinks,
     ),
-    (crawls, egress, serving, opening): (Crawls, Policy, Invariants, Datasets),
+    (crawls, egress, serving, opening, (partition_router, initial_held_domains)): (
+        Crawls,
+        Policy,
+        Invariants,
+        Datasets,
+        PartitionWiring,
+    ),
     (tiers, labels, crawl, hooks): (
         FetchTiers,
         labels::Declared,
@@ -587,6 +921,9 @@ async fn start_new(
         Vec<CrawlHookDeclaration>,
     ),
 ) -> Result<CrawlStarted, CallError> {
+    if let Some(router) = partition_router {
+        crawls.register_router(run.identity.id().clone(), router);
+    }
     // A Sink below the Run's `crawl.min_sink_guarantee` refuses it
     // before it does any work (ADR 0026).
     let run = CrawlRun::started(&run, context, (sinks, settings.resolved())).await?;
@@ -596,6 +933,7 @@ async fn start_new(
         started_as: StartedAs::New,
         lifecycle: Lifecycle::Running,
         needs: Product::Foxhound,
+        partitions: Vec::new(),
     };
     // Its Limits hold it before its driver sends a request; a
     // crawl they cannot hold ends `failed` rather than run unheld.
@@ -609,7 +947,9 @@ async fn start_new(
     run.identity.spawn(delivery::drive(
         Arc::clone(&run),
         context.clone(),
-        crawls.open(&run, egress, serving, opening).await,
+        crawls
+            .open_with_held(&run, egress, serving, opening, initial_held_domains)
+            .await,
         crawls,
         settings,
         (tiers, labels, TierChoices::default(), (code_free, hooks)),
@@ -695,6 +1035,7 @@ fn initialize(
     keys: Option<Keys>,
     seeding: Policy,
     admitted: Vec<CheckedSeed>,
+    membership_writer: Option<MembershipWriter>,
     kept_answers: Arc<OnceLock<Vec<Enqueued>>>,
 ) -> Initialize {
     Box::new(move |connection| {
@@ -703,6 +1044,9 @@ fn initialize(
         datasets.record(connection)?;
         code_free::record(connection, recording.as_ref())?;
         hooks::record(connection, &hooks)?;
+        if let Some(writer) = membership_writer {
+            writer(connection)?;
+        }
         let mut positions = match keys {
             Some(keys) => work_items::Positions::keying(connection, keys)?,
             None => work_items::Positions::of(connection)?,

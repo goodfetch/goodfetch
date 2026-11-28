@@ -1,0 +1,320 @@
+//! The `group.*` handlers an operator calls (ADR 0055): `group.init` forms
+//! a Daemon group with this Daemon as its Lead Daemon, `group.token` mints
+//! a join token on it, `group.join` makes this Daemon a Group member of
+//! the group whose Lead Daemon it dials, `group.leave` takes it out, and
+//! `group.revoke` removes another Group member, on the Lead Daemon.
+//! Forming and joining open the peer listener, and leaving closes it. The
+//! group store is the Daemon's: an Attached engine that can start its
+//! major's Daemon forwards each call to it, and only a Daemon, or an
+//! engine that cannot start one, runs these handlers.
+
+use goodfetch_protocol::daemon::{DRAIN_GRACE, DaemonToken};
+use goodfetch_protocol::group::{
+    GROUP_EXISTS, GROUP_INIT, GROUP_JOIN, GROUP_LEAD, GROUP_LEAVE, GROUP_REVOKE, GROUP_TOKEN,
+    GroupFormed, GroupInitParams, GroupJoinParams, GroupJoined, GroupLeadParams, GroupLeadStatus,
+    GroupLeaveParams, GroupLeft, GroupMemberRevoked, GroupRevokeParams, GroupTokenParams,
+    JoinTokenMinted, NOT_IN_A_GROUP,
+};
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use secrecy::ExposeSecret;
+
+use super::errors::{internal, lead_cannot_leave, not_lead, revoked, store_failed};
+use super::identity::{KeptIdentity, renew_at};
+use super::leadership::OPERATOR_CONFIRM_WARNING;
+use super::peering::{self, Asking};
+use super::{GroupAuthority, GroupMemberKey, GroupMemberName, JoinToken, store};
+use crate::composition::{CallContext, Contribution, Handler};
+use crate::known_certificates::KeyHash;
+use crate::settings::get_or_default;
+use crate::transport::{PeerListener, listen_peer};
+use crate::user_store::UserStore;
+use crate::{CallError, kept_by_the_daemon};
+
+/// What Daemon groups add to an engine: the group store and the `group.*`
+/// handlers an operator calls, each call sent to the major's Daemon when
+/// the engine is an Attached engine that reaches it.
+pub fn contribution() -> Contribution {
+    Contribution::new("group")
+        .with_user_store(&store::STORE)
+        .with_handler(Handler::new(&GROUP_INIT, init))
+        .with_handler(Handler::new(&GROUP_TOKEN, token))
+        .with_handler(Handler::new(&GROUP_JOIN, join))
+        .with_handler(Handler::new(&GROUP_LEAVE, leave))
+        .with_handler(Handler::new(&GROUP_REVOKE, revoke))
+        .with_handler(Handler::new(&GROUP_LEAD, lead))
+        .guarded(&kept_by_the_daemon())
+}
+
+async fn init(params: GroupInitParams, context: CallContext) -> Result<GroupFormed, CallError> {
+    let store = store_of(&context);
+    if store::is_in_a_group(&store)
+        .await
+        .map_err(|error| store_failed(&error))?
+    {
+        return Err(group_exists());
+    }
+    let name = member_name(&params.name)?;
+    let (listener, peer_address) = listen(&params.peer_address).await?;
+    let now = context.engine().clock().wall();
+    let mut authority = GroupAuthority::create(now).map_err(|error| internal(&error))?;
+    let authority_key = authority.key_hash().to_string();
+    let lead = KeptIdentity::lead(&mut authority, &name, peer_address.clone(), now)
+        .map_err(|error| internal(&error))?;
+    let Some(lead_epoch) = store::form(&store, authority.kept(), lead.clone(), now)
+        .await
+        .map_err(|error| store_failed(&error))?
+    else {
+        return Err(group_exists());
+    };
+    peering::start(
+        context.engine(),
+        context.identity().clone(),
+        store,
+        listener,
+        &lead,
+        lead_epoch,
+        vec![lead.name.clone()],
+    )
+    .await
+    .map_err(|error| internal(&error))?;
+    context.engine().settings().refresh().await;
+    Ok(GroupFormed {
+        lead_epoch,
+        peer_address,
+        authority_key,
+    })
+}
+
+async fn token(_: GroupTokenParams, context: CallContext) -> Result<JoinTokenMinted, CallError> {
+    if let Some(peering) = peering::running(context.engine()) {
+        let _ = peering.require_confirmed_lead()?;
+    }
+    let store = store_of(&context);
+    let kept = store::authority(&store)
+        .await
+        .map_err(|error| store_failed(&error))?
+        .ok_or_else(not_lead)?;
+    let authority_key = GroupAuthority::restore(kept)
+        .map_err(|error| internal(&error))?
+        .key_hash()
+        .to_string();
+    let now = context.engine().clock().wall();
+    let minted = JoinToken::mint(now).map_err(|error| internal(&error))?;
+    if !store::record_token(&store, &minted, now)
+        .await
+        .map_err(|error| store_failed(&error))?
+    {
+        return Err(not_lead());
+    }
+    Ok(JoinTokenMinted {
+        token: DaemonToken::new(minted.token.expose_secret().to_owned()),
+        expires_at: minted.expires,
+        authority_key,
+    })
+}
+
+async fn join(params: GroupJoinParams, context: CallContext) -> Result<GroupJoined, CallError> {
+    let store = store_of(&context);
+    if store::is_in_a_group(&store)
+        .await
+        .map_err(|error| store_failed(&error))?
+    {
+        return Err(group_exists());
+    }
+    let name = member_name(&params.name)?;
+    let pin = KeyHash::from_text(&params.authority_key).ok_or_else(|| {
+        CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!(
+                "`{}` is no authority key: give the `sha256/…` that `group token` answered on the Lead Daemon.",
+                params.authority_key
+            ),
+        )
+    })?;
+    let (listener, peer_address) = listen(&params.peer_address).await?;
+    let key = GroupMemberKey::generate().map_err(|error| internal(&error))?;
+    let clock = context.engine().clock();
+    let admitted = peering::ask_to_join(
+        &Asking {
+            lead: &params.lead,
+            pin,
+            token: &params.token,
+            name: &name,
+            public_key: &key.public_key(),
+            peer_address: &peer_address,
+        },
+        context.identity(),
+        clock,
+    )
+    .await?;
+    let received_at = clock.wall();
+    let member = KeptIdentity {
+        name: name.as_str().to_owned(),
+        key: key.kept(),
+        certificate: admitted.certificate,
+        authority: admitted.authority,
+        revocations: admitted.revocations,
+        peer_address: peer_address.clone(),
+        lead_address: params.lead,
+        lead_name: admitted.lead_name,
+        certificate_expires_at: admitted.certificate_expires_at,
+        renew_at: renew_at(received_at, admitted.certificate_expires_at),
+    };
+    if !store::joined(&store, member.clone(), admitted.lead_epoch)
+        .await
+        .map_err(|error| store_failed(&error))?
+    {
+        return Err(group_exists());
+    }
+    peering::start(
+        context.engine(),
+        context.identity().clone(),
+        store,
+        listener,
+        &member,
+        admitted.lead_epoch,
+        Vec::new(),
+    )
+    .await
+    .map_err(|error| internal(&error))?;
+    context.engine().settings().refresh().await;
+    Ok(GroupJoined {
+        lead_epoch: admitted.lead_epoch,
+        peer_address,
+        certificate_expires_at: admitted.certificate_expires_at,
+    })
+}
+
+async fn leave(_: GroupLeaveParams, context: CallContext) -> Result<GroupLeft, CallError> {
+    let store = store_of(&context);
+    let (kept, lead_epoch) = store::identity(&store)
+        .await
+        .map_err(|error| store_failed(&error))?
+        .ok_or_else(not_in_a_group)?;
+    if kept.is_lead() {
+        return Err(lead_cannot_leave());
+    }
+    let summary = if let Some(peering) = peering::running(context.engine()) {
+        let machine = context.engine().settings().snapshot().await;
+        let grace: std::time::Duration = get_or_default(machine.resolved().ok(), &DRAIN_GRACE);
+        peering
+            .drain_and_handoff_for_removal(context.runs(), grace)
+            .await
+    } else {
+        peering::RemovalSummary::default()
+    };
+    peering::ask_to_leave(
+        &kept,
+        lead_epoch,
+        context.identity(),
+        context.engine().clock(),
+    )
+    .await?;
+    store::leave(&store)
+        .await
+        .map_err(|error| store_failed(&error))?;
+    peering::stop(context.engine()).await;
+    Ok(GroupLeft {
+        name: kept.name,
+        handed_off: summary.handed_off,
+        left_checkpointed: summary.left_checkpointed,
+        machine_bound: summary.machine_bound,
+    })
+}
+
+async fn revoke(
+    params: GroupRevokeParams,
+    context: CallContext,
+) -> Result<GroupMemberRevoked, CallError> {
+    let running = peering::running(context.engine());
+    if let Some(peering) = &running {
+        let _ = peering.require_confirmed_lead()?;
+    }
+    let store = store_of(&context);
+    let name = member_name(&params.name)?;
+    let revocation = store::revoke(&store, params.name, context.engine().clock().wall())
+        .await
+        .map_err(|error| store_failed(&error))?;
+    let revocation_list = revoked(revocation, &name)?;
+    if let Some(peering) = running {
+        peering.on_member_removed(name.as_str());
+    }
+    Ok(GroupMemberRevoked {
+        revocation_list,
+        name: name.as_str().to_owned(),
+    })
+}
+
+async fn lead(params: GroupLeadParams, context: CallContext) -> Result<GroupLeadStatus, CallError> {
+    let Some(peering) = peering::running(context.engine()) else {
+        return Err(not_lead());
+    };
+    let snapshot = if params.confirm {
+        peering.confirm_by_operator()?
+    } else {
+        peering.lead_status()?
+    };
+    Ok(GroupLeadStatus {
+        name: peering.name().to_owned(),
+        lead_epoch: snapshot.lead_epoch,
+        confirmed: snapshot.confirmed,
+        confirmed_by_operator: snapshot.confirmed_by_operator,
+        warning: snapshot
+            .confirmed_by_operator
+            .then(|| OPERATOR_CONFIRM_WARNING.to_owned()),
+    })
+}
+
+/// The refusal of a Daemon in no group.
+fn not_in_a_group() -> CallError {
+    CallError::new(
+        &NOT_IN_A_GROUP,
+        "This Daemon belongs to no Daemon group; form one with `group init`, or join one with `group join`.",
+        &(),
+    )
+}
+
+/// Opens the peer listener at `address`, the `host:port` an operator gave:
+/// the listener and the `host:port` it took, port 0 replaced by the one
+/// the system chose.
+async fn listen(address: &str) -> Result<(PeerListener, String), CallError> {
+    let cannot = |error: &dyn std::fmt::Display| {
+        CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!("This Daemon cannot listen for peer links at `{address}`: {error}."),
+        )
+    };
+    let listener = listen_peer(address).await.map_err(|error| cannot(&error))?;
+    let port = listener
+        .local_address()
+        .map_err(|error| cannot(&error))?
+        .port();
+    let host = address.rsplit_once(':').map_or(address, |(host, _)| host);
+    Ok((listener, format!("{host}:{port}")))
+}
+
+/// The engine's group store, which [`contribution`] declares.
+fn store_of(context: &CallContext) -> UserStore {
+    context
+        .engine()
+        .user_store(&store::STORE)
+        .expect(
+            "invariant: the contribution that registers these handlers declares the group store",
+        )
+        .clone()
+}
+
+/// `name` as a Group member name, or the refusal of the call that gave it.
+fn member_name(name: &str) -> Result<GroupMemberName, CallError> {
+    GroupMemberName::new(name)
+        .map_err(|error| CallError::protocol(ProtocolFailure::InvalidParams, error.to_string()))
+}
+
+/// The refusal of a Daemon that is in a group already.
+fn group_exists() -> CallError {
+    CallError::new(
+        &GROUP_EXISTS,
+        "This Daemon belongs to a Daemon group already; mint a join token with `group token` on its Lead Daemon.",
+        &(),
+    )
+}

@@ -116,6 +116,20 @@ CREATE TABLE page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default IN
 INSERT INTO "page_sessions" VALUES(1,1,0,'{}',6178731391398722387,NULL);
 INSERT INTO "page_sessions" VALUES(2,0,1,'{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}',-2937466112876520115,NULL);
 INSERT INTO "page_sessions" VALUES(3,0,1,'{}',4417291851073961183,X'0100356A9FD4093E73A8DD12477CB1E61B5085BAEF24598EC3F82D6297CC01366BA0D50A3F74A9DE13487DB2E71C5186BBF0255A8FC4F92E6398CD02376CA1D60B4075AADF14497EB3E81D5287BCF1265B90C5FA2F6499CE03386DA2D70C4176ABE0154A7FB4E91E5388BDF2275C91C6FB30659ACF04396EA3D80D4277ACE1164B80B5');
+CREATE TABLE partition_domain_state (
+            domain_key TEXT NOT NULL,
+            area TEXT NOT NULL,
+            state_json TEXT NOT NULL,
+            PRIMARY KEY (domain_key, area)
+        ) STRICT;
+INSERT INTO "partition_domain_state" VALUES('shop.test','wall_allowance','{"refetch_stopped":true}');
+CREATE TABLE partitioned_crawl_membership (
+            id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+            crawl_id TEXT NOT NULL,
+            partition_index INTEGER NOT NULL,
+            map_json TEXT NOT NULL
+        ) STRICT;
+INSERT INTO "partitioned_crawl_membership" VALUES(1,'partitioned-1',0,'{"map_epoch":1,"slots":[{"partition":0,"member":"member-a","run_id":"paused","peer_address":"127.0.0.1:9443"}]}');
 CREATE TABLE payload_cap (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
             max_size INTEGER NOT NULL
@@ -311,10 +325,11 @@ CREATE TABLE run (
         uncapped INTEGER NOT NULL DEFAULT 0,
         progress_message TEXT,
         nothing_done TEXT,
+        redone TEXT,
         report TEXT,
         charges TEXT NOT NULL DEFAULT 'synced' CHECK (charges IN ('synced', 'deferred', 'unsynced'))
     ) STRICT;
-INSERT INTO "run" VALUES('paused','collie','collie','os_user',1,'{}','stopped','{"kind":"pause"}','needs_review','incomplete','2026-01-05T09:00:51.361Z','2026-01-05T09:00:51.361Z',NULL,'[]',13,'{"kind":"browser_host","browser_host":"laptop"}','6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b','{}','{}',0,'Waiting for the next page','{"reason":"nothing_pending"}','{"run_id":"paused","lifecycle":"stopped","stop_reason":{"kind":"pause"},"verdict":"needs_review","verdict_reasons":[{"code":"uncertain_effects","message":"1 Effect(s) left uncertain: a person says whether each happened.","count":1}],"completeness":"incomplete","completeness_reasons":[{"code":"stopped","message":"It stopped early: paused."}],"started_at":"2026-01-05T09:00:51.361Z","ended_at":"2026-01-05T09:00:51.361Z","usage":{"model":{"calls":0,"tokens":0,"input_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"output_tokens":0,"reasoning_tokens":0,"price":null},"browser_time":0,"proxy_bytes":4096,"proxy_bytes_by_kind":[{"kind":"datacenter","bytes":4096}],"requests":0,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":983,"set_by":"client"}]},"warnings":[{"code":"clean_up_rules_fallback","message":"The Run''s Clean-up rules are not the version asked for: the Run''s recorded Clean-up rules, 6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b, is not on this machine, and no source the Run names fetches it: the Run holds to the embedded part, sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9, instead."},{"code":"storage_low","message":"The run folder''s filesystem met the `low` storage level.","sessions":["laptop"],"folder":"runs/paused"}],"nothing_done":{"reason":"nothing_pending"},"uncertain_effects":[{"entry":"1","key":"label","request":null,"reason":"interrupted","first_command":"Input.dispatchMouseEvent","since":"2026-01-05T09:00:01Z"}]}','synced');
+INSERT INTO "run" VALUES('paused','collie','collie','os_user',1,'{}','stopped','{"kind":"pause"}','needs_review','incomplete','2026-01-05T09:00:51.361Z','2026-01-05T09:00:51.361Z',NULL,'[]',15,'{"kind":"browser_host","browser_host":"laptop"}','6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b','{}','{}',0,'Waiting for the next page','{"reason":"nothing_pending"}','{"attempts":1,"batch_writes":2}','{"run_id":"paused","lifecycle":"stopped","stop_reason":{"kind":"pause"},"verdict":"needs_review","verdict_reasons":[{"code":"uncertain_effects","message":"1 Effect(s) left uncertain: a person says whether each happened.","count":1}],"completeness":"incomplete","completeness_reasons":[{"code":"stopped","message":"It stopped early: paused."}],"started_at":"2026-01-05T09:00:51.361Z","ended_at":"2026-01-05T09:00:51.361Z","usage":{"model":{"calls":0,"tokens":0,"input_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"output_tokens":0,"reasoning_tokens":0,"price":null},"browser_time":0,"proxy_bytes":4096,"proxy_bytes_by_kind":[{"kind":"datacenter","bytes":4096}],"requests":0,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":983,"set_by":"client"}]},"warnings":[{"code":"clean_up_rules_fallback","message":"The Run''s Clean-up rules are not the version asked for: the Run''s recorded Clean-up rules, 6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b, is not on this machine, and no source the Run names fetches it: the Run holds to the embedded part, sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9, instead."},{"code":"storage_low","message":"The run folder''s filesystem met the `low` storage level.","sessions":["laptop"],"folder":"runs/paused"}],"nothing_done":{"reason":"nothing_pending"},"uncertain_effects":[{"entry":"1","key":"label","request":null,"reason":"interrupted","first_command":"Input.dispatchMouseEvent","since":"2026-01-05T09:00:01Z"}],"redone":{"attempts":1,"batch_writes":2}}','synced');
 CREATE TABLE run_file_chunks (sha256 TEXT NOT NULL, offset INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (sha256, offset)) STRICT;
 INSERT INTO "run_file_chunks" VALUES('a5413d351b5da27721fae2446832bdbb181cf8c62f5131ba4101d4f47bcb8f56',0,X'7469746C652C70726963650A44756E652C392E39390A');
 CREATE TABLE run_files (position INTEGER NOT NULL PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL) STRICT;

@@ -121,6 +121,10 @@ pub struct RecipeStartParams {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub detached: bool,
+    /// Optional Group member pin in a Daemon group (ADR 0055).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub group_member: Option<String>,
 }
 
 /// What a code-free catalog run does (ADR 0036): its verbs come from the
@@ -239,6 +243,10 @@ pub struct CatalogRunStartParams {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub detached: bool,
+    /// Optional Group member pin in a Daemon group (ADR 0055).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub group_member: Option<String>,
 }
 // jscpd:ignore-end
 

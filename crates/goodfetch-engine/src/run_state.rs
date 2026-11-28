@@ -52,12 +52,19 @@ use std::path::{Path, PathBuf};
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::formats::{Compatibility, RUN_STATE};
+use goodfetch_protocol::run::RedoneReport;
 use goodfetch_protocol::run::durability::{
     BATCH_BYTES, BATCH_INTERVAL_MS, BATCH_PAGES, BatchThreshold, MEMORY_BUDGET, SYNC_EACH,
     SYNC_INTERVAL, SYNC_NEVER, SYNC_OFF,
 };
 use rusqlite::Connection;
 use tokio::sync::{mpsc, oneshot, watch};
+
+/// Reads additional [`goodfetch_protocol::run::LimitScope`]s stored inside an
+/// existing Run's SQLite run file when that Run resumes (ADRs 0054 and 0087).
+pub type LimitScopeReader = std::sync::Arc<
+    dyn Fn(&Connection) -> rusqlite::Result<Vec<goodfetch_protocol::run::LimitScope>> + Send + Sync,
+>;
 
 use crate::clock::Clock;
 use crate::metrics::Metrics;
@@ -126,6 +133,7 @@ const SCHEMA: &[&str] = &[
         uncapped INTEGER NOT NULL DEFAULT 0,
         progress_message TEXT,
         nothing_done TEXT,
+        redone TEXT,
         report TEXT,
         charges TEXT NOT NULL DEFAULT 'synced' CHECK (charges IN ('synced', 'deferred', 'unsynced'))
     ) STRICT",
@@ -791,15 +799,23 @@ impl ReservedWrite {
             job: Job::Write,
             syncing,
         });
-        async move {
-            // A write the writer ran answers before its mailbox goes; one
-            // sent once it went waits in no mailbox.
-            tokio::select! {
-                biased;
-                answered = answered => answered.map_err(|_| RunStateError::Closed)?,
-                () = mailbox.closed() => Err(RunStateError::Closed),
-            }
-        }
+        async move { await_answer(&mailbox, answered).await }
+    }
+}
+
+/// Awaits a writer reply, racing the mailbox closing so a message sent between
+/// permit reservation and actor exit never hangs while other handles live
+/// (issue 2594).
+async fn await_answer<T>(
+    mailbox: &mpsc::Sender<Queued>,
+    answered: oneshot::Receiver<Result<T, RunStateError>>,
+) -> Result<T, RunStateError> {
+    // A write the writer ran answers before its mailbox goes; one sent once it
+    // went waits in no mailbox.
+    tokio::select! {
+        biased;
+        answered = answered => answered.map_err(|_| RunStateError::Closed)?,
+        () = mailbox.closed() => Err(RunStateError::Closed),
     }
 }
 
@@ -825,6 +841,7 @@ pub struct RunState {
 struct Watched {
     commits: watch::Receiver<u64>,
     failures: watch::Receiver<Option<String>>,
+    rolled_back: watch::Receiver<RedoneReport>,
 }
 
 impl RunState {
@@ -864,6 +881,7 @@ impl RunState {
         let (mailbox, jobs) = mpsc::channel(MAILBOX);
         let (committed, commits) = watch::channel(0_u64);
         let (failed, failures) = watch::channel(None);
+        let (rolled_back_tx, rolled_back) = watch::channel(RedoneReport::default());
         let watching = Watching::default();
         let ending = batch_end::Ending::default();
         let readers = std::sync::Arc::new(RunStateReaders::new(
@@ -893,6 +911,7 @@ impl RunState {
             signals: Signals {
                 commits: committed,
                 failures: failed,
+                rolled_back: rolled_back_tx,
                 work: options.work.clone(),
                 watching: std::sync::Arc::clone(&watching),
                 ending: std::sync::Arc::clone(&ending),
@@ -911,7 +930,11 @@ impl RunState {
             mailbox,
             path,
             epoch,
-            watched: std::sync::Arc::new(Watched { commits, failures }),
+            watched: std::sync::Arc::new(Watched {
+                commits,
+                failures,
+                rolled_back,
+            }),
             readers,
             batches: std::sync::Arc::new(batch::Batches::new()),
             per_attempt: options.durability.per_attempt,
@@ -953,6 +976,14 @@ impl RunState {
     /// named it, once one did (ADR 0122): none until then.
     pub fn storage_failures(&self) -> watch::Receiver<Option<String>> {
         self.watched.failures.clone()
+    }
+
+    /// How many in-flight attempts and uncommitted Run-state batch writes were
+    /// rolled back on storage failures in this writer's run epoch (ADRs 0122
+    /// and 0142).
+    #[must_use]
+    pub fn rolled_back(&self) -> RedoneReport {
+        *self.watched.rolled_back.borrow()
     }
 
     /// The run file's path.
@@ -1072,7 +1103,7 @@ impl RunState {
             })
             .await
             .map_err(|_| RunStateError::Closed)?;
-        answered.await.map_err(|_| RunStateError::Closed)?
+        await_answer(&self.mailbox, answered).await
     }
 
     /// Writes the open batch, if one is open, and answers once it is in the
@@ -1099,7 +1130,7 @@ impl RunState {
             })
             .await
             .map_err(|_| RunStateError::Closed)?;
-        answered.await.map_err(|_| RunStateError::Closed)?
+        await_answer(&self.mailbox, answered).await
     }
 
     /// Prepares each of `statements` on every connection the writer commits
@@ -1128,7 +1159,7 @@ impl RunState {
             })
             .await
             .map_err(|_| RunStateError::Closed)?;
-        answered.await.map_err(|_| RunStateError::Closed)?
+        await_answer(&self.mailbox, answered).await
     }
 
     /// A place in the writer's queue, for a write the caller queues once it
@@ -1305,9 +1336,14 @@ impl Writer {
             declare: self.deferral.declaring(planned.declare),
             clean,
         };
-        if let Some(declared) =
-            commit_group(on, &self.path, (self.epoch, marks), group, &self.signals)
-        {
+        if let Some(declared) = commit_group(
+            on,
+            &self.path,
+            (self.epoch, marks),
+            group,
+            last,
+            &self.signals,
+        ) {
             self.deferral.committed(planned, declared);
             self.committed(planned.synced, last);
         }
@@ -1893,6 +1929,7 @@ where
 struct Signals {
     commits: watch::Sender<u64>,
     failures: watch::Sender<Option<String>>,
+    rolled_back: watch::Sender<RedoneReport>,
     work: CountedWork,
     /// The watch of its writes, once a handle installed one.
     watching: Watching,
@@ -1923,6 +1960,7 @@ fn commit_group(
     path: &Path,
     (epoch, marks): (u64, Marks),
     group: Vec<QueuedWrite>,
+    last: bool,
     signals: &Signals,
 ) -> Option<bool> {
     let grouped = u64::try_from(group.len().saturating_sub(1)).unwrap_or(u64::MAX);
@@ -1942,6 +1980,10 @@ fn commit_group(
             (completions, Ok(()))
         }
         Err((completions, error)) => {
+            if !last && matches!(error, RunStateError::Storage { .. }) {
+                let attempts = u64::try_from(completions.len()).unwrap_or(u64::MAX);
+                signals.record_rolled_back(attempts, 0);
+            }
             signals.failed(path, &error);
             (completions, Err(error))
         }
@@ -1971,6 +2013,18 @@ impl Signals {
             tracing::warn!(path = %path.display(), %message, "a commit of run state met a full disk or an I/O error and was rolled back");
             self.storage_failed(message);
         }
+    }
+
+    /// Accumulates in-flight attempts and uncommitted Run-state batch writes
+    /// rolled back on storage failures (ADRs 0122 and 0142).
+    pub(super) fn record_rolled_back(&self, attempts: u64, batch_writes: u64) {
+        if attempts == 0 && batch_writes == 0 {
+            return;
+        }
+        self.rolled_back.send_modify(|rolled| {
+            rolled.attempts = rolled.attempts.saturating_add(attempts);
+            rolled.batch_writes = rolled.batch_writes.saturating_add(batch_writes);
+        });
     }
 
     /// Signals a storage failure, `message`, unless one came first.

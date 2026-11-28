@@ -237,9 +237,14 @@ impl Staged {
             positions.keeping(staged.positions.clone());
             match &staged.at_commit {
                 AtCommit::Apply(decided) => {
+                    let mut router = None;
                     for decided in decided {
+                        if router.is_none() {
+                            router = decided.partition_router();
+                        }
                         decided.apply(connection, &mut positions)?;
                     }
+                    positions.flush_forwarded(router);
                 }
                 AtCommit::Run(deferred) => {
                     self.suspected.extend(deferred(connection, &mut positions)?);

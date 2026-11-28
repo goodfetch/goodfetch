@@ -173,13 +173,12 @@ fn a_namespace_is_a_name_without_braces(#[case] namespace: &str, #[case] taken: 
 }
 
 /// The store is the machine's: set in user configuration or Operator
-/// policy only, none by default, and refused as unbuilt until Politeness
-/// reads it (ADR 0083).
+/// policy only, and none by default.
 #[test]
 fn the_store_is_set_on_the_machine_and_none_by_default() {
     assert!(matches!(POLITENESS_STORE.authority, Authority::Machine));
     assert_eq!((POLITENESS_STORE.default)(), Value::Null);
     const { assert!(POLITENESS_STORE.clearable) };
     assert!(matches!(POLITENESS_STORE.kind, ValueKind::Shape(_)));
-    assert_eq!(POLITENESS_STORE.unbuilt, Some("politeness_store"));
+    assert_eq!(POLITENESS_STORE.unbuilt, None);
 }

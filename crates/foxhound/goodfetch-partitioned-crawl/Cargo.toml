@@ -1,0 +1,35 @@
+[package]
+name = "goodfetch-partitioned-crawl"
+description = "Foxhound's Partitioned crawls across Group members: rendezvous domain ownership, credit-based peer-link forwarding, crawl-level Limit scope, and aggregated lifecycle, Verdict, Completeness, Usage and Datasets (ADRs 0054, 0056 and 0087)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+goodfetch-crawl.workspace = true
+goodfetch-dataset.workspace = true
+goodfetch-engine.workspace = true
+goodfetch-frontier.workspace = true
+goodfetch-protocol.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
+tracing.workspace = true
+goodfetch-workspace-hack.workspace = true
+
+[dev-dependencies]
+goodfetch-simulation.workspace = true
+goodfetch-test-support.workspace = true
+proptest.workspace = true
+proptest-state-machine.workspace = true
+tokio = { workspace = true, features = ["io-util"] }
+tracing-subscriber.workspace = true
+goodfetch-dev-workspace-hack.workspace = true
+
+[lints]
+workspace = true

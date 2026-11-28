@@ -202,6 +202,10 @@ crate = "goodfetch-memory-site"
 reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
 
 [[bans.deny]]
+crate = "goodfetch-partitioned-crawl"
+reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
+
+[[bans.deny]]
 crate = "goodfetch-session-pool"
 reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
 

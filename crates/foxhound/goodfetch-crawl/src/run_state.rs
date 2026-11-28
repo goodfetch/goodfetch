@@ -1,9 +1,10 @@
 //! The crawl's Run state (ADR 0142): what a running crawl decides from,
 //! held in memory and owned by one actor, the delivery loop, which is its
-//! only caller, so nothing here sits under a lock. The first state it owns
-//! is the leasing of work items: the Session each attempt is drawn from the
-//! pool, how its tier is chosen, what its Label on its domain learned and
-//! the latencies of the first requests that time a race.
+//! only caller, so nothing here sits under a lock.
+//!
+//! Size: one concern, the in-memory `RunState` actor coordinating leasing,
+//! Session draws, tier choices, pending-item tracking, and Partition handoff
+//! seals on top of its `run_state/` submodules.
 //!
 //! A lease waits for no write (#2168): each work item's row is the one
 //! the crawl kept of a change the run file's readers may not see yet, a
@@ -74,7 +75,9 @@ mod stored;
 mod tally;
 pub(crate) mod teacher;
 
-pub(crate) use asks::{Asked, Asking, Escalated, Message, PermitAsk, Question, mailbox};
+pub(crate) use asks::{
+    Asked, Asking, Escalated, Message, PartitionCommand, PermitAsk, Question, mailbox,
+};
 pub(crate) use stored::{Opening, QueuedEnd, Ran, Stored, Unkeyed, Within};
 pub(crate) use tally::Tally;
 
@@ -653,6 +656,25 @@ impl RunState {
         self.undrawn
             .iter()
             .any(|planned| planned.leased.crawl_request.id == id)
+    }
+
+    /// Whether any undrawn leased work item belongs to `domain_key`.
+    pub(crate) fn has_undrawn_for(&self, domain_key: &str) -> bool {
+        self.undrawn
+            .iter()
+            .any(|planned| planned.leased.waiting.key == domain_key)
+    }
+
+    /// Removes all pending entries for `domain_key` from in-memory `kept`
+    /// after `domain_key` has been handed off to another Partition (ADR 0054).
+    pub(crate) fn remove_domain_pending(&mut self, domain_key: &str) {
+        self.kept.remove_domain(domain_key);
+    }
+
+    /// Replaces the in-memory `Tally` after a Partition domain handoff removed
+    /// rows for handed-off domains from the run file (ADR 0054).
+    pub(crate) fn replace_tally(&mut self, tally: Tally) {
+        self.tally = Arc::new(tally);
     }
 
     /// Each pending work item of `asked`, by ID with the domain key its

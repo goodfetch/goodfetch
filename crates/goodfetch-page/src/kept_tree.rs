@@ -101,6 +101,8 @@ impl Unstarted {
                     })
                     .await;
             }
+            mailbox.close();
+            while mailbox.recv().await.is_some() {}
         });
     }
 }
@@ -159,5 +161,56 @@ impl KeptTree {
         });
         self.reads.send(job).await.ok()?;
         answered.await.ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use goodfetch_test_support::{TestEnv, runtime};
+    use tokio::sync::oneshot;
+
+    use super::{Job, KeptFrom, KeptTree};
+    use crate::live_run::LiveRun;
+
+    /// Issue 2594: a send permit reserved on `KeptTree`'s mailbox before the
+    /// Run stops still resolves its caller's oneshot once sent while
+    /// `KeptTree` lives.
+    #[test]
+    fn a_permit_reserved_before_kept_tree_stops_still_resolves() {
+        let env = TestEnv::new();
+        let resolved = runtime().block_on(async {
+            let (live, served) = LiveRun::start(&env).await;
+
+            let ((), result) = tokio::join!(served, async move {
+                let kept = KeptTree::keep(&live.run.identity, KeptFrom::Html("<p>hi</p>".into()));
+                // Start the owner task with an initial read.
+                assert!(kept.read(|_| ()).await.is_some());
+
+                let permit = kept.reads.reserve().await.unwrap();
+                // Dropping `live` releases the Run, cancelling its owner token.
+                drop(live);
+                tokio::task::yield_now().await;
+                tokio::task::yield_now().await;
+                tokio::task::yield_now().await;
+
+                let (answer, answered) = oneshot::channel::<()>();
+                let job: Job = Box::new(move |_| {
+                    let _ = answer.send(());
+                });
+                permit.send(job);
+
+                let result = tokio::time::timeout(Duration::from_secs(1), answered).await;
+                drop(kept);
+                result
+            });
+            result
+        });
+
+        assert!(
+            matches!(resolved, Ok(Err(_))),
+            "reserved permit sent after KeptTree stopped must resolve, got {resolved:?}"
+        );
     }
 }

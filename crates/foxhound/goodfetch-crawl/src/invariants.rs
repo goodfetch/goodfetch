@@ -18,6 +18,7 @@ use goodfetch_protocol::foxhound::crawl::LabelDeclaration;
 use rusqlite::Connection;
 
 use crate::labels::Fragments;
+use crate::partition::PartitionRouter;
 
 #[cfg(test)]
 pub(crate) mod fixture;
@@ -28,6 +29,7 @@ pub(crate) struct Invariants {
     frontier: Arc<goodfetch_frontier::Invariants>,
     payloads: Arc<PayloadRules>,
     fragments: Arc<Fragments>,
+    partition_router: Option<Arc<dyn PartitionRouter>>,
 }
 
 impl Invariants {
@@ -42,7 +44,24 @@ impl Invariants {
             frontier: Arc::new(frontier),
             payloads: Arc::new(payloads),
             fragments: Arc::new(fragments),
+            partition_router: None,
         }
+    }
+
+    /// Attaches a Partition router built once per `partition_map_epoch`
+    /// (ADRs 0054 and 0140).
+    #[must_use]
+    pub(crate) fn with_partition_router(
+        mut self,
+        router: Option<Arc<dyn PartitionRouter>>,
+    ) -> Self {
+        self.partition_router = router;
+        self
+    }
+
+    /// The Partition router for this Partitioned crawl, if any.
+    pub(crate) fn partition_router(&self) -> Option<&Arc<dyn PartitionRouter>> {
+        self.partition_router.as_ref()
     }
 
     /// The invariants of a crawl started under `settings` with its

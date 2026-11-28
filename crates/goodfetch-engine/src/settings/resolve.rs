@@ -38,7 +38,8 @@ use super::hosts;
 use super::keys::{self, Key};
 use super::values::{Given, Values, over};
 
-/// An Operator policy: what it sets, locks and caps.
+/// An Operator policy: what it sets, locks and caps, and its per-Group-member
+/// machine-specific settings (ADRs 0028 and 0055).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Policy {
     /// The values it sets.
@@ -47,6 +48,8 @@ pub struct Policy {
     pub lock: Values,
     /// Its caps on counts and durations.
     pub cap: Values,
+    /// Machine-specific settings scoped to named Group members (`[group_member.<name>]`).
+    pub group_members: BTreeMap<String, Values>,
     /// Its version, which the run report names.
     pub version: Option<String>,
     /// Its `[managed]` table, which marks it managed and names the install
@@ -177,6 +180,8 @@ pub struct Layers {
     pub operator_policy: Policy,
     /// User configuration.
     pub user_configuration: Values,
+    /// This Group member's own machine-specific settings (ADRs 0028 and 0055).
+    pub group_member: Values,
     /// Project configuration.
     pub project_configuration: Values,
     /// The Recipe, when the Run is one's.
@@ -246,6 +251,12 @@ impl Resolved {
     /// Run's Product honours it.
     pub fn effective(&self, setting: &Setting) -> Option<&Effective> {
         self.settings.get(setting.name)
+    }
+
+    /// The effective value of the setting named `name`, when the Product
+    /// honours it.
+    pub(crate) fn effective_named(&self, name: &str) -> Option<&Effective> {
+        self.settings.get(name)
     }
 
     /// Each `timeout.*` Duration setting the Product honours that resolves a
@@ -839,6 +850,7 @@ fn unapplied(layers: &Layers) -> BTreeMap<&'static str, Unapplied> {
         (SettingsLayer::OperatorPolicy, &policy.settings),
         (SettingsLayer::OperatorPolicy, &policy.lock),
         (SettingsLayer::UserConfiguration, &layers.user_configuration),
+        (SettingsLayer::GroupMember, &layers.group_member),
         (
             SettingsLayer::ProjectConfiguration,
             &layers.project_configuration,
@@ -944,6 +956,19 @@ fn resolve_key(
             value,
             None,
         )?;
+    }
+    unfold(&mut state, key, unfolded, SettingsLayer::GroupMember)?;
+    if let Some(value) = layers.group_member.get(name) {
+        if !goodfetch_protocol::setting_scopes::group_member_sets(name) {
+            return Err(SettingsError::NotApplicable {
+                key: name.to_owned(),
+                layer: SettingsLayer::GroupMember,
+                fix: format!(
+                    "`{name}` is shared across the group: only machine-specific settings (local addresses, TLS files and browser paths) may be set at the group-member scope"
+                ),
+            });
+        }
+        take(&mut state, key, SettingsLayer::GroupMember, value, None)?;
     }
     unfold(
         &mut state,
@@ -1210,6 +1235,7 @@ fn only_in(setting: &Setting, layer: SettingsLayer) -> Result<(), SettingsError>
             &[
                 SettingsLayer::OperatorPolicy,
                 SettingsLayer::UserConfiguration,
+                SettingsLayer::GroupMember,
             ],
             "user configuration or an Operator policy",
         ),

@@ -38,18 +38,24 @@ use std::time::{Duration, SystemTime};
 use goodfetch_counted_work::{CountedWork, Row as CountedRow};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::formats::{Compatibility, USAGE_LEDGER};
+use goodfetch_protocol::group::{GROUP_REDIRECT_SCOPE, GroupRedirectRow};
 use goodfetch_protocol::run::LimitSetter;
 use goodfetch_protocol::run::{LimitScope, Period, PeriodLength, ReachedLimit};
-use goodfetch_protocol::usage::{Limit, LimitUsage};
+use goodfetch_protocol::usage::{Limit, LimitUsage, THRESHOLDS_DEFAULT};
 use jiff::Timestamp;
 use rusqlite::{Connection, Row};
 
+pub use self::authority::{
+    DEFAULT_REDIRECT_HEARTBEAT_TTL_MS, PeerLedgerClient, RedirectClient, Refusal, SliceAuthority,
+    check_redirect_heartbeat, from_wire_holder, from_wire_limit, from_wire_sizing, from_wire_slice,
+    is_group_redirect, parse_redirect, to_wire_holder, to_wire_limit, to_wire_sizing,
+};
 use self::changes::Changes;
 pub use self::charging::{
-    Allowance, Change, ChargeError, Charged, Charging, Counted, Refusal, Reservation, RunCharging,
+    Allowance, Change, ChargeError, Charged, Charging, Counted, Reservation, RunCharging,
     UnjournaledCharges, Unmade,
 };
-pub(crate) use self::charging::{ChargingParts, StorageFailed};
+pub(crate) use self::charging::{ChargingParts, CrossingsNotifier, StorageFailed};
 pub use self::period::{PeriodBounds, bounds};
 pub use self::run_limits::Given;
 pub use self::sizing::{SliceSizing, slice_size};
@@ -107,8 +113,26 @@ const SCHEMA: &[&str] = &[
         currency TEXT,
         amount INTEGER NOT NULL
     ) STRICT",
+    "CREATE TABLE IF NOT EXISTS limit_thresholds (
+        limit_id INTEGER NOT NULL,
+        period_start TEXT NOT NULL,
+        threshold INTEGER NOT NULL,
+        limit_amount INTEGER NOT NULL,
+        slice_id INTEGER NOT NULL,
+        crossed_at TEXT NOT NULL,
+        sent_at TEXT,
+        PRIMARY KEY (limit_id, period_start, threshold, limit_amount)
+    ) STRICT",
+    "CREATE TABLE IF NOT EXISTS limit_needs_you (
+        limit_id INTEGER NOT NULL,
+        period_start TEXT NOT NULL,
+        limit_amount INTEGER NOT NULL,
+        reached_at TEXT NOT NULL,
+        PRIMARY KEY (limit_id, period_start, limit_amount)
+    ) STRICT",
     "CREATE INDEX IF NOT EXISTS slices_by_limit ON slices (limit_id, period_start, state)",
     "CREATE INDEX IF NOT EXISTS slices_by_state ON slices (state)",
+    "CREATE INDEX IF NOT EXISTS limit_thresholds_by_slice ON limit_thresholds (slice_id, sent_at)",
 ];
 
 /// The Usage charged and held against one Limit in one period: a Slice's
@@ -124,6 +148,18 @@ const OTHER_HOLDERS: &str = "SELECT COUNT(DISTINCT run_id) FROM slices
 /// A Slice taken.
 const TAKE_SLICE: &str = "INSERT INTO slices (limit_id, period_start, run_id, run_epoch, run_folder, size, charged, state, taken_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, 'held', ?7)";
+
+/// Records a threshold crossing in the same transaction as the Slice that
+/// crossed it: only the engine whose insert affects a row sends the
+/// Notification and then marks it sent (ADR 0041).
+const RECORD_THRESHOLD: &str = "INSERT OR IGNORE INTO limit_thresholds (limit_id, period_start, threshold, limit_amount, slice_id, crossed_at, sent_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)";
+
+/// Records a 100 % Limit "Needs you" item in the Usage ledger in the same
+/// transaction as the Slice that reached 100 % (ADR 0041).
+const RECORD_NEEDS_YOU: &str =
+    "INSERT OR IGNORE INTO limit_needs_you (limit_id, period_start, limit_amount, reached_at)
+                 VALUES (?1, ?2, ?3, ?4)";
 
 /// A Limit's row in the ledger.
 pub type LimitId = i64;
@@ -204,6 +240,41 @@ pub enum Probed {
     Unreadable,
 }
 
+/// One threshold crossing recorded in the Usage ledger inside the Slice's
+/// transaction and not yet marked sent (ADR 0041).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ThresholdCrossing {
+    /// The Limit whose threshold was crossed.
+    pub limit: StoredLimit,
+    /// The period's start key as stored in the ledger (empty for no period).
+    pub period_start: String,
+    /// When the period resets, if the Limit has a known period.
+    pub resets_at: Option<Timestamp>,
+    /// The percentage threshold crossed (1..=100).
+    pub threshold: u64,
+    /// The Limit's amount when the threshold was crossed.
+    pub limit_amount: u64,
+    /// The Slice whose transaction recorded this crossing.
+    pub slice_id: SliceId,
+    /// When the crossing was recorded.
+    pub crossed_at: Timestamp,
+}
+
+/// One 100 % Limit "Needs you" item kept in the Usage ledger (ADR 0041).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LedgerNeedsYou {
+    /// The Limit that reached 100 %.
+    pub limit: StoredLimit,
+    /// The period's start key as stored in the ledger (empty for no period).
+    pub period_start: String,
+    /// When the period resets, if the Limit has a known period.
+    pub resets_at: Option<Timestamp>,
+    /// The Limit's amount when 100 % was reached.
+    pub limit_amount: u64,
+    /// When 100 % was reached.
+    pub reached_at: Timestamp,
+}
+
 /// What a reclaim did.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Reclaimed {
@@ -211,6 +282,10 @@ pub struct Reclaimed {
     pub charged: Vec<SliceId>,
     /// The Slices charged in full and marked for review.
     pub for_review: Vec<SliceId>,
+    /// Threshold crossings recorded by the reclaimed dead Slices that were
+    /// never marked sent (ADR 0041): the reclaiming engine sends each
+    /// Notification and marks it sent.
+    pub unsent_thresholds: Vec<ThresholdCrossing>,
 }
 
 /// One Limit row as the ledger holds it, read whatever version wrote it.
@@ -304,6 +379,46 @@ pub fn point_in_time(at: Timestamp) -> SystemTime {
     SystemTime::from(at)
 }
 
+/// Shared group-ledger hook slots cloned alongside a [`Ledger`].
+#[derive(Default)]
+struct GroupHooks {
+    #[expect(
+        clippy::disallowed_types,
+        reason = "RwLock only guards an Option<Arc<...>> swap/clone, never held across I/O or .await (ADR 0060)"
+    )]
+    authority: std::sync::RwLock<Option<Arc<dyn SliceAuthority>>>,
+    #[expect(
+        clippy::disallowed_types,
+        reason = "RwLock only guards this Group member's own name string, never held across I/O or .await (ADR 0060)"
+    )]
+    own_redirect_member: std::sync::RwLock<Option<String>>,
+    /// Persistent SQLite connection reused by Lead Daemon peer-ledger RPCs so
+    /// taking a Slice costs 0 opens and 1 SQLite transaction (ADR 0140 E3).
+    direct_connection: crate::sync::Mutex<Option<Connection>>,
+}
+
+impl std::fmt::Debug for GroupHooks {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GroupHooks")
+            .field(
+                "has_authority",
+                &self
+                    .authority
+                    .read()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .is_some(),
+            )
+            .field(
+                "own_redirect_member",
+                &*self
+                    .own_redirect_member
+                    .read()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
 /// The Usage ledger of one user: its file and the VFS it opens through.
 #[derive(Clone, Debug)]
 pub struct Ledger {
@@ -313,6 +428,8 @@ pub struct Ledger {
     work: CountedWork,
     /// How many times this process changed its Limits.
     changes: Arc<Changes>,
+    /// Optional group-ledger authority and own redirect-row owner name.
+    group: Arc<GroupHooks>,
 }
 
 impl Ledger {
@@ -324,7 +441,305 @@ impl Ledger {
             path,
             vfs,
             work: CountedWork::default(),
+            group: Arc::new(GroupHooks::default()),
         }
+    }
+
+    /// Installs or clears the group [`SliceAuthority`] used by a non-lead
+    /// Group member (ADR 0055).
+    pub fn set_authority(&self, authority: Option<Arc<dyn SliceAuthority>>) {
+        *self
+            .group
+            .authority
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = authority;
+        self.changed();
+    }
+
+    /// Returns the directly installed group [`SliceAuthority`], if any.
+    pub fn direct_authority(&self) -> Option<Arc<dyn SliceAuthority>> {
+        self.group
+            .authority
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Records this engine's own Group member name so it ignores its own
+    /// *group redirect* row when reading the per-user ledger locally.
+    pub fn set_own_redirect_member(&self, member: Option<String>) {
+        *self
+            .group
+            .own_redirect_member
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = member;
+        self.changed();
+    }
+
+    /// This engine's own Group member name, if it is currently writing a
+    /// *group redirect* row into this ledger.
+    pub fn own_redirect_member(&self) -> Option<String> {
+        self.group
+            .own_redirect_member
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Subscribes to Limit change notifications committed through this process.
+    pub fn subscribe_changes(&self) -> tokio::sync::broadcast::Receiver<()> {
+        self.changes.subscribe()
+    }
+
+    /// Notifies "Needs you" subscribers in this process that a ledger-kept item
+    /// may have appeared or resolved.
+    pub(crate) fn notify_needs_you(&self) {
+        self.changes.notify_needs_you();
+    }
+
+    /// Subscribes to ledger-kept "Needs you" notifications in this process.
+    pub(crate) fn subscribe_needs_you(&self) -> tokio::sync::broadcast::Receiver<()> {
+        self.changes.subscribe_needs_you()
+    }
+
+    /// Upserts a *group redirect* row for `row.member_name` in this per-user
+    /// ledger, flagged *must understand* so older engines refuse runs with
+    /// `limit_not_understood` (ADRs 0041 and 0055).
+    pub fn write_group_redirect(
+        &self,
+        row: &GroupRedirectRow,
+        now: Timestamp,
+    ) -> Result<(), LedgerError> {
+        let payload = serde_json::to_string(row).map_err(|error| LedgerError::Sqlite {
+            path: self.path.clone(),
+            message: error.to_string(),
+        })?;
+        let member_name = row.member_name.clone();
+        self.on_created(&mut None, |connection| {
+            immediate(connection, |transaction| {
+                let existing = stored_limits(transaction)?;
+                let mut existing_id = None;
+                for stored in existing {
+                    if is_group_redirect(&stored)
+                        && let Ok(parsed) = serde_json::from_str::<GroupRedirectRow>(&stored.scope.id)
+                        && parsed.member_name == member_name
+                    {
+                        existing_id = Some(stored.id);
+                        break;
+                    }
+                }
+                match existing_id {
+                    Some(id) => {
+                        transaction
+                            .prepare_cached(
+                                "UPDATE limits SET scope_id = ?1, set_at = ?2 WHERE limit_id = ?3",
+                            )?
+                            .execute((&payload, now.to_string(), id))?;
+                    }
+                    None => {
+                        transaction
+                            .prepare_cached(
+                                "INSERT INTO limits (scope_kind, scope_id, usage_kind, currency, period, time_zone, amount, must_understand, set_by, set_at, managed_major)
+                                 VALUES (?1, ?2, ?3, NULL, NULL, NULL, 0, 1, 'managed_policy', ?4, NULL)",
+                            )?
+                            .execute((GROUP_REDIRECT_SCOPE, &payload, GROUP_REDIRECT_SCOPE, now.to_string()))?;
+                    }
+                }
+                Ok(())
+            })
+        })?;
+        Ok(())
+    }
+
+    /// Removes the *group redirect* row for `member_name` (called on
+    /// `group leave`). Leaves an uncreated ledger uncreated.
+    pub fn remove_group_redirect(&self, member_name: &str) -> Result<(), LedgerError> {
+        self.on(&mut None, false, |connection| {
+            immediate(connection, |transaction| {
+                let existing = stored_limits(transaction)?;
+                for stored in existing {
+                    if is_group_redirect(&stored)
+                        && let Ok(parsed) =
+                            serde_json::from_str::<GroupRedirectRow>(&stored.scope.id)
+                        && parsed.member_name == member_name
+                    {
+                        drop_limit(transaction, stored.id)?;
+                    }
+                }
+                Ok(())
+            })
+        })?;
+        self.changed();
+        Ok(())
+    }
+
+    /// Inspects `stored` rows read from this local ledger for a *group
+    /// redirect* row belonging to another Group member (so an Attached engine
+    /// on this machine routes through it), validating format version and
+    /// heartbeat at `now`. Returns `Ok(None)` when no external redirect row is
+    /// present.
+    pub(crate) fn resolve_redirect_in(
+        &self,
+        stored: &[StoredLimit],
+        now: Timestamp,
+    ) -> Result<Option<Arc<dyn SliceAuthority>>, Refusal> {
+        let own = self.own_redirect_member();
+        for row in stored {
+            if !is_group_redirect(row) {
+                continue;
+            }
+            let parsed = parse_redirect(row)?;
+            if own.as_deref() == Some(parsed.member_name.as_str()) {
+                continue;
+            }
+            check_redirect_heartbeat(row, &parsed, now)?;
+            return Ok(Some(Arc::new(RedirectClient::new(parsed))));
+        }
+        Ok(None)
+    }
+
+    /// Returns the active [`SliceAuthority`] for this engine at `now`: the
+    /// directly installed group authority (non-lead Group member), a
+    /// [`RedirectClient`] resolved from a *group redirect* row in the local
+    /// ledger (Attached engine beside a Group member), or `None` when using
+    /// the local SQLite ledger directly.
+    pub fn active_authority(
+        &self,
+        now: Timestamp,
+    ) -> Result<Option<Arc<dyn SliceAuthority>>, Refusal> {
+        if let Some(authority) = self.direct_authority() {
+            return Ok(Some(authority));
+        }
+        let stored = self.limits_on(&mut None)?;
+        self.resolve_redirect_in(&stored, now)
+    }
+
+    /// Finds any external *group redirect* row in this ledger (ignoring this
+    /// engine's own row when it is the Group member), without checking its
+    /// heartbeat, so an Attached engine can read cached configuration.
+    pub fn external_group_redirect(&self) -> Result<Option<GroupRedirectRow>, Refusal> {
+        let own = self.own_redirect_member();
+        let stored = self.limits_on(&mut None)?;
+        for row in &stored {
+            if !is_group_redirect(row) {
+                continue;
+            }
+            let parsed = parse_redirect(row)?;
+            if own.as_deref() == Some(parsed.member_name.as_str()) {
+                continue;
+            }
+            return Ok(Some(parsed));
+        }
+        Ok(None)
+    }
+
+    /// All non-redirect Limit rows in this local SQLite ledger, reusing the
+    /// Lead Daemon's kept connection.
+    pub fn non_redirect_limits(&self) -> Result<Vec<StoredLimit>, LedgerError> {
+        let mut kept = self
+            .group
+            .direct_connection
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Ok(self
+            .limits_on(&mut kept)?
+            .into_iter()
+            .filter(|stored| !is_group_redirect(stored))
+            .collect())
+    }
+
+    /// What is left of `stored` at `now`, reusing the Lead Daemon's kept
+    /// connection.
+    pub(crate) fn left_direct(
+        &self,
+        stored: &StoredLimit,
+        now: Timestamp,
+    ) -> Result<u64, LedgerError> {
+        let mut kept = self
+            .group
+            .direct_connection
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.left_on(&mut kept, stored, now)
+    }
+
+    /// Takes a Slice directly on this local SQLite ledger, reusing the Lead
+    /// Daemon's kept connection (0 opens, 1 SQLite transaction per Slice).
+    pub fn take_slice_direct(
+        &self,
+        stored: &StoredLimit,
+        holder: &Holder,
+        now: Timestamp,
+        sizing: SliceSizing,
+        needing: u64,
+    ) -> Result<Option<Slice>, LedgerError> {
+        let (slice, _) = self.take_slice_direct_with_thresholds(
+            stored,
+            holder,
+            now,
+            sizing,
+            needing,
+            &THRESHOLDS_DEFAULT,
+        )?;
+        Ok(slice)
+    }
+
+    /// Takes a Slice directly on this local SQLite ledger, recording any
+    /// crossings of `thresholds` in the same transaction and returning them
+    /// for the Lead Daemon to notify and mark sent.
+    pub fn take_slice_direct_with_thresholds(
+        &self,
+        stored: &StoredLimit,
+        holder: &Holder,
+        now: Timestamp,
+        sizing: SliceSizing,
+        needing: u64,
+        thresholds: &[u64],
+    ) -> Result<(Option<Slice>, Vec<ThresholdCrossing>), LedgerError> {
+        let mut kept = self
+            .group
+            .direct_connection
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.take_slice_with_thresholds(&mut kept, stored, holder, now, sizing, needing, thresholds)
+    }
+
+    /// Gives back Slices directly on this local SQLite ledger, reusing the
+    /// Lead Daemon's kept connection.
+    pub fn give_back_direct(&self, used: &[(SliceId, u64)]) -> Result<(), LedgerError> {
+        let mut kept = self
+            .group
+            .direct_connection
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.give_back(&mut kept, used)
+    }
+
+    /// Records reclaimed Slice charges reported by an owning Group member.
+    pub(crate) fn apply_reclaim_charges(
+        &self,
+        charges: &[(SliceId, u64, String)],
+    ) -> Result<(), LedgerError> {
+        if charges.is_empty() {
+            return Ok(());
+        }
+        let mut kept = self
+            .group
+            .direct_connection
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.on_created(&mut kept, |connection| {
+            immediate(connection, |transaction| {
+                let mut statement = transaction.prepare_cached(
+                    "UPDATE slices SET charged = MIN(size, ?2), state = ?3 WHERE slice_id = ?1 AND state = 'held'",
+                )?;
+                for (slice, charged, state) in charges {
+                    let valid_state = if state == "review" { "review" } else { "reclaimed" };
+                    statement.execute((slice, amount(*charged), valid_state))?;
+                }
+                Ok(())
+            })
+        })
     }
 
     /// How many times this process changed the ledger's Limits: a run
@@ -596,7 +1011,16 @@ impl Ledger {
     /// none (ADR 0140's E3).
     fn prepare_slices(&self, kept: &mut Option<Connection>) -> Result<(), LedgerError> {
         self.on(kept, false, |connection| {
-            sqlite_store::prepare_immediate(connection, &[COUNTED, OTHER_HOLDERS, TAKE_SLICE])
+            sqlite_store::prepare_immediate(
+                connection,
+                &[
+                    COUNTED,
+                    OTHER_HOLDERS,
+                    TAKE_SLICE,
+                    RECORD_THRESHOLD,
+                    RECORD_NEEDS_YOU,
+                ],
+            )
         })
         .map(drop)
     }
@@ -609,7 +1033,10 @@ impl Ledger {
     /// When the ledger cannot be read.
     pub fn usage(&self, product: Product, now: Timestamp) -> Result<Vec<LimitUsage>, LedgerError> {
         self.on_created(&mut None, |connection| {
-            let mut limits = stored_limits(connection)?;
+            let mut limits: Vec<StoredLimit> = stored_limits(connection)?
+                .into_iter()
+                .filter(|stored| !is_group_redirect(stored))
+                .collect();
             limits.sort_by(|left, right| left.scope.cmp(&right.scope).then(left.id.cmp(&right.id)));
             limits
                 .iter()
@@ -792,6 +1219,7 @@ impl Ledger {
     /// # Errors
     ///
     /// When the ledger cannot be written.
+    #[cfg(test)]
     pub(crate) fn take_slice(
         &self,
         kept: &mut Option<Connection>,
@@ -801,34 +1229,114 @@ impl Ledger {
         sizing: SliceSizing,
         needing: u64,
     ) -> Result<Option<Slice>, LedgerError> {
-        let (key, _) = stored.period_key(now);
-        let taken = self.on_created(kept, |connection| {
-            immediate(connection, |transaction| {
-                let (charged, held) = counted(transaction, stored.id, &key)?;
-                let left = stored.amount.saturating_sub(charged.saturating_add(held));
-                let others: u64 = transaction
-                    .prepare_cached(OTHER_HOLDERS)?
-                    .query_row((stored.id, &key, &holder.run_id), |row| {
-                        row.get::<_, i64>(0)
-                    })
-                    .map(|count| u64::try_from(count).unwrap_or_default())?;
-                let size = slice_size(sizing, stored.amount, left, others + 1).max(needing);
-                if size == 0 || size > left {
-                    return Ok(None);
-                }
-                transaction.prepare_cached(TAKE_SLICE)?.execute((
-                    stored.id,
-                    &key,
-                    &holder.run_id,
-                    amount(holder.epoch),
-                    holder.folder.to_string_lossy(),
-                    amount(size),
-                    now.to_string(),
-                ))?;
-                let id = transaction.last_insert_rowid();
-                Ok(Some(Slice { id, size }))
-            })
-        })?;
+        let (slice, _) = self.take_slice_with_thresholds(
+            kept,
+            stored,
+            holder,
+            now,
+            sizing,
+            needing,
+            &THRESHOLDS_DEFAULT,
+        )?;
+        Ok(slice)
+    }
+
+    /// Takes a Slice of `stored` as [`Ledger::take_slice`] does, recording any
+    /// crossings of `thresholds` and any 100 % "Needs you" item inside the same
+    /// transaction (ADR 0041). Only the engine whose insert writes a crossing
+    /// row receives it in the returned vector to send and mark sent.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "takes the kept connection, Limit, holder, clock, sizing, needed amount and threshold settings in one ledger transaction"
+    )]
+    pub(crate) fn take_slice_with_thresholds(
+        &self,
+        kept: &mut Option<Connection>,
+        stored: &StoredLimit,
+        holder: &Holder,
+        now: Timestamp,
+        sizing: SliceSizing,
+        needing: u64,
+        thresholds: &[u64],
+    ) -> Result<(Option<Slice>, Vec<ThresholdCrossing>), LedgerError> {
+        let (key, bounds) = stored.period_key(now);
+        let (taken, crossed, recorded_needs_you, exhausted) =
+            self.on_created(kept, |connection| {
+                immediate(connection, |transaction| {
+                    let (charged, held) = counted(transaction, stored.id, &key)?;
+                    let left = stored.amount.saturating_sub(charged.saturating_add(held));
+                    let others: u64 = transaction
+                        .prepare_cached(OTHER_HOLDERS)?
+                        .query_row((stored.id, &key, &holder.run_id), |row| {
+                            row.get::<_, i64>(0)
+                        })
+                        .map(|count| u64::try_from(count).unwrap_or_default())?;
+                    let size = slice_size(sizing, stored.amount, left, others + 1).max(needing);
+                    if size == 0 || size > left {
+                        return Ok((None, Vec::new(), false, left == 0));
+                    }
+                    transaction.prepare_cached(TAKE_SLICE)?.execute((
+                        stored.id,
+                        &key,
+                        &holder.run_id,
+                        amount(holder.epoch),
+                        holder.folder.to_string_lossy(),
+                        amount(size),
+                        now.to_string(),
+                    ))?;
+                    let id = transaction.last_insert_rowid();
+                    let after = charged.saturating_add(held).saturating_add(size);
+                    let mut crossed = Vec::new();
+                    let mut recorded_needs_you = false;
+                    if stored.amount > 0 {
+                        let after_100 = u128::from(after) * 100;
+                        let amount_128 = u128::from(stored.amount);
+                        let mut matched: Vec<u64> = thresholds
+                            .iter()
+                            .copied()
+                            .filter(|&threshold| {
+                                threshold > 0
+                                    && threshold <= 100
+                                    && after_100 >= u128::from(threshold) * amount_128
+                            })
+                            .collect();
+                        matched.sort_unstable();
+                        matched.dedup();
+                        for threshold in matched {
+                            let inserted =
+                                transaction.prepare_cached(RECORD_THRESHOLD)?.execute((
+                                    stored.id,
+                                    &key,
+                                    amount(threshold),
+                                    amount(stored.amount),
+                                    id,
+                                    now.to_string(),
+                                ))?;
+                            if inserted == 1 {
+                                crossed.push(ThresholdCrossing {
+                                    limit: stored.clone(),
+                                    period_start: key.clone(),
+                                    resets_at: bounds.map(|b| b.end),
+                                    threshold,
+                                    limit_amount: stored.amount,
+                                    slice_id: id,
+                                    crossed_at: now,
+                                });
+                            }
+                        }
+                        if after >= stored.amount {
+                            let inserted = transaction.prepare_cached(RECORD_NEEDS_YOU)?.execute(
+                                (stored.id, &key, amount(stored.amount), now.to_string()),
+                            )?;
+                            recorded_needs_you = inserted == 1;
+                        }
+                    }
+                    Ok((Some(Slice { id, size }), crossed, recorded_needs_you, false))
+                })
+            })?;
+        if recorded_needs_you || exhausted {
+            self.notify_needs_you();
+        }
         match taken {
             Some(slice) => {
                 tracing::trace!(target: TARGET, transition = "take_slice", limit = stored.id, slice = slice.id, size = slice.size, run_id = %holder.run_id, epoch = holder.epoch, "a run took a Slice");
@@ -837,7 +1345,101 @@ impl Ledger {
                 tracing::trace!(target: TARGET, transition = "refuse_slice", limit = stored.id, run_id = %holder.run_id, epoch = holder.epoch, "a Limit had nothing left for a run");
             }
         }
-        Ok(taken)
+        Ok((taken, crossed))
+    }
+
+    /// Marks `crossing` sent at `now` after its Notification has been delivered
+    /// (ADR 0041).
+    ///
+    /// # Errors
+    ///
+    /// When the ledger cannot be written.
+    pub fn mark_threshold_sent(
+        &self,
+        crossing: &ThresholdCrossing,
+        now: Timestamp,
+    ) -> Result<(), LedgerError> {
+        self.on(&mut None, false, |connection| {
+            immediate(connection, |transaction| {
+                transaction
+                    .prepare_cached(
+                        "UPDATE limit_thresholds SET sent_at = ?1
+                         WHERE limit_id = ?2 AND period_start = ?3 AND threshold = ?4
+                           AND limit_amount = ?5 AND sent_at IS NULL",
+                    )?
+                    .execute((
+                        now.to_string(),
+                        crossing.limit.id,
+                        &crossing.period_start,
+                        amount(crossing.threshold),
+                        amount(crossing.limit_amount),
+                    ))?;
+                Ok(())
+            })
+        })?;
+        Ok(())
+    }
+
+    /// Lists every active 100 % Limit "Needs you" item kept in the Usage ledger
+    /// at `now`: an item leaves once its Limit's period starts again or once a
+    /// person raises the Limit with room left (ADR 0041). Leaves an uncreated
+    /// ledger uncreated.
+    ///
+    /// # Errors
+    ///
+    /// When the ledger cannot be read.
+    pub fn needs_you_items(&self, now: Timestamp) -> Result<Vec<LedgerNeedsYou>, LedgerError> {
+        let Some(items) = self.on(&mut None, false, |connection| {
+            let limits: BTreeMap<LimitId, StoredLimit> = stored_limits(connection)?
+                .into_iter()
+                .filter(|stored| !is_group_redirect(stored))
+                .map(|stored| (stored.id, stored))
+                .collect();
+            let mut statement = connection.prepare_cached(
+                "SELECT limit_id, period_start, limit_amount, reached_at
+                 FROM limit_needs_you ORDER BY reached_at, limit_id",
+            )?;
+            let rows: Vec<(LimitId, String, u64, String)> = statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        counted_value(row, 2)?,
+                        row.get(3)?,
+                    ))
+                })?
+                .collect::<rusqlite::Result<_>>()?;
+            let mut active = Vec::new();
+            for (limit_id, period_start, limit_amount, reached_at) in rows {
+                let Some(stored) = limits.get(&limit_id) else {
+                    continue;
+                };
+                let (current_key, bounds) = stored.period_key(now);
+                if period_start != current_key {
+                    continue;
+                }
+                let (charged, held) = counted(connection, stored.id, &current_key)?;
+                let left = stored.amount.saturating_sub(charged.saturating_add(held));
+                if stored.amount > limit_amount && left > 0 {
+                    continue;
+                }
+                let Ok(reached_at) = reached_at.parse::<Timestamp>() else {
+                    continue;
+                };
+                active.push(LedgerNeedsYou {
+                    limit: stored.clone(),
+                    period_start,
+                    resets_at: bounds.map(|b| b.end),
+                    limit_amount,
+                    reached_at,
+                });
+            }
+            Ok(active)
+        })?
+        else {
+            return Ok(Vec::new());
+        };
+        Ok(items)
     }
 
     /// Gives back what is left of each Slice of `used`, on `kept` as
@@ -906,7 +1508,7 @@ impl Ledger {
                     .map(|slice| (slice.id, slice.size, "review"))
                     .collect(),
             };
-            let done = self.on_created(&mut kept, |connection| {
+            let (done, unsent) = self.on_created(&mut kept, |connection| {
                 immediate(connection, |transaction| {
                     let mut statement = transaction.prepare_cached(
                         "UPDATE slices SET charged = ?2, state = ?3 WHERE slice_id = ?1 AND state = 'held'",
@@ -917,9 +1519,15 @@ impl Ledger {
                             done.push((*slice, *charged, *state));
                         }
                     }
-                    Ok(done)
+                    let unsent = if done.is_empty() {
+                        Vec::new()
+                    } else {
+                        unsent_thresholds_for_slices(transaction, &done)?
+                    };
+                    Ok((done, unsent))
                 })
             })?;
+            reclaimed.unsent_thresholds.extend(unsent);
             for (slice, charged, state) in done {
                 if state == "review" {
                     tracing::trace!(target: TARGET, transition = "mark_for_review", slice = slice, charged = charged, run_id = %holder.run_id, epoch = holder.epoch, "a dead run's Slice was charged in full for review");
@@ -932,6 +1540,58 @@ impl Ledger {
         }
         Ok(reclaimed)
     }
+}
+
+/// Loads every threshold crossing recorded under any Slice in `done` that has
+/// not yet been marked sent.
+fn unsent_thresholds_for_slices(
+    transaction: &Connection,
+    done: &[(SliceId, u64, &'static str)],
+) -> rusqlite::Result<Vec<ThresholdCrossing>> {
+    let limits: BTreeMap<LimitId, StoredLimit> = stored_limits(transaction)?
+        .into_iter()
+        .map(|stored| (stored.id, stored))
+        .collect();
+    let mut query = transaction.prepare_cached(
+        "SELECT limit_id, period_start, threshold, limit_amount, slice_id, crossed_at
+         FROM limit_thresholds
+         WHERE slice_id = ?1 AND sent_at IS NULL
+         ORDER BY threshold",
+    )?;
+    let mut unsent = Vec::new();
+    for (slice, _, _) in done {
+        let rows: Vec<(LimitId, String, u64, u64, SliceId, String)> = query
+            .query_map([slice], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    counted_value(row, 2)?,
+                    counted_value(row, 3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        for (limit_id, period_start, threshold, limit_amount, slice_id, crossed_at) in rows {
+            let Some(stored) = limits.get(&limit_id) else {
+                continue;
+            };
+            let Ok(crossed_at) = crossed_at.parse::<Timestamp>() else {
+                continue;
+            };
+            let (_, bounds) = stored.period_key(crossed_at);
+            unsent.push(ThresholdCrossing {
+                limit: stored.clone(),
+                period_start,
+                resets_at: bounds.map(|b| b.end),
+                threshold,
+                limit_amount,
+                slice_id,
+                crossed_at,
+            });
+        }
+    }
+    Ok(unsent)
 }
 
 /// Adds the row of `limit`, set at `now`, a managed Operator policy's of
@@ -963,8 +1623,15 @@ fn insert_limit(
     Ok(connection.last_insert_rowid())
 }
 
-/// Drops the Limit row `id` and its Slices.
+/// Drops the Limit row `id`, its Slices, its threshold crossings and its
+/// "Needs you" items.
 fn drop_limit(connection: &Connection, id: LimitId) -> rusqlite::Result<()> {
+    connection
+        .prepare_cached("DELETE FROM limit_thresholds WHERE limit_id = ?1")?
+        .execute([id])?;
+    connection
+        .prepare_cached("DELETE FROM limit_needs_you WHERE limit_id = ?1")?
+        .execute([id])?;
     connection
         .prepare_cached("DELETE FROM slices WHERE limit_id = ?1")?
         .execute([id])?;
@@ -1074,6 +1741,7 @@ fn amount(value: u64) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
 }
 
+mod authority;
 mod changes;
 mod charging;
 mod period;

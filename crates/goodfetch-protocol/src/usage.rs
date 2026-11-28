@@ -438,6 +438,31 @@ pub const LEDGER_READ_INTERVAL: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `usage.thresholds`'s default percentages: 50 %, 80 % and 100 % (ADR 0041).
+pub const THRESHOLDS_DEFAULT: [u64; 3] = [50, 80, 100];
+
+const THRESHOLD_PERCENT: ValueKind = ValueKind::CountUpTo(100);
+
+fn default_thresholds() -> serde_json::Value {
+    serde_json::json!(THRESHOLDS_DEFAULT)
+}
+
+/// `usage.thresholds` (ADR 0041): the percentages of each Limit at which a
+/// `limit_threshold` Notification is sent once per period.
+pub const USAGE_THRESHOLDS: Setting = Setting {
+    name: "usage.thresholds",
+    description: "The percentages of each Limit (0 to 100) at which the engine sends a `limit_threshold` Notification once per period (ADR 0041): `[50, 80, 100]` by default. A crossing is recorded in the Usage ledger inside the Slice's transaction so concurrent engines send it once; a 0 entry is ignored, and an empty list disables threshold Notifications. Reaching 100 % always records a `limit_reached` \"Needs you\" item in the Usage ledger. Set in user configuration or an Operator policy only.",
+    kind: ValueKind::List(&THRESHOLD_PERCENT),
+    default: default_thresholds,
+    clearable: false,
+    authority: Authority::Machine,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -447,7 +472,7 @@ pub const ENTRIES: Entries = Entries {
     error_codes: &[LIMIT_REACHED, LIMIT_NOT_UNDERSTOOD, LIMIT_RAISE_REFUSED],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[LEDGER_READ_INTERVAL],
+    settings: &[LEDGER_READ_INTERVAL, USAGE_THRESHOLDS],
     hook_stages: &[],
     shared_type_values: &[
         SharedTypeValue {

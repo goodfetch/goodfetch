@@ -470,6 +470,19 @@
               "attached"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A Group member of a Daemon group, named by its Group member name (ADR 0055).",
+            "properties": {
+              "group_member": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "group_member"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -575,6 +588,19 @@
             "properties": {
               "kind": {
                 "const": "limit_not_understood",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "It needed a new Usage ledger Slice from its Daemon group's Lead Daemon\n(or local Group member), which could not be reached, and stopped at its\nnext safe point, resumable once reachable (ADR 0055): the stop of the\nError code `lead_unreachable`.",
+            "properties": {
+              "kind": {
+                "const": "lead_unreachable",
                 "type": "string"
               }
             },

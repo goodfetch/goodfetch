@@ -219,6 +219,18 @@ pub const DAEMON_DRAINING: Metric = Metric {
     arrived_in: ARRIVED_IN,
 };
 
+/// `goodfetch.group.lead_unreachable`: whether this Group member cannot reach
+/// its Lead Daemon (ADR 0055).
+pub const GROUP_LEAD_UNREACHABLE: Metric = Metric {
+    name: "goodfetch.group.lead_unreachable",
+    description: "1 while this Group member cannot reach its Daemon group's Lead Daemon, else 0 (ADR 0055).",
+    instrument: Instrument::Gauge,
+    unit: "{daemon}",
+    labels: &[],
+    stability: Stability::Experimental,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `goodfetch.daemon.heap`: the Daemon's live heap.
 pub const DAEMON_HEAP: Metric = Metric {
     name: "goodfetch.daemon.heap",
@@ -334,6 +346,7 @@ pub const ENTRIES: Entries = Entries {
         BROWSER_MEMORY,
         CLIENT_CONNECTED,
         DAEMON_DRAINING,
+        GROUP_LEAD_UNREACHABLE,
         DAEMON_HEAP,
         COUNTED_WORK,
         RUN_STATE_WAL_SIZE,

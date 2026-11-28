@@ -1512,6 +1512,41 @@ fn a_connection_is_closed_once_its_driver_ended() {
     });
 }
 
+/// Issue 2594: stopping a driver through `run_until` closes and drains its
+/// requests channel so a send permit reserved beforehand still resolves as
+/// `Failure::Disconnected` while `Connection` handles live.
+#[test]
+fn driver_run_until_drains_a_permit_reserved_before_stop() {
+    runtime().block_on(async {
+        let (connection, driver, _browser) = connected();
+        let (stop_tx, stop_rx) = oneshot::channel::<()>();
+        let (_ended, result) = tokio::join!(
+            driver.run_until(async {
+                let _ = stop_rx.await;
+            }),
+            async {
+                let permit = connection.requests.reserve().await.unwrap();
+                let _ = stop_tx.send(());
+                tokio::task::yield_now().await;
+                tokio::task::yield_now().await;
+
+                let (answer, answered) = oneshot::channel();
+                permit.send(Request {
+                    method: "Browser.getVersion",
+                    session: None,
+                    params: json!({}),
+                    answer,
+                });
+                tokio::time::timeout(Duration::from_secs(1), answered).await
+            }
+        );
+        assert!(
+            matches!(result, Ok(Ok(Err(Failure::Disconnected)))),
+            "expected Disconnected for reserved permit after run_until stop, got {result:?}"
+        );
+    });
+}
+
 mod cdp_pipe {
     goodfetch_test_support::fuzz_replay!(crate::connection::fuzz_pipe, "fuzz/cdp_pipe");
 }

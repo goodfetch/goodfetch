@@ -157,6 +157,10 @@
           {
             "commands": [],
             "name": "reindex"
+          },
+          {
+            "commands": [],
+            "name": "adopt"
           }
         ],
         "name": "runs"
@@ -468,6 +472,35 @@
           }
         ],
         "name": "schedule"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "init"
+          },
+          {
+            "commands": [],
+            "name": "token"
+          },
+          {
+            "commands": [],
+            "name": "join"
+          },
+          {
+            "commands": [],
+            "name": "leave"
+          },
+          {
+            "commands": [],
+            "name": "revoke"
+          },
+          {
+            "commands": [],
+            "name": "lead"
+          }
+        ],
+        "name": "group"
       }
     ],
     "name": "goodfetch-collie"
@@ -630,6 +663,10 @@
           {
             "commands": [],
             "name": "reindex"
+          },
+          {
+            "commands": [],
+            "name": "adopt"
           }
         ],
         "name": "runs"
@@ -981,6 +1018,35 @@
           }
         ],
         "name": "schedule"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "init"
+          },
+          {
+            "commands": [],
+            "name": "token"
+          },
+          {
+            "commands": [],
+            "name": "join"
+          },
+          {
+            "commands": [],
+            "name": "leave"
+          },
+          {
+            "commands": [],
+            "name": "revoke"
+          },
+          {
+            "commands": [],
+            "name": "lead"
+          }
+        ],
+        "name": "group"
       },
       {
         "commands": [

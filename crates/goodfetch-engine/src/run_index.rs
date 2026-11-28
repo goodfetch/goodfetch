@@ -20,6 +20,11 @@
 //! the lowest minor that can use it (ADR 0098), which each call reads and
 //! checks in its own transaction: an engine that finds it raised past
 //! itself stops using the index with the version refusal.
+//!
+//! Size: one concern, the SQLite Run index (`RunIndex` writer/reader handles,
+//! offline `IndexFile`, and its prepared SQL queries for Runs, dismissals,
+//! consent walls, and Wall allowance refetch stops) kept together so every
+//! query shares the schema and minor-version gate.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -32,7 +37,7 @@ use goodfetch_protocol::formats::{Compatibility, RUN_INDEX};
 use goodfetch_protocol::run::{Completeness, Lifecycle, Presence, RunId, RunIndexRow, Verdict};
 use goodfetch_protocol::settings::WALL_REFETCH_DOMAINS;
 use rusqlite::{Connection, OptionalExtension as _, Row};
-use tokio::sync::watch;
+use tokio::sync::{broadcast, watch};
 
 use crate::lowest_minor::{self, Opener};
 use crate::run_identity::RunIdentity;
@@ -147,6 +152,10 @@ fn failed(path: &Path, error: &impl std::fmt::Display) -> RunStateError {
     }
 }
 
+/// How many written Run index rows the live feed buffers for a subscriber
+/// (such as a Group member feeding the Lead Daemon's group Run index).
+const WRITE_FEED_CAPACITY: usize = 256;
+
 /// The Run index of one user and major, as one engine opens it: its writer
 /// and the connection its reads keep, which its clones share.
 #[derive(Clone, Debug)]
@@ -155,6 +164,8 @@ pub struct RunIndex {
     /// Whether a call found the index's lowest minor raised past this
     /// engine, which never lowers again.
     locked_out: Arc<watch::Sender<bool>>,
+    /// Live stream of rows written to this index.
+    written: broadcast::Sender<RunIndexRow>,
 }
 
 impl RunIndex {
@@ -170,10 +181,17 @@ impl RunIndex {
     ) -> Self {
         let file = IndexFile::new(path, opener(engine), vfs);
         let locked_out = Arc::clone(&file.locked_out);
+        let (written, _) = broadcast::channel(WRITE_FEED_CAPACITY);
         Self {
             store: Arc::new(KeptStore::of(file, "run-index-writer", owner)),
             locked_out,
+            written,
         }
+    }
+
+    /// Subscribes to rows written to this Run index after the call.
+    pub(crate) fn subscribe_writes(&self) -> broadcast::Receiver<RunIndexRow> {
+        self.written.subscribe()
     }
 
     /// Whether a call found the index's lowest minor raised past this
@@ -189,9 +207,12 @@ impl RunIndex {
     /// `Sqlite` when the index cannot be opened or written, or its writer
     /// stopped, `Format` when its marker refuses this engine.
     pub(crate) async fn write(&self, row: RunIndexRow) -> Result<(), RunStateError> {
+        let broadcast = row.clone();
         self.store
             .write(None, move |file, connection| file.write(connection, &row))
-            .await
+            .await?;
+        let _ = self.written.send(broadcast);
+        Ok(())
     }
 
     /// The row of `run_id`, if the index lists the Run.
@@ -232,11 +253,17 @@ impl RunIndex {
     /// As [`IndexFile::erase`], and as [`Self::write`] when its writer
     /// stopped.
     pub(crate) async fn erase(&self, run_id: RunId) -> Result<bool, RunStateError> {
-        self.store
+        let lookup = run_id.clone();
+        let erased = self
+            .store
             .write(None, move |file, connection| {
                 file.erase(connection, &run_id)
             })
-            .await
+            .await?;
+        if erased && let Ok(Some(row)) = self.read(lookup).await {
+            let _ = self.written.send(row);
+        }
+        Ok(erased)
     }
 
     /// The rows of the Runs a storage stop left stopped (ADR 0122), present,
@@ -444,6 +471,111 @@ impl RunIndex {
                 file.in_transaction(connection, false, refetch_stops_in)
             })
             .await
+    }
+
+    /// Refetch stops recorded for `run_id` on `domain` (ADR 0052 and 0054),
+    /// for moving per-domain Wall allowance state on Partition handoff.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::read`].
+    pub async fn refetch_stops_for_run_domain(
+        &self,
+        run_id: &RunId,
+        domain: &str,
+    ) -> Result<Vec<RefetchStopped>, RunStateError> {
+        let run_id_str = run_id.as_str().to_owned();
+        let domain_str = domain.to_owned();
+        self.store
+            .read(Some(Vec::new()), move |file, connection| {
+                file.in_transaction(connection, false, |connection| {
+                    refetch_stops_for_run_domain_in(connection, &run_id_str, &domain_str)
+                })
+            })
+            .await
+    }
+
+    /// Records a transferred [`RefetchStopped`] entry (from Partition handoff
+    /// or `runs adopt`, ADRs 0052 and 0054).
+    ///
+    /// # Errors
+    ///
+    /// When the Run index cannot be written.
+    pub async fn record_transferred_refetch_stop(
+        &self,
+        stop: RefetchStopped,
+    ) -> Result<(), RunStateError> {
+        self.store
+            .write(None, move |file, connection| {
+                file.in_transaction(connection, true, |connection| {
+                    connection
+                        .prepare_cached(
+                            "INSERT INTO refetch_stops (domain, run_id, cause, project_file, stopped_at)
+                             VALUES (?1, ?2, ?3, ?4, ?5)
+                             ON CONFLICT (domain, run_id) DO NOTHING",
+                        )?
+                        .execute((
+                            stop.domain.as_str(),
+                            stop.last_run.as_str(),
+                            stop.cause.as_str(),
+                            stop.project_file.as_deref(),
+                            StoredTime(stop.first_stopped),
+                        ))
+                        .map(drop)
+                })
+            })
+            .await
+    }
+
+    /// Removes a transferred refetch stop row for `(run_id, domain)` from the
+    /// old owner's Run index after Partition handoff (ADR 0054).
+    ///
+    /// # Errors
+    ///
+    /// When the Run index cannot be written.
+    pub async fn remove_refetch_stop(
+        &self,
+        run_id: &RunId,
+        domain: &str,
+    ) -> Result<(), RunStateError> {
+        let run_id_str = run_id.as_str().to_owned();
+        let domain_str = domain.to_owned();
+        self.store
+            .write(None, move |file, connection| {
+                file.in_transaction(connection, true, |connection| {
+                    connection
+                        .prepare_cached(
+                            "DELETE FROM refetch_stops WHERE run_id = ?1 AND domain = ?2",
+                        )?
+                        .execute((run_id_str.as_str(), domain_str.as_str()))
+                        .map(drop)
+                })
+            })
+            .await
+    }
+
+    /// Reads refetch stops recorded for `run_id` directly from a kept volume's
+    /// `run-index.sqlite` file during offline `runs adopt` (ADRs 0052 and 0054).
+    #[must_use]
+    pub fn read_refetch_stops_file(index_path: &Path, run_id: &RunId) -> Vec<RefetchStopped> {
+        let Ok(connection) = Connection::open_with_flags(
+            index_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        ) else {
+            return Vec::new();
+        };
+        let Ok(mut stmt) = connection.prepare(
+            "SELECT domain, stopped_at, run_id, cause, project_file
+             FROM refetch_stops
+             WHERE run_id = ?1
+             ORDER BY domain",
+        ) else {
+            return Vec::new();
+        };
+        let Ok(rows) = stmt.query_map([run_id.as_str()], decode_refetch_stopped) else {
+            return Vec::new();
+        };
+        rows.flatten().collect()
     }
 }
 
@@ -872,19 +1004,52 @@ fn consent_walls_in(connection: &Connection) -> rusqlite::Result<Vec<ConsentWall
 /// A domain on which the Runs' refetch without the site's stored data
 /// stopped, as the Run index keeps it (ADR 0052).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct RefetchStopped {
+pub struct RefetchStopped {
     /// The registrable domain.
-    pub(crate) domain: String,
+    pub domain: String,
     /// When a Run's refetch first stopped there.
-    pub(crate) first_stopped: SystemTime,
+    pub first_stopped: SystemTime,
     /// The last Run whose refetch stopped there.
-    pub(crate) last_run: RunId,
+    pub last_run: RunId,
     /// What stopped that Run's refetch: the Block cause, the `401` or `403`
     /// status, or the login page.
-    pub(crate) cause: String,
+    pub cause: String,
     /// The project configuration file that Run's `wall.refetch_domains`
     /// came from, if it did.
-    pub(crate) project_file: Option<String>,
+    pub project_file: Option<String>,
+}
+
+fn decode_refetch_stopped(row: &rusqlite::Row<'_>) -> rusqlite::Result<RefetchStopped> {
+    let run: String = row.get(2)?;
+    Ok(RefetchStopped {
+        domain: row.get(0)?,
+        first_stopped: row.get::<_, StoredTime>(1)?.0,
+        last_run: RunId::parse(&run).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                2,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })?,
+        cause: row.get(3)?,
+        project_file: row.get(4)?,
+    })
+}
+
+fn refetch_stops_for_run_domain_in(
+    connection: &Connection,
+    run_id: &str,
+    domain: &str,
+) -> rusqlite::Result<Vec<RefetchStopped>> {
+    connection
+        .prepare_cached(
+            "SELECT domain, stopped_at, run_id, cause, project_file
+             FROM refetch_stops
+             WHERE run_id = ?1 AND domain = ?2
+             ORDER BY domain",
+        )?
+        .query_map((run_id, domain), decode_refetch_stopped)?
+        .collect()
 }
 
 /// Each domain on which a Run's refetch stopped, read through
@@ -902,22 +1067,7 @@ fn refetch_stops_in(connection: &Connection) -> rusqlite::Result<Vec<RefetchStop
                                    ORDER BY last.stopped_at DESC, last.run_id DESC LIMIT 1)
              ORDER BY stops.domain",
         )?
-        .query_map([], |row| {
-            let run: String = row.get(2)?;
-            Ok(RefetchStopped {
-                domain: row.get(0)?,
-                first_stopped: row.get::<_, StoredTime>(1)?.0,
-                last_run: RunId::parse(&run).map_err(|error| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        2,
-                        rusqlite::types::Type::Text,
-                        Box::new(error),
-                    )
-                })?,
-                cause: row.get(3)?,
-                project_file: row.get(4)?,
-            })
-        })?
+        .query_map([], decode_refetch_stopped)?
         .collect()
 }
 

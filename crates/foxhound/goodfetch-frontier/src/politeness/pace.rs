@@ -119,7 +119,7 @@ pub(crate) struct Rate {
     /// millisecond so the rate is never exceeded.
     pub(super) interval: i64,
     /// `politeness.domain.burst`, at least 1.
-    burst: u64,
+    pub(super) burst: u64,
 }
 
 impl Rate {

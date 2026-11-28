@@ -63,8 +63,8 @@ pub use self::progress::{
 pub use self::report::{
     AppliedLimit, AxisReason, CrawlRequestRef, EndingError, KindUsage, LimitSetter, ModelAllowance,
     ModelCounts, ModelUsage, NothingDone, PlanReport, PlanStatus, PluginRun, PluginUsage,
-    ProxyKindBytes, RecordingReport, RunReport, RunUsage, RunWarning, SeedsKept, UncertainEffect,
-    UsageAmount,
+    ProxyKindBytes, RecordingReport, RedoneReport, RunReport, RunUsage, RunWarning, SeedsKept,
+    UncertainEffect, UsageAmount,
 };
 pub use self::starts::{
     CATALOG_RUN_START, CatalogRunStartParams, CatalogTarget, DETACH_UNSUPPORTED,
@@ -458,6 +458,11 @@ pub enum StopReason {
     /// point, resumable by an engine that can (ADR 0041): the stop of the
     /// Error code `limit_not_understood`.
     LimitNotUnderstood(Box<NotUnderstoodLimit>),
+    /// It needed a new Usage ledger Slice from its Daemon group's Lead Daemon
+    /// (or local Group member), which could not be reached, and stopped at its
+    /// next safe point, resumable once reachable (ADR 0055): the stop of the
+    /// Error code `lead_unreachable`.
+    LeadUnreachable,
     /// Its engine was lost while it ran, and another engine stopped it.
     EngineLost,
     /// Its Attached engine stopped on a panic in a part every Run shares,
@@ -484,7 +489,7 @@ pub enum StopReason {
 
 impl StopReason {
     /// The tags of the reasons this reader knows, in declaration order.
-    const KNOWN_TAGS: [&str; 10] = [
+    const KNOWN_TAGS: [&str; 11] = [
         "abort",
         "pause",
         "migrate",
@@ -492,6 +497,7 @@ impl StopReason {
         "drain",
         "limit",
         "limit_not_understood",
+        "lead_unreachable",
         "engine_lost",
         "engine_panicked",
         "resources",
@@ -658,6 +664,52 @@ pub struct RunLimit {
     pub amount: u64,
 }
 
+/// The `"auto"` value of `partitions` (ADR 0054): one Partition per eligible
+/// Group member.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AutoPartitions {
+    /// One Partition per eligible Group member.
+    Auto,
+}
+
+/// How many Partitions a Partitioned crawl runs as (ADR 0054): a positive
+/// integer count or `"auto"` for one per eligible Group member.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum Partitions {
+    /// A fixed count of Partitions (at least 1).
+    Count(std::num::NonZeroU32),
+    /// One Partition per eligible Group member.
+    Auto(AutoPartitions),
+}
+
+impl Partitions {
+    /// Whether this asks for more than one Partition (`Count(> 1)` or `Auto`).
+    #[must_use]
+    pub const fn is_multi(self) -> bool {
+        match self {
+            Self::Count(n) => n.get() > 1,
+            Self::Auto(_) => true,
+        }
+    }
+}
+
+/// One Partition of a started Partitioned crawl (ADR 0054): its index, its
+/// own Run ID, and the Group member it was placed on.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct StartedPartition {
+    /// Zero-based Partition index.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub partition: u32,
+    /// The Partition's Run ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// The Group member this Partition was placed on.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub member: String,
+}
+
 /// What `run.start` takes.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -723,6 +775,17 @@ pub struct RunStartParams {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub accept_plugin_change: Vec<String>,
+    /// Optional Group member pin in a Daemon group (ADR 0055): the Lead Daemon
+    /// places the Run on this named Group member when eligible.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub group_member: Option<String>,
+    /// Partition count for a Partitioned crawl (ADR 0054, Foxhound only): a
+    /// positive integer or `"auto"`. A Collie engine refuses it with
+    /// `not_in_product` (ADRs 0087 and 0095).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub partitions: Option<Partitions>,
 }
 
 /// What a start did with its Run: began it, resumed it, or found it ended
@@ -744,7 +807,7 @@ pub enum StartedAs {
 /// What a start answers once its Run is started, never at its end.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RunStarted {
-    /// The Run's ID.
+    /// The Run's ID (or the Partitioned crawl ID for a Partitioned crawl).
     #[schemars(extend("arrived_in" = "0.1"))]
     pub run_id: RunId,
     /// Whether the start began it.
@@ -757,6 +820,11 @@ pub struct RunStarted {
     /// catalog marks Foxhound's, Foxhound from then on.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub needs: Product,
+    /// For a Partitioned crawl (ADR 0054), each Partition's Run ID and Group
+    /// member placement beside the Partitioned crawl ID; empty otherwise.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub partitions: Vec<StartedPartition>,
 }
 
 /// What `run.usage`, `run.started_as`, `run.pause` and `run.migrate` take:
@@ -1427,6 +1495,8 @@ pub enum RunOwner {
     Daemon(DaemonEndpoint),
     /// An Attached engine, at its private endpoint.
     Attached(PrivateEndpoint),
+    /// A Group member of a Daemon group, named by its Group member name (ADR 0055).
+    GroupMember(String),
 }
 
 impl fmt::Display for RunOwner {
@@ -1436,6 +1506,7 @@ impl fmt::Display for RunOwner {
             Self::Attached(private) => {
                 write!(formatter, "the Attached engine at {}", private.address)
             }
+            Self::GroupMember(name) => write!(formatter, "the Group member `{name}`"),
         }
     }
 }
@@ -1456,6 +1527,33 @@ pub struct RunsReindexOutput {
     /// Rows of Runs discarded on purpose, kept erased.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub erased: u64,
+}
+
+/// One Run brought into another Group member by `runs adopt` (ADR 0055).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdoptedRun {
+    /// The adopted Run's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// The Group member that resumed the Run and now owns it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub owner: String,
+    /// The new run epoch taken when the receiving Group member resumed it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_epoch: u64,
+}
+
+/// What `runs adopt --json` prints once it finishes bringing checkpointed Runs
+/// from a removed Group member's volume into the Daemon group (ADR 0055).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RunsAdoptOutput {
+    /// Runs whose Checkpoints were handed off, resumed, and reassigned.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub adopted: Vec<AdoptedRun>,
+    /// Run IDs skipped because they had already ended or been adopted by
+    /// another Group member.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub skipped: Vec<String>,
 }
 
 /// Every entry this module defines.

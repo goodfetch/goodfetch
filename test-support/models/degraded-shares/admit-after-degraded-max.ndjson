@@ -1,0 +1,4 @@
+{"transition":"heartbeat","engine":"e1","key":"example.com","share":2}
+{"transition":"cut_off","engine":"e1","key":"example.com"}
+{"transition":"stop_degraded","engine":"e1","key":"example.com"}
+{"transition":"take_degraded","engine":"e1","key":"example.com","in_flight":1,"share":2}

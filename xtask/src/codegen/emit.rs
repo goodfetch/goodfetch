@@ -83,7 +83,7 @@ use goodfetch_protocol::plugin::{
 use goodfetch_protocol::recipe::RecipeDigestOutput;
 use goodfetch_protocol::releases::ReleasesFile;
 use goodfetch_protocol::result_document::ResultDocument;
-use goodfetch_protocol::run::RunsReindexOutput;
+use goodfetch_protocol::run::{RunsAdoptOutput, RunsReindexOutput};
 use goodfetch_protocol::setting_scopes;
 use goodfetch_protocol::settings::SettingsExplanation;
 use goodfetch_protocol::skills::SkillsInstalled;
@@ -233,6 +233,7 @@ fn outputs(generator: &mut SchemaGenerator) -> Value {
         "init": generator.subschema_for::<InitResult>(),
         "init.deploy": generator.subschema_for::<InitDeployResult>(),
         "recipe.digest": generator.subschema_for::<RecipeDigestOutput>(),
+        "runs.adopt": generator.subschema_for::<RunsAdoptOutput>(),
         "runs.reindex": generator.subschema_for::<RunsReindexOutput>(),
         "skill.install": generator.subschema_for::<SkillsInstalled>(),
         "upgrade-files": generator.subschema_for::<FilesUpgraded>(),

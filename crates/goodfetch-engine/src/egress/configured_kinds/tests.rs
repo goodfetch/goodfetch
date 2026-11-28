@@ -17,6 +17,7 @@ use super::{CONFIGURED_KINDS, ConfiguredKind, EgressClass};
 #[case::a_cdp_url(ConfiguredKind::CdpUrl)]
 #[case::a_clean_up_rules_source(ConfiguredKind::CleanUpRulesSource)]
 #[case::a_browser_mirror(ConfiguredKind::BrowserMirror)]
+#[case::checkpoint_storage(ConfiguredKind::CheckpointStorage)]
 fn each_configured_kind_has_one_row_of_the_table(#[case] kind: ConfiguredKind) {
     assert_eq!(
         (

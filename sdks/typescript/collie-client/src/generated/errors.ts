@@ -11,7 +11,7 @@ import {
   type ErrorIdentity,
   type ErrorLimit,
 } from "../goodfetch-error.ts";
-import type { AddressFamilyUnavailableDetails, ArtifactDownloadFailedDetails, ArtifactUnavailableOfflineDetails, BlockedDetails, BodyNotFoundDetails, BodyUnavailableDetails, BrowserLaunchFailedDetails, BrowserNeedsGuiSessionDetails, BrowserNotInstalledDetails, BrowserSandboxUnavailableDetails, CallCancelledDetails, CapabilityUnavailableDetails, CdpUrlNotAllowedDetails, CdpUrlNotBrowserDetails, CdpUrlUnauthorizedDetails, CdpUrlUnreachableDetails, CertificateChangedDetails, CertificateInvalidDetails, CheckpointBehindDetails, ConnectionOverloadedDetails, DaemonDrainingDetails, DaemonUnreachableDetails, DetachUnsupportedDetails, DialogAlreadyHandledDetails, EdgeHandlersUnsupportedDetails, EgressRefusedDetails, EngineExitedDetails, EnginePanickedDetails, ExecutableBlockedBySmartAppControlDetails, ExtractHandlerFailedDetails, ExtractorUnavailableDetails, FileWriteFailedDetails, FormatVersionUnsupportedDetails, HeaderForbiddenDetails, HeaderValueInvalidDetails, HookFailedDetails, LimitNotUnderstoodDetails, LimitRaiseRefusedDetails, ListenerEventsLostDetails, LiveViewViewerLimitDetails, LocalAddressUnavailableDetails, LoggedOutDetails, ModelUnavailableDetails, NameLookupFailedDetails, NameNotResolvedDetails, NavigationFailedDetails, NavigationInterruptedDetails, NotADaemonDetails, NotInProductDetails, NotVerifiedDetails, PageCheckFailedDetails, PageCrashedDetails, PageFunctionFailedDetails, PageHandlerFailedDetails, PageMemoryExceededDetails, PageNavigatedDuringCallDetails, PageValueInvalidDetails, PathNotWritableDetails, PathUnsafeDetails, PatternUnsupportedDetails, PersonRequiredDetails, PolicyConflictDetails, ProtocolVersionUnsupportedDetails, ProxyAuthFailedDetails, ProxyProviderUnavailableDetails, ProxyRelayUnavailableDetails, ProxyUnavailableDetails, ReachedLimit, RecipeInvalidDetails, RecordingInvalidDetails, ResourcesExhaustedDetails, ResponseLimitExceededDetails, ResponseNotRecordedDetails, ResponseTruncatedDetails, RouteAlreadyHandledDetails, RunConflictDetails, RunDetails, RunIdInvalidDetails, RunInterruptedDetails, RunKeyMismatchDetails, RunStateFilesystemUnsupportedDetails, RunTargetUnbuiltDetails, ScheduleCapExceededDetails, ScheduleExistsDetails, ScheduleNotFoundDetails, ScheduleTriggerInvalidDetails, SchemaValidatorFailedDetails, SecretDomainNotAllowedDetails, SecretInputRefusedDetails, SecretUnavailableDetails, SecretUnboundDetails, SessionBoundToMachineDetails, SessionExportOpenFailedDetails, SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails, SettingUnknownDetails, SitePreferencesRefusedDetails, TargetNotUniqueDetails, TooManyCallsDetails, TooManyRedirectsDetails, UncertainEffect, ValueInvalidDetails, WebhookInvalidDetails } from "./types.ts";
+import type { AddressFamilyUnavailableDetails, ArtifactDownloadFailedDetails, ArtifactUnavailableOfflineDetails, BlockedDetails, BodyNotFoundDetails, BodyUnavailableDetails, BrowserLaunchFailedDetails, BrowserNeedsGuiSessionDetails, BrowserNotInstalledDetails, BrowserSandboxUnavailableDetails, CallCancelledDetails, CapabilityUnavailableDetails, CdpUrlNotAllowedDetails, CdpUrlNotBrowserDetails, CdpUrlUnauthorizedDetails, CdpUrlUnreachableDetails, CertificateChangedDetails, CertificateInvalidDetails, CheckpointBehindDetails, ConnectionOverloadedDetails, DaemonDrainingDetails, DaemonUnreachableDetails, DetachUnsupportedDetails, DialogAlreadyHandledDetails, EdgeHandlersUnsupportedDetails, EgressRefusedDetails, EngineExitedDetails, EnginePanickedDetails, ExecutableBlockedBySmartAppControlDetails, ExtractHandlerFailedDetails, ExtractorUnavailableDetails, FileWriteFailedDetails, FormatVersionUnsupportedDetails, HeaderForbiddenDetails, HeaderValueInvalidDetails, HookFailedDetails, LeadEpochStaleDetails, LimitNotUnderstoodDetails, LimitRaiseRefusedDetails, ListenerEventsLostDetails, LiveViewViewerLimitDetails, LocalAddressUnavailableDetails, LoggedOutDetails, ModelUnavailableDetails, NameLookupFailedDetails, NameNotResolvedDetails, NavigationFailedDetails, NavigationInterruptedDetails, NotADaemonDetails, NotInProductDetails, NotVerifiedDetails, PageCheckFailedDetails, PageCrashedDetails, PageFunctionFailedDetails, PageHandlerFailedDetails, PageMemoryExceededDetails, PageNavigatedDuringCallDetails, PageValueInvalidDetails, PathNotWritableDetails, PathUnsafeDetails, PatternUnsupportedDetails, PersonRequiredDetails, PolicyConflictDetails, ProtocolVersionUnsupportedDetails, ProxyAuthFailedDetails, ProxyProviderUnavailableDetails, ProxyRelayUnavailableDetails, ProxyUnavailableDetails, ReachedLimit, RecipeInvalidDetails, RecordingInvalidDetails, ResourcesExhaustedDetails, ResponseLimitExceededDetails, ResponseNotRecordedDetails, ResponseTruncatedDetails, RouteAlreadyHandledDetails, RunConflictDetails, RunDetails, RunIdInvalidDetails, RunInterruptedDetails, RunKeyMismatchDetails, RunStateFilesystemUnsupportedDetails, RunTargetUnbuiltDetails, ScheduleCapExceededDetails, ScheduleExistsDetails, ScheduleNotFoundDetails, ScheduleTriggerInvalidDetails, SchemaValidatorFailedDetails, SecretDomainNotAllowedDetails, SecretInputRefusedDetails, SecretUnavailableDetails, SecretUnboundDetails, SessionBoundToMachineDetails, SessionExportOpenFailedDetails, SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails, SettingUnknownDetails, SitePreferencesRefusedDetails, TargetNotUniqueDetails, TooManyCallsDetails, TooManyRedirectsDetails, UncertainEffect, ValueInvalidDetails, WebhookInvalidDetails } from "./types.ts";
 import { collieWire } from "./wire.ts";
 
 export {
@@ -208,6 +208,15 @@ export class ArtifactUnavailableOfflineError extends RefusedError<"artifact_unav
 }
 
 /**
+ * The Daemon at the Lead Daemon's address presented no certificate authority whose public key has the SHA-256 that `group join` pins, so the Daemon sent it nothing: the address leads elsewhere, or the key was copied wrong. Take the key `group token` answers on the Lead Daemon.
+ */
+export class AuthorityKeyMismatchError extends RefusedError<"authority_key_mismatch"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "AuthorityKeyMismatchError", code: "authority_key_mismatch", group: "refused", retryable: false });
+  }
+}
+
+/**
  * The site refused the document a navigation reached with a Block cause the engine cannot get past, such as a rate limit, an IP block or a challenge: raised by the call that waited for that navigation, or else by the page's next call. The Session stays open with its cookies, never replaced, and nothing waits on the site's `Retry-After`: the program decides whether to wait, open another Session or pause for a person. The details name the cause, the URL, the status and `retry_after`, the time the site asked for or `null`.
  */
 export class BlockedError extends PageError<"blocked"> {
@@ -260,6 +269,15 @@ export class BodyUnavailableError extends UnavailableError<"body_unavailable"> {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "BodyUnavailableError", code: "body_unavailable", group: "unavailable", retryable: false });
     this.typedDetails = detailsOf<BodyUnavailableDetails>(fields.details, ["requestId"], { path: { type: "BodyUnavailableDetails" }, types: collieWire.types });
+  }
+}
+
+/**
+ * A Borrowed browser serves one Run at a time and cannot be shared across a second Run or across multiple Partitions of a Partitioned crawl.
+ */
+export class BrowserBorrowedError extends RefusedError<"browser_borrowed"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "BrowserBorrowedError", code: "browser_borrowed", group: "refused", retryable: false });
   }
 }
 
@@ -829,6 +847,51 @@ export class FormatVersionUnsupportedError extends UnavailableError<"format_vers
 }
 
 /**
+ * This Daemon belongs to a Daemon group already, so `group init` forms no other: a Daemon forms or joins one group, and stays in it until it leaves.
+ */
+export class GroupExistsError extends RefusedError<"group_exists"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "GroupExistsError", code: "group_exists", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * Nothing answered at the Lead Daemon's peer address, or the peer link closed before its answer: check the address and that the Lead Daemon runs, then try again.
+ */
+export class GroupLeadUnreachableError extends UnavailableError<"group_lead_unreachable"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "GroupLeadUnreachableError", code: "group_lead_unreachable", group: "unavailable", retryable: true });
+  }
+}
+
+/**
+ * The Daemon group has a Group member of this name already, so the Daemon joins under another. The join token stays valid for it.
+ */
+export class GroupMemberExistsError extends RefusedError<"group_member_exists"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "GroupMemberExistsError", code: "group_member_exists", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * The Daemon group has no Group member of this name, so nothing was revoked: it left already, was revoked, or never joined.
+ */
+export class GroupMemberUnknownError extends RefusedError<"group_member_unknown"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "GroupMemberUnknownError", code: "group_member_unknown", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * A Daemon group of more than one Group member requires a shared Politeness store (`politeness.store`), or `politeness.sharing: per_daemon` in its Operator policy to keep Politeness per Daemon.
+ */
+export class GroupPolitenessUnsharedError extends RefusedError<"group_politeness_unshared"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "GroupPolitenessUnsharedError", code: "group_politeness_unshared", group: "refused", retryable: false });
+  }
+}
+
+/**
  * A seed, enqueue or Hook tried to set a header the engine owns (`Host`, `Cookie`, `Authorization`, `Proxy-*`, or a method-override header), so nothing was added or changed. The details name the forbidden header. Remove the header, or use the engine's own session, proxy or method APIs instead.
  */
 export class HeaderForbiddenError extends ProgramError<"header_forbidden"> {
@@ -873,6 +936,58 @@ export class HookFailedError extends ProgramError<"hook_failed"> {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "HookFailedError", code: "hook_failed", group: "program", retryable: true });
     this.typedDetails = detailsOf<HookFailedDetails>(fields.details, ["stage", "hook", "exceptionType", "exceptionMessage", "exceptionStack"], { path: { type: "HookFailedDetails" }, types: collieWire.types });
+  }
+}
+
+/**
+ * The Lead Daemon refused the join token: it minted no such token, or the token was used or is past its 30 minutes. Mint another with `group token` on the Lead Daemon and run `group join` with it.
+ */
+export class JoinTokenRefusedError extends RefusedError<"join_token_refused"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "JoinTokenRefusedError", code: "join_token_refused", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * The Lead Daemon cannot leave its Daemon group, nor be revoked from it, while it is the Lead Daemon: promote another Group member first, then remove this one.
+ */
+export class LeadCannotLeaveError extends RefusedError<"lead_cannot_leave"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "LeadCannotLeaveError", code: "lead_cannot_leave", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * A Group member received a peer message carrying a lower lead epoch than the highest it has recorded, so the sender is a former Lead Daemon, or a Group member that has not yet learnt of the current one, and the message is refused. The sender records the higher epoch from the details and acts as an ordinary Group member.
+ */
+export class LeadEpochStaleError extends RefusedError<"lead_epoch_stale"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<LeadEpochStaleDetails> | undefined;
+
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "LeadEpochStaleError", code: "lead_epoch_stale", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<LeadEpochStaleDetails>(fields.details, ["leadEpoch", "highestLeadEpoch"], { path: { type: "LeadEpochStaleDetails" }, types: collieWire.types });
+  }
+}
+
+/**
+ * The Lead Daemon has not yet confirmed its lead epoch with a majority of its last-known Group members: wait for a majority to come within reach, or confirm by hand with `group lead --confirm` once you have verified no other Lead Daemon runs.
+ */
+export class LeadUnconfirmedError extends UnavailableError<"lead_unconfirmed"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "LeadUnconfirmedError", code: "lead_unconfirmed", group: "unavailable", retryable: true });
+  }
+}
+
+/**
+ * The Daemon group's Lead Daemon, or the local Group member named by this machine's group redirect row, cannot be reached to check or grant a Usage ledger Slice or verify a sign-in: live Runs continue spending held Slices until they need a new one, and new Runs needing a Slice or sign-in wait until the Lead Daemon or Group member returns (or `group leave` removes the redirect row).
+ */
+export class LeadUnreachableError extends UnavailableError<"lead_unreachable"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "LeadUnreachableError", code: "lead_unreachable", group: "unavailable", retryable: true });
   }
 }
 
@@ -1102,6 +1217,15 @@ export class NotADaemonError extends ProgramError<"not_a_daemon"> {
 }
 
 /**
+ * This Daemon belongs to no Daemon group, so it has none to leave: form one with `group init`, or join one with `group join`.
+ */
+export class NotInAGroupError extends RefusedError<"not_in_a_group"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "NotInAGroupError", code: "not_in_a_group", group: "refused", retryable: false });
+  }
+}
+
+/**
  * The running engine's Product does not carry what was asked: a Client that needs Foxhound reached a Collie engine, or a call, a setting or a value only Foxhound carries reached one. Run it with Foxhound, which contains everything Collie does, or connect to a Foxhound engine.
  */
 export class NotInProductError extends UnavailableError<"not_in_product"> {
@@ -1114,6 +1238,15 @@ export class NotInProductError extends UnavailableError<"not_in_product"> {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "NotInProductError", code: "not_in_product", group: "unavailable", retryable: false });
     this.typedDetails = detailsOf<NotInProductDetails>(fields.details, ["product", "productVersion", "needs"], { path: { type: "NotInProductDetails" }, types: collieWire.types });
+  }
+}
+
+/**
+ * Only a Daemon group's Lead Daemon mints join tokens, and this Daemon is not one: run `group token` on the Lead Daemon, or `group init` to form a group with this Daemon as its Lead Daemon.
+ */
+export class NotLeadDaemonError extends RefusedError<"not_lead_daemon"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "NotLeadDaemonError", code: "not_lead_daemon", group: "refused", retryable: false });
   }
 }
 
@@ -1709,6 +1842,15 @@ export class RunLiveError extends ProgramError<"run_live"> {
 }
 
 /**
+ * The Run moved to another Group member, so this Group member no longer owns it: the receiving Group member refreshes its cached group Run index and retries once, and a Client that followed a redirect reconnects through any Group member and retries once.
+ */
+export class RunMovedError extends UnavailableError<"run_moved"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "RunMovedError", code: "run_moved", group: "unavailable", retryable: true });
+  }
+}
+
+/**
  * No Run has this Run ID: the Run index does not list it.
  */
 export class RunNotFoundError extends ProgramError<"run_not_found"> {
@@ -2156,9 +2298,11 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   address_family_unavailable: AddressFamilyUnavailableError,
   artifact_download_failed: ArtifactDownloadFailedError,
   artifact_unavailable_offline: ArtifactUnavailableOfflineError,
+  authority_key_mismatch: AuthorityKeyMismatchError,
   blocked: BlockedError,
   body_not_found: BodyNotFoundError,
   body_unavailable: BodyUnavailableError,
+  browser_borrowed: BrowserBorrowedError,
   browser_host_outdated: BrowserHostOutdatedError,
   browser_host_unreachable: BrowserHostUnreachableError,
   browser_launch_failed: BrowserLaunchFailedError,
@@ -2200,9 +2344,19 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   extractor_unavailable: ExtractorUnavailableError,
   file_write_failed: FileWriteFailedError,
   format_version_unsupported: FormatVersionUnsupportedError,
+  group_exists: GroupExistsError,
+  group_lead_unreachable: GroupLeadUnreachableError,
+  group_member_exists: GroupMemberExistsError,
+  group_member_unknown: GroupMemberUnknownError,
+  group_politeness_unshared: GroupPolitenessUnsharedError,
   header_forbidden: HeaderForbiddenError,
   header_value_invalid: HeaderValueInvalidError,
   hook_failed: HookFailedError,
+  join_token_refused: JoinTokenRefusedError,
+  lead_cannot_leave: LeadCannotLeaveError,
+  lead_epoch_stale: LeadEpochStaleError,
+  lead_unconfirmed: LeadUnconfirmedError,
+  lead_unreachable: LeadUnreachableError,
   limit_not_understood: LimitNotUnderstoodError,
   limit_raise_refused: LimitRaiseRefusedError,
   limit_reached: LimitReachedError,
@@ -2217,7 +2371,9 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   navigation_failed: NavigationFailedError,
   navigation_interrupted: NavigationInterruptedError,
   not_a_daemon: NotADaemonError,
+  not_in_a_group: NotInAGroupError,
   not_in_product: NotInProductError,
+  not_lead_daemon: NotLeadDaemonError,
   not_verified: NotVerifiedError,
   page_check_failed: PageCheckFailedError,
   page_crashed: PageCrashedError,
@@ -2258,6 +2414,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   run_interrupted: RunInterruptedError,
   run_key_mismatch: RunKeyMismatchError,
   run_live: RunLiveError,
+  run_moved: RunMovedError,
   run_not_found: RunNotFoundError,
   run_not_owned: RunNotOwnedError,
   run_state_filesystem_unsupported: RunStateFilesystemUnsupportedError,
@@ -2294,9 +2451,11 @@ export type CollieErrorCode =
   | "address_family_unavailable"
   | "artifact_download_failed"
   | "artifact_unavailable_offline"
+  | "authority_key_mismatch"
   | "blocked"
   | "body_not_found"
   | "body_unavailable"
+  | "browser_borrowed"
   | "browser_host_outdated"
   | "browser_host_unreachable"
   | "browser_launch_failed"
@@ -2339,10 +2498,20 @@ export type CollieErrorCode =
   | "extractor_unavailable"
   | "file_write_failed"
   | "format_version_unsupported"
+  | "group_exists"
+  | "group_lead_unreachable"
+  | "group_member_exists"
+  | "group_member_unknown"
+  | "group_politeness_unshared"
   | "header_forbidden"
   | "header_value_invalid"
   | "hook_failed"
   | "internal"
+  | "join_token_refused"
+  | "lead_cannot_leave"
+  | "lead_epoch_stale"
+  | "lead_unconfirmed"
+  | "lead_unreachable"
   | "limit_not_understood"
   | "limit_raise_refused"
   | "limit_reached"
@@ -2357,7 +2526,9 @@ export type CollieErrorCode =
   | "navigation_failed"
   | "navigation_interrupted"
   | "not_a_daemon"
+  | "not_in_a_group"
   | "not_in_product"
+  | "not_lead_daemon"
   | "not_verified"
   | "page_check_failed"
   | "page_crashed"
@@ -2398,6 +2569,7 @@ export type CollieErrorCode =
   | "run_interrupted"
   | "run_key_mismatch"
   | "run_live"
+  | "run_moved"
   | "run_not_found"
   | "run_not_owned"
   | "run_state_filesystem_unsupported"
@@ -2428,16 +2600,18 @@ export type CollieErrorCode =
   | "value_invalid"
   | "webhook_invalid";
 
-const collieErrorCodes: ReadonlySet<string> = new Set<CollieErrorCode>(["address_family_unavailable", "artifact_download_failed", "artifact_unavailable_offline", "blocked", "body_not_found", "body_unavailable", "browser_host_outdated", "browser_host_unreachable", "browser_launch_failed", "browser_needs_gui_session", "browser_not_installed", "browser_sandbox_unavailable", "call_cancelled", "capability_unavailable", "cdp_url_not_allowed", "cdp_url_not_browser", "cdp_url_unauthorized", "cdp_url_unreachable", "certificate_changed", "certificate_invalid", "challenge_unsolved", "checkpoint_behind", "closed", "confinement_unavailable", "connection_forked", "connection_lost", "connection_overloaded", "daemon_draining", "daemon_unreachable", "deadline_exceeded", "detach_unsupported", "dialog_already_handled", "edge_handlers_unsupported", "effect_key_invalid", "effect_key_reused", "effect_output_invalid", "effect_uncertain", "egress_refused", "engine_exited", "engine_not_found", "engine_output_invalid", "engine_panicked", "event_loop_mismatch", "executable_blocked_by_smart_app_control", "extract_handler_failed", "extractor_unavailable", "file_write_failed", "format_version_unsupported", "header_forbidden", "header_value_invalid", "hook_failed", "internal", "limit_not_understood", "limit_raise_refused", "limit_reached", "listener_events_lost", "listener_failed", "live_view_viewer_limit", "local_address_unavailable", "logged_out", "model_unavailable", "name_lookup_failed", "name_not_resolved", "navigation_failed", "navigation_interrupted", "not_a_daemon", "not_in_product", "not_verified", "page_check_failed", "page_crashed", "page_events_lost", "page_function_failed", "page_handler_failed", "page_memory_exceeded", "page_navigated_during_call", "page_value_invalid", "path_not_writable", "path_unsafe", "pattern_unsupported", "person_required", "plugin_crashed", "plugin_manifest_mismatch", "plugin_protocol_unsupported", "plugin_quarantined", "policy_conflict", "protocol_version_unsupported", "proxy_auth_failed", "proxy_provider_unavailable", "proxy_relay_unavailable", "proxy_unavailable", "recipe_invalid", "recording_invalid", "replay_not_allowed", "resources_exhausted", "response_limit_exceeded", "response_not_json", "response_not_recorded", "response_truncated", "route_already_handled", "run_busy", "run_conflict", "run_ended", "run_id_invalid", "run_in_use", "run_interrupted", "run_key_mismatch", "run_live", "run_not_found", "run_not_owned", "run_state_filesystem_unsupported", "run_state_unavailable", "run_target_unbuilt", "sample_refused", "schedule_cap_exceeded", "schedule_exists", "schedule_not_found", "schedule_trigger_invalid", "schema_validator_failed", "secret_domain_not_allowed", "secret_input_refused", "secret_unavailable", "secret_unbound", "session_bound_to_machine", "session_export_open_failed", "setting_invalid", "setting_locked", "setting_not_applicable", "setting_unknown", "site_preferences_refused", "skill_install_refused", "target_not_unique", "too_many_calls", "too_many_redirects", "upgrade_source_unsupported", "value_invalid", "webhook_invalid"]);
+const collieErrorCodes: ReadonlySet<string> = new Set<CollieErrorCode>(["address_family_unavailable", "artifact_download_failed", "artifact_unavailable_offline", "authority_key_mismatch", "blocked", "body_not_found", "body_unavailable", "browser_borrowed", "browser_host_outdated", "browser_host_unreachable", "browser_launch_failed", "browser_needs_gui_session", "browser_not_installed", "browser_sandbox_unavailable", "call_cancelled", "capability_unavailable", "cdp_url_not_allowed", "cdp_url_not_browser", "cdp_url_unauthorized", "cdp_url_unreachable", "certificate_changed", "certificate_invalid", "challenge_unsolved", "checkpoint_behind", "closed", "confinement_unavailable", "connection_forked", "connection_lost", "connection_overloaded", "daemon_draining", "daemon_unreachable", "deadline_exceeded", "detach_unsupported", "dialog_already_handled", "edge_handlers_unsupported", "effect_key_invalid", "effect_key_reused", "effect_output_invalid", "effect_uncertain", "egress_refused", "engine_exited", "engine_not_found", "engine_output_invalid", "engine_panicked", "event_loop_mismatch", "executable_blocked_by_smart_app_control", "extract_handler_failed", "extractor_unavailable", "file_write_failed", "format_version_unsupported", "group_exists", "group_lead_unreachable", "group_member_exists", "group_member_unknown", "group_politeness_unshared", "header_forbidden", "header_value_invalid", "hook_failed", "internal", "join_token_refused", "lead_cannot_leave", "lead_epoch_stale", "lead_unconfirmed", "lead_unreachable", "limit_not_understood", "limit_raise_refused", "limit_reached", "listener_events_lost", "listener_failed", "live_view_viewer_limit", "local_address_unavailable", "logged_out", "model_unavailable", "name_lookup_failed", "name_not_resolved", "navigation_failed", "navigation_interrupted", "not_a_daemon", "not_in_a_group", "not_in_product", "not_lead_daemon", "not_verified", "page_check_failed", "page_crashed", "page_events_lost", "page_function_failed", "page_handler_failed", "page_memory_exceeded", "page_navigated_during_call", "page_value_invalid", "path_not_writable", "path_unsafe", "pattern_unsupported", "person_required", "plugin_crashed", "plugin_manifest_mismatch", "plugin_protocol_unsupported", "plugin_quarantined", "policy_conflict", "protocol_version_unsupported", "proxy_auth_failed", "proxy_provider_unavailable", "proxy_relay_unavailable", "proxy_unavailable", "recipe_invalid", "recording_invalid", "replay_not_allowed", "resources_exhausted", "response_limit_exceeded", "response_not_json", "response_not_recorded", "response_truncated", "route_already_handled", "run_busy", "run_conflict", "run_ended", "run_id_invalid", "run_in_use", "run_interrupted", "run_key_mismatch", "run_live", "run_moved", "run_not_found", "run_not_owned", "run_state_filesystem_unsupported", "run_state_unavailable", "run_target_unbuilt", "sample_refused", "schedule_cap_exceeded", "schedule_exists", "schedule_not_found", "schedule_trigger_invalid", "schema_validator_failed", "secret_domain_not_allowed", "secret_input_refused", "secret_unavailable", "secret_unbound", "session_bound_to_machine", "session_export_open_failed", "setting_invalid", "setting_locked", "setting_not_applicable", "setting_unknown", "site_preferences_refused", "skill_install_refused", "target_not_unique", "too_many_calls", "too_many_redirects", "upgrade_source_unsupported", "value_invalid", "webhook_invalid"]);
 
 /** An error with one of the Error codes Collie raises, which its `code` narrows to the code's class. */
 export type CollieError =
   | AddressFamilyUnavailableError
   | ArtifactDownloadFailedError
   | ArtifactUnavailableOfflineError
+  | AuthorityKeyMismatchError
   | BlockedError
   | BodyNotFoundError
   | BodyUnavailableError
+  | BrowserBorrowedError
   | BrowserHostOutdatedError
   | BrowserHostUnreachableError
   | BrowserLaunchFailedError
@@ -2480,10 +2654,20 @@ export type CollieError =
   | ExtractorUnavailableError
   | FileWriteFailedError
   | FormatVersionUnsupportedError
+  | GroupExistsError
+  | GroupLeadUnreachableError
+  | GroupMemberExistsError
+  | GroupMemberUnknownError
+  | GroupPolitenessUnsharedError
   | HeaderForbiddenError
   | HeaderValueInvalidError
   | HookFailedError
   | InternalError<"internal">
+  | JoinTokenRefusedError
+  | LeadCannotLeaveError
+  | LeadEpochStaleError
+  | LeadUnconfirmedError
+  | LeadUnreachableError
   | LimitNotUnderstoodError
   | LimitRaiseRefusedError
   | LimitReachedError
@@ -2498,7 +2682,9 @@ export type CollieError =
   | NavigationFailedError
   | NavigationInterruptedError
   | NotADaemonError
+  | NotInAGroupError
   | NotInProductError
+  | NotLeadDaemonError
   | NotVerifiedError
   | PageCheckFailedError
   | PageCrashedError
@@ -2539,6 +2725,7 @@ export type CollieError =
   | RunInterruptedError
   | RunKeyMismatchError
   | RunLiveError
+  | RunMovedError
   | RunNotFoundError
   | RunNotOwnedError
   | RunStateFilesystemUnsupportedError

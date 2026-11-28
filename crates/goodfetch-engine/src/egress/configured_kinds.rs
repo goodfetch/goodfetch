@@ -46,13 +46,17 @@ pub enum ConfiguredKind {
     /// A `browser.mirror` the pinned Chrome for Testing builds are
     /// downloaded below in place of Chrome for Testing's storage (ADR 0047).
     BrowserMirror,
+    /// An object-storage endpoint for Run Checkpoints (`s3://`, `gs://`,
+    /// `az://`, issue 3472).
+    CheckpointStorage,
 }
 
 /// The layers whose value makes a destination Operator-configured: the
-/// Operator policy and user and project configuration.
+/// Operator policy and user, group-member and project configuration.
 const CONFIGURATION: &[SettingsLayer] = &[
     SettingsLayer::OperatorPolicy,
     SettingsLayer::UserConfiguration,
+    SettingsLayer::GroupMember,
     SettingsLayer::ProjectConfiguration,
 ];
 
@@ -90,7 +94,7 @@ impl ConfiguredKindClass {
 /// judged). Every caller of the engine's own HTTP client but a pinned
 /// download from its pinned URL and a run's own requests connects to one
 /// of these kinds.
-pub const CONFIGURED_KINDS: [ConfiguredKindClass; 9] = [
+pub const CONFIGURED_KINDS: [ConfiguredKindClass; 10] = [
     ConfiguredKindClass {
         kind: ConfiguredKind::ModelProvider,
         name: "Model provider",
@@ -134,6 +138,11 @@ pub const CONFIGURED_KINDS: [ConfiguredKindClass; 9] = [
     ConfiguredKindClass {
         kind: ConfiguredKind::BrowserMirror,
         name: "browser mirror",
+        operator_layers: CONFIGURATION,
+    },
+    ConfiguredKindClass {
+        kind: ConfiguredKind::CheckpointStorage,
+        name: "Checkpoint storage",
         operator_layers: CONFIGURATION,
     },
 ];

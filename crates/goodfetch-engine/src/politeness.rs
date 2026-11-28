@@ -61,9 +61,11 @@ mod delegation;
 mod live;
 mod memory;
 pub mod store;
+mod store_backend;
 
 pub use live::{
-    OnStorageFailures, RunPoliteness, RunPolitenessParts, SharedPoliteness, SharedPolitenessParts,
+    OnStorageFailures, OnStoreDegraded, RunPoliteness, RunPolitenessParts, SharedPoliteness,
+    SharedPolitenessParts,
 };
 pub use memory::MemoryTables;
 
@@ -247,8 +249,25 @@ pub struct PolitenessTables {
     pub prepared: &'static [&'static str],
 }
 
-/// How the Politeness file opens.
-#[derive(Clone, Debug, Default)]
+/// Current reachability and degraded-admission state of the Politeness store
+/// (ADR 0053), observed by each live Run that shares the store so it can emit
+/// `politeness.store_degraded` on its event stream and record a
+/// `politeness_store_degraded` warning in its report.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StoreDegradedStatus {
+    /// Whether the Politeness store is currently unreachable (degraded).
+    pub degraded: bool,
+    /// Whether `politeness.degraded_max` has elapsed and admission to shared
+    /// keys is stopped until the store reconnects.
+    pub admission_stopped: bool,
+    /// Configured `politeness.degraded_max` window.
+    pub degraded_max: std::time::Duration,
+    /// Why the Politeness store became unreachable, when `degraded` is `true`.
+    pub reason: Option<String>,
+}
+
+/// How the Politeness file or store opens.
+#[derive(Clone, Debug)]
 pub struct PolitenessOptions {
     /// The name of the SQLite VFS it opens through: none in production, the
     /// crash VFS in tests (ADR 0060).
@@ -256,6 +275,44 @@ pub struct PolitenessOptions {
     /// Where it counts its opens and transactions, and the robots.txt copy
     /// kept in it its reads and parses (ADR 0140's E6).
     pub work: CountedWork,
+    /// Expiry of a Delegation held in the Politeness store (renewed by the
+    /// engine's heartbeat every third of this duration).
+    pub store_delegation_ttl: std::time::Duration,
+    /// Lease duration of a shared Permit in the Politeness store (renewed
+    /// while its request stays in flight every third of this duration).
+    pub store_permit_lease: std::time::Duration,
+    /// Heartbeat TTL in the Politeness store (clamped to `<= store_permit_lease`,
+    /// ADR 0053: a heartbeat goes stale no later than a permit's lease expires).
+    pub store_heartbeat_ttl: std::time::Duration,
+    /// Maximum duration a cut-off engine admits within its last granted share
+    /// before stopping admission to shared keys (`politeness.degraded_max`,
+    /// 10 minutes by default, ADR 0053).
+    pub store_degraded_max: std::time::Duration,
+    /// Longest request timeout this engine reports in its Politeness store
+    /// heartbeats (ADR 0053).
+    pub store_request_timeout: std::time::Duration,
+    /// Initial backoff duration before retrying a failed Politeness store
+    /// reconnection (doubles up to 5 s, ADR 0053).
+    pub store_reconnect_initial: std::time::Duration,
+    /// Optional runtime metrics updated with `goodfetch.politeness.store_degraded`
+    /// (ADRs 0050 and 0053).
+    pub metrics: Option<crate::metrics::Metrics>,
+}
+
+impl Default for PolitenessOptions {
+    fn default() -> Self {
+        Self {
+            vfs: None,
+            work: CountedWork::default(),
+            store_delegation_ttl: store_backend::DEFAULT_DELEGATION_TTL,
+            store_permit_lease: store_backend::DEFAULT_PERMIT_LEASE,
+            store_heartbeat_ttl: store_backend::DEFAULT_HEARTBEAT_TTL,
+            store_degraded_max: store_backend::DEFAULT_DEGRADED_MAX,
+            store_request_timeout: store_backend::DEFAULT_REQUEST_TIMEOUT,
+            store_reconnect_initial: store_backend::DEFAULT_RECONNECT_INITIAL,
+            metrics: None,
+        }
+    }
 }
 
 /// Whether a key admits one more request now.
@@ -419,6 +476,35 @@ pub trait KeyState: Sized + Send + 'static {
     /// Drops from `tables` what they keep under `key`, once its Delegation
     /// was given back.
     fn forget(_tables: &mut MemoryTables, _key: &Self::Key) {}
+
+    /// The field name this state keeps under `:state` in the Politeness
+    /// store (Valkey/Redis), or `None` when not stored there.
+    const STORE_PART: Option<&'static str> = None;
+
+    /// The Politeness key whose `:state` hash holds this state in the
+    /// Politeness store.
+    fn store_key(_key: &Self::Key) -> Option<&str> {
+        None
+    }
+
+    /// Serializes this value for the Politeness store's `:state` hash.
+    fn encode_store(&self) -> Option<Vec<u8>> {
+        None
+    }
+
+    /// Loads this state from bytes stored in the Politeness store's `:state`
+    /// hash, or returns its default when absent.
+    fn load_store(_bytes: Option<&[u8]>, _reads: Self::Reads) -> Option<Self> {
+        None
+    }
+
+    /// Serializes what `tables` keep under `key` for the Politeness store.
+    fn encode_store_from(_tables: &MemoryTables, _key: &Self::Key) -> Option<Vec<u8>> {
+        None
+    }
+
+    /// Loads `bytes` from the Politeness store into `tables` under `key`.
+    fn decode_store_into(_tables: &mut MemoryTables, _key: &Self::Key, _bytes: &[u8]) {}
 }
 
 /// Loads the state kept under `key` in `connection` as `reads` says, runs
@@ -509,6 +595,18 @@ pub trait PermitRule: Send + Sync + 'static {
     /// before [`Verdict::Busy`], the run learns at its next take, once one
     /// of those requests ends. `None` by default: no such bound.
     fn concurrency(&self) -> Option<u64> {
+        None
+    }
+
+    /// Effective concurrency cap for `state` (the smaller of the run's own
+    /// cap and any learned ceiling). Defaults to [`PermitRule::concurrency`].
+    fn effective_cap(&self, _state: &Self::State) -> Option<u64> {
+        self.concurrency()
+    }
+
+    /// Optional GCRA `(interval, burst)` rate pacing enforced in the
+    /// Politeness store on the server's clock.
+    fn store_pace(&self) -> Option<(std::time::Duration, u32)> {
         None
     }
 }
@@ -609,6 +707,42 @@ trait Erased: Send + Sync {
         key: &str,
         now: SystemTime,
     ) -> rusqlite::Result<()>;
+
+    fn store_part(&self) -> Option<&'static str>;
+
+    fn encode_store_from(&self, tables: &MemoryTables, key: &str) -> Option<Vec<u8>>;
+
+    fn decode_store_into(&self, tables: &mut MemoryTables, key: &str, bytes: &[u8]);
+
+    fn store_pace(&self) -> Option<(std::time::Duration, u32)>;
+
+    fn admit_and_start_store(
+        &self,
+        tables: &mut MemoryTables,
+        key: &str,
+        stored: Option<&[u8]>,
+        in_flight: u64,
+        now: SystemTime,
+    ) -> (Verdict, Option<u64>, Option<Vec<u8>>);
+
+    fn admit_degraded_store(
+        &self,
+        tables: &mut MemoryTables,
+        key: &str,
+        in_flight: u64,
+        granted_share: u64,
+        max_cap: u64,
+        now: SystemTime,
+    ) -> Verdict;
+
+    fn ended_store(
+        &self,
+        tables: &mut MemoryTables,
+        key: &str,
+        in_flight: u64,
+        ending: Ending,
+        now: SystemTime,
+    ) -> (Option<SystemTime>, Option<Vec<u8>>);
 }
 
 impl<R: PermitRule> Erased for R {
@@ -688,6 +822,95 @@ impl<R: PermitRule> Erased for R {
         let mut state = R::State::load(transaction, key, self.reads(Step::Take))?;
         let writes = self.started(&mut state, now);
         state.save(transaction, key, &writes)
+    }
+
+    fn store_part(&self) -> Option<&'static str> {
+        R::State::STORE_PART
+    }
+
+    fn encode_store_from(&self, tables: &MemoryTables, key: &str) -> Option<Vec<u8>> {
+        R::State::encode_store_from(tables, key)
+    }
+
+    fn decode_store_into(&self, tables: &mut MemoryTables, key: &str, bytes: &[u8]) {
+        R::State::decode_store_into(tables, key, bytes);
+    }
+
+    fn store_pace(&self) -> Option<(std::time::Duration, u32)> {
+        PermitRule::store_pace(self)
+    }
+
+    fn admit_and_start_store(
+        &self,
+        tables: &mut MemoryTables,
+        key: &str,
+        stored: Option<&[u8]>,
+        in_flight: u64,
+        now: SystemTime,
+    ) -> (Verdict, Option<u64>, Option<Vec<u8>>) {
+        let reads = self.reads(Step::Take);
+        let mut state = R::State::load_store(stored, reads)
+            .unwrap_or_else(|| R::State::load_from(tables, key, reads));
+        let cap = self.effective_cap(&state);
+        let verdict = self.admit(&state, in_flight, now);
+        let updated = if verdict == Verdict::Go {
+            let writes = self.started(&mut state, now);
+            state.save_to(tables, key, &writes);
+            R::State::encode_store_from(tables, key).or_else(|| state.encode_store())
+        } else {
+            None
+        };
+        (verdict, cap, updated)
+    }
+
+    fn admit_degraded_store(
+        &self,
+        tables: &mut MemoryTables,
+        key: &str,
+        in_flight: u64,
+        granted_share: u64,
+        max_cap: u64,
+        now: SystemTime,
+    ) -> Verdict {
+        let reads = self.reads(Step::Take);
+        let mut state = R::State::load_from(tables, key, reads);
+        let cap = self.effective_cap(&state);
+        if max_cap > 0 {
+            let run_cap = cap.unwrap_or(max_cap).min(max_cap);
+            let scaled = if run_cap == 0 || granted_share == 0 {
+                0
+            } else {
+                ((granted_share.saturating_mul(run_cap)) / max_cap)
+                    .max(1)
+                    .min(granted_share)
+                    .min(run_cap)
+            };
+            if in_flight >= scaled {
+                return Verdict::Busy;
+            }
+        }
+        let verdict = self.admit(&state, in_flight, now);
+        if verdict == Verdict::Go {
+            let writes = self.started(&mut state, now);
+            state.save_to(tables, key, &writes);
+        }
+        verdict
+    }
+
+    fn ended_store(
+        &self,
+        tables: &mut MemoryTables,
+        key: &str,
+        in_flight: u64,
+        ending: Ending,
+        now: SystemTime,
+    ) -> (Option<SystemTime>, Option<Vec<u8>>) {
+        let reads = self.reads(Step::GiveBack);
+        let mut state = R::State::load_from(tables, key, reads);
+        let (ready_at, writes) = self.ended(&mut state, in_flight, ending, now);
+        state.save_to(tables, key, &writes);
+        let encoded = R::State::encode_store_from(tables, key).or_else(|| state.encode_store());
+        (ready_at, encoded)
     }
 }
 
@@ -794,6 +1017,9 @@ pub enum PolitenessError {
     /// admission, has stopped.
     #[error("the task that holds the Politeness has stopped")]
     Closed,
+    /// The Politeness store (Valkey or Redis) failed or refused the engine.
+    #[error("the Politeness store: {0}")]
+    Store(String),
 }
 
 /// What a job sees beside the file.
@@ -965,25 +1191,40 @@ struct Recall {
 #[derive(Clone)]
 pub struct Politeness(Arc<Inner>);
 
+enum PolitenessKind {
+    Local {
+        mailbox: mpsc::Sender<Job>,
+        endpoint: Option<String>,
+        _wake_folder: Option<tempfile::TempDir>,
+        in_memory: bool,
+    },
+    Store(store_backend::StoreBackend),
+}
+
 struct Inner {
-    mailbox: mpsc::Sender<Job>,
+    kind: PolitenessKind,
     wakes: broadcast::Sender<Wake>,
-    endpoint: Option<String>,
-    _wake_folder: Option<tempfile::TempDir>,
     /// The first transaction that met a full disk or an I/O error, as
     /// SQLite named it, once one did (ADR 0122).
     failures: watch::Sender<Option<String>>,
+    /// The Politeness store's reachability and degraded-admission state
+    /// (ADR 0053).
+    degraded: watch::Sender<StoreDegradedStatus>,
     work: CountedWork,
-    /// Whether it is a Politeness of one Run's own, held in memory.
-    in_memory: bool,
 }
 
 impl fmt::Debug for Politeness {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("Politeness")
-            .field("endpoint", &self.0.endpoint)
-            .finish_non_exhaustive()
+        let mut s = formatter.debug_struct("Politeness");
+        match &self.0.kind {
+            PolitenessKind::Local { endpoint, .. } => {
+                s.field("endpoint", endpoint);
+            }
+            PolitenessKind::Store(_) => {
+                s.field("backend", &"store");
+            }
+        }
+        s.finish_non_exhaustive()
     }
 }
 
@@ -1122,6 +1363,48 @@ impl Politeness {
         Ok(politeness)
     }
 
+    /// Opens a Politeness backed by `store` (Valkey or Redis, ADRs 0053
+    /// and 0142), as `engine` (an ID unique to this engine): keys only this
+    /// engine uses are served from memory under a Delegation (0 store round
+    /// trips) renewed by heartbeat, recalled through pub/sub when another
+    /// engine needs the key.
+    ///
+    /// # Errors
+    ///
+    /// `Store` when the pub/sub wakes connection cannot be opened.
+    pub async fn open_store(
+        store: store::PolitenessStore,
+        options: &PolitenessOptions,
+        engine: String,
+        clock: crate::clock::Clock,
+        owner: &TaskOwner,
+    ) -> Result<Self, PolitenessError> {
+        let (wakes, _) = broadcast::channel(WAKES);
+        let degraded = watch::Sender::new(StoreDegradedStatus {
+            degraded: false,
+            admission_stopped: false,
+            degraded_max: options.store_degraded_max,
+            reason: None,
+        });
+        let backend = store_backend::StoreBackend::start(
+            store,
+            options,
+            engine,
+            clock,
+            wakes.clone(),
+            degraded.clone(),
+            owner,
+        )
+        .await?;
+        Ok(Self(Arc::new(Inner {
+            kind: PolitenessKind::Store(backend),
+            wakes,
+            failures: watch::Sender::new(None),
+            degraded,
+            work: options.work.clone(),
+        })))
+    }
+
     fn handle(
         mailbox: mpsc::Sender<Job>,
         wakes: broadcast::Sender<Wake>,
@@ -1130,13 +1413,16 @@ impl Politeness {
         in_memory: bool,
     ) -> Self {
         Self(Arc::new(Inner {
-            mailbox,
+            kind: PolitenessKind::Local {
+                mailbox,
+                endpoint,
+                _wake_folder: wake_folder,
+                in_memory,
+            },
             wakes,
-            endpoint,
-            _wake_folder: wake_folder,
             failures: watch::Sender::new(None),
+            degraded: watch::Sender::new(StoreDegradedStatus::default()),
             work,
-            in_memory,
         }))
     }
 
@@ -1144,7 +1430,13 @@ impl Politeness {
     /// [`notes`](Self::note) its callers do not wait for (#2171); on the
     /// file a note is a transaction its caller waits for.
     pub fn held_in_memory(&self) -> bool {
-        self.0.in_memory
+        matches!(
+            self.0.kind,
+            PolitenessKind::Local {
+                in_memory: true,
+                ..
+            }
+        )
     }
 
     /// Where the file counts its work, and what keeps its tables counts
@@ -1158,6 +1450,14 @@ impl Politeness {
     /// on it.
     pub fn storage_failures(&self) -> watch::Receiver<Option<String>> {
         self.0.failures.subscribe()
+    }
+
+    /// The Politeness store's reachability and degraded-admission state
+    /// (ADR 0053): watched by Runs sharing the store to emit
+    /// `politeness.store_degraded` events and record `politeness_store_degraded`
+    /// warnings.
+    pub fn store_degraded(&self) -> watch::Receiver<StoreDegradedStatus> {
+        self.0.degraded.subscribe()
     }
 
     /// The wakes this engine's waiters receive, from the moment it is
@@ -1217,11 +1517,13 @@ impl Politeness {
         rule: SharedRule,
         now: SystemTime,
     ) -> Result<Taken, PolitenessError> {
+        let take = Take::asked(key, holder, rule, now, InTurn::Beside);
+        if let PolitenessKind::Store(store) = &self.0.kind {
+            return store.take(take.into_owned()).await;
+        }
         // Its round trip counts on `F3.second_copy_round_trips`, where the
         // second copy takes it.
-        let (taken, _) = self
-            .taking(Take::asked(key, holder, rule, now, InTurn::Beside))
-            .await?;
+        let (taken, _) = self.taking(take).await?;
         Ok(taken)
     }
 
@@ -1254,7 +1556,10 @@ impl Politeness {
     /// A take of its holder's own request, which its `in_turn` says how it
     /// waits in turn for, waking the waiter whose turn it passes on.
     async fn take_in_turn(&self, take: Take<'_>) -> Result<Taken, PolitenessError> {
-        if self.0.in_memory {
+        if let PolitenessKind::Store(store) = &self.0.kind {
+            return store.take(take.into_owned()).await;
+        }
+        if self.held_in_memory() {
             self.0.work.count(Row::PolitenessReadRoundTrips);
         }
         let (taken, turn) = self.taking(take).await?;
@@ -1285,6 +1590,9 @@ impl Politeness {
         ending: Ending,
         now: SystemTime,
     ) -> Result<Option<SystemTime>, PolitenessError> {
+        if let PolitenessKind::Store(store) = &self.0.kind {
+            return store.give_back(permit, rule, ending, now).await;
+        }
         let (ready_at, turn) = self
             .run(move |backend, context| {
                 give_back_in(backend, context, &permit, &rule, ending, now)
@@ -1313,6 +1621,9 @@ impl Politeness {
         now: SystemTime,
     ) -> Result<(), PolitenessError> {
         let run_id = holder.run_id.clone();
+        if let PolitenessKind::Store(store) = &self.0.kind {
+            return store.stop_waiting(run_id, now).await;
+        }
         let turns = self
             .run(move |backend, context| match backend {
                 Backend::File(file) => file.stop_waiting(context, &run_id, now),
@@ -1354,7 +1665,7 @@ impl Politeness {
         T: Send + 'static,
         F: FnOnce(&mut S) -> (T, S::Writes) + Send + 'static,
     {
-        self.run(change_job(key, reads, change)).await
+        self.change_with(key, reads, change, true).await
     }
 
     /// Changes the state `S` keeps under `key` as [`Politeness::change`]
@@ -1382,7 +1693,31 @@ impl Politeness {
         T: Send + 'static,
         F: FnOnce(&mut S) -> (T, S::Writes) + Send + 'static,
     {
-        self.answered(change_job(key, reads, change)).await
+        self.change_with(key, reads, change, false).await
+    }
+
+    async fn change_with<S, K, T, F>(
+        &self,
+        key: K,
+        reads: S::Reads,
+        change: F,
+        count_round_trip: bool,
+    ) -> Result<T, PolitenessError>
+    where
+        S: KeyState,
+        K: Borrow<S::Key> + Send + 'static,
+        T: Send + 'static,
+        F: FnOnce(&mut S) -> (T, S::Writes) + Send + 'static,
+    {
+        if let PolitenessKind::Store(store) = &self.0.kind {
+            return store.change(key, reads, change).await;
+        }
+        let job = change_job(key, reads, change);
+        if count_round_trip {
+            self.run(job).await
+        } else {
+            self.answered(job).await
+        }
     }
 
     /// Changes the state `S` keeps under `key` as [`Politeness::change`]
@@ -1413,7 +1748,7 @@ impl Politeness {
         F: FnOnce(&mut S) -> S::Writes + Send + 'static,
     {
         let change = move |state: &mut S| ((), change(state));
-        if !self.0.in_memory {
+        if !self.held_in_memory() {
             return self.change(key, reads, change).await;
         }
         self.send(Box::new(move |backend, _| {
@@ -1441,7 +1776,7 @@ impl Politeness {
         ending: Ending,
         now: SystemTime,
     ) -> Result<(), PolitenessError> {
-        if !self.0.in_memory {
+        if !self.held_in_memory() {
             return self.give_back(permit, rule, ending, now).await.map(drop);
         }
         self.send(Box::new(move |backend, context| {
@@ -1455,11 +1790,10 @@ impl Politeness {
 
     /// Queues `job`, answering nothing.
     async fn send(&self, job: Job) -> Result<(), PolitenessError> {
-        self.0
-            .mailbox
-            .send(job)
-            .await
-            .map_err(|_| PolitenessError::Closed)
+        let PolitenessKind::Local { mailbox, .. } = &self.0.kind else {
+            return Err(PolitenessError::Closed);
+        };
+        mailbox.send(job).await.map_err(|_| PolitenessError::Closed)
     }
 
     /// Runs `work` on the task that holds the Politeness and answers what
@@ -1470,7 +1804,7 @@ impl Politeness {
         T: Send + 'static,
         F: FnOnce(&mut Backend, &Context) -> Result<T, PolitenessError> + Send + 'static,
     {
-        if self.0.in_memory {
+        if self.held_in_memory() {
             self.0.work.count(Row::PolitenessReadRoundTrips);
         }
         self.answered(work).await
@@ -1594,7 +1928,11 @@ impl Politeness {
             return;
         }
         loop {
-            if self.0.endpoint.as_deref() == Some(turn.endpoint.as_str()) {
+            let local_endpoint = match &self.0.kind {
+                PolitenessKind::Local { endpoint, .. } => endpoint.as_deref(),
+                PolitenessKind::Store(_) => None,
+            };
+            if local_endpoint == Some(turn.endpoint.as_str()) {
                 let _ = self.0.wakes.send(turn.wake);
                 return;
             }

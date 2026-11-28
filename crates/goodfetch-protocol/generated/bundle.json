@@ -233,6 +233,34 @@
       ],
       "type": "object"
     },
+    "AdoptedRun": {
+      "description": "One Run brought into another Group member by `runs adopt` (ADR 0055).",
+      "properties": {
+        "owner": {
+          "arrived_in": "0.1",
+          "description": "The Group member that resumed the Run and now owns it.",
+          "type": "string"
+        },
+        "run_epoch": {
+          "arrived_in": "0.1",
+          "description": "The new run epoch taken when the receiving Group member resumed it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The adopted Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "owner",
+        "run_epoch"
+      ],
+      "type": "object"
+    },
     "AllowanceSource": {
       "description": "What set the Memory allowance: the tightest of them (ADR 0040).",
       "oneOf": [
@@ -755,6 +783,16 @@
         }
       },
       "type": "object"
+    },
+    "AutoPartitions": {
+      "description": "The `\"auto\"` value of `partitions` (ADR 0054): one Partition per eligible\nGroup member.",
+      "oneOf": [
+        {
+          "const": "auto",
+          "description": "One Partition per eligible Group member.",
+          "type": "string"
+        }
+      ]
     },
     "AxisReason": {
       "description": "One reason a Run is not `verified` or not `complete` (ADR 0029).",
@@ -1932,6 +1970,14 @@
           "arrived_in": "0.1",
           "description": "Whether the Run outlives the program (ADR 0102): closing its value\nthen frees only the value, `run.finish` waits for its end and\n`run.stop` stops it.",
           "type": "boolean"
+        },
+        "group_member": {
+          "arrived_in": "0.1",
+          "description": "Optional Group member pin in a Daemon group (ADR 0055).",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "limits": {
           "arrived_in": "0.1",
@@ -4915,6 +4961,18 @@
             "null"
           ]
         },
+        "redone": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RedoneReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "How much work a resumed Run redid after its prior epoch stopped with\nuncommitted Run-state batch writes or in-flight attempts (ADRs 0122\nand 0142). Absent when nothing was redone."
+        },
         "requests": {
           "anyOf": [
             {
@@ -5084,6 +5142,14 @@
           "arrived_in": "0.1",
           "description": "What a crawl with no handler reads from each page (a code-free\ncrawl, ADR 0103): the engine handles each request itself and\ndeclares the Label and the Dataset it commits into, so such a start\ndeclares no Dataset of its own, else it fails with\n`invalid_params`. None for a crawl whose program handles its\nrequests."
         },
+        "group_member": {
+          "arrived_in": "0.1",
+          "description": "Optional Group member pin in a Daemon group (ADR 0055).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "hooks": {
           "arrived_in": "0.1",
           "description": "The crawl's Hooks in code, in the order declared (ADR 0104). Never\nkept in the Run's state: a start that resumes the Run declares them\nagain.",
@@ -5107,6 +5173,18 @@
             "$ref": "#/$defs/RunLimit"
           },
           "type": "array"
+        },
+        "partitions": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Partitions"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Partition count for a Partitioned crawl (ADR 0054): a positive integer\nor `\"auto\"` for one Partition per eligible Group member."
         },
         "project": {
           "anyOf": [
@@ -5176,10 +5254,18 @@
           "arrived_in": "0.1",
           "description": "The Product it needs (ADR 0098): Collie until it uses an entry the\ncatalog marks Foxhound's, Foxhound from then on."
         },
+        "partitions": {
+          "arrived_in": "0.1",
+          "description": "For a Partitioned crawl (ADR 0054), each Partition's Run ID and Group\nmember placement beside the Partitioned crawl ID; empty otherwise.",
+          "items": {
+            "$ref": "#/$defs/StartedPartition"
+          },
+          "type": "array"
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
-          "description": "The Run's ID."
+          "description": "The Run's ID (or the Partitioned crawl ID for a Partitioned crawl)."
         },
         "seeds": {
           "arrived_in": "0.1",
@@ -7914,6 +8000,18 @@
           "arrived_in": "0.1",
           "description": "The last event the Client read, `{engine_instance, position}`: the\nsubscription resumes after it, or starts with `events.resync` when\nthe engine no longer holds it or another engine instance gave it, as\nafter a Daemon restart. Absent, it starts with the next event."
         },
+        "run_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Run whose events are subscribed to in a Daemon group (ADR 0055):\nwhen another Group member owns it, the stream redirects to its\n`daemon.advertise_url` when set or forwards over the peer link."
+        },
         "system_info": {
           "arrived_in": "0.1",
           "description": "Whether it also takes `engine.system_info`, the Resource governor's\nperiodic readings; false by default, so a subscription that reads\nonly what changes sees no periodic event.",
@@ -9603,6 +9701,312 @@
         }
       ]
     },
+    "GroupFormed": {
+      "description": "What `group.init` answers.",
+      "properties": {
+        "authority_key": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the group's certificate authority's public key, as\n`sha256/` and its standard base64.",
+          "type": "string"
+        },
+        "lead_epoch": {
+          "$ref": "#/$defs/LeadEpoch",
+          "arrived_in": "0.1",
+          "description": "The group's lead epoch: 1, the first."
+        },
+        "peer_address": {
+          "arrived_in": "0.1",
+          "description": "The `host:port` the peer listener took, which `group join` dials.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "lead_epoch",
+        "peer_address",
+        "authority_key"
+      ],
+      "type": "object"
+    },
+    "GroupInitParams": {
+      "additionalProperties": false,
+      "description": "What `group.init` takes: the Lead Daemon's Group member name and where\nits peer listener listens.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Lead Daemon's Group member name: one lowercase DNS label, such\nas its host's or pod's name.",
+          "type": "string"
+        },
+        "peer_address": {
+          "arrived_in": "0.1",
+          "description": "The `host:port` its peer listener takes, which the Group members\ndial; port 0 takes a free one, which the answer names.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "peer_address"
+      ],
+      "type": "object"
+    },
+    "GroupJoinParams": {
+      "additionalProperties": false,
+      "description": "What `group.join` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "authority_key": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the group's certificate authority's public key, as\n`group token` answered it: `sha256/` and its standard base64.",
+          "type": "string"
+        },
+        "lead": {
+          "arrived_in": "0.1",
+          "description": "The `host:port` of the Lead Daemon's peer listener.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Group member name this Daemon takes: one lowercase DNS label,\nsuch as its host's or pod's name.",
+          "type": "string"
+        },
+        "peer_address": {
+          "arrived_in": "0.1",
+          "description": "The `host:port` its own peer listener takes, which the other Group\nmembers dial; port 0 takes a free one, which the answer names.",
+          "type": "string"
+        },
+        "token": {
+          "arrived_in": "0.1",
+          "description": "The join token `group token` minted on the Lead Daemon.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "lead",
+        "token",
+        "authority_key",
+        "name",
+        "peer_address"
+      ],
+      "type": "object"
+    },
+    "GroupJoined": {
+      "description": "What `group.join` answers.",
+      "properties": {
+        "certificate_expires_at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When the Group member certificate the Lead Daemon signed stops\nbeing valid, in RFC 3339, UTC; the Daemon renews it before."
+        },
+        "lead_epoch": {
+          "$ref": "#/$defs/LeadEpoch",
+          "arrived_in": "0.1",
+          "description": "The group's lead epoch."
+        },
+        "peer_address": {
+          "arrived_in": "0.1",
+          "description": "The `host:port` the peer listener took.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "lead_epoch",
+        "peer_address",
+        "certificate_expires_at"
+      ],
+      "type": "object"
+    },
+    "GroupLeadParams": {
+      "additionalProperties": false,
+      "description": "What `group.lead` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "confirm": {
+          "arrived_in": "0.1",
+          "default": false,
+          "description": "Confirms this Lead Daemon's lead epoch by hand when no majority of its\nlast-known Group members can be reached.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "GroupLeadReachabilityChanged": {
+      "description": "Payload of `group.lead_reachability_changed` (ADR 0055).",
+      "properties": {
+        "lead_name": {
+          "arrived_in": "0.1",
+          "description": "The Lead Daemon's Group member name.",
+          "type": "string"
+        },
+        "reachable": {
+          "arrived_in": "0.1",
+          "description": "Whether the Lead Daemon is reachable now.",
+          "type": "boolean"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "Why the Lead Daemon became unreachable, when `reachable` is `false`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "reachable",
+        "lead_name"
+      ],
+      "type": "object"
+    },
+    "GroupLeadStatus": {
+      "description": "What `group.lead` answers.",
+      "properties": {
+        "confirmed": {
+          "arrived_in": "0.1",
+          "description": "Whether this Lead Daemon has confirmed its lead epoch and may act.",
+          "type": "boolean"
+        },
+        "confirmed_by_operator": {
+          "arrived_in": "0.1",
+          "description": "Whether an operator confirmed it with `--confirm` rather than a\nmajority of its last-known Group members.",
+          "type": "boolean"
+        },
+        "lead_epoch": {
+          "$ref": "#/$defs/LeadEpoch",
+          "arrived_in": "0.1",
+          "description": "The lead epoch this Lead Daemon leads at."
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Lead Daemon's Group member name.",
+          "type": "string"
+        },
+        "warning": {
+          "arrived_in": "0.1",
+          "description": "The warning ADR 0055 requires after hand confirmation.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "lead_epoch",
+        "confirmed",
+        "confirmed_by_operator"
+      ],
+      "type": "object"
+    },
+    "GroupLeaveParams": {
+      "additionalProperties": false,
+      "description": "What `group.leave` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        }
+      },
+      "type": "object"
+    },
+    "GroupLeft": {
+      "description": "What `group.leave` answers.",
+      "properties": {
+        "handed_off": {
+          "arrived_in": "0.1",
+          "description": "Run IDs whose Checkpoints were handed off to another Group member during\nthe removal drain (ADR 0055).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "left_checkpointed": {
+          "arrived_in": "0.1",
+          "description": "Run IDs left checkpointed and still assigned to this Group member\nbecause the drain grace expired before handoff completed; `runs adopt`\nbrings them into another Group member (ADR 0055).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "machine_bound": {
+          "arrived_in": "0.1",
+          "description": "Run IDs bound to this machine (ADR 0056) that stayed checkpointed and\nassigned to this Group member.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Group member name this Daemon had.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "GroupMemberRevoked": {
+      "description": "What `group.revoke` answers.",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Group member name removed.",
+          "type": "string"
+        },
+        "revocation_list": {
+          "arrived_in": "0.1",
+          "description": "The number of the revocation list that revokes its certificates.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "revocation_list"
+      ],
+      "type": "object"
+    },
+    "GroupRevokeParams": {
+      "additionalProperties": false,
+      "description": "What `group.revoke` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Group member name to remove.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "GroupTokenParams": {
+      "additionalProperties": false,
+      "description": "What `group.token` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        }
+      },
+      "type": "object"
+    },
     "GuaranteeClass": {
       "description": "What a Sink's probe proves of its destination (ADR 0026), from the\nstrongest.",
       "oneOf": [
@@ -10706,6 +11110,32 @@
         }
       ]
     },
+    "JoinTokenMinted": {
+      "description": "What `group.token` answers: the join token, the one place it shows.",
+      "properties": {
+        "authority_key": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the group's certificate authority's public key, as\n`sha256/` and its standard base64, which the Daemon that joins pins.",
+          "type": "string"
+        },
+        "expires_at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When it stops being valid, in RFC 3339, UTC."
+        },
+        "token": {
+          "arrived_in": "0.1",
+          "description": "The token, in lowercase hex.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "token",
+        "expires_at",
+        "authority_key"
+      ],
+      "type": "object"
+    },
     "Journey": {
       "additionalProperties": false,
       "description": "One Journey: a goal a person reaches through its Product's public\nsurfaces, written as steps from a starting state to an outcome checked\nfrom outside the engine (ADR 0063).",
@@ -11423,6 +11853,32 @@
       "required": [
         "engine_instance",
         "position"
+      ],
+      "type": "object"
+    },
+    "LeadEpoch": {
+      "description": "A Daemon group's lead epoch (ADRs 0003 and 0055): each Lead Daemon\npromoted takes a higher one, and a Group member refuses a peer message\ncarrying a lower epoch than the highest it has recorded.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "LeadEpochStaleDetails": {
+      "description": "What `lead_epoch_stale` details.",
+      "properties": {
+        "highest_lead_epoch": {
+          "$ref": "#/$defs/LeadEpoch",
+          "arrived_in": "0.1",
+          "description": "The highest lead epoch the receiver has recorded."
+        },
+        "lead_epoch": {
+          "$ref": "#/$defs/LeadEpoch",
+          "arrived_in": "0.1",
+          "description": "The lead epoch the refused message carried."
+        }
+      },
+      "required": [
+        "lead_epoch",
+        "highest_lead_epoch"
       ],
       "type": "object"
     },
@@ -12428,6 +12884,37 @@
           },
           "required": [
             "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The Session is owned by another Group member that advertises a\nreachable URL (ADRs 0055 and 0149): open a Live view channel at `url`\nwith the single-use channel `token`, then this channel ends.",
+          "properties": {
+            "kind": {
+              "const": "redirect",
+              "type": "string"
+            },
+            "owner": {
+              "arrived_in": "0.1",
+              "description": "The owning Group member's name.",
+              "type": "string"
+            },
+            "token": {
+              "arrived_in": "0.1",
+              "description": "The single-use channel token minted in the owning Group member's\nmemory for this Session.",
+              "type": "string"
+            },
+            "url": {
+              "arrived_in": "0.1",
+              "description": "The owning Group member's `daemon.advertise_url`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "url",
+            "token",
+            "owner"
           ],
           "type": "object"
         },
@@ -15589,7 +16076,7 @@
         },
         "install": {
           "arrived_in": "0.1",
-          "description": "The command that installs the Product `needs` from the engine's own\nchannel, which `fix` names; none behind Goodfetch Cloud's gateway,\nwhere an install would not help (ADR 0096).",
+          "description": "The command that installs, from the engine's own channel, the\nProduct `fix` names: `needs`, or for a Group member the group's\nProduct, `product`; none behind Goodfetch Cloud's gateway, where an\ninstall would not help (ADR 0096).",
           "type": [
             "string",
             "null"
@@ -15598,7 +16085,7 @@
         "needs": {
           "$ref": "#/$defs/Product",
           "arrived_in": "0.1",
-          "description": "The Product that carries what was asked."
+          "description": "The Product that carries what was asked; for a Group member's\n`hello` on the peer link, the Product that Group member runs (ADR\n0095)."
         },
         "product": {
           "$ref": "#/$defs/Product",
@@ -17332,6 +17819,21 @@
         }
       ]
     },
+    "Partitions": {
+      "anyOf": [
+        {
+          "description": "A fixed count of Partitions (at least 1).",
+          "format": "uint32",
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "$ref": "#/$defs/AutoPartitions",
+          "description": "One Partition per eligible Group member."
+        }
+      ],
+      "description": "How many Partitions a Partitioned crawl runs as (ADR 0054): a positive\ninteger count or `\"auto\"` for one per eligible Group member."
+    },
     "PathHazard": {
       "description": "What makes a name or path unsafe.",
       "oneOf": [
@@ -18622,6 +19124,95 @@
       ],
       "type": "object"
     },
+    "PolitenessStoreDegraded": {
+      "description": "Payload of `politeness.store_degraded` (ADRs 0024 and 0053): emitted on\neach affected Run's event stream when the Politeness store becomes\nunreachable, when degraded admission stops at `politeness.degraded_max`,\nand when the store reconnects.",
+      "properties": {
+        "admission_stopped": {
+          "arrived_in": "0.1",
+          "description": "Whether `politeness.degraded_max` has elapsed and admission to shared\nkeys is stopped until the store reconnects.",
+          "type": "boolean"
+        },
+        "degraded": {
+          "arrived_in": "0.1",
+          "description": "Whether the Politeness store is currently unreachable (degraded).",
+          "type": "boolean"
+        },
+        "degraded_max_ms": {
+          "arrived_in": "0.1",
+          "description": "The configured `politeness.degraded_max` window in milliseconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "Why the Politeness store became unreachable, when `degraded` is `true`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The affected Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "degraded",
+        "admission_stopped",
+        "degraded_max_ms"
+      ],
+      "type": "object"
+    },
+    "PolitenessStoreLayout": {
+      "additionalProperties": false,
+      "description": "The Politeness store's frozen-major key and script layout, recorded in\nthe Compatibility corpus under the Usage-ledger family (ADRs 0053 and\n0066).",
+      "properties": {
+        "key_template": {
+          "arrived_in": "0.1",
+          "description": "The key naming pattern (`<namespace>:politeness:<major>:{<key>}:<part>`).",
+          "type": "string"
+        },
+        "layout_major": {
+          "arrived_in": "0.1",
+          "description": "The frozen layout major carried in every key and channel name.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "parts": {
+          "arrived_in": "0.1",
+          "description": "Every part of a Politeness key's state in the store.",
+          "items": {
+            "$ref": "#/$defs/StoreKeyPart"
+          },
+          "type": "array"
+        },
+        "scripts": {
+          "arrived_in": "0.1",
+          "description": "Every Lua script the engine loads once on connect.",
+          "items": {
+            "$ref": "#/$defs/StoreScriptLayout"
+          },
+          "type": "array"
+        },
+        "version": {
+          "$ref": "#/$defs/ProtocolVersion",
+          "arrived_in": "0.1",
+          "description": "The format version (`0.1`)."
+        }
+      },
+      "required": [
+        "version",
+        "layout_major",
+        "key_template",
+        "parts",
+        "scripts"
+      ],
+      "type": "object"
+    },
     "Position": {
       "description": "An event's position among every event of one engine, which only goes up; for a `page.on` call's own events, among that call's, from 1.",
       "minimum": 0,
@@ -19504,6 +20095,14 @@
           "description": "Whether the Run outlives the program (ADR 0102): closing its value\nthen frees only the value, `run.finish` waits for its end and\n`run.stop` stops it.",
           "type": "boolean"
         },
+        "group_member": {
+          "arrived_in": "0.1",
+          "description": "Optional Group member pin in a Daemon group (ADR 0055).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "limits": {
           "arrived_in": "0.1",
           "description": "The Run's own Limits, as `run.start`'s.",
@@ -20234,6 +20833,30 @@
           "type": "object"
         }
       ]
+    },
+    "RedoneReport": {
+      "description": "How much work a resumed Run redid after its prior run epoch stopped on a\nfailed write or crash (ADRs 0122 and 0142).",
+      "properties": {
+        "attempts": {
+          "arrived_in": "0.1",
+          "description": "In-flight attempts recovered and redone on resume.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "batch_writes": {
+          "arrived_in": "0.1",
+          "description": "Uncommitted writes from a rolled-back Run-state batch that had to be\nredone on resume (`0` at `full` or after a clean stop).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "attempts",
+        "batch_writes"
+      ],
+      "type": "object"
     },
     "RefetchDomainRemoved": {
       "description": "What `needs_you.remove_refetch_domain` answers.",
@@ -22021,7 +22644,7 @@
         "location": {
           "arrived_in": "0.1",
           "catalog_only": true,
-          "description": "Where to write the Checkpoint, a path on the engine's machine; by\ndefault where the engine keeps the Run's Checkpoints, its own folder.\nThe catalog's caller alone gives it, such as Goodfetch Cloud: an\nSDK's `checkpoint()` takes no path, which would break on a Daemon or\nGoodfetch Cloud (ADR 0102).",
+          "description": "Where to write the Checkpoint, a path on the engine's machine or an\nobject-storage URL (`s3://`, `gs://`, `az://`); by default where the\nengine keeps the Run's Checkpoints, its own folder. The catalog's\ncaller alone gives it, such as Goodfetch Cloud: an SDK's\n`checkpoint()` takes no path, which would break on a Daemon or\nGoodfetch Cloud (ADR 0102).",
           "type": [
             "string",
             "null"
@@ -22673,7 +23296,7 @@
         },
         "location": {
           "arrived_in": "0.1",
-          "description": "Where to write the Checkpoint the Run is resumed from, a path on the\nengine's machine; by default where the engine keeps the Run's\nCheckpoints, its own folder.",
+          "description": "Where to write the Checkpoint the Run is resumed from, a path on the\nengine's machine or an object-storage URL (`s3://`, `gs://`, `az://`);\nby default where the engine keeps the Run's Checkpoints, its own folder.",
           "type": [
             "string",
             "null"
@@ -22824,6 +23447,19 @@
           },
           "required": [
             "attached"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A Group member of a Daemon group, named by its Group member name (ADR 0055).",
+          "properties": {
+            "group_member": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "group_member"
           ],
           "type": "object"
         }
@@ -23201,6 +23837,18 @@
           "arrived_in": "0.1",
           "description": "What it did with the Response recording its start named (ADR 0105)."
         },
+        "redone": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RedoneReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "How much work a resumed Run redid after its prior epoch stopped with\nuncommitted Run-state batch writes or in-flight attempts (ADRs 0122\nand 0142). Absent when nothing was redone."
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
@@ -23301,7 +23949,15 @@
         },
         "checkpoint": {
           "arrived_in": "0.1",
-          "description": "A Checkpoint to resume from, a path on the engine's machine, which\nbecomes the Run's state in this engine's run folder; by default the\nRun resumes from its run file on this machine.",
+          "description": "A Checkpoint to resume from, a path on the engine's machine or an\nobject-storage URL (`s3://`, `gs://`, `az://`), which becomes the\nRun's state in this engine's run folder; by default the Run resumes\nfrom its run file on this machine.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "group_member": {
+          "arrived_in": "0.1",
+          "description": "Optional Group member pin in a Daemon group (ADR 0055).",
           "type": [
             "string",
             "null"
@@ -23545,6 +24201,14 @@
           },
           "type": "array"
         },
+        "group_member": {
+          "arrived_in": "0.1",
+          "description": "Optional Group member pin in a Daemon group (ADR 0055): the Lead Daemon\nplaces the Run on this named Group member when eligible.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "limits": {
           "arrived_in": "0.1",
           "description": "The Run's own Limits (ADRs 0041 and 0080): at most one per Usage\nkind and currency. A start that names the Run again lowers them and\nnever raises them (ADR 0102).",
@@ -23552,6 +24216,18 @@
             "$ref": "#/$defs/RunLimit"
           },
           "type": "array"
+        },
+        "partitions": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Partitions"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Partition count for a Partitioned crawl (ADR 0054, Foxhound only): a\npositive integer or `\"auto\"`. A Collie engine refuses it with\n`not_in_product` (ADRs 0087 and 0095)."
         },
         "plan": {
           "arrived_in": "0.1",
@@ -23640,10 +24316,18 @@
           "arrived_in": "0.1",
           "description": "The Product it needs (ADR 0098): Collie until it uses an entry the\ncatalog marks Foxhound's, Foxhound from then on."
         },
+        "partitions": {
+          "arrived_in": "0.1",
+          "description": "For a Partitioned crawl (ADR 0054), each Partition's Run ID and Group\nmember placement beside the Partitioned crawl ID; empty otherwise.",
+          "items": {
+            "$ref": "#/$defs/StartedPartition"
+          },
+          "type": "array"
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
-          "description": "The Run's ID."
+          "description": "The Run's ID (or the Partitioned crawl ID for a Partitioned crawl)."
         },
         "started_as": {
           "$ref": "#/$defs/StartedAs",
@@ -24275,6 +24959,32 @@
           "type": "string"
         }
       ]
+    },
+    "RunsAdoptOutput": {
+      "description": "What `runs adopt --json` prints once it finishes bringing checkpointed Runs\nfrom a removed Group member's volume into the Daemon group (ADR 0055).",
+      "properties": {
+        "adopted": {
+          "arrived_in": "0.1",
+          "description": "Runs whose Checkpoints were handed off, resumed, and reassigned.",
+          "items": {
+            "$ref": "#/$defs/AdoptedRun"
+          },
+          "type": "array"
+        },
+        "skipped": {
+          "arrived_in": "0.1",
+          "description": "Run IDs skipped because they had already ended or been adopted by\nanother Group member.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "adopted",
+        "skipped"
+      ],
+      "type": "object"
     },
     "RunsReindexOutput": {
       "description": "What `runs reindex --json` prints: the Run index it rebuilt, and how many\nof its rows are of each presence.",
@@ -26540,6 +27250,11 @@
           "type": "string"
         },
         {
+          "const": "group_member",
+          "description": "A Group member's own scope for machine-specific settings (ADRs 0028\nand 0055): local addresses, TLS files and browser paths, applied only\non the named Group member.",
+          "type": "string"
+        },
+        {
           "const": "project_configuration",
           "description": "Project configuration.",
           "type": "string"
@@ -27784,6 +28499,34 @@
         }
       ]
     },
+    "StartedPartition": {
+      "description": "One Partition of a started Partitioned crawl (ADR 0054): its index, its\nown Run ID, and the Group member it was placed on.",
+      "properties": {
+        "member": {
+          "arrived_in": "0.1",
+          "description": "The Group member this Partition was placed on.",
+          "type": "string"
+        },
+        "partition": {
+          "arrived_in": "0.1",
+          "description": "Zero-based Partition index.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Partition's Run ID."
+        }
+      },
+      "required": [
+        "partition",
+        "run_id",
+        "member"
+      ],
+      "type": "object"
+    },
     "StarterLanguage": {
       "description": "A language `init` writes a starter in: one of the SDKs'.",
       "oneOf": [
@@ -28027,6 +28770,19 @@
           "type": "object"
         },
         {
+          "description": "It needed a new Usage ledger Slice from its Daemon group's Lead Daemon\n(or local Group member), which could not be reached, and stopped at its\nnext safe point, resumable once reachable (ADR 0055): the stop of the\nError code `lead_unreachable`.",
+          "properties": {
+            "kind": {
+              "const": "lead_unreachable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
           "description": "Its engine was lost while it ran, and another engine stopped it.",
           "properties": {
             "kind": {
@@ -28147,6 +28903,63 @@
           "type": "string"
         }
       ]
+    },
+    "StoreKeyPart": {
+      "additionalProperties": false,
+      "description": "One part of a Politeness key's state under `<namespace>:politeness:<major>:{<key>}:<part>`.",
+      "properties": {
+        "kind": {
+          "arrived_in": "0.1",
+          "description": "The Redis/Valkey type or pub/sub channel kind (`zset`, `string`, `hash`, `pubsub`).",
+          "type": "string"
+        },
+        "part": {
+          "arrived_in": "0.1",
+          "description": "The suffix after `{<key>}:`.",
+          "type": "string"
+        },
+        "purpose": {
+          "arrived_in": "0.1",
+          "description": "What the part holds.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "part",
+        "kind",
+        "purpose"
+      ],
+      "type": "object"
+    },
+    "StoreScriptLayout": {
+      "additionalProperties": false,
+      "description": "One Lua script loaded once on connect and invoked by `EVALSHA`.",
+      "properties": {
+        "key_parts": {
+          "arrived_in": "0.1",
+          "description": "The key parts it touches, all sharing one `{<key>}` hash tag.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The script's stable name.",
+          "type": "string"
+        },
+        "uses_server_time": {
+          "arrived_in": "0.1",
+          "description": "Whether the script reads server `TIME` rather than an engine timestamp.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "key_parts",
+        "uses_server_time"
+      ],
+      "type": "object"
     },
     "StoredAccount": {
       "description": "The Account, as its `account` row holds it.",
@@ -28289,6 +29102,26 @@
       ],
       "type": "object"
     },
+    "StreamRedirect": {
+      "description": "Where a Client reconnects to receive a Run's event stream directly from its\nowning Group member (ADR 0055).",
+      "properties": {
+        "owner": {
+          "arrived_in": "0.1",
+          "description": "The owning Group member's name.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The owning Group member's `daemon.advertise_url`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "owner"
+      ],
+      "type": "object"
+    },
     "StructuredOutputStrategy": {
       "description": "A way a model gives structured output (ADR 0101).",
       "oneOf": [
@@ -28411,7 +29244,21 @@
       ]
     },
     "SubscriptionEnded": {
-      "description": "What `events.subscribe` answers when its subscription ends without the\nClient cancelling it: the engine stopped.",
+      "description": "What `events.subscribe` answers when its subscription ends without the\nClient cancelling it: the engine stopped, or the subscription redirected to\nthe Run's owning Group member (ADR 0055).",
+      "properties": {
+        "redirect": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StreamRedirect"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Set when the Run is owned by another Group member advertising a\nreachable `daemon.advertise_url` (ADR 0055)."
+        }
+      },
       "type": "object"
     },
     "Suite": {
@@ -30676,6 +31523,16 @@
     },
     {
       "hello_from": [],
+      "name": "politeness-store",
+      "rule": "frozen_major",
+      "schema": {
+        "$ref": "#/$defs/PolitenessStoreLayout"
+      },
+      "storage": "json",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
       "name": "audit-log",
       "rule": "frozen_major",
       "schema": {
@@ -31296,7 +32153,7 @@
                     "type": "object"
                   },
                   "degraded_max": {
-                    "description": "The longest an engine cut off from its Politeness store stays in degraded mode, admitting one request at a time per domain, before it stops admitting new requests until the store answers again: 10 minutes. Set in user configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.",
+                    "description": "How long a cut-off engine keeps admitting requests to shared keys within its last granted share when the Politeness store is unreachable, counted on each side's clock from the moment the engine sent its last acknowledged heartbeat: 10 minutes by default. Past it, the cut-off engine admits nothing to shared keys until it reconnects, while its Runs stay live and resumable, and the store frees its reservation once `politeness.degraded_max` plus its longest reported request timeout has passed. Set in user configuration or an Operator policy only.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -31877,6 +32734,17 @@
                     "exclusiveMinimum": 0.0,
                     "type": "number"
                   },
+                  "executable_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The path of an installed Chromium-family browser executable on this machine, launched in place of the Browser cache's pinned Chrome for Testing build: `null` by default. Set in user configuration, an Operator policy, or a Group member's scope."
+                  },
                   "geolocation": {
                     "anyOf": [
                       {
@@ -32103,6 +32971,163 @@
                       }
                     ],
                     "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
+                  },
+                  "object_storage": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "az": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "account": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Azure Storage account name used for `az://` Checkpoints."
+                          },
+                          "account_key": {
+                            "anyOf": [
+                              {
+                                "description": "A Secret reference, such as `env:NAME`.",
+                                "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Secret reference for the Base64-encoded Azure Storage `SharedKey` used for `az://` Checkpoints."
+                          },
+                          "endpoint": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Endpoint URL for `az://` Checkpoints, such as an Azurite emulator URL; defaults to `https://<account>.blob.core.windows.net`."
+                          },
+                          "sas_token": {
+                            "anyOf": [
+                              {
+                                "description": "A Secret reference, such as `env:NAME`.",
+                                "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Secret reference for the Azure Storage SAS query token used for `az://` Checkpoints when `account_key` is not set."
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "gs": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "access_token": {
+                            "anyOf": [
+                              {
+                                "description": "A Secret reference, such as `env:NAME`.",
+                                "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Secret reference for the `OAuth2` bearer access token used for `gs://` Checkpoints."
+                          },
+                          "endpoint": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Endpoint URL for `gs://` Checkpoints; defaults to `https://storage.googleapis.com`."
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "s3": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "access_key_id": {
+                            "anyOf": [
+                              {
+                                "description": "A Secret reference, such as `env:NAME`.",
+                                "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Secret reference for the AWS access key ID used for `s3://` Checkpoints."
+                          },
+                          "endpoint": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Endpoint URL for `s3://` Checkpoints, for S3-compatible stores such as R2 or `RustFS`; defaults to AWS S3 for the configured region."
+                          },
+                          "region": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Signing region for `s3://` Checkpoints; defaults to `us-east-1`."
+                          },
+                          "secret_access_key": {
+                            "anyOf": [
+                              {
+                                "description": "A Secret reference, such as `env:NAME`.",
+                                "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Secret reference for the AWS secret access key used for `s3://` Checkpoints."
+                          },
+                          "session_token": {
+                            "anyOf": [
+                              {
+                                "description": "A Secret reference, such as `env:NAME`.",
+                                "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Optional Secret reference for the AWS session token used for temporary credentials on `s3://` Checkpoints."
+                          }
+                        },
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -32456,6 +33481,17 @@
                   "address": {
                     "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Any other Daemon listens there for Live view channels alone, while `live_view.enabled` is on. Port 0 takes a free port, which its log and `daemon.status` name. An address other than loopback needs `daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`, so no token crosses a network in clear. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
                     "type": "string"
+                  },
+                  "advertise_url": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The URL Clients reach this Group member at, such as a per-pod Ingress or a VM address. When set, another Group member redirects a Client's event stream (`events.subscribe`) and Live view channel to this URL instead of forwarding them over the peer link. Unset by default, in which case those streams are forwarded over the peer link. Set in user configuration or an Operator policy, including under `[group_member.<name>]`."
                   },
                   "drain_grace": {
                     "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Any Daemon whose listener is closed for good drains the same way within it, then exits 1. An Attached engine that stops on a panic in a part every run shares waits as long for its runs to stop, leaving each one not stopped resumable from its run file, then exits 1. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
@@ -33910,7 +34946,7 @@
                     "type": "object"
                   },
                   "degraded_max": {
-                    "description": "The longest an engine cut off from its Politeness store stays in degraded mode, admitting one request at a time per domain, before it stops admitting new requests until the store answers again: 10 minutes. Set in user configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.",
+                    "description": "How long a cut-off engine keeps admitting requests to shared keys within its last granted share when the Politeness store is unreachable, counted on each side's clock from the moment the engine sent its last acknowledged heartbeat: 10 minutes by default. Past it, the cut-off engine admits nothing to shared keys until it reconnects, while its Runs stay live and resumable, and the store frees its reservation once `politeness.degraded_max` plus its longest reported request timeout has passed. Set in user configuration or an Operator policy only.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -36771,6 +37807,15 @@
                     "description": "How long a going Run charges on the Limits it holds before it reads them again from the Usage ledger for the changes an engine of another process made, such as a `usage set` through a Daemon while an SDK's engine crawls: 1000 ms. A change made by an engine of the Run's own process reaches its next charge, and a Run reads them again before each Slice it takes, so a Limit another process sets reaches a going Run at its next Slice or within this long, whichever comes first. A charge its Slices cover reads nothing in between: no SQL statement and no file operation. `0` reads them at every charge, one ledger read per charge. A Run reads it as it opens; set in user configuration or an Operator policy only.",
                     "minimum": 0,
                     "type": "integer"
+                  },
+                  "thresholds": {
+                    "description": "The percentages of each Limit (0 to 100) at which the engine sends a `limit_threshold` Notification once per period (ADR 0041): `[50, 80, 100]` by default. A crossing is recorded in the Usage ledger inside the Slice's transaction so concurrent engines send it once; a 0 entry is ignored, and an empty list disables threshold Notifications. Reaching 100 % always records a `limit_reached` \"Needs you\" item in the Usage ledger. Set in user configuration or an Operator policy only.",
+                    "items": {
+                      "maximum": 100,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "type": "array"
                   }
                 },
                 "type": "object"
@@ -36949,6 +37994,17 @@
                     "exclusiveMinimum": 0.0,
                     "type": "number"
                   },
+                  "executable_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The path of an installed Chromium-family browser executable on this machine, launched in place of the Browser cache's pinned Chrome for Testing build: `null` by default. Set in user configuration, an Operator policy, or a Group member's scope."
+                  },
                   "geolocation": {
                     "anyOf": [
                       {
@@ -37175,6 +38231,163 @@
                       }
                     ],
                     "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
+                  },
+                  "object_storage": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "az": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "account": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Azure Storage account name used for `az://` Checkpoints."
+                          },
+                          "account_key": {
+                            "anyOf": [
+                              {
+                                "description": "A Secret reference, such as `env:NAME`.",
+                                "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Secret reference for the Base64-encoded Azure Storage `SharedKey` used for `az://` Checkpoints."
+                          },
+                          "endpoint": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Endpoint URL for `az://` Checkpoints, such as an Azurite emulator URL; defaults to `https://<account>.blob.core.windows.net`."
+                          },
+                          "sas_token": {
+                            "anyOf": [
+                              {
+                                "description": "A Secret reference, such as `env:NAME`.",
+                                "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Secret reference for the Azure Storage SAS query token used for `az://` Checkpoints when `account_key` is not set."
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "gs": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "access_token": {
+                            "anyOf": [
+                              {
+                                "description": "A Secret reference, such as `env:NAME`.",
+                                "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Secret reference for the `OAuth2` bearer access token used for `gs://` Checkpoints."
+                          },
+                          "endpoint": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Endpoint URL for `gs://` Checkpoints; defaults to `https://storage.googleapis.com`."
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "s3": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "access_key_id": {
+                            "anyOf": [
+                              {
+                                "description": "A Secret reference, such as `env:NAME`.",
+                                "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Secret reference for the AWS access key ID used for `s3://` Checkpoints."
+                          },
+                          "endpoint": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Endpoint URL for `s3://` Checkpoints, for S3-compatible stores such as R2 or `RustFS`; defaults to AWS S3 for the configured region."
+                          },
+                          "region": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Signing region for `s3://` Checkpoints; defaults to `us-east-1`."
+                          },
+                          "secret_access_key": {
+                            "anyOf": [
+                              {
+                                "description": "A Secret reference, such as `env:NAME`.",
+                                "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Secret reference for the AWS secret access key used for `s3://` Checkpoints."
+                          },
+                          "session_token": {
+                            "anyOf": [
+                              {
+                                "description": "A Secret reference, such as `env:NAME`.",
+                                "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Optional Secret reference for the AWS session token used for temporary credentials on `s3://` Checkpoints."
+                          }
+                        },
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -37528,6 +38741,17 @@
                   "address": {
                     "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Any other Daemon listens there for Live view channels alone, while `live_view.enabled` is on. Port 0 takes a free port, which its log and `daemon.status` name. An address other than loopback needs `daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`, so no token crosses a network in clear. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
                     "type": "string"
+                  },
+                  "advertise_url": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The URL Clients reach this Group member at, such as a per-pod Ingress or a VM address. When set, another Group member redirects a Client's event stream (`events.subscribe`) and Live view channel to this URL instead of forwarding them over the peer link. Unset by default, in which case those streams are forwarded over the peer link. Set in user configuration or an Operator policy, including under `[group_member.<name>]`."
                   },
                   "drain_grace": {
                     "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Any Daemon whose listener is closed for good drains the same way within it, then exits 1. An Attached engine that stops on a panic in a part every run shares waits as long for its runs to stop, leaving each one not stopped resumable from its run file, then exits 1. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
@@ -38982,7 +40206,7 @@
                     "type": "object"
                   },
                   "degraded_max": {
-                    "description": "The longest an engine cut off from its Politeness store stays in degraded mode, admitting one request at a time per domain, before it stops admitting new requests until the store answers again: 10 minutes. Set in user configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.",
+                    "description": "How long a cut-off engine keeps admitting requests to shared keys within its last granted share when the Politeness store is unreachable, counted on each side's clock from the moment the engine sent its last acknowledged heartbeat: 10 minutes by default. Past it, the cut-off engine admits nothing to shared keys until it reconnects, while its Runs stay live and resumable, and the store frees its reservation once `politeness.degraded_max` plus its longest reported request timeout has passed. Set in user configuration or an Operator policy only.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -41843,6 +43067,15 @@
                     "description": "How long a going Run charges on the Limits it holds before it reads them again from the Usage ledger for the changes an engine of another process made, such as a `usage set` through a Daemon while an SDK's engine crawls: 1000 ms. A change made by an engine of the Run's own process reaches its next charge, and a Run reads them again before each Slice it takes, so a Limit another process sets reaches a going Run at its next Slice or within this long, whichever comes first. A charge its Slices cover reads nothing in between: no SQL statement and no file operation. `0` reads them at every charge, one ledger read per charge. A Run reads it as it opens; set in user configuration or an Operator policy only.",
                     "minimum": 0,
                     "type": "integer"
+                  },
+                  "thresholds": {
+                    "description": "The percentages of each Limit (0 to 100) at which the engine sends a `limit_threshold` Notification once per period (ADR 0041): `[50, 80, 100]` by default. A crossing is recorded in the Usage ledger inside the Slice's transaction so concurrent engines send it once; a 0 entry is ignored, and an empty list disables threshold Notifications. Reaching 100 % always records a `limit_reached` \"Needs you\" item in the Usage ledger. Set in user configuration or an Operator policy only.",
+                    "items": {
+                      "maximum": 100,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "type": "array"
                   }
                 },
                 "type": "object"
@@ -42037,6 +43270,17 @@
                     "exclusiveMinimum": 0.0,
                     "type": "number"
                   },
+                  "executable_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The path of an installed Chromium-family browser executable on this machine, launched in place of the Browser cache's pinned Chrome for Testing build: `null` by default. Set in user configuration, an Operator policy, or a Group member's scope."
+                  },
                   "geolocation": {
                     "anyOf": [
                       {
@@ -42263,6 +43507,163 @@
                       }
                     ],
                     "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
+                  },
+                  "object_storage": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "az": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "account": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Azure Storage account name used for `az://` Checkpoints."
+                          },
+                          "account_key": {
+                            "anyOf": [
+                              {
+                                "description": "A Secret reference, such as `env:NAME`.",
+                                "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Secret reference for the Base64-encoded Azure Storage `SharedKey` used for `az://` Checkpoints."
+                          },
+                          "endpoint": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Endpoint URL for `az://` Checkpoints, such as an Azurite emulator URL; defaults to `https://<account>.blob.core.windows.net`."
+                          },
+                          "sas_token": {
+                            "anyOf": [
+                              {
+                                "description": "A Secret reference, such as `env:NAME`.",
+                                "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Secret reference for the Azure Storage SAS query token used for `az://` Checkpoints when `account_key` is not set."
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "gs": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "access_token": {
+                            "anyOf": [
+                              {
+                                "description": "A Secret reference, such as `env:NAME`.",
+                                "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Secret reference for the `OAuth2` bearer access token used for `gs://` Checkpoints."
+                          },
+                          "endpoint": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Endpoint URL for `gs://` Checkpoints; defaults to `https://storage.googleapis.com`."
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "s3": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "access_key_id": {
+                            "anyOf": [
+                              {
+                                "description": "A Secret reference, such as `env:NAME`.",
+                                "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Secret reference for the AWS access key ID used for `s3://` Checkpoints."
+                          },
+                          "endpoint": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Endpoint URL for `s3://` Checkpoints, for S3-compatible stores such as R2 or `RustFS`; defaults to AWS S3 for the configured region."
+                          },
+                          "region": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Signing region for `s3://` Checkpoints; defaults to `us-east-1`."
+                          },
+                          "secret_access_key": {
+                            "anyOf": [
+                              {
+                                "description": "A Secret reference, such as `env:NAME`.",
+                                "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Secret reference for the AWS secret access key used for `s3://` Checkpoints."
+                          },
+                          "session_token": {
+                            "anyOf": [
+                              {
+                                "description": "A Secret reference, such as `env:NAME`.",
+                                "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Optional Secret reference for the AWS session token used for temporary credentials on `s3://` Checkpoints."
+                          }
+                        },
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -42616,6 +44017,17 @@
                   "address": {
                     "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Any other Daemon listens there for Live view channels alone, while `live_view.enabled` is on. Port 0 takes a free port, which its log and `daemon.status` name. An address other than loopback needs `daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`, so no token crosses a network in clear. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
                     "type": "string"
+                  },
+                  "advertise_url": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The URL Clients reach this Group member at, such as a per-pod Ingress or a VM address. When set, another Group member redirects a Client's event stream (`events.subscribe`) and Live view channel to this URL instead of forwarding them over the peer link. Unset by default, in which case those streams are forwarded over the peer link. Set in user configuration or an Operator policy, including under `[group_member.<name>]`."
                   },
                   "drain_grace": {
                     "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Any Daemon whose listener is closed for good drains the same way within it, then exits 1. An Attached engine that stops on a panic in a part every run shares waits as long for its runs to stop, leaving each one not stopped resumable from its run file, then exits 1. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
@@ -44070,7 +45482,7 @@
                     "type": "object"
                   },
                   "degraded_max": {
-                    "description": "The longest an engine cut off from its Politeness store stays in degraded mode, admitting one request at a time per domain, before it stops admitting new requests until the store answers again: 10 minutes. Set in user configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.",
+                    "description": "How long a cut-off engine keeps admitting requests to shared keys within its last granted share when the Politeness store is unreachable, counted on each side's clock from the moment the engine sent its last acknowledged heartbeat: 10 minutes by default. Past it, the cut-off engine admits nothing to shared keys until it reconnects, while its Runs stay live and resumable, and the store frees its reservation once `politeness.degraded_max` plus its longest reported request timeout has passed. Set in user configuration or an Operator policy only.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -46931,6 +48343,15 @@
                     "description": "How long a going Run charges on the Limits it holds before it reads them again from the Usage ledger for the changes an engine of another process made, such as a `usage set` through a Daemon while an SDK's engine crawls: 1000 ms. A change made by an engine of the Run's own process reaches its next charge, and a Run reads them again before each Slice it takes, so a Limit another process sets reaches a going Run at its next Slice or within this long, whichever comes first. A charge its Slices cover reads nothing in between: no SQL statement and no file operation. `0` reads them at every charge, one ledger read per charge. A Run reads it as it opens; set in user configuration or an Operator policy only.",
                     "minimum": 0,
                     "type": "integer"
+                  },
+                  "thresholds": {
+                    "description": "The percentages of each Limit (0 to 100) at which the engine sends a `limit_threshold` Notification once per period (ADR 0041): `[50, 80, 100]` by default. A crossing is recorded in the Usage ledger inside the Slice's transaction so concurrent engines send it once; a 0 entry is ignored, and an empty list disables threshold Notifications. Reaching 100 % always records a `limit_reached` \"Needs you\" item in the Usage ledger. Set in user configuration or an Operator policy only.",
+                    "items": {
+                      "maximum": 100,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "type": "array"
                   }
                 },
                 "type": "object"
@@ -47055,6 +48476,18 @@
       "version": "0.1"
     },
     {
+      "hello_from": [
+        "group_member"
+      ],
+      "name": "peer-protocol",
+      "rule": "lower_minor",
+      "schema": {
+        "$ref": "#/$defs/Message"
+      },
+      "storage": "transcript",
+      "version": "0.1"
+    },
+    {
       "hello_from": [],
       "name": "notification-payload",
       "rule": "frozen_major",
@@ -47151,6 +48584,9 @@
     },
     "recipe.digest": {
       "$ref": "#/$defs/RecipeDigestOutput"
+    },
+    "runs.adopt": {
+      "$ref": "#/$defs/RunsAdoptOutput"
     },
     "runs.reindex": {
       "$ref": "#/$defs/RunsReindexOutput"

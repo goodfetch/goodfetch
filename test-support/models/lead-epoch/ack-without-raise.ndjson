@@ -1,0 +1,5 @@
+{"lead_epoch":1,"member":"lead","transition":"confirm_majority"}
+{"lead_epoch":1,"member":"lead","target":"worker-a","transition":"add_member"}
+{"lead_epoch":1,"member":"lead","target":"worker-b","transition":"add_member"}
+{"lead_epoch":2,"member":"worker-a","peer":"worker-b","transition":"ack"}
+{"lead_epoch":2,"member":"worker-a","transition":"confirm_majority"}

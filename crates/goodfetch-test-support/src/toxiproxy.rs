@@ -196,12 +196,28 @@ impl Toxiproxy {
         upstream: SocketAddr,
         listen: IpAddr,
     ) -> Result<SocketAddr, ToxiproxyError> {
+        self.proxy_on(name, upstream, SocketAddr::new(listen, 0))
+    }
+
+    /// Creates the proxy `name` in front of `upstream`, listening on the exact
+    /// loopback `listen` socket address (for per-engine loopback addresses on
+    /// one shared port reached through `network.resolve`, ADR 0060).
+    ///
+    /// # Errors
+    ///
+    /// When Toxiproxy refuses it, such as a name or port already taken.
+    pub fn proxy_on(
+        &self,
+        name: &str,
+        upstream: SocketAddr,
+        listen: SocketAddr,
+    ) -> Result<SocketAddr, ToxiproxyError> {
         let created = self.call(
             "POST",
             "/proxies",
             Some(json!({
                 "name": name,
-                "listen": SocketAddr::new(listen, 0).to_string(),
+                "listen": listen.to_string(),
                 "upstream": upstream.to_string(),
                 "enabled": true,
             })),

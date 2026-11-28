@@ -48,6 +48,20 @@ pub(crate) type Condvar = loom::sync::Condvar;
 #[cfg(not(all(test, goodfetch_loom)))]
 pub(crate) type Condvar = std::sync::Condvar;
 
+/// An atomic boolean, loom's under `goodfetch_loom`.
+#[cfg(all(test, goodfetch_loom))]
+pub(crate) type AtomicBool = loom::sync::atomic::AtomicBool;
+/// An atomic boolean, loom's under `goodfetch_loom`.
+#[cfg(not(all(test, goodfetch_loom)))]
+pub(crate) type AtomicBool = std::sync::atomic::AtomicBool;
+
+/// An atomic counter, loom's under `goodfetch_loom`.
+#[cfg(all(test, goodfetch_loom))]
+pub(crate) type AtomicUsize = loom::sync::atomic::AtomicUsize;
+/// An atomic counter, loom's under `goodfetch_loom`.
+#[cfg(all(test, not(goodfetch_loom)))]
+pub(crate) type AtomicUsize = std::sync::atomic::AtomicUsize;
+
 /// In-memory count of declared Effect bodies currently running for one Run,
 /// read with a single atomic load and no I/O on the Response cache hot path
 /// (ADRs 0046, 0106 and 0140).

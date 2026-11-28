@@ -251,6 +251,7 @@ impl TakeOver {
         });
         let facts = EndFacts {
             run_id: self.run_id.clone(),
+            kind: recorded.kind,
             lifecycle,
             stop_reason: Some(self.by.reason()),
             started_at: recorded.started_at,
@@ -262,6 +263,7 @@ impl TakeOver {
             limits: Vec::new(),
             error: None,
             finished: Vec::new(),
+            no_trace_folder: None,
             cache_mode,
         };
         let parts = self.parts.clone();

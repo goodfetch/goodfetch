@@ -101,7 +101,7 @@ use crate::composition::{
 };
 use crate::crash_report;
 use crate::endpoint::{Authorities, Exposure, Termination, same_token};
-use crate::engine_context::EngineContext;
+use crate::engine_context::{EngineContext, ForwardedCall, LocalDispatcher, RoutedCall};
 use crate::events::{Credits, Events};
 use crate::framing::{
     Call, DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, Received, decode,
@@ -127,7 +127,9 @@ use crate::transition::engine::{
 };
 use crate::transition::{self, Refusal};
 use crate::transport::{Connection, ConnectionReader, ConnectionWriter};
-use goodfetch_protocol::run::RunKind;
+use goodfetch_protocol::group::PlacementRequest;
+use goodfetch_protocol::run::{RunId, RunKind};
+use goodfetch_protocol::settings::session_source::SessionSource;
 
 /// How many bytes one read takes from the Connection.
 const READ_CHUNK: usize = 8 * 1024;
@@ -509,6 +511,7 @@ async fn watch(
         admission: live_view::Admission::of(machine.resolved().ok()),
         deadline: opening.deadline,
         max_open_size: opening.max_size,
+        group_router: engine.group_router(),
     };
     let closing = daemon.closing().clone();
     let served = live_view::serve(channel, socket, async move { closing.closed().await }).await;
@@ -772,6 +775,7 @@ async fn serve_carried(
     let ended = session.run(&mut reading).await;
     logging.cancel();
     session.cancel_in_flight();
+    session.close_requests().await;
     drop(session);
     owner.wait().await;
     // Every task of its owner ended, so a panic among them was told, even
@@ -1096,7 +1100,17 @@ impl Session<'_> {
         &mut self,
         event: ConnectionEvent,
     ) -> Result<ConnectionEffect, InvalidConnectionTransition> {
-        let (next, effect) = transition::engine::connection(self.state, event)?;
+        let from = self.state;
+        let (next, effect) = transition::engine::connection(from, event)?;
+        tracing::debug!(
+            target: "goodfetch::transition",
+            machine = "connection",
+            from = ?from,
+            event = ?event,
+            to = ?next,
+            effect = ?effect,
+            "connection transition"
+        );
         self.state = next;
         Ok(effect)
     }
@@ -1107,6 +1121,13 @@ impl Session<'_> {
                 call.token.cancel();
             }
         }
+    }
+
+    /// Closes and drains `requests` so any `Client` send that already reserved
+    /// a permit resolves its reply oneshot as `Gone` (issue 2594).
+    async fn close_requests(&mut self) {
+        self.requests.close();
+        while self.requests.recv().await.is_some() {}
     }
 
     async fn handle(&mut self, frame: Frame) -> Flow {
@@ -1493,6 +1514,18 @@ impl Session<'_> {
                         .preamble()
                         .err();
                     Some(refused.unwrap_or_else(too_many_calls))
+                } else if self.connection.engine.has_group_router()
+                    && !handler.streams()
+                    && handler.input().is_none()
+                    && is_group_routable(method)
+                {
+                    match self.call_group_routed(id, &handler, call.params()) {
+                        Ok(()) => return Flow::Continue,
+                        Err((refused, error)) => {
+                            id = refused;
+                            Some(error)
+                        }
+                    }
                 } else {
                     match self.call(id, &handler, call.params()) {
                         Ok(()) => return Flow::Continue,
@@ -1637,37 +1670,123 @@ impl Session<'_> {
         // `$/cancel` reaches the call at once, and [`MAX_IN_FLIGHT`] caps
         // how many there are.
         self.owner.spawn(async move {
-            let answered = if operation.cancellable {
-                tokio::select! {
-                    biased;
-                    answered = answer => answered,
-                    // Cancelled by its Client's `$/cancel` or end, or by
-                    // the Daemon's close of its Connection.
-                    () = token.cancelled() => Err(closing
-                        .as_ref()
-                        .and_then(Closing::error)
-                        .unwrap_or_else(cancelled_by_client)),
-                }
-            } else {
-                answer.await
-            };
-            let line = match answered {
-                Ok(answered) => {
-                    record(operation.name, None);
-                    answered.into_line()
-                }
-                Err(error) => {
-                    record(operation.name, Some(error.code()));
-                    trace::record_failure(&span, error.code(), error.wire_code());
-                    failure_line(Some(id.clone()), &error, form)
-                }
-            };
-            drop(span);
+            let line = await_call(
+                answer,
+                operation.name,
+                operation.cancellable,
+                &id,
+                &token,
+                closing.as_ref(),
+                form,
+                span,
+            )
+            .await;
             // Ended before its answer is sent: the Client may reuse the id
             // as soon as the answer arrives, and `still_in_flight` then
             // finds this end waiting.
             let _ = completed.send(Told::CallEnded(id)).await;
             let _ = outgoing.send(line.into()).await;
+        });
+        Ok(())
+    }
+
+    /// Group-routing stage of `rpc`'s dispatch (ADRs 0055, 0132 and 0140):
+    /// entered only when this engine belongs to a Daemon group. Checks the
+    /// cached group Run index (or asks the Lead Daemon to place a new/resumed
+    /// Run), forwards raw request bytes without decoding into a `Value` copy,
+    /// writes the owner's raw response line straight back via [`Line::copying`]
+    /// (zero extra encodes), and falls through to local execution when this
+    /// Group member owns the call.
+    fn call_group_routed(
+        &mut self,
+        id: RequestId,
+        handler: &Handler,
+        params: Option<&str>,
+    ) -> Result<(), (RequestId, CallError)> {
+        let run_id = extract_run_id_fast(params);
+        let placement = (is_placement_method(handler.operation().name)
+            && !has_partitions_param(params))
+        .then(|| {
+            extract_placement_request(
+                params,
+                self.connection.settings.get(),
+                self.connection
+                    .engine
+                    .group_router()
+                    .map(|r| r.member_name().to_owned())
+                    .unwrap_or_default(),
+            )
+        });
+        if run_id.is_none() && placement.is_none() {
+            return self.call(id, handler, params);
+        }
+        let Some(router) = self.connection.engine.group_router() else {
+            return self.call(id, handler, params);
+        };
+        let token = self.owner.token().child_token();
+        let operation = handler.operation();
+        let handler = handler.clone();
+        let params_raw = params.map(str::to_owned);
+        let forwarded = ForwardedCall {
+            id: id.clone(),
+            method: operation.name.to_owned(),
+            params_raw: params_raw.clone(),
+            surface: self
+                .connection
+                .surface
+                .get()
+                .copied()
+                .unwrap_or(Surface::Rust),
+            form: self.form(),
+            behind_gateway: self
+                .connection
+                .behind_gateway
+                .get()
+                .copied()
+                .unwrap_or(false),
+            answers_as_a_person: self.connection.answers_as_a_person(),
+        };
+        self.in_flight.insert(
+            id.clone(),
+            InFlight {
+                token: token.clone(),
+                cancellable: operation.cancellable,
+                credits: None,
+                input: None,
+            },
+        );
+        let dispatch = Arc::clone(&self.dispatch);
+        let connection = Arc::clone(&self.connection);
+        let (outgoing, completed) = (self.outgoing.clone(), self.completed.clone());
+        let closing = self.closing.clone().filter(|_| operation.cancellable);
+        let form = self.form();
+        self.owner.spawn(async move {
+            let line: Line = match router.route_unary(forwarded, run_id, placement).await {
+                Ok(RoutedCall::Forwarded(bytes)) => {
+                    record(operation.name, None);
+                    Line::copying(bytes)
+                }
+                Ok(RoutedCall::Local) => {
+                    run_routed_locally(
+                        &dispatch,
+                        connection,
+                        &handler,
+                        operation,
+                        &id,
+                        &token,
+                        params_raw.as_deref(),
+                        closing.as_ref(),
+                        form,
+                    )
+                    .await
+                }
+                Err(error) => {
+                    record(operation.name, Some(error.code()));
+                    failure_line(Some(id.clone()), &error, form).into()
+                }
+            };
+            let _ = completed.send(Told::CallEnded(id)).await;
+            let _ = outgoing.send(line).await;
         });
         Ok(())
     }
@@ -1858,6 +1977,355 @@ fn engine_panicked(metrics: &Metrics) -> CallError {
         PanicEnded::Call,
         "The engine hit a bug in Goodfetch while it served this call, which ended the call; its Connection goes on",
     )
+}
+
+/// Returns a [`LocalDispatcher`] that executes forwarded unary peer calls
+/// locally through `dispatch`, preserving `_meta` Trace context in
+/// [`trace::server_span`] and returning the exact raw JSON-RPC reply line
+/// (ADRs 0055, 0132 and 0140).
+pub(crate) fn local_dispatcher(
+    dispatch: Arc<Dispatch>,
+    runs: Runs,
+    events: Events,
+    engine: EngineContext,
+) -> Arc<dyn LocalDispatcher> {
+    Arc::new(RpcLocalDispatcher {
+        dispatch,
+        runs,
+        events,
+        engine,
+    })
+}
+
+struct RpcLocalDispatcher {
+    dispatch: Arc<Dispatch>,
+    runs: Runs,
+    events: Events,
+    engine: EngineContext,
+}
+
+impl LocalDispatcher for RpcLocalDispatcher {
+    fn dispatch(&self, call: ForwardedCall) -> Pin<Box<dyn Future<Output = Vec<u8>> + Send>> {
+        let dispatch = Arc::clone(&self.dispatch);
+        let runs = self.runs.clone();
+        let events = self.events.clone();
+        let engine = self.engine.clone();
+        Box::pin(async move {
+            let Some(handler) = dispatch.handlers.get(call.method.as_str()).cloned() else {
+                let error = CallError::protocol(
+                    ProtocolFailure::MethodNotFound,
+                    format!("no Product carries the operation `{}`", call.method),
+                );
+                return failure_line(Some(call.id), &error, call.form);
+            };
+            let operation = handler.operation();
+            if operation.reach == Reach::PersonOnly && !call.answers_as_a_person {
+                let error = person_required(&call.method, dispatch.identity.product);
+                return failure_line(Some(call.id), &error, call.form);
+            }
+            let (client, _requests) = Client::new();
+            let connection = Arc::new(ConnectionContext {
+                identity: Arc::clone(&dispatch.identity),
+                client,
+                surface: OnceLock::from(call.surface),
+                principal: OnceLock::from(Principal::of(if call.answers_as_a_person {
+                    Carriage::Local
+                } else {
+                    Carriage::Remote
+                })),
+                form: OnceLock::from(call.form),
+                behind_gateway: OnceLock::from(call.behind_gateway),
+                settings: OnceLock::from(Map::new()),
+                registered: OnceLock::from(Map::new()),
+                drivers: Arc::clone(&dispatch.drivers),
+                attempt_stagings: Arc::clone(&dispatch.attempt_stagings),
+                runs,
+                events,
+                engine,
+                daemon: None,
+                exposed: false,
+                log: ConnectionLog::none(),
+            });
+            let token = CancellationToken::new();
+            let context = CallContext::new(connection, operation, call.id.clone(), token, None);
+            let arrived = Arrived::new(call.params_raw.as_deref(), dispatch.work());
+            let started = handler
+                .call(arrived.params(), context)
+                .and_then(|answer| Ok((answer, arrived.preamble()?)));
+            let (answer, preamble) = match started {
+                Ok(started) => started,
+                Err(error) => {
+                    record(operation.name, Some(error.code()));
+                    return failure_line(Some(call.id), &error, call.form);
+                }
+            };
+            let span = trace::server_span(
+                operation.name,
+                &call.id,
+                &preamble.ids,
+                preamble.meta.as_ref(),
+            );
+            let answer = CallWatch {
+                answer: answer.instrument(span.clone()),
+                metrics: dispatch.metrics.clone(),
+            };
+            let line = match answer.await {
+                Ok(answered) => {
+                    record(operation.name, None);
+                    answered.into_line()
+                }
+                Err(error) => {
+                    record(operation.name, Some(error.code()));
+                    trace::record_failure(&span, error.code(), error.wire_code());
+                    failure_line(Some(call.id), &error, call.form)
+                }
+            };
+            drop(span);
+            line
+        })
+    }
+}
+
+/// Whether `method` may be routed across a Daemon group.
+fn is_group_routable(method: &str) -> bool {
+    !method.starts_with("group.")
+        && !method.starts_with("daemon.")
+        && !method.starts_with("connection.")
+        && !method.starts_with("config.")
+        && !method.starts_with("audit.")
+        && !method.starts_with("certs.")
+        && !method.starts_with("cache.")
+        && !method.starts_with("usage.")
+        && !method.starts_with("needs_you.")
+}
+
+/// Whether `method` starts or resumes a Run and therefore consults the Lead
+/// Daemon's placement selector in a Daemon group.
+fn is_placement_method(method: &str) -> bool {
+    matches!(
+        method,
+        "run.start" | "crawl.start" | "recipe.start" | "catalog_run.start" | "run.resume"
+    )
+}
+
+/// Returns `true` when raw JSON `params` carries a non-null `"partitions"`
+/// field (used to let the multi-Partition coordinator handle placement instead
+/// of single-Run placement).
+fn has_partitions_param(params: Option<&str>) -> bool {
+    use serde::Deserializer as _;
+    use serde::de::{IgnoredAny, MapAccess, Visitor};
+
+    struct PartitionsVisitor;
+    impl<'de> Visitor<'de> for PartitionsVisitor {
+        type Value = bool;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("a JSON object")
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+            let mut found = false;
+            while let Some(key) = map.next_key::<Cow<'de, str>>()? {
+                if key == "partitions" {
+                    let value = map.next_value::<Option<IgnoredAny>>()?;
+                    found = value.is_some();
+                } else {
+                    let _ = map.next_value::<IgnoredAny>()?;
+                }
+            }
+            Ok(found)
+        }
+    }
+
+    let Some(text) = params else {
+        return false;
+    };
+    let mut de = serde_json::Deserializer::from_str(text);
+    de.deserialize_map(PartitionsVisitor).unwrap_or(false)
+}
+
+/// Zero-copy top-level scan of raw JSON `params` for `"run_id"` without
+/// allocating a `serde_json::Value` tree or counting `MessageDecodes` (E1).
+fn extract_run_id_fast(params: Option<&str>) -> Option<RunId> {
+    use serde::Deserializer as _;
+    use serde::de::{IgnoredAny, MapAccess, Visitor};
+
+    struct RunIdVisitor;
+    impl<'de> Visitor<'de> for RunIdVisitor {
+        type Value = Option<String>;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("a JSON object")
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+            let mut found = None;
+            while let Some(key) = map.next_key::<Cow<'de, str>>()? {
+                if key == "run_id" {
+                    found = map.next_value::<Option<String>>().ok().flatten();
+                } else {
+                    let _ = map.next_value::<IgnoredAny>()?;
+                }
+            }
+            Ok(found)
+        }
+    }
+
+    let text = params?;
+    let mut de = serde_json::Deserializer::from_str(text);
+    let raw = de.deserialize_map(RunIdVisitor).ok()??;
+    RunId::parse(&raw).ok()
+}
+
+/// Extracts placement hints (`group_member` pin, `session.source`,
+/// `egress.local_addresses`) from a start/resume call's raw JSON params.
+fn extract_placement_request(
+    params: Option<&str>,
+    connection_settings: Option<&Map<String, Value>>,
+    receiving_member: String,
+) -> PlacementRequest {
+    #[derive(serde::Deserialize, Default)]
+    struct RawHint {
+        #[serde(default)]
+        group_member: Option<String>,
+        #[serde(default)]
+        settings: Map<String, Value>,
+    }
+
+    let hint = params
+        .and_then(|text| serde_json::from_str::<RawHint>(text).ok())
+        .unwrap_or_default();
+    let session_source = setting_value(&hint.settings, connection_settings, "session", "source")
+        .and_then(|v| serde_json::from_value::<SessionSource>(v.clone()).ok());
+    let required_local_addresses = setting_value(
+        &hint.settings,
+        connection_settings,
+        "egress",
+        "local_addresses",
+    )
+    .and_then(Value::as_array)
+    .map(|items| {
+        items
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_owned))
+            .collect()
+    })
+    .unwrap_or_default();
+    PlacementRequest {
+        receiving_member,
+        group_member: hint.group_member,
+        session_source,
+        required_local_addresses,
+        ..PlacementRequest::default()
+    }
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "local execution fallback for a call that group routing kept on this member"
+)]
+async fn run_routed_locally(
+    dispatch: &Dispatch,
+    connection: Arc<ConnectionContext>,
+    handler: &Handler,
+    operation: &'static goodfetch_protocol::catalog::Operation,
+    id: &RequestId,
+    token: &CancellationToken,
+    params_raw: Option<&str>,
+    closing: Option<&Closing>,
+    form: Form,
+) -> Line {
+    let context = CallContext::new(connection, operation, id.clone(), token.clone(), None);
+    let arrived = Arrived::new(params_raw, dispatch.work());
+    let started = handler
+        .call(arrived.params(), context)
+        .and_then(|answer| Ok((answer, arrived.preamble()?)));
+    match started {
+        Ok((answer, preamble)) => {
+            let span =
+                trace::server_span(operation.name, id, &preamble.ids, preamble.meta.as_ref());
+            let answer = CallWatch {
+                answer: answer.instrument(span.clone()),
+                metrics: dispatch.metrics.clone(),
+            };
+            await_call(
+                answer,
+                operation.name,
+                operation.cancellable,
+                id,
+                token,
+                closing,
+                form,
+                span,
+            )
+            .await
+            .into()
+        }
+        Err(error) => {
+            record(operation.name, Some(error.code()));
+            failure_line(Some(id.clone()), &error, form).into()
+        }
+    }
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "shared call-await helper carrying span, cancellation token, and wire error formatting"
+)]
+async fn await_call<F>(
+    answer: F,
+    method: &str,
+    cancellable: bool,
+    id: &RequestId,
+    token: &CancellationToken,
+    closing: Option<&Closing>,
+    form: Form,
+    span: tracing::Span,
+) -> Vec<u8>
+where
+    F: Future<Output = Result<crate::composition::Answered, CallError>>,
+{
+    let answered = if cancellable {
+        tokio::select! {
+            biased;
+            answered = answer => answered,
+            () = token.cancelled() => Err(closing
+                .and_then(Closing::error)
+                .unwrap_or_else(cancelled_by_client)),
+        }
+    } else {
+        answer.await
+    };
+    let line = match answered {
+        Ok(answered) => {
+            record(method, None);
+            answered.into_line()
+        }
+        Err(error) => {
+            record(method, Some(error.code()));
+            trace::record_failure(&span, error.code(), error.wire_code());
+            failure_line(Some(id.clone()), &error, form)
+        }
+    };
+    drop(span);
+    line
+}
+
+fn setting_value<'a>(
+    run: &'a Map<String, Value>,
+    connection: Option<&'a Map<String, Value>>,
+    section: &str,
+    key: &str,
+) -> Option<&'a Value> {
+    let dotted = format!("{section}.{key}");
+    let lookup = |map: &'a Map<String, Value>| {
+        map.get(&dotted).or_else(|| {
+            map.get(section)
+                .and_then(Value::as_object)
+                .and_then(|s| s.get(key))
+        })
+    };
+    lookup(run).or_else(|| connection.and_then(lookup))
 }
 
 /// One `POST /v1/rpc` request handed to `rpc` by the Daemon's HTTP listener
@@ -2167,5 +2635,168 @@ impl Session<'_> {
             }
         }
         status
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use goodfetch_protocol::catalog::{
+        Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
+    };
+    use goodfetch_protocol::connection::ProductVersion;
+    use goodfetch_protocol::jsonrpc::RequestId;
+    use goodfetch_test_support::TestEnv;
+    use serde_json::{Value, json};
+    use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+    use tokio::sync::oneshot;
+
+    use crate::client::{Client, Outgoing};
+    use crate::clock::Clock;
+    use crate::composition::{CallContext, Composition, Contribution, Handler};
+    use crate::engine::{Dependencies, Engine};
+    use crate::entropy::Entropy;
+    use crate::home::{Home, RunStateLocation};
+    use crate::politeness::PolitenessOptions;
+    use crate::product::{Channel, Identity};
+    use crate::run_state::RunStateOptions;
+    use crate::secrets::Keychain;
+    use crate::sync::Mutex;
+    use crate::tasks::BlockingPolicy;
+    use crate::transport::{self, Network};
+
+    const GRAB_CLIENT: Operation = Operation {
+        name: "test.grab_client",
+        description: "Hands out the Connection's Client handle.",
+        class: OperationClass::Read,
+        kind: OperationKind::RoundTrip,
+        reach: Reach::AllSurfaces,
+        params: schema_of::<Value>,
+        result: schema_of::<Value>,
+        events: &[],
+        cancellable: false,
+        input: None,
+        bound: None,
+        stability: Stability::Experimental,
+        deprecated: None,
+        arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
+    };
+
+    /// Issue 2594: a send permit reserved on `Client`'s outgoing requests
+    /// channel before `serve_carried` drops `Session` still resolves its reply
+    /// oneshot when sent while a `Client` handle remains alive.
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "test runs on the paused Clock and seeded Entropy (ADR 0059)"
+    )]
+    fn serve_carried_drains_a_client_request_permit_reserved_before_end() {
+        let env = TestEnv::new();
+        let resolved = goodfetch_test_support::runtime().block_on(async {
+            let slot: Arc<Mutex<Option<oneshot::Sender<Client>>>> = Arc::new(Mutex::new(None));
+            let (tx, rx) = oneshot::channel();
+            *slot.lock().unwrap() = Some(tx);
+            let slot_handler = Arc::clone(&slot);
+            let composition = Composition::default().with(crate::contribution()).with(
+                Contribution::new("test").with_handler(Handler::new(
+                    &GRAB_CLIENT,
+                    move |_: Value, context: CallContext| {
+                        let slot = Arc::clone(&slot_handler);
+                        async move {
+                            if let Some(tx) = slot.lock().unwrap().take() {
+                                let _ = tx.send(context.client().clone());
+                            }
+                            Ok(json!({}))
+                        }
+                    },
+                )),
+            );
+            let identity = Identity {
+                product: Product::Collie,
+                product_version: ProductVersion::parse("0.1.0").unwrap(),
+                channel: Channel::CratesIo,
+            };
+            let engine = Engine::new(identity, &composition).unwrap();
+            let deps = Dependencies {
+                home: Home::new(env.home().to_owned()),
+                clock: Clock::paused(env.start_time()),
+                entropy: Entropy::seeded(env.seed()),
+                blocking: BlockingPolicy::Inline,
+                run_state_location: RunStateLocation::PerMajor,
+                run_state: RunStateOptions::default(),
+                politeness: PolitenessOptions::default(),
+                environment: BTreeMap::new(),
+                keychain: Keychain::absent(),
+            };
+            let (network, dialer) = transport::in_memory();
+            let owner = crate::tasks::TaskOwner::root(BlockingPolicy::Inline);
+            owner.spawn(async move {
+                let _ = engine.run_attached(Network::InMemory(network), deps).await;
+            });
+
+            let conn = dialer.connect().await.unwrap();
+            let (reader, mut writer) = conn.split();
+            let mut lines = BufReader::new(reader).lines();
+            let hello = json!({
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "hello",
+                "params": {
+                    "protocol_version": "0.1",
+                    "surface": "cli",
+                    "needs": "collie",
+                    "product_version": "0.1.0",
+                }
+            });
+            writer
+                .write_all(format!("{hello}\n").as_bytes())
+                .await
+                .unwrap();
+            writer.flush().await.unwrap();
+            let _ = lines.next_line().await.unwrap();
+
+            let grab = json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "test.grab_client",
+                "params": {}
+            });
+            writer
+                .write_all(format!("{grab}\n").as_bytes())
+                .await
+                .unwrap();
+            writer.flush().await.unwrap();
+            let _ = lines.next_line().await.unwrap();
+            let client = rx.await.unwrap();
+
+            // Reserve a permit BEFORE closing the connection.
+            let permit = client.requests_sender().reserve().await.unwrap();
+            drop(lines);
+            drop(writer);
+            // Yield so `session.run` sees EOF and enters `serve_carried`'s teardown.
+            tokio::task::yield_now().await;
+            tokio::task::yield_now().await;
+            tokio::task::yield_now().await;
+
+            let (reply, replied) = oneshot::channel();
+            permit.send(Outgoing::Request {
+                id: RequestId::Number(99),
+                method: "test.late",
+                line: b"{}".to_vec(),
+                reply,
+            });
+            let outcome = tokio::time::timeout(Duration::from_secs(1), replied).await;
+            drop(client);
+            owner.wait().await;
+            outcome
+        });
+
+        assert!(
+            matches!(resolved, Ok(Err(_))),
+            "reserved client permit sent after Session ended must resolve with Gone, got {resolved:?}"
+        );
     }
 }

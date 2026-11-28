@@ -1,0 +1,8 @@
+# A committed Fault plan for the group Simulation scenario (ADR 0060):
+# member-a is partitioned from member-b, crashes before member-b is promoted
+# to epoch 2, restarts at stale epoch 1, and heals; majority confirmation and
+# peer-link fencing keep one_lead unbroken.
+generator = "proptest-state-machine, scenario group"
+version = 1
+seed = 1
+command = "just simulate group --plan crates/goodfetch-engine/tests/it/simulation/fixtures/fault_plans/group/partition_and_restart.json"

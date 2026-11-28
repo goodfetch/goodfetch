@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","id":0,"method":"hello","params":{"protocol_version":"0.2","product":"foxhound","product_version":"0.5.0","lead_epoch":1}}

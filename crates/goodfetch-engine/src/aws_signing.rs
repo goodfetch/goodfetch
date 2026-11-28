@@ -84,6 +84,40 @@ pub fn signed_post(
     credentials: &Credentials,
     now: SystemTime,
 ) -> Result<Request<Bytes>, Unsignable> {
+    signed_request(
+        hyper::Method::POST,
+        url,
+        headers,
+        body,
+        scope,
+        credentials,
+        now,
+    )
+}
+
+/// An HTTP request of `method` and `body` to `url` with `headers`, each named
+/// in lower case, signed for `scope` by `credentials` at `now`: `host`,
+/// `x-amz-date`, `x-amz-content-sha256` (for `s3`), and `x-amz-security-token`
+/// (when present) are added and signed, with canonicalized query parameters.
+///
+/// # Errors
+///
+/// [`Unsignable`] when the session token or the access key ID holds
+/// characters no HTTP header may carry.
+///
+/// # Panics
+///
+/// When a header of `headers` is no valid header, which its caller's
+/// constants always are.
+pub fn signed_request(
+    method: hyper::Method,
+    url: &Url,
+    headers: &[(&str, &str)],
+    body: Bytes,
+    scope: Scope<'_>,
+    credentials: &Credentials,
+    now: SystemTime,
+) -> Result<Request<Bytes>, Unsignable> {
     let amz_date = jiff::Timestamp::try_from(now)
         .unwrap_or(jiff::Timestamp::UNIX_EPOCH)
         .strftime("%Y%m%dT%H%M%SZ")
@@ -92,29 +126,38 @@ pub fn signed_post(
         Some(port) => format!("{}:{port}", url.host_str().unwrap_or_default()),
         None => url.host_str().unwrap_or_default().to_owned(),
     };
+    let payload_hash = data_encoding::HEXLOWER.encode(&Sha256::digest(&body));
     let mut signed: Vec<(&str, String)> = headers
         .iter()
         .map(|(name, value)| (*name, (*value).to_owned()))
         .chain([("host", host), ("x-amz-date", amz_date.clone())])
         .collect();
+    if scope.service == "s3"
+        && !signed
+            .iter()
+            .any(|(name, _)| *name == "x-amz-content-sha256")
+    {
+        signed.push(("x-amz-content-sha256", payload_hash.clone()));
+    }
     if let Some(token) = &credentials.session_token {
         signed.push(("x-amz-security-token", token.expose_secret().to_owned()));
     }
     signed.sort_by(|left, right| left.0.cmp(right.0));
+    let query = canonical_query(url);
     let authorization = authorization(
         &Signing {
-            method: "POST",
+            method: method.as_str(),
             path: url.path(),
-            query: "",
+            query: &query,
             headers: &signed,
-            body: &body,
+            payload_hash: &payload_hash,
             region: scope.region,
             service: scope.service,
             amz_date: &amz_date,
         },
         credentials,
     );
-    let mut builder = Request::post(url.as_str());
+    let mut builder = Request::builder().method(method).uri(url.as_str());
     for (name, value) in &signed {
         if *name == "host" {
             continue;
@@ -138,6 +181,40 @@ pub fn signed_post(
         .expect("invariant: a parsed URL and checked headers make a request"))
 }
 
+/// Percent-encodes `input` per AWS `SigV4` (unreserved: `A-Z a-z 0-9 - _ . ~`).
+fn aws_uri_encode(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for byte in input.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            out.push(char::from(byte));
+        } else {
+            use std::fmt::Write as _;
+            let _ = write!(out, "%{byte:02X}");
+        }
+    }
+    out
+}
+
+/// Canonical query string for `SigV4`: sorted by encoded key, then encoded value.
+fn canonical_query(url: &Url) -> String {
+    let Some(raw) = url.query() else {
+        return String::new();
+    };
+    if raw.is_empty() {
+        return String::new();
+    }
+    let mut pairs: Vec<(String, String)> = url
+        .query_pairs()
+        .map(|(k, v)| (aws_uri_encode(&k), aws_uri_encode(&v)))
+        .collect();
+    pairs.sort();
+    pairs
+        .into_iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
 /// What one request's Signature Version 4 covers.
 struct Signing<'a> {
     method: &'a str,
@@ -148,7 +225,8 @@ struct Signing<'a> {
     /// The signed headers, in lower case, sorted by name, with trimmed
     /// values.
     headers: &'a [(&'a str, String)],
-    body: &'a [u8],
+    /// Hex-encoded SHA-256 of the request body.
+    payload_hash: &'a str,
     region: &'a str,
     service: &'a str,
     /// The request's time, as `YYYYMMDDTHHMMSSZ`.
@@ -185,7 +263,7 @@ fn authorization(signing: &Signing<'_>, credentials: &Credentials) -> String {
             signing.path
         },
         signing.query,
-        hex(&Sha256::digest(signing.body))
+        signing.payload_hash
     );
     let date = signing.amz_date.get(..8).unwrap_or_default();
     let scope = format!("{date}/{}/{}/aws4_request", signing.region, signing.service);

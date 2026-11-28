@@ -61,12 +61,13 @@ pub(crate) fn contribution_sharing(effects: &Effects) -> Contribution {
                 .with_needs_you_source(needs_you::storage::levels())
                 .with_needs_you_source(needs_you::storage::runs_stopped())
                 .with_needs_you_source(needs_you::limits::runs_stopped())
+                .with_needs_you_source(needs_you::limits::reached_limits())
                 .with_needs_you_source(needs_you::consent::walls())
                 .with_needs_you_source(needs_you::refetch::stops())
                 .with_needs_you_source(needs_you::certificates::changed(CALLER)),
             Contribution::with_handler,
         );
-    SECURITY_CONTROLS
+    let contribution = SECURITY_CONTROLS
         .into_iter()
         .fold(contribution, Contribution::with_control)
         .with_recorded_listing(&EGRESS_PRIVATE_RANGES, &PRIVATE_ADDRESSES_ALLOWED, "ranges")
@@ -74,7 +75,12 @@ pub(crate) fn contribution_sharing(effects: &Effects) -> Contribution {
             &POLITENESS_SHARING,
             &POLITENESS_WEAKENED,
             POLITENESS_SHARING.default,
-        )
+        );
+    crate::control_state::ENGINE_CONTROL_STORES
+        .iter()
+        .fold(contribution, |contribution, &(store, mode)| {
+            contribution.with_control_store(store, mode)
+        })
 }
 
 async fn engine_info(_: EngineInfoParams, context: CallContext) -> Result<EngineInfo, CallError> {

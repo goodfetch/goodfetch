@@ -80,6 +80,7 @@ fn machine_with(
                 Values::read(SettingsLayer::OperatorPolicy, &map_of(v), Product::Collie).unwrap()
             })
             .unwrap_or_default(),
+        group_members: std::collections::BTreeMap::new(),
         version: policy_version.map(str::to_owned),
         managed: None,
     };
@@ -96,6 +97,8 @@ fn machine_with(
     MachineLayers {
         operator_policy,
         user_configuration,
+        user_group_members: std::collections::BTreeMap::new(),
+        group_member: None,
         files: Vec::new(),
         version_defaults: HostDefaults::default(),
     }

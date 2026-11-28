@@ -194,6 +194,7 @@ mod older_engine;
 mod operator_policy;
 mod outcomes;
 mod pacing;
+mod partition_handoff;
 mod path_budgets;
 mod payload;
 mod personal_data;

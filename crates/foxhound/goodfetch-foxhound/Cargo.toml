@@ -36,6 +36,7 @@ goodfetch-collie-client.workspace = true
 goodfetch-crawl.workspace = true
 goodfetch-frontier.workspace = true
 goodfetch-dataset.workspace = true
+goodfetch-partitioned-crawl.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-fetch-tier.workspace = true
 # A crawl's serve (ADR 0112): its handlers' futures, polled inside it, each

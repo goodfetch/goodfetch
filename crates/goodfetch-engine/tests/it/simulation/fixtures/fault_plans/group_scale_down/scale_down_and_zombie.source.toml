@@ -1,0 +1,9 @@
+# A committed Fault plan for the group_scale_down Simulation scenario (ADR 0060):
+# member-a hands off one Run on scale-down, leaves a second Run checkpointed for
+# runs adopt, is partitioned from destination while member-b fences both Runs at
+# epoch 2, then heals as a zombie copy attempting stale epoch-1 writes; fencing
+# holds for every Run.
+generator = "proptest-state-machine, scenario group_scale_down"
+version = 1
+seed = 24501
+command = "just simulate group_scale_down --plan crates/goodfetch-engine/tests/it/simulation/fixtures/fault_plans/group_scale_down/scale_down_and_zombie.json"

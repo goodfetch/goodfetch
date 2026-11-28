@@ -1,0 +1,34 @@
+{
+  "seed": 1,
+  "generator_version": 1,
+  "steps": [
+    {
+      "at": 150,
+      "host": "daemon",
+      "action": {
+        "partition": {
+          "peer": "client"
+        }
+      }
+    },
+    {
+      "at": 250,
+      "host": "daemon",
+      "action": {
+        "heal": {
+          "peer": "client"
+        }
+      }
+    },
+    {
+      "at": 350,
+      "host": "daemon",
+      "action": "crash"
+    },
+    {
+      "at": 500,
+      "host": "daemon",
+      "action": "restart"
+    }
+  ]
+}

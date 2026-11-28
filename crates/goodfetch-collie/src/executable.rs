@@ -354,6 +354,18 @@ enum RunsCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Brings checkpointed Runs from a removed Group member's kept volume
+    /// into another Group member of the Daemon group (ADR 0055).
+    Adopt {
+        /// Kept Run folders, or folders of Run folders, to adopt.
+        paths: Vec<std::path::PathBuf>,
+        /// Group member name the kept volume belonged to, when known.
+        #[arg(long)]
+        from_member: Option<String>,
+        /// Prints the result as JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -787,10 +799,6 @@ fn records_the_executable(parsed: &Parsed) -> bool {
 /// Runs the command `parsed` asks for on `engine`, once the executable is
 /// set up, among `own` commands, with the `skills` and `starters` it
 /// carries.
-#[expect(
-    clippy::too_many_lines,
-    reason = "top-level CLI subcommand dispatch table"
-)]
 fn run(
     parsed: Parsed,
     (engine, dependencies): (&Engine, Dependencies),
@@ -872,16 +880,7 @@ fn run(
         Command::Mcp { arguments, .. } => {
             mcp::run(&arguments, engine, dependencies, &machine, start.skills)
         }
-        Command::Runs {
-            command: RunsCommand::Reindex { paths, json },
-            ..
-        } => {
-            let Ok(folder) = std::env::current_dir() else {
-                tracing::error!("the working folder cannot be read");
-                return ExitCode::FAILURE;
-            };
-            runs::reindex(&machine, &folder, paths, json, human)
-        }
+        Command::Runs { command, .. } => runs_command(command, &machine, engine, human),
         Command::Usage { command, .. } => {
             warn_of_a_temporary_ledger(&home, human);
             usage_command(command, engine, dependencies, &machine, human)
@@ -948,6 +947,34 @@ fn usage_command(
         (&params, json),
         human,
     )
+}
+
+fn runs_command(
+    command: RunsCommand,
+    machine: &Machine,
+    engine: &Engine,
+    human: &Human,
+) -> ExitCode {
+    let Ok(folder) = std::env::current_dir() else {
+        tracing::error!("the working folder cannot be read");
+        return ExitCode::FAILURE;
+    };
+    match command {
+        RunsCommand::Reindex { paths, json } => runs::reindex(machine, &folder, paths, json, human),
+        RunsCommand::Adopt {
+            paths,
+            from_member,
+            json,
+        } => runs::adopt(
+            machine,
+            &folder,
+            paths,
+            from_member.as_deref(),
+            engine,
+            json,
+            human,
+        ),
+    }
 }
 
 /// Warns when the Usage ledger sits on a temporary filesystem, where it is

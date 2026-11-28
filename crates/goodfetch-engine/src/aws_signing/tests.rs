@@ -32,7 +32,7 @@ fn the_signature_is_aws_documented_example() {
             path: "/",
             query: "Action=ListUsers&Version=2010-05-08",
             headers: &headers,
-            body: b"",
+            payload_hash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
             region: "us-east-1",
             service: "iam",
             amz_date: "20150830T123600Z",

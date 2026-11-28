@@ -17,20 +17,21 @@ use std::sync::Arc;
 use goodfetch_protocol::catalog::{Product, SharedType};
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::entries::product_of_value;
+use goodfetch_protocol::group::LEAD_UNREACHABLE;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::LimitSetter;
 use goodfetch_protocol::run::{LimitScope, Period, RunId, RunLimit};
 use goodfetch_protocol::usage::{
-    CONNECTION, DAEMON, INSTALL, LIMIT_RAISE_REFUSED, Limit, LimitRaiseRefusedDetails, LimitUsage,
-    PERSON, RUN, USAGE_LIST, USAGE_RAISE, USAGE_SET, UsageListParams, UsageListResult,
-    UsageRaiseParams, UsageSetParams,
+    CONNECTION, DAEMON, INSTALL, LIMIT_NOT_UNDERSTOOD, LIMIT_RAISE_REFUSED, Limit,
+    LimitNotUnderstoodDetails, LimitRaiseRefusedDetails, LimitUsage, PERSON, RUN, USAGE_LIST,
+    USAGE_RAISE, USAGE_SET, UsageListParams, UsageListResult, UsageRaiseParams, UsageSetParams,
 };
 use jiff::tz::TimeZone;
 
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
 use crate::engine_context::CALLER;
-use crate::ledger::LedgerError;
+use crate::ledger::{LedgerError, Refusal};
 use crate::product::Requested;
 
 /// The `usage.*` handlers.
@@ -49,14 +50,38 @@ fn unavailable(error: &impl std::fmt::Display) -> CallError {
     )
 }
 
+fn refusal_error(refusal: Refusal) -> CallError {
+    match refusal {
+        Refusal::LeadUnreachable(message) => {
+            CallError::new(&LEAD_UNREACHABLE, message, &serde_json::json!({}))
+        }
+        Refusal::NotUnderstood(limit) => CallError::new(
+            &LIMIT_NOT_UNDERSTOOD,
+            format!(
+                "A Limit on {} {} is flagged must-understand and cannot be evaluated by this engine: upgrade Goodfetch to run against it.",
+                limit.scope.kind, limit.usage_kind
+            ),
+            &LimitNotUnderstoodDetails { limit: *limit },
+        ),
+        other => unavailable(&other),
+    }
+}
+
 async fn list(_: UsageListParams, context: CallContext) -> Result<UsageListResult, CallError> {
     let engine = context.engine().clone();
     let product = context.identity().product;
     let owner = Arc::clone(engine.owner());
     let usage = owner
-        .blocking(move || engine.ledger().usage(product, engine.now()))
+        .blocking(move || {
+            let now = engine.now();
+            if let Some(authority) = engine.ledger().active_authority(now)? {
+                authority.usage(product, now)
+            } else {
+                engine.ledger().usage(product, now).map_err(Refusal::Ledger)
+            }
+        })
         .await
-        .map_err(|error| unavailable(&error))?;
+        .map_err(refusal_error)?;
     Ok(UsageListResult { limits: usage })
 }
 
@@ -80,7 +105,13 @@ async fn set(params: UsageSetParams, context: CallContext) -> Result<LimitUsage,
         amount: params.amount,
     };
     let limit = limit_of(named, LimitSetter::Client, &context)?;
-    write(&context, move |ledger, now| ledger.add_limit(&limit, now)).await
+    write(
+        &context,
+        limit,
+        |authority, limit, product, now| authority.add_limit(limit, product, now),
+        crate::ledger::Ledger::add_limit,
+    )
+    .await
 }
 
 async fn raise(params: UsageRaiseParams, context: CallContext) -> Result<LimitUsage, CallError> {
@@ -93,25 +124,50 @@ async fn raise(params: UsageRaiseParams, context: CallContext) -> Result<LimitUs
         amount: params.amount,
     };
     let limit = limit_of(named, LimitSetter::Person, &context)?;
-    write(&context, move |ledger, now| ledger.raise(&limit, now)).await
+    write(
+        &context,
+        limit,
+        |authority, limit, product, now| authority.raise(limit, product, now),
+        crate::ledger::Ledger::raise,
+    )
+    .await
 }
 
-/// Writes a Limit through `change` and answers it with its Usage.
-async fn write<F>(context: &CallContext, change: F) -> Result<LimitUsage, CallError>
+/// Writes a Limit through the active group authority (when present) or local
+/// ledger and answers it with its Usage.
+async fn write<FA, FL>(
+    context: &CallContext,
+    limit: Limit,
+    remote: FA,
+    local: FL,
+) -> Result<LimitUsage, CallError>
 where
-    F: FnOnce(&crate::ledger::Ledger, jiff::Timestamp) -> Result<i64, LedgerError> + Send + 'static,
+    FA: FnOnce(
+            &dyn crate::ledger::SliceAuthority,
+            &Limit,
+            Product,
+            jiff::Timestamp,
+        ) -> Result<LimitUsage, Refusal>
+        + Send
+        + 'static,
+    FL: FnOnce(&crate::ledger::Ledger, &Limit, jiff::Timestamp) -> Result<i64, LedgerError>
+        + Send
+        + 'static,
 {
     let engine = context.engine().clone();
     let product: Product = context.identity().product;
     let owner = Arc::clone(engine.owner());
     let added = owner
-        .blocking(move || {
+        .blocking(move || -> Result<Option<LimitUsage>, Refusal> {
             let now = engine.now();
-            let id = change(engine.ledger(), now)?;
-            engine.ledger().usage_of(id, product, now)
+            if let Some(authority) = engine.ledger().active_authority(now)? {
+                return remote(&*authority, &limit, product, now).map(Some);
+            }
+            let id = local(engine.ledger(), &limit, now)?;
+            Ok(engine.ledger().usage_of(id, product, now)?)
         })
         .await
-        .map_err(|error| unavailable(&error))?;
+        .map_err(refusal_error)?;
     added.ok_or_else(|| unavailable(&"the Limit written is gone"))
 }
 
@@ -164,10 +220,64 @@ pub(crate) async fn check_run_limits(
     let (run_id, given) = (run_id.as_str().to_owned(), given.to_vec());
     let owner = Arc::clone(engine.owner());
     owner
-        .blocking(move || engine.ledger().check_run_limits(&run_id, &given))
+        .blocking(
+            move || -> Result<Result<(), LimitRaiseRefusedDetails>, Refusal> {
+                if let Some(authority) = engine.ledger().active_authority(engine.now())? {
+                    authority.check_run_limits(&run_id, &given)
+                } else {
+                    Ok(engine.ledger().check_run_limits(&run_id, &given)?)
+                }
+            },
+        )
         .await
-        .map_err(|error| unavailable(&error))?
+        .map_err(refusal_error)?
         .map_err(|refused| raise_refused(&refused))
+}
+
+/// Gives the scope `scope` the Limits `given` as Client-set Limits (ADRs 0041
+/// and 0054).
+///
+/// # Errors
+///
+/// `invalid_params` or `not_in_product` when the scope or any Usage kind is
+/// refused by this Product, or a ledger/group authority error.
+pub async fn give_scoped_limits(
+    scope: LimitScope,
+    given: Vec<RunLimit>,
+    context: &CallContext,
+) -> Result<(), CallError> {
+    if given.is_empty() {
+        return Ok(());
+    }
+    let mut limits = Vec::with_capacity(given.len());
+    for limit in given {
+        known(
+            &scope.kind,
+            &limit.usage_kind,
+            limit.currency.as_deref(),
+            None,
+            context,
+        )?;
+        limits.push(Limit {
+            scope: scope.clone(),
+            usage_kind: limit.usage_kind,
+            currency: limit.currency,
+            period: None,
+            amount: limit.amount,
+            must_understand: true,
+            set_by: LimitSetter::Client,
+        });
+    }
+    for limit in limits {
+        write(
+            context,
+            limit,
+            |authority, limit, product, now| authority.add_limit(limit, product, now),
+            crate::ledger::Ledger::add_limit,
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 /// Gives the Run `run_id` the Limits `given` at a start that `began` it or
@@ -185,13 +295,20 @@ pub(crate) async fn give_run_limits(
     let run_id = run_id.as_str().to_owned();
     let owner = Arc::clone(engine.owner());
     owner
-        .blocking(move || {
-            engine
-                .ledger()
-                .give_run_limits(&run_id, &given, began, engine.now())
-        })
+        .blocking(
+            move || -> Result<Result<(), LimitRaiseRefusedDetails>, Refusal> {
+                let now = engine.now();
+                if let Some(authority) = engine.ledger().active_authority(now)? {
+                    authority.give_run_limits(&run_id, &given, began, now)
+                } else {
+                    Ok(engine
+                        .ledger()
+                        .give_run_limits(&run_id, &given, began, now)?)
+                }
+            },
+        )
         .await
-        .map_err(|error| unavailable(&error))?
+        .map_err(refusal_error)?
         .map_err(|refused| raise_refused(&refused))
 }
 

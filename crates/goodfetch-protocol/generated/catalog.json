@@ -51,6 +51,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Daemon at the Lead Daemon's address presented no certificate authority whose public key has the SHA-256 that `group join` pins, so the Daemon sent it nothing: the address leads elsewhere, or the key was copied wrong. Take the key `group token` answers on the Lead Daemon.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "authority_key_mismatch",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The site refused the document a navigation reached with a Block cause the engine cannot get past, such as a rate limit, an IP block or a challenge: raised by the call that waited for that navigation, or else by the page's next call. The Session stays open with its cookies, never replaced, and nothing waits on the site's `Retry-After`: the program decides whether to wait, open another Session or pause for a person. The details name the cause, the URL, the status and `retry_after`, the time the site asked for or `null`.",
       "details": {
         "$ref": "#/$defs/BlockedDetails"
@@ -85,6 +95,16 @@
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "body_unavailable",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Borrowed browser serves one Run at a time and cannot be shared across a second Run or across multiple Partitions of a Partitioned crawl.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "browser_borrowed",
       "product": "collie",
       "retryable": false
     },
@@ -682,6 +702,56 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "This Daemon belongs to a Daemon group already, so `group init` forms no other: a Daemon forms or joins one group, and stays in it until it leaves.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "group_exists",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Nothing answered at the Lead Daemon's peer address, or the peer link closed before its answer: check the address and that the Lead Daemon runs, then try again.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "group_lead_unreachable",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Daemon group has a Group member of this name already, so the Daemon joins under another. The join token stays valid for it.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "group_member_exists",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Daemon group has no Group member of this name, so nothing was revoked: it left already, was revoked, or never joined.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "group_member_unknown",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Daemon group of more than one Group member requires a shared Politeness store (`politeness.store`), or `politeness.sharing: per_daemon` in its Operator policy to keep Politeness per Daemon.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "group_politeness_unshared",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The program's handler failed with its own error, such as an exception; the attempt committed nothing. It is retried only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time.",
       "details": {
         "$ref": "#/$defs/HandlerFailedDetails"
@@ -809,6 +879,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Lead Daemon refused the join token: it minted no such token, or the token was used or is past its 30 minutes. Mint another with `group token` on the Lead Daemon and run `group join` with it.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "join_token_refused",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The crawl declares a second Label of a name it already declares, or attaches a second handler to one Label, so the declaration failed at once, with no I/O. The details name the Label. Declare each Label once and attach one handler to it.",
       "exit_code": null,
       "group": "program",
@@ -839,6 +919,49 @@
       "name": "label_unknown",
       "product": "foxhound",
       "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Lead Daemon cannot leave its Daemon group, nor be revoked from it, while it is the Lead Daemon: promote another Group member first, then remove this one.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "lead_cannot_leave",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Group member received a peer message carrying a lower lead epoch than the highest it has recorded, so the sender is a former Lead Daemon, or a Group member that has not yet learnt of the current one, and the message is refused. The sender records the higher epoch from the details and acts as an ordinary Group member.",
+      "details": {
+        "$ref": "#/$defs/LeadEpochStaleDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "lead_epoch_stale",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Lead Daemon has not yet confirmed its lead epoch with a majority of its last-known Group members: wait for a majority to come within reach, or confirm by hand with `group lead --confirm` once you have verified no other Lead Daemon runs.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "lead_unconfirmed",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Daemon group's Lead Daemon, or the local Group member named by this machine's group redirect row, cannot be reached to check or grant a Usage ledger Slice or verify a sign-in: live Runs continue spending held Slices until they need a new one, and new Runs needing a Slice or sign-in wait until the Lead Daemon or Group member returns (or `group leave` removes the redirect row).",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "lead_unreachable",
+      "product": "collie",
+      "retryable": true
     },
     {
       "arrived_in": "0.1",
@@ -1031,6 +1154,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "This Daemon belongs to no Daemon group, so it has none to leave: form one with `group init`, or join one with `group join`.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "not_in_a_group",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The running engine's Product does not carry what was asked: a Client that needs Foxhound reached a Collie engine, or a call, a setting or a value only Foxhound carries reached one. Run it with Foxhound, which contains everything Collie does, or connect to a Foxhound engine.",
       "details": {
         "$ref": "#/$defs/NotInProductDetails"
@@ -1039,6 +1172,16 @@
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "not_in_product",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Only a Daemon group's Lead Daemon mints join tokens, and this Daemon is not one: run `group token` on the Lead Daemon, or `group init` to form a group with this Daemon as its Lead Daemon.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "not_lead_daemon",
       "product": "collie",
       "retryable": false
     },
@@ -1154,6 +1297,26 @@
       "json_rpc_class": -32001,
       "name": "page_value_invalid",
       "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The requested Partition count exceeds the number of eligible Group members that can run this crawl. Lower `partitions`, use `auto`, or add eligible Group members.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "partitions_exceed_group_members",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Partitioned crawl of more than one Partition needs a Daemon group: on a standalone Daemon or an Attached engine, `partitions` can only be 1.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "partitions_need_group",
+      "product": "foxhound",
       "retryable": false
     },
     {
@@ -1664,6 +1827,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Run moved to another Group member, so this Group member no longer owns it: the receiving Group member refreshes its cached group Run index and retries once, and a Client that followed a redirect reconnects through any Group member and retries once.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "run_moved",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "No Run has this Run ID: the Run index does not list it.",
       "details": {
         "$ref": "#/$defs/RunDetails"
@@ -2165,6 +2338,18 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
+      "description": "A Group member lost contact with its Lead Daemon or regained it (ADR 0055). Readiness on `/readyz` stays ready while the Lead Daemon is unreachable; live Runs keep spending held Slices until they need a new one.",
+      "name": "group.lead_reachability_changed",
+      "payload": {
+        "$ref": "#/$defs/GroupLeadReachabilityChanged"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
       "description": "An item of \"Needs you\" appeared, changed or left the list: resolved, by a person or by its Run, or dismissed. Lossless: a subscription that falls behind next takes `events.resync`, which holds every item.",
       "name": "needs_you.changed",
       "payload": {
@@ -2325,6 +2510,18 @@
       "name": "page.web_socket",
       "payload": {
         "$ref": "#/$defs/PageWebSocket"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "The Politeness store became unreachable (entering bounded degraded admission within granted shares), reached `politeness.degraded_max` and stopped admission to shared keys, or reconnected (ADR 0053).",
+      "name": "politeness.store_degraded",
+      "payload": {
+        "$ref": "#/$defs/PolitenessStoreDegraded"
       },
       "product": "collie",
       "stability": "experimental"
@@ -3018,6 +3215,26 @@
       "product": "collie",
       "stability": "experimental",
       "unit": "{admission}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "1 while this Group member cannot reach its Daemon group's Lead Daemon, else 0 (ADR 0055).",
+      "instrument": "gauge",
+      "labels": [],
+      "name": "goodfetch.group.lead_unreachable",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "{daemon}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "1 while this engine's Politeness store is unreachable and running in degraded mode, else 0 (ADR 0053).",
+      "instrument": "gauge",
+      "labels": [],
+      "name": "goodfetch.politeness.store_degraded",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "{engine}"
     },
     {
       "arrived_in": "0.1",
@@ -3954,7 +4171,9 @@
         "events.resync",
         "run.axes_changed",
         "needs_you.changed",
-        "engine.system_info"
+        "engine.system_info",
+        "group.lead_reachability_changed",
+        "politeness.store_degraded"
       ],
       "kind": "sequence",
       "name": "events.subscribe",
@@ -4003,6 +4222,120 @@
       "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/ExportStreamed"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Forms a Daemon group with this Daemon as its Lead Daemon: makes the group's certificate authority from the OS generator and signs this Daemon's own Group member certificate with it, keeps both in the Daemon's group store at lead epoch 1, listens for peer links at `peer_address`, and answers the lead epoch, the address the peer listener took and the SHA-256 of the authority's public key, which a Daemon that joins pins. A Daemon in a group already fails with `group_exists`. One store transaction: a cancel stops it only before it commits.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "group.init",
+      "params": {
+        "$ref": "#/$defs/GroupInitParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/GroupFormed"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Joins this Daemon to the Daemon group whose Lead Daemon listens at `lead`: makes the Daemon's key from the OS generator, opens a peer link that checks the Lead Daemon's certificate authority against `authority_key`, sends the join token, the name and the public key, and keeps the certificate the Lead Daemon signs, then listens for peer links at `peer_address`. The token works once, so a refusal of anything but the token leaves it valid. A Daemon in a group already fails with `group_exists`; a token the Lead Daemon does not hold with `join_token_refused`; a name taken with `group_member_exists`; another authority with `authority_key_mismatch`; a Lead Daemon out of reach with `group_lead_unreachable`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "group.join",
+      "params": {
+        "$ref": "#/$defs/GroupJoinParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/GroupJoined"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Reports whether this Lead Daemon has confirmed its lead epoch, and under `--confirm` confirms it by hand when no majority of its last-known Group members can be reached (ADR 0055). Hand confirmation warns that the former Lead Daemon must not restart with its lead configuration. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`; one fenced off by a higher lead epoch with `lead_epoch_stale`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "group.lead",
+      "params": {
+        "$ref": "#/$defs/GroupLeadParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/GroupLeadStatus"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Takes this Daemon out of its Daemon group: opens a peer link to the Lead Daemon with its certificate and sends `group.leave`, after which the Lead Daemon revokes every certificate it signed for it and no Group member accepts it again; then forgets its group and closes its peer listener. A Daemon in no group fails with `not_in_a_group`; the Lead Daemon with `lead_cannot_leave`; a Lead Daemon out of reach with `group_lead_unreachable`, after which the Daemon is in its group still.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "group.leave",
+      "params": {
+        "$ref": "#/$defs/GroupLeaveParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/GroupLeft"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Removes the Group member `name` from the Daemon group, on the Lead Daemon: revokes every certificate the authority signed for it in a new revocation list, which the Lead Daemon's peer listener enforces from its next link and hands every Group member that renews, so no Group member accepts it again, and forgets it. One store transaction. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`; the Lead Daemon's own name with `lead_cannot_leave`; a name with no Group member with `group_member_unknown`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "group.revoke",
+      "params": {
+        "$ref": "#/$defs/GroupRevokeParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/GroupMemberRevoked"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Mints a join token on the Lead Daemon: 32 bytes of the OS generator, which one Daemon presents once with `group join` within 30 minutes, together with the SHA-256 of the authority's public key it pins. The group store keeps only the token's SHA-256, so the answer is the one place it shows. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "group.token",
+      "params": {
+        "$ref": "#/$defs/GroupTokenParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/JoinTokenMinted"
       },
       "stability": "experimental"
     },
@@ -6317,6 +6650,27 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "The path of an installed Chromium-family browser executable on this machine, launched in place of the Browser cache's pinned Chrome for Testing build: `null` by default. Set in user configuration, an Operator policy, or a Group member's scope.",
+      "fixed_for_run": false,
+      "name": "browser.executable_path",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "every",
       "clearable": true,
       "default": null,
@@ -6841,6 +7195,282 @@
         "description": "A duration in milliseconds.",
         "minimum": 0,
         "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "Azure Storage account name used for `az://` Checkpoints.",
+      "fixed_for_run": false,
+      "name": "checkpoint.object_storage.az.account",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "Secret reference for the Base64-encoded Azure Storage `SharedKey` used for `az://` Checkpoints.",
+      "fixed_for_run": false,
+      "name": "checkpoint.object_storage.az.account_key",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "description": "A Secret reference, such as `env:NAME`.",
+        "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+        "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "Endpoint URL for `az://` Checkpoints, such as an Azurite emulator URL; defaults to `https://<account>.blob.core.windows.net`.",
+      "fixed_for_run": false,
+      "name": "checkpoint.object_storage.az.endpoint",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "Secret reference for the Azure Storage SAS query token used for `az://` Checkpoints when `account_key` is not set.",
+      "fixed_for_run": false,
+      "name": "checkpoint.object_storage.az.sas_token",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "description": "A Secret reference, such as `env:NAME`.",
+        "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+        "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "Secret reference for the `OAuth2` bearer access token used for `gs://` Checkpoints.",
+      "fixed_for_run": false,
+      "name": "checkpoint.object_storage.gs.access_token",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "description": "A Secret reference, such as `env:NAME`.",
+        "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+        "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "Endpoint URL for `gs://` Checkpoints; defaults to `https://storage.googleapis.com`.",
+      "fixed_for_run": false,
+      "name": "checkpoint.object_storage.gs.endpoint",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "Secret reference for the AWS access key ID used for `s3://` Checkpoints.",
+      "fixed_for_run": false,
+      "name": "checkpoint.object_storage.s3.access_key_id",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "description": "A Secret reference, such as `env:NAME`.",
+        "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+        "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "Endpoint URL for `s3://` Checkpoints, for S3-compatible stores such as R2 or `RustFS`; defaults to AWS S3 for the configured region.",
+      "fixed_for_run": false,
+      "name": "checkpoint.object_storage.s3.endpoint",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "Signing region for `s3://` Checkpoints; defaults to `us-east-1`.",
+      "fixed_for_run": false,
+      "name": "checkpoint.object_storage.s3.region",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "Secret reference for the AWS secret access key used for `s3://` Checkpoints.",
+      "fixed_for_run": false,
+      "name": "checkpoint.object_storage.s3.secret_access_key",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "description": "A Secret reference, such as `env:NAME`.",
+        "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+        "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "Optional Secret reference for the AWS session token used for temporary credentials on `s3://` Checkpoints.",
+      "fixed_for_run": false,
+      "name": "checkpoint.object_storage.s3.session_token",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "description": "A Secret reference, such as `env:NAME`.",
+        "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+        "type": "string"
       },
       "weakening": null,
       "weakens": false
@@ -7813,6 +8443,27 @@
       "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Any other Daemon listens there for Live view channels alone, while `live_view.enabled` is on. Port 0 takes a free port, which its log and `daemon.status` name. An address other than loopback needs `daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`, so no token crosses a network in clear. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
       "fixed_for_run": false,
       "name": "daemon.address",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "The URL Clients reach this Group member at, such as a per-pod Ingress or a VM address. When set, another Group member redirects a Client's event stream (`events.subscribe`) and Live view channel to this URL instead of forwarding them over the peer link. Unset by default, in which case those streams are forwarded over the peer link. Set in user configuration or an Operator policy, including under `[group_member.<name>]`.",
+      "fixed_for_run": false,
+      "name": "daemon.advertise_url",
       "product": "collie",
       "products": [
         "collie",
@@ -11039,7 +11690,7 @@
       "clearable": false,
       "default": 600000,
       "deprecated": null,
-      "description": "The longest an engine cut off from its Politeness store stays in degraded mode, admitting one request at a time per domain, before it stops admitting new requests until the store answers again: 10 minutes. Set in user configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.",
+      "description": "How long a cut-off engine keeps admitting requests to shared keys within its last granted share when the Politeness store is unreachable, counted on each side's clock from the moment the engine sent its last acknowledged heartbeat: 10 minutes by default. Past it, the cut-off engine admits nothing to shared keys until it reconnects, while its Runs stay live and resumable, and the store frees its reservation once `politeness.degraded_max` plus its longest reported request timeout has passed. Set in user configuration or an Operator policy only.",
       "fixed_for_run": false,
       "name": "politeness.degraded_max",
       "product": "collie",
@@ -15888,6 +16539,36 @@
       "arrived_in": "0.1",
       "authority": "machine",
       "clearable": false,
+      "default": [
+        50,
+        80,
+        100
+      ],
+      "deprecated": null,
+      "description": "The percentages of each Limit (0 to 100) at which the engine sends a `limit_threshold` Notification once per period (ADR 0041): `[50, 80, 100]` by default. A crossing is recorded in the Usage ledger inside the Slice's transaction so concurrent engines send it once; a 0 entry is ignored, and an empty list disables threshold Notifications. Reaching 100 % always records a `limit_reached` \"Needs you\" item in the Usage ledger. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "usage.thresholds",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "items": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": "array"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
       "default": true,
       "deprecated": null,
       "description": "Whether an executable more than three months past its release date prints one line a day on stderr saying so, from its own release date alone, with no network call. Set in user configuration or an Operator policy only.",
@@ -16498,6 +17179,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Limit of the Usage ledger reached 100 % in its current period, recorded in the Usage ledger in the same transaction as the Slice that reached it (ADR 0041). `details` give the `limit` as `limit_reached` names it and the `amount` it allows now. Its actions offer `usage.raise`, a person's answer, and `needs_you.dismiss`. It leaves the list once a person raises the Limit with room left, once its period starts again, or when a person dismisses it.",
+      "name": "limit_reached",
+      "product": "collie",
+      "type": "needs_you_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A Limit reached its warning threshold.",
       "name": "limit_threshold",
       "product": "collie",
@@ -16530,6 +17218,13 @@
       "name": "model_tokens",
       "product": "collie",
       "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run trace stopped at the `critical` storage level or on a failed write (\"no trace\" mark).",
+      "name": "no_trace",
+      "product": "collie",
+      "type": "run_warning_code"
     },
     {
       "arrived_in": "0.1",

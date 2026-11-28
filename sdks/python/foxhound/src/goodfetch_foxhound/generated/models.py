@@ -24,6 +24,7 @@ from goodfetch_collie_client.generated.models import (
     PageField,
     PageId,
     PageResponse,
+    Partitions,
     PlanReport,
     PluginRun,
     Product,
@@ -31,6 +32,7 @@ from goodfetch_collie_client.generated.models import (
     ProjectSettings,
     Recording,
     RecordingReport,
+    RedoneReport,
     RunId,
     RunLimit,
     RunProgress,
@@ -44,6 +46,7 @@ from goodfetch_collie_client.generated.models import (
     SettingLimit,
     SettingsLayer,
     StartedAs,
+    StartedPartition,
     StopReason,
     Tags,
     UncertainEffect,
@@ -3010,8 +3013,13 @@ class CrawlStarted(BaseModel):
     The Product it needs (ADR 0098): Collie until it uses an entry the
     catalog marks Foxhound's, Foxhound from then on.
     """
+    partitions: list[StartedPartition] | None = None
+    """
+    For a Partitioned crawl (ADR 0054), each Partition's Run ID and Group
+    member placement beside the Partitioned crawl ID; empty otherwise.
+    """
     run_id: RunId
-    """The Run's ID."""
+    """The Run's ID (or the Partitioned crawl ID for a Partitioned crawl)."""
     seeds: list[Enqueued] | None = None
     """Each seed's original answer in order, as `run.seeds` answers."""
     started_as: StartedAs
@@ -3532,6 +3540,12 @@ class CrawlRunReport(RunReport):
     """What it did with the Response recording its start named (ADR 0105)."""
     records: list[DatasetRecords] | None = None
     """Its Records, per Dataset (ADR 0103)."""
+    redone: RedoneReport | None = None
+    """
+    How much work a resumed Run redid after its prior epoch stopped with
+    uncommitted Run-state batch writes or in-flight attempts (ADRs 0122
+    and 0142). Absent when nothing was redone.
+    """
     requests: RequestCounts | None = None
     """How its requests ended."""
     run_id: RunId
@@ -3609,6 +3623,8 @@ class CrawlStartParams(BaseModel):
     `invalid_params`. None for a crawl whose program handles its
     requests.
     """
+    group_member: str | None = None
+    """Optional Group member pin in a Daemon group (ADR 0055)."""
     hooks: list[CrawlHookDeclaration] | None = None
     """
     The crawl's Hooks in code, in the order declared (ADR 0104). Never
@@ -3631,6 +3647,11 @@ class CrawlStartParams(BaseModel):
     The Run's own Limits, as `run.start` takes them (ADRs 0041 and
     0080): at most one per Usage kind and currency. A start that names
     the Run again lowers them and never raises them (ADR 0102).
+    """
+    partitions: Partitions | None = None
+    """
+    Partition count for a Partitioned crawl (ADR 0054): a positive integer
+    or `"auto"` for one Partition per eligible Group member.
     """
     project: ProjectSettings | None = None
     """The project configuration the Client found, layer 3 (ADR 0083)."""

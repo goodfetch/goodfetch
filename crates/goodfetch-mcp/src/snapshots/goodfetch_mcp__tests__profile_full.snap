@@ -74,6 +74,7 @@ expression: "serde_json::to_string_pretty(&snapshot_value).unwrap()"
       "description": "Starts a code-free catalog run, a Run with no handler in the program whose verbs come from the catalog (ADR 0036): an Extraction of a page by a schema, `extract`, an Agent task, `agent`, or a Plan replayed with no model call, `plan_replay`; and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it.",
       "input_schema_keys": [
         "detached",
+        "group_member",
         "limits",
         "project",
         "recording",
@@ -155,6 +156,91 @@ expression: "serde_json::to_string_pretty(&snapshot_value).unwrap()"
       "input_schema_keys": [],
       "name": "engine_info",
       "operation": "engine.info"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Forms a Daemon group with this Daemon as its Lead Daemon: makes the group's certificate authority from the OS generator and signs this Daemon's own Group member certificate with it, keeps both in the Daemon's group store at lead epoch 1, listens for peer links at `peer_address`, and answers the lead epoch, the address the peer listener took and the SHA-256 of the authority's public key, which a Daemon that joins pins. A Daemon in a group already fails with `group_exists`. One store transaction: a cancel stops it only before it commits.",
+      "input_schema_keys": [
+        "name",
+        "peer_address"
+      ],
+      "name": "group_init",
+      "operation": "group.init"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Joins this Daemon to the Daemon group whose Lead Daemon listens at `lead`: makes the Daemon's key from the OS generator, opens a peer link that checks the Lead Daemon's certificate authority against `authority_key`, sends the join token, the name and the public key, and keeps the certificate the Lead Daemon signs, then listens for peer links at `peer_address`. The token works once, so a refusal of anything but the token leaves it valid. A Daemon in a group already fails with `group_exists`; a token the Lead Daemon does not hold with `join_token_refused`; a name taken with `group_member_exists`; another authority with `authority_key_mismatch`; a Lead Daemon out of reach with `group_lead_unreachable`.",
+      "input_schema_keys": [
+        "authority_key",
+        "lead",
+        "name",
+        "peer_address",
+        "token"
+      ],
+      "name": "group_join",
+      "operation": "group.join"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Reports whether this Lead Daemon has confirmed its lead epoch, and under `--confirm` confirms it by hand when no majority of its last-known Group members can be reached (ADR 0055). Hand confirmation warns that the former Lead Daemon must not restart with its lead configuration. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`; one fenced off by a higher lead epoch with `lead_epoch_stale`.",
+      "input_schema_keys": [
+        "confirm"
+      ],
+      "name": "group_lead",
+      "operation": "group.lead"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Takes this Daemon out of its Daemon group: opens a peer link to the Lead Daemon with its certificate and sends `group.leave`, after which the Lead Daemon revokes every certificate it signed for it and no Group member accepts it again; then forgets its group and closes its peer listener. A Daemon in no group fails with `not_in_a_group`; the Lead Daemon with `lead_cannot_leave`; a Lead Daemon out of reach with `group_lead_unreachable`, after which the Daemon is in its group still.",
+      "input_schema_keys": [],
+      "name": "group_leave",
+      "operation": "group.leave"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Removes the Group member `name` from the Daemon group, on the Lead Daemon: revokes every certificate the authority signed for it in a new revocation list, which the Lead Daemon's peer listener enforces from its next link and hands every Group member that renews, so no Group member accepts it again, and forgets it. One store transaction. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`; the Lead Daemon's own name with `lead_cannot_leave`; a name with no Group member with `group_member_unknown`.",
+      "input_schema_keys": [
+        "name"
+      ],
+      "name": "group_revoke",
+      "operation": "group.revoke"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Mints a join token on the Lead Daemon: 32 bytes of the OS generator, which one Daemon presents once with `group join` within 30 minutes, together with the SHA-256 of the authority's public key it pins. The group store keeps only the token's SHA-256, so the answer is the one place it shows. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`.",
+      "input_schema_keys": [],
+      "name": "group_token",
+      "operation": "group.token"
     },
     {
       "annotations": {
@@ -416,6 +502,7 @@ expression: "serde_json::to_string_pretty(&snapshot_value).unwrap()"
       "description": "Starts a Recipe's run, a Run with no handler in the program, and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it.",
       "input_schema_keys": [
         "detached",
+        "group_member",
         "limits",
         "project",
         "recipe",
@@ -609,6 +696,7 @@ expression: "serde_json::to_string_pretty(&snapshot_value).unwrap()"
       "description": "Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, a Checkpoint of a format version this engine cannot read with `format_version_unsupported`, and a Checkpoint behind the Run's run file on this machine with `checkpoint_behind`, or with the error that file's read gives when it cannot be read, unless `rollback` replaces that file, as the Audit log records.",
       "input_schema_keys": [
         "checkpoint",
+        "group_member",
         "project",
         "rollback",
         "run_id",
@@ -626,7 +714,9 @@ expression: "serde_json::to_string_pretty(&snapshot_value).unwrap()"
       },
       "description": "Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good, and a start under one acts on what the Run index holds (ADR 0102): no such Run begins it, `new`; an interrupted Run, stopped, failed, or running with no live writer, resumes from its committed state at the next run epoch, `resumed`, as `run.resume` does; a finished Run is answered as it ended with no handler called, `ended`. A Run live with a writer, in this engine or another, fails with `run_in_use`; a Run started with other inputs or by another caller with `run_conflict` listing each difference; a Run the Run index lists whose state is missing or unreadable with `run_state_unavailable`, never starting afresh.",
       "input_schema_keys": [
+        "group_member",
         "limits",
+        "partitions",
         "plan",
         "project",
         "recording",
@@ -861,5 +951,5 @@ expression: "serde_json::to_string_pretty(&snapshot_value).unwrap()"
       "operation": "usage.set"
     }
   ],
-  "tools_list_bytes": 151837
+  "tools_list_bytes": 163165
 }

@@ -116,6 +116,21 @@ pub enum AccountsStoreError {
     },
 }
 
+/// How a caller identifies a Named token when looking it up in [`AccountsStore`].
+#[derive(Clone, Copy, Debug)]
+pub enum NamedTokenLookup<'a> {
+    /// The raw token secret, hashed before lookup.
+    Secret(&'a SecretString),
+    /// The lowercase hex SHA-256 of the token secret.
+    Sha256(&'a str),
+}
+
+impl<'a> From<&'a SecretString> for NamedTokenLookup<'a> {
+    fn from(secret: &'a SecretString) -> Self {
+        Self::Secret(secret)
+    }
+}
+
 /// The Accounts store, open.
 #[derive(Debug)]
 pub struct AccountsStore {
@@ -319,16 +334,27 @@ impl AccountsStore {
         })
     }
 
-    /// The name of its Named token whose value is `value`, if it holds one.
+    /// The name of its Named token matching `key`, if it holds one.
     ///
     /// # Errors
     ///
     /// `Sqlite` when it cannot be read.
-    pub fn named_token(&self, value: &SecretString) -> Result<Option<String>, AccountsStoreError> {
+    pub fn named_token<'a>(
+        &self,
+        key: impl Into<NamedTokenLookup<'a>>,
+    ) -> Result<Option<String>, AccountsStoreError> {
+        let hashed;
+        let sha256 = match key.into() {
+            NamedTokenLookup::Secret(value) => {
+                hashed = hash(value);
+                hashed.as_str()
+            }
+            NamedTokenLookup::Sha256(sha256) => sha256,
+        };
         self.on(|connection| {
             connection
                 .prepare_cached(NAMED_TOKEN)?
-                .query_row([hash(value)], |row| row.get(0))
+                .query_row([sha256], |row| row.get(0))
                 .optional()
         })
     }

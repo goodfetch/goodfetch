@@ -62,6 +62,10 @@ pub enum SettingsLayer {
     OperatorPolicy,
     /// User configuration.
     UserConfiguration,
+    /// A Group member's own scope for machine-specific settings (ADRs 0028
+    /// and 0055): local addresses, TLS files and browser paths, applied only
+    /// on the named Group member.
+    GroupMember,
     /// Project configuration.
     ProjectConfiguration,
     /// A Recipe.
@@ -73,10 +77,11 @@ pub enum SettingsLayer {
 
 impl SettingsLayer {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Default,
         Self::OperatorPolicy,
         Self::UserConfiguration,
+        Self::GroupMember,
         Self::ProjectConfiguration,
         Self::Recipe,
         Self::Run,
@@ -87,12 +92,15 @@ impl SettingsLayer {
         crate::wire_name::of(&self)
     }
 
-    /// Whether it is one of the configuration layers: Operator policy, user
-    /// or project configuration (ADR 0028).
+    /// Whether it is one of the configuration layers: Operator policy, user,
+    /// group-member or project configuration (ADRs 0028 and 0055).
     pub fn is_configuration(self) -> bool {
         matches!(
             self,
-            Self::OperatorPolicy | Self::UserConfiguration | Self::ProjectConfiguration
+            Self::OperatorPolicy
+                | Self::UserConfiguration
+                | Self::GroupMember
+                | Self::ProjectConfiguration
         )
     }
 }

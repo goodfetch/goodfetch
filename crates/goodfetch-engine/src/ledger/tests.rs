@@ -31,6 +31,7 @@ mod held_limits;
 mod managed;
 mod model;
 mod reserve;
+mod thresholds;
 mod trace;
 
 /// A moment of the tests' own: Tuesday 10 March 2026, 15:00 UTC.

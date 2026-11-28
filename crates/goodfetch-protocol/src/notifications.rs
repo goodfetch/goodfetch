@@ -484,7 +484,7 @@ pub const NOTIFICATIONS_CHANNELS: Setting = Setting {
     authority: Authority::Machine,
     weakens: None,
     fixed_for_run: false,
-    unbuilt: Some("notifications"),
+    unbuilt: None,
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };
@@ -606,6 +606,48 @@ impl NotificationEvent {
     }
 }
 
+/// The resolved delivery target of a [`ChannelSettings`] entry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChannelTarget<'a> {
+    /// A `webhook` channel with its URL and signing secret references.
+    Webhook {
+        /// The Secret reference of the destination URL.
+        url: &'a str,
+        /// The Secret reference of the signing secret.
+        secret: &'a str,
+        /// The payload shape (`full` by default).
+        payload: WebhookPayload,
+    },
+    /// A `telegram` channel with its chat ID and bot token reference.
+    Telegram {
+        /// The chat ID to post to.
+        chat_id: &'a str,
+        /// The Secret reference of the bot token.
+        bot_token: &'a str,
+    },
+    /// A `slack` channel with its webhook URL reference.
+    Slack {
+        /// The Secret reference of the webhook URL.
+        url: &'a str,
+    },
+    /// A `teams` channel with its webhook URL reference.
+    Teams {
+        /// The Secret reference of the webhook URL.
+        url: &'a str,
+    },
+    /// A `discord` channel with its webhook URL reference.
+    Discord {
+        /// The Secret reference of the webhook URL.
+        url: &'a str,
+    },
+    /// An `email` channel with its provider configuration.
+    Email(&'a ChannelEmail),
+    /// A built-in channel type whose required fields are missing.
+    Incomplete,
+    /// Any other channel type (such as `sns` or a Plugin short name).
+    Other(&'a str),
+}
+
 impl ChannelSettings {
     /// Whether the channel receives `event`: one its `events` names, or
     /// one of the attention set when it names none.
@@ -614,6 +656,66 @@ impl ChannelSettings {
         match &self.events {
             Some(events) => events.iter().any(|name| name == event.as_str()),
             None => NotificationEvent::ATTENTION.contains(&event),
+        }
+    }
+
+    /// Resolves this channel's configured delivery target, or `None` when no
+    /// channel `type` is set (an SDK-only handler).
+    #[must_use]
+    pub fn target(&self) -> Option<ChannelTarget<'_>> {
+        match self.channel_type.as_deref()? {
+            "webhook" => {
+                let (Some(url), Some(webhook)) = (self.url.as_deref(), self.webhook.as_ref())
+                else {
+                    return Some(ChannelTarget::Incomplete);
+                };
+                let Some(secret) = webhook.secret.as_deref() else {
+                    return Some(ChannelTarget::Incomplete);
+                };
+                Some(ChannelTarget::Webhook {
+                    url,
+                    secret,
+                    payload: webhook.payload.unwrap_or(WebhookPayload::Full),
+                })
+            }
+            "telegram" => {
+                let Some(telegram) = self.telegram.as_ref() else {
+                    return Some(ChannelTarget::Incomplete);
+                };
+                let (Some(chat_id), Some(bot_token)) =
+                    (telegram.chat_id.as_deref(), telegram.bot_token.as_deref())
+                else {
+                    return Some(ChannelTarget::Incomplete);
+                };
+                Some(ChannelTarget::Telegram { chat_id, bot_token })
+            }
+            "slack" => Some(
+                self.url
+                    .as_deref()
+                    .map_or(ChannelTarget::Incomplete, |url| ChannelTarget::Slack {
+                        url,
+                    }),
+            ),
+            "teams" => Some(
+                self.url
+                    .as_deref()
+                    .map_or(ChannelTarget::Incomplete, |url| ChannelTarget::Teams {
+                        url,
+                    }),
+            ),
+            "discord" => Some(
+                self.url
+                    .as_deref()
+                    .map_or(ChannelTarget::Incomplete, |url| ChannelTarget::Discord {
+                        url,
+                    }),
+            ),
+            "email" => Some(
+                self.email
+                    .as_ref()
+                    .map_or(ChannelTarget::Incomplete, ChannelTarget::Email),
+            ),
+            other => Some(ChannelTarget::Other(other)),
         }
     }
 }

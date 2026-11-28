@@ -21,11 +21,13 @@ mod cache_operations;
 mod call_error;
 mod certs_operations;
 pub mod checkpoint;
+pub mod checkpoint_storage;
 pub mod children;
 pub mod client;
 pub mod clock;
 mod composition;
 mod config;
+pub mod control_state;
 pub mod controls;
 pub mod crash_report;
 pub mod daemon;
@@ -43,6 +45,7 @@ pub mod executables;
 mod forward;
 pub mod framing;
 pub mod governor;
+pub mod group;
 pub mod happy_eyeballs;
 pub mod heap;
 pub mod home;
@@ -66,6 +69,7 @@ pub mod metrics;
 pub mod needs_you;
 mod needs_you_operations;
 pub mod net_error;
+pub mod notification;
 pub mod notification_endpoint;
 pub mod ops;
 pub mod otlp;
@@ -121,14 +125,17 @@ mod wire;
 
 pub use call_error::{CallError, named};
 pub use composition::{
-    Answered, CallContext, CallInput, CallStream, Composition, CompositionError, Contribution,
-    Driver, Enclose, Guard, GuardAnswer, Handler, Params, ReadParams, RunOfCall,
+    AdoptHookOutcome, AdoptPeerClient, Answered, CallContext, CallInput, CallStream, Composition,
+    CompositionError, Contribution, Driver, Enclose, GroupMembershipContext, GroupMembershipHook,
+    Guard, GuardAnswer, Handler, LimitScopeReader, Params, PeerExtensionAnswer,
+    PeerExtensionHandler, ReadParams, RunAdoptHook, RunOfCall,
 };
 pub use engine::{AttachedFailure, Dependencies, Engine};
-pub use engine_context::{CALLER, EngineContext};
+pub use engine_context::{CALLER, EngineContext, GroupPeer};
 pub use forward::DaemonReach;
 pub use info::contribution;
 pub use kept_by_the_daemon::kept_by_the_daemon;
 pub use product::{Channel, Identity, Requested};
-pub use run_index::RunIndex;
+pub use run_index::{RefetchStopped, RunIndex};
 pub use stored_time::StoredTime;
+pub use usage::give_scoped_limits;

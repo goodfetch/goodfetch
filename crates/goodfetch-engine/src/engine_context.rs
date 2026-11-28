@@ -6,42 +6,63 @@
 //! Run registry and hands it down: to the registry, to each Connection's
 //! calls and to its listeners, so no module reaches these values through the
 //! Runs.
+//!
+//! Size: one concern, the engine's shared per-instance handles and peer-link
+//! traits (`GroupRouter`, `GroupPeer`, `PeerExtensionHandler`, `LocalDispatcher`)
+//! held behind `Arc<Held>` so every handler, listener and Run shares one context
+//! without cyclic ownership.
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, PoisonError};
+
+use std::time::SystemTime;
 
 use goodfetch_confinement::deny_list::Places;
 use goodfetch_counted_work::CountedWork;
-use goodfetch_protocol::catalog::Operation;
+use goodfetch_protocol::catalog::{Operation, Product};
 use goodfetch_protocol::connection::{Form, ProductVersion, Surface};
+use goodfetch_protocol::daemon::DaemonToken;
+use goodfetch_protocol::events::{EventEnvelope, EventsSubscribeParams};
+use goodfetch_protocol::group::{ErasureTarget, LeadEpoch, MemberRoute, PlacementRequest};
+use goodfetch_protocol::jsonrpc::RequestId;
+use goodfetch_protocol::live_view::LiveViewScreen;
+use goodfetch_protocol::notifications::NotificationEvent;
+use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::response_cache::{CACHE_MODE, CacheMode};
 use goodfetch_protocol::response_limits::NETWORK_MAX_DECOMPRESSION_RATIO;
 use goodfetch_protocol::run::RunId;
+use goodfetch_protocol::schedule::ScheduleId;
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use serde_json::Value;
+use tokio::sync::mpsc;
 
 use crate::audit::AuditLog;
 use crate::call_error::CallError;
 use crate::clock::Clock;
+use crate::control_state::ControlStateRegistry;
 use crate::endpoint::Refusals;
 use crate::entropy::Entropy;
+use crate::events::Events;
 use crate::governor::Governor;
 use crate::home::Home;
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::Ledger;
 use crate::mask::Masks;
+use crate::metrics::Metrics;
 use crate::needs_you::NeedsYou;
 use crate::response_cache::{Bounds, ResponseCache, ResponseSource};
 use crate::response_recording::{Recordings, Replayed};
 use crate::run_index::RunIndex;
 use crate::sandbox_probe::SandboxProbe;
+use crate::secrets::DriverSlot;
 use crate::settings::{Resolved, Settings};
-use crate::sync::Mutex;
+use crate::sync::{AtomicBool, Mutex};
 use crate::tasks::TaskOwner;
 use crate::user_store::{UserStore, UserStoreKind};
 
@@ -49,6 +70,162 @@ use crate::user_store::{UserStore, UserStoreKind};
 /// 0102), the only caller until accounts arrive (area 12), and the
 /// partition of the user's stores it reads and writes.
 pub const CALLER: &str = "os_user";
+
+/// A Notification emitted by the engine for delivery through configured
+/// `notifications.channels` (ADRs 0027, 0041 and 0087).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EngineNotification {
+    /// Deterministic, Standard Webhooks-safe event ID.
+    pub event_id: String,
+    /// The Notification event name (such as `limit_threshold`).
+    pub event: NotificationEvent,
+    /// The Run it concerns, if any.
+    pub run_id: Option<RunId>,
+    /// The Schedule it concerns, if any.
+    pub schedule_id: Option<ScheduleId>,
+    /// The Product whose engine raised it.
+    pub product: Product,
+    /// One-line English title.
+    pub title: String,
+    /// English message body.
+    pub text: String,
+    /// Optional follow-up URL.
+    pub link: Option<String>,
+    /// When the event occurred.
+    pub occurred_at: SystemTime,
+}
+
+/// Delivers engine-emitted Notifications through configured
+/// `notifications.channels` (ADRs 0027, 0087 and 0129): implemented by
+/// `goodfetch-notification` and passed into the composition root.
+pub trait NotificationDispatcher: Send + Sync {
+    /// Dispatches `notification` through matching configured channels. Returns
+    /// `true` when every matching configured channel delivered (or when no
+    /// channel is configured for the event), and `false` when a matching
+    /// channel failed delivery so the caller leaves it unsent.
+    fn dispatch(
+        &self,
+        context: EngineContext,
+        notification: EngineNotification,
+    ) -> Pin<Box<dyn Future<Output = bool> + Send>>;
+}
+
+/// Boxed future answered by a [`PeerExtensionHandler`].
+pub type PeerExtensionAnswer = Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
+
+/// Handles a contribution-registered Daemon group peer-link extension RPC
+/// (`group.peer.extension`), authenticated by mTLS and fenced by `lead_epoch`
+/// (ADRs 0054, 0055 and 0087).
+pub trait PeerExtensionHandler: Send + Sync {
+    /// Handles one authenticated peer-extension request from `sender_member`
+    /// carrying `lead_epoch` and JSON `payload`.
+    fn handle(
+        &self,
+        sender_member: String,
+        lead_epoch: LeadEpoch,
+        payload: Value,
+    ) -> PeerExtensionAnswer;
+}
+
+/// Engine handles handed to a [`GroupMembershipHook`] without forming an
+/// `EngineContext <-> Peering` `Arc` cycle (ADRs 0054, 0055 and 0087).
+#[derive(Clone)]
+pub struct GroupMembershipContext {
+    /// Peer-communication bridge for the running Daemon group.
+    pub peer: Arc<dyn GroupPeer>,
+    /// Goodfetch home of this engine.
+    pub home: Home,
+    /// Product version of this engine.
+    pub product_version: ProductVersion,
+    /// Engine clock.
+    pub clock: Clock,
+    /// Local Run index (for reading/writing per-domain Wall allowance state).
+    pub run_index: RunIndex,
+    /// Tracked task starter owned by this engine.
+    pub task_starter: crate::tasks::TaskStarter,
+}
+
+/// Contribution callback invoked when Daemon group membership changes or when a
+/// Group member drains for removal (ADRs 0054, 0055 and 0087).
+pub trait GroupMembershipHook: Send + Sync {
+    /// Called on the Lead Daemon after a new Group member joins the group.
+    fn on_member_added(
+        &self,
+        member: String,
+        peer_address: String,
+        context: GroupMembershipContext,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>>;
+
+    /// Called on the Lead Daemon after a Group member is removed or leaves.
+    fn on_member_removed(
+        &self,
+        member: String,
+        context: GroupMembershipContext,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>>;
+
+    /// Called on a leaving/scaling-down Group member before generic Checkpoint
+    /// handoff. Returns Run IDs owned by this contribution (which are skipped
+    /// by generic Checkpoint transfer because this contribution hands off or
+    /// leaves them for `runs adopt` itself).
+    fn on_removal_drain(
+        &self,
+        member: String,
+        deadline: tokio::time::Instant,
+        context: GroupMembershipContext,
+    ) -> Pin<Box<dyn Future<Output = Vec<RunId>> + Send>>;
+}
+
+/// Peer client exposed to [`RunAdoptHook`] during offline `runs adopt`
+/// (ADRs 0054, 0055 and 0087).
+pub trait AdoptPeerClient: Send + Sync {
+    /// Name of the Group member running `runs adopt`.
+    fn member_name(&self) -> &str;
+
+    /// Invokes a peer extension on the Lead Daemon over mTLS.
+    fn call_lead_extension(
+        &self,
+        extension_method: String,
+        payload: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
+
+    /// Invokes a peer extension on a named Group member over mTLS.
+    fn call_member_extension(
+        &self,
+        member: String,
+        peer_address: String,
+        extension_method: String,
+        payload: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
+}
+
+/// Outcome returned by a [`RunAdoptHook`] for one Run folder.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AdoptHookOutcome {
+    /// This folder does not belong to this hook; let standard Checkpoint
+    /// adoption proceed.
+    NotMine,
+    /// Handled by this hook: added these adopted Runs and/or skipped Run IDs.
+    Handled {
+        /// Runs adopted (e.g. Partition domains handed off to their owners).
+        adopted: Vec<goodfetch_protocol::run::AdoptedRun>,
+        /// Run IDs skipped (e.g. already handed off or finished).
+        skipped: Vec<String>,
+    },
+}
+
+/// Contribution hook invoked by `runs adopt` for each kept Run folder before
+/// generic Checkpoint transfer (ADRs 0054, 0055 and 0087).
+pub trait RunAdoptHook: Send + Sync {
+    /// Inspects `folder` on a removed Group member's kept volume and, if it
+    /// belongs to this contribution (such as a Partition of a Partitioned
+    /// crawl), completes its handoff over `peer`.
+    fn try_adopt_folder(
+        &self,
+        folder: PathBuf,
+        from_member: Option<String>,
+        peer: Arc<dyn AdoptPeerClient>,
+    ) -> Pin<Box<dyn Future<Output = Result<AdoptHookOutcome, CallError>> + Send>>;
+}
 
 /// The OS user's name, as the engine's environment map gives it: `USER`
 /// or `LOGNAME` on Unix, `USERNAME` on Windows; [`CALLER`] when none is
@@ -139,6 +316,222 @@ pub(crate) trait ToTheDaemon: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
 }
 
+/// Broadcasts an erasure (a discarded Run or deleted Saved identity) and
+/// verifies named tokens across a Daemon group (ADRs 0046 and 0055).
+pub(crate) trait ErasureBroadcaster: Send + Sync {
+    /// Broadcasts `target` through the Lead Daemon to every Group member.
+    fn broadcast(
+        &self,
+        target: ErasureTarget,
+    ) -> Pin<Box<dyn Future<Output = Result<(), CallError>> + Send>>;
+
+    /// Verifies a named token's SHA-256 digest against the Lead Daemon (or
+    /// cached token verification valid for at most 10 minutes while the Lead
+    /// Daemon is unreachable).
+    fn check_named_token(
+        &self,
+        token_sha256: String,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<String>, CallError>> + Send>>;
+}
+
+/// One unary Client JSON-RPC call forwarded across a Daemon group peer link
+/// without decoding `params_raw` into a `Value` copy (ADRs 0055, 0132 and 0140).
+#[derive(Clone, Debug)]
+pub(crate) struct ForwardedCall {
+    /// The Client's JSON-RPC request ID.
+    pub(crate) id: RequestId,
+    /// The catalog operation method name.
+    pub(crate) method: String,
+    /// Raw JSON text of the call's params (preserving `_meta` Trace context).
+    pub(crate) params_raw: Option<String>,
+    /// The Client's surface.
+    pub(crate) surface: Surface,
+    /// The Client's error-name spelling form.
+    pub(crate) form: Form,
+    /// Whether the Client reached the receiving Group member behind a gateway.
+    pub(crate) behind_gateway: bool,
+    /// Whether the Client's Connection answers as a person.
+    pub(crate) answers_as_a_person: bool,
+}
+
+/// Executes a forwarded unary JSON-RPC call locally on the owning Group
+/// member and returns its raw JSON-RPC response line (ADR 0055).
+pub(crate) trait LocalDispatcher: Send + Sync {
+    /// Dispatches `call` locally, opening its `SERVER` span from `_meta` and
+    /// returning the encoded JSON-RPC reply line (newline-terminated).
+    fn dispatch(&self, call: ForwardedCall) -> Pin<Box<dyn Future<Output = Vec<u8>> + Send>>;
+}
+
+/// Outcome of routing a unary Client call in a Daemon group (ADR 0055).
+pub(crate) enum RoutedCall {
+    /// Handle the call locally on this Group member.
+    Local,
+    /// Handled by the owning Group member: exact JSON-RPC reply line bytes to
+    /// pass straight to the Client without decoding or encoding again (ADR 0140).
+    Forwarded(Vec<u8>),
+}
+
+/// Outcome of routing an `events.subscribe` stream in a Daemon group (ADR 0055).
+pub(crate) enum EventsRoute {
+    /// Serve locally on this Group member.
+    Local,
+    /// Redirect the Client to the owning Group member's `daemon.advertise_url`.
+    Redirect { url: String, owner: String },
+    /// Forward events over the peer link from the owning Group member.
+    Forward { owner: String, peer_address: String },
+}
+
+/// Outcome of routing a Live view channel in a Daemon group (ADRs 0055 and 0149).
+pub(crate) enum LiveViewRoute {
+    /// Serve locally (or no remote Group member owns this Session).
+    Local,
+    /// Redirect the viewer to the owning Group member's `daemon.advertise_url`
+    /// using the single-use channel token minted in that owner's memory.
+    Redirect {
+        url: String,
+        token: DaemonToken,
+        owner: String,
+    },
+    /// Relay the Live view channel over the peer link to the owning Group member.
+    Relay { owner: String, peer_address: String },
+}
+
+/// Bidirectional newline-JSON relay handle for a Live view channel forwarded
+/// over a peer link when the owning Group member has no `daemon.advertise_url`.
+pub(crate) struct LiveViewRelay {
+    /// Sends viewer JSON messages to the owning Group member.
+    pub(crate) to_owner: mpsc::Sender<String>,
+    /// Receives engine JSON messages and frames from the owning Group member.
+    pub(crate) from_owner: mpsc::Receiver<String>,
+}
+
+/// Shared type-erased slot holding the Daemon's `LiveView` driver once
+/// `daemon::serve` constructs it (avoids an `Arc` cycle back to `EngineContext`).
+pub(crate) type LiveViewSlot = Arc<Mutex<Option<Arc<dyn std::any::Any + Send + Sync>>>>;
+
+/// Boxed future yielding a peer-forwarded event batch receiver.
+pub(crate) type ForwardedEventsFuture =
+    Pin<Box<dyn Future<Output = Result<mpsc::Receiver<Vec<EventEnvelope>>, CallError>> + Send>>;
+
+/// Routes unary Client calls, event streams, Live view channels and run
+/// placement across a Daemon group (ADRs 0055, 0056, 0132, 0140 and 0149).
+pub(crate) trait GroupRouter: Send + Sync {
+    /// Routes a unary call for `run_id` (or places a new/resumed run given
+    /// `placement`). Answers `RoutedCall::Local` when this Group member handles
+    /// it, or `RoutedCall::Forwarded(line)` with the owner's raw response line
+    /// (retrying once after a cache refresh on `run_moved`).
+    fn route_unary(
+        &self,
+        call: ForwardedCall,
+        run_id: Option<RunId>,
+        placement: Option<PlacementRequest>,
+    ) -> Pin<Box<dyn Future<Output = Result<RoutedCall, CallError>> + Send>>;
+
+    /// Resolves how `events.subscribe` for `run_id` should be served: locally,
+    /// redirected to `daemon.advertise_url`, or forwarded over the peer link.
+    fn route_events(
+        &self,
+        run_id: RunId,
+    ) -> Pin<Box<dyn Future<Output = Result<EventsRoute, CallError>> + Send>>;
+
+    /// Opens a forwarded event stream over the peer link from `owner` at
+    /// `peer_address` for `params`, retrying once after a cache refresh on
+    /// `run_moved`.
+    fn forward_events(
+        &self,
+        owner: String,
+        peer_address: String,
+        params: EventsSubscribeParams,
+    ) -> ForwardedEventsFuture;
+
+    /// Resolves how a Live view channel for `session` should be served when
+    /// not open locally: redirected with a single-use token or relayed over
+    /// the peer link.
+    fn route_live_view(
+        &self,
+        session: SessionId,
+    ) -> Pin<Box<dyn Future<Output = Result<LiveViewRoute, CallError>> + Send>>;
+
+    /// Opens a relayed Live view channel over the peer link to `owner`.
+    fn open_live_view_relay(
+        &self,
+        owner: String,
+        peer_address: String,
+        session: SessionId,
+        screen: LiveViewScreen,
+    ) -> Pin<Box<dyn Future<Output = Result<LiveViewRelay, CallError>> + Send>>;
+
+    /// Verifies and consumes a single-use Live view redirect token minted in
+    /// this Group member's memory for `session` (ADR 0149).
+    fn verify_live_view_token(&self, session: &SessionId, token: &str) -> bool;
+
+    /// Hands off checkpointed Runs over the peer link before `deadline` when a
+    /// `SIGTERM` drain is a scale-down removal rather than a restart (ADR 0055).
+    fn handoff_after_drain(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>>;
+
+    /// This Group member's name.
+    fn member_name(&self) -> &str;
+}
+
+/// Public Daemon group peer-communication interface exposed on
+/// [`EngineContext`] for contributions (such as Foxhound's Partitioned crawls)
+/// without `goodfetch-engine` naming any contribution types (ADRs 0054, 0055
+/// and 0087).
+pub trait GroupPeer: Send + Sync {
+    /// This Group member's name.
+    fn member_name(&self) -> &str;
+
+    /// Whether this Group member is currently the Lead Daemon.
+    fn is_lead(&self) -> Pin<Box<dyn Future<Output = Result<bool, CallError>> + Send>>;
+
+    /// Queries the Lead Daemon for all eligible ready Group members satisfying
+    /// `request`, ordered by descending headroom.
+    fn eligible_members(
+        &self,
+        request: PlacementRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<MemberRoute>, CallError>> + Send>>;
+
+    /// Resolves `member`'s current route (`member`, `peer_address`,
+    /// `advertise_url`), or `None` if no such member exists in the group.
+    fn member_route(
+        &self,
+        member: String,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<MemberRoute>, CallError>> + Send>>;
+
+    /// Invokes a contribution-registered peer extension `extension_method` on
+    /// `member` (dispatched locally when `member == self.member_name()`, over
+    /// mTLS `group.peer.extension` otherwise).
+    fn call_member_extension(
+        &self,
+        member: String,
+        peer_address: String,
+        extension_method: String,
+        payload: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
+
+    /// Invokes a contribution-registered peer extension `extension_method` on
+    /// the Lead Daemon (locally when this member is the Lead Daemon).
+    fn call_lead_extension(
+        &self,
+        extension_method: String,
+        payload: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
+
+    /// Invokes a catalog JSON-RPC `method` with `params` on `member` (locally
+    /// when `member == self.member_name()`, over `group.rpc.forward`
+    /// otherwise), returning its parsed JSON `result` or `CallError`.
+    fn call_member_rpc(
+        &self,
+        member: String,
+        peer_address: String,
+        method: String,
+        params: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
+}
+
 /// What the engine knows of its host beside its stores: the person it
 /// acts for, its time zone, the stream its handlers draw from and the
 /// person's folders a Plugin's confinement denies.
@@ -156,6 +549,25 @@ pub(crate) struct Host {
     /// What forwards the calls the major's Daemon keeps to it: an
     /// Attached engine's that can start its Daemon; none on a Daemon.
     pub(crate) daemon: Option<Arc<dyn ToTheDaemon>>,
+    /// The Daemon group control-state store registry (ADR 0055).
+    pub(crate) control_stores: Arc<ControlStateRegistry>,
+    /// The engine's event stream (ADR 0024).
+    pub(crate) events: Events,
+    /// The engine's metrics instruments (ADR 0050).
+    pub(crate) metrics: Metrics,
+    /// The engine's Resource governor (ADR 0040).
+    pub(crate) governor: Governor,
+    /// Whether a `SIGTERM` drain on this engine classifies as a Kubernetes
+    /// `StatefulSet` scale-down removal rather than a restart (ADR 0055).
+    pub(crate) sigterm_is_removal: bool,
+    /// Contribution-registered peer-link extension handlers (ADR 0087).
+    pub(crate) peer_extensions: Arc<BTreeMap<&'static str, Arc<dyn PeerExtensionHandler>>>,
+    /// Contribution-registered Daemon group membership hooks (ADR 0087).
+    pub(crate) group_membership_hooks: Arc<[Arc<dyn GroupMembershipHook>]>,
+    /// Contribution-registered Notification dispatcher (ADRs 0027 and 0087).
+    pub(crate) notifier: Option<Arc<dyn NotificationDispatcher>>,
+    /// The engine's Secret-provider driver slot, filled once `Secrets` is built.
+    pub(crate) secrets: DriverSlot,
     /// The engine's Secret masks, shared across its Runs and log writers.
     pub(crate) masks: Masks,
 }
@@ -257,8 +669,14 @@ pub struct EngineContext {
     held: Arc<Held>,
 }
 
+struct HeldPeerLink {
+    owner: TaskOwner,
+    state: Arc<dyn std::any::Any + Send + Sync>,
+}
+
 /// What an engine's contexts share behind one pointer, which keeps every
-/// future that holds a context small (clippy's `large_futures`): its host.
+/// future that holds a context small (clippy's `large_futures`): its host,
+/// and the owner of its Daemon group's peer link while it is in a group.
 struct Held {
     person: String,
     zone: String,
@@ -266,6 +684,23 @@ struct Held {
     entropy: Mutex<Entropy>,
     places: Option<Arc<Places>>,
     daemon: Option<Arc<dyn ToTheDaemon>>,
+    peer_link: Mutex<Option<HeldPeerLink>>,
+    control_stores: Arc<ControlStateRegistry>,
+    events: Events,
+    metrics: Metrics,
+    governor: Governor,
+    sigterm_is_removal: bool,
+    erasure: Mutex<Option<Arc<dyn ErasureBroadcaster>>>,
+    has_group_router: AtomicBool,
+    group_router: Mutex<Option<Arc<dyn GroupRouter>>>,
+    group_peer: Mutex<Option<Arc<dyn GroupPeer>>>,
+    peer_extensions: Arc<BTreeMap<&'static str, Arc<dyn PeerExtensionHandler>>>,
+    group_membership_hooks: Arc<[Arc<dyn GroupMembershipHook>]>,
+    notifier: Option<Arc<dyn NotificationDispatcher>>,
+    secrets: DriverSlot,
+    local_dispatcher: Mutex<Option<Arc<dyn LocalDispatcher>>>,
+    runs_handle: Mutex<Option<Arc<dyn std::any::Any + Send + Sync>>>,
+    live_view_handle: Arc<Mutex<Option<Arc<dyn std::any::Any + Send + Sync>>>>,
     masks: Masks,
 }
 
@@ -305,6 +740,15 @@ impl EngineContext {
             entropy,
             places,
             daemon,
+            control_stores,
+            events,
+            metrics,
+            governor,
+            sigterm_is_removal,
+            peer_extensions,
+            group_membership_hooks,
+            notifier,
+            secrets,
             masks,
         } = host;
         Self {
@@ -323,6 +767,23 @@ impl EngineContext {
                 entropy: Mutex::new(entropy),
                 places: places.map(Arc::new),
                 daemon,
+                peer_link: Mutex::new(None),
+                control_stores,
+                events,
+                metrics,
+                governor,
+                sigterm_is_removal,
+                erasure: Mutex::new(None),
+                has_group_router: AtomicBool::new(false),
+                group_router: Mutex::new(None),
+                group_peer: Mutex::new(None),
+                peer_extensions,
+                group_membership_hooks,
+                notifier,
+                secrets,
+                local_dispatcher: Mutex::new(None),
+                runs_handle: Mutex::new(None),
+                live_view_handle: Arc::new(Mutex::new(None)),
                 masks,
             }),
         }
@@ -346,6 +807,28 @@ impl EngineContext {
     /// The engine's settings, which each Run resolves its own under.
     pub fn settings(&self) -> &Settings {
         &self.settings
+    }
+
+    /// The engine's Secret-provider driver slot, for resolving machine-level
+    /// Secret references such as Notification channel URLs and signing keys.
+    pub fn secret_driver(&self) -> &DriverSlot {
+        &self.held.secrets
+    }
+
+    /// The engine's blocking thread pool, for endpoints built from machine
+    /// settings such as Notification channels.
+    pub fn blocking_threads(&self) -> crate::tasks::BlockingThreads {
+        self.stores.owner.blocking_threads()
+    }
+
+    /// Dispatches `notification` through the composition's
+    /// [`NotificationDispatcher`], if one is registered. Returns `true` when
+    /// delivered (or when no dispatcher is registered).
+    pub(crate) async fn dispatch_notification(&self, notification: EngineNotification) -> bool {
+        let Some(notifier) = self.held.notifier.as_ref().map(Arc::clone) else {
+            return true;
+        };
+        notifier.dispatch(self.clone(), notification).await
     }
 
     /// The user's Audit log, to which the engine records its security
@@ -494,10 +977,11 @@ impl EngineContext {
         &self.stores.owner
     }
 
-    /// Blocking-thread handle for domain crates constructing HTTP endpoints
-    /// such as Notification channels (ADR 0027).
-    pub fn blocking_threads(&self) -> crate::tasks::BlockingThreads {
-        self.stores.owner.blocking_threads()
+    /// The starting side of the engine's task owner, for contributions that
+    /// start background tasks or tracked blocking reads without stopping the
+    /// engine (ADR 0038 and ADR 0145).
+    pub fn task_starter(&self) -> &crate::tasks::TaskStarter {
+        &self.stores.owner
     }
 
     /// The engine's "Needs you" (spec #592).
@@ -534,6 +1018,45 @@ impl EngineContext {
         self.held.daemon.as_ref()
     }
 
+    /// Holds `link`, the owner of the tasks of the Daemon group's peer
+    /// link, and its running `state`, in place of the one held before, which
+    /// it cancels.
+    pub(crate) fn hold_peer_link<T: Send + Sync + 'static>(&self, link: TaskOwner, state: Arc<T>) {
+        let before = self
+            .held
+            .peer_link
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .replace(HeldPeerLink { owner: link, state });
+        if let Some(before) = before {
+            before.owner.cancel();
+        }
+    }
+
+    /// The running state of the Daemon group's peer link, if held as `T`.
+    pub(crate) fn peer_link_state<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+        self.held
+            .peer_link
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .and_then(|held| Arc::clone(&held.state).downcast::<T>().ok())
+    }
+
+    /// Stops the tasks of the Daemon group's peer link, if an owner of them
+    /// is held: once this answers, they have ended.
+    pub(crate) async fn stop_peer_link(&self) {
+        let held = self
+            .held
+            .peer_link
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(link) = held {
+            link.owner.stop().await;
+        }
+    }
+
     /// A draw of 64 random bits from the handlers' own stream of the
     /// engine's entropy (ADR 0059), such as the random part of a ULID.
     pub fn draw_u64(&self) -> u64 {
@@ -567,6 +1090,254 @@ impl EngineContext {
     /// minute (`endpoint`).
     pub fn refusals(&self) -> Refusals {
         self.refusals.clone()
+    }
+
+    /// The Daemon group control-state store registry declaring each area's
+    /// store as single-writer at the Lead Daemon or read-mostly and cached
+    /// (ADR 0055).
+    pub fn control_stores(&self) -> &Arc<ControlStateRegistry> {
+        &self.held.control_stores
+    }
+
+    /// The engine's event stream (ADR 0024).
+    pub(crate) fn events(&self) -> &Events {
+        &self.held.events
+    }
+
+    /// The engine's metrics instruments (ADR 0050).
+    pub(crate) fn metrics(&self) -> &Metrics {
+        &self.held.metrics
+    }
+
+    /// The engine's Resource governor (ADR 0040).
+    pub(crate) fn governor(&self) -> &Governor {
+        &self.held.governor
+    }
+
+    /// Whether a `SIGTERM` drain on this engine classifies as a Kubernetes
+    /// `StatefulSet` scale-down removal rather than a restart (ADR 0055).
+    pub(crate) fn sigterm_is_removal(&self) -> bool {
+        self.held.sigterm_is_removal
+    }
+
+    /// Fast lock-free check for whether this engine is currently routing calls
+    /// as part of a Daemon group (ADR 0140's E1: zero cost for local calls
+    /// outside a group).
+    pub(crate) fn has_group_router(&self) -> bool {
+        self.held.has_group_router.load(Ordering::Relaxed)
+    }
+
+    /// Registers or clears the Daemon group Client router (ADR 0055).
+    pub(crate) fn set_group_router(&self, router: Option<Arc<dyn GroupRouter>>) {
+        let present = router.is_some();
+        *self
+            .held
+            .group_router
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = router;
+        self.held.has_group_router.store(present, Ordering::Release);
+    }
+
+    /// The running Daemon group router, if this engine is in a Daemon group.
+    pub(crate) fn group_router(&self) -> Option<Arc<dyn GroupRouter>> {
+        if !self.has_group_router() {
+            return None;
+        }
+        self.held
+            .group_router
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Registers or clears the public Daemon group peer handle (ADR 0054/0087).
+    pub(crate) fn set_group_peer(&self, peer: Option<Arc<dyn GroupPeer>>) {
+        *self
+            .held
+            .group_peer
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = peer;
+    }
+
+    /// The running Daemon group peer handle, if this engine belongs to a Daemon
+    /// group.
+    #[must_use]
+    pub fn group_peer(&self) -> Option<Arc<dyn GroupPeer>> {
+        self.held
+            .group_peer
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// The contribution-registered peer-link extension handlers.
+    pub(crate) fn peer_extensions(
+        &self,
+    ) -> &Arc<BTreeMap<&'static str, Arc<dyn PeerExtensionHandler>>> {
+        &self.held.peer_extensions
+    }
+
+    /// The contribution-registered Daemon group membership hooks.
+    pub(crate) fn group_membership_hooks(&self) -> &Arc<[Arc<dyn GroupMembershipHook>]> {
+        &self.held.group_membership_hooks
+    }
+
+    /// Registers the local RPC dispatcher used to execute forwarded unary peer
+    /// calls on the owning Group member (ADR 0055).
+    pub(crate) fn set_local_dispatcher(&self, dispatcher: Option<Arc<dyn LocalDispatcher>>) {
+        *self
+            .held
+            .local_dispatcher
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = dispatcher;
+    }
+
+    /// The local RPC dispatcher, if wired.
+    pub(crate) fn local_dispatcher(&self) -> Option<Arc<dyn LocalDispatcher>> {
+        self.held
+            .local_dispatcher
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Stores the engine's `Runs` registry handle for group peer handlers.
+    pub(crate) fn set_runs_handle<T: Send + Sync + 'static>(&self, handle: Option<Arc<T>>) {
+        *self
+            .held
+            .runs_handle
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) =
+            handle.map(|h| h as Arc<dyn std::any::Any + Send + Sync>);
+    }
+
+    /// Retrieves the engine's `Runs` registry handle as `T`.
+    pub(crate) fn runs_handle<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+        self.held
+            .runs_handle
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .and_then(|held| Arc::clone(held).downcast::<T>().ok())
+    }
+
+    /// Stores the Daemon's `LiveView` driver handle for group peer handlers.
+    pub(crate) fn set_live_view_handle<T: Send + Sync + 'static>(&self, handle: Option<Arc<T>>) {
+        *self
+            .held
+            .live_view_handle
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) =
+            handle.map(|h| h as Arc<dyn std::any::Any + Send + Sync>);
+    }
+
+    /// Retrieves the Daemon's `LiveView` driver handle as `T`.
+    pub(crate) fn live_view_handle<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+        self.held
+            .live_view_handle
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .and_then(|held| Arc::clone(held).downcast::<T>().ok())
+    }
+
+    /// Returns a shared slot handle for reading the Daemon's `LiveView` once
+    /// `daemon::serve` initializes it, without creating an `Arc` cycle back to
+    /// [`EngineContext`].
+    pub(crate) fn live_view_slot(&self) -> LiveViewSlot {
+        Arc::clone(&self.held.live_view_handle)
+    }
+
+    /// Clears the runtime handles (`group_router`, `local_dispatcher`,
+    /// `runs_handle`, `live_view_handle`, `erasure`, `peer_link`, and ledger
+    /// group authority) when an engine shuts down so no `Arc` cycle keeps
+    /// `Runs`, `Events`, `Peering`, or `EngineContext` alive past shutdown.
+    pub(crate) fn clear_runtime_handles(&self) {
+        self.held.has_group_router.store(false, Ordering::Release);
+        *self
+            .held
+            .group_router
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = None;
+        *self
+            .held
+            .group_peer
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = None;
+        *self
+            .held
+            .local_dispatcher
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = None;
+        *self
+            .held
+            .runs_handle
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = None;
+        *self
+            .held
+            .live_view_handle
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = None;
+        *self
+            .held
+            .erasure
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = None;
+        *self
+            .held
+            .peer_link
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = None;
+        self.ledger().set_authority(None);
+    }
+
+    /// Registers or clears the Daemon group erasure broadcaster (ADR 0055).
+    pub(crate) fn set_erasure_broadcaster(&self, broadcaster: Option<Arc<dyn ErasureBroadcaster>>) {
+        *self
+            .held
+            .erasure
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = broadcaster;
+    }
+
+    /// Broadcasts `target` to every Group member if this engine belongs to a
+    /// Daemon group; a no-op outside a group.
+    pub(crate) async fn broadcast_erasure(&self, target: ErasureTarget) -> Result<(), CallError> {
+        let broadcaster = self
+            .held
+            .erasure
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if let Some(broadcaster) = broadcaster {
+            broadcaster.broadcast(target).await?;
+        }
+        Ok(())
+    }
+
+    /// Checks a named token's lowercase hex SHA-256 digest across the Daemon
+    /// group when this engine is a Group member, respecting the 10-minute
+    /// cached-token cap when the Lead Daemon is unreachable (ADR 0055).
+    ///
+    /// # Errors
+    ///
+    /// Returns `lead_unreachable` when the Lead Daemon cannot be reached and
+    /// no fresh cached verification exists, or a store failure.
+    pub async fn check_group_named_token(
+        &self,
+        token_sha256: &str,
+    ) -> Result<Option<String>, CallError> {
+        let broadcaster = self
+            .held
+            .erasure
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        match broadcaster {
+            Some(broadcaster) => broadcaster.check_named_token(token_sha256.to_owned()).await,
+            None => Ok(None),
+        }
     }
 }
 

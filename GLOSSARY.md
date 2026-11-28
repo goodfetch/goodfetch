@@ -88,9 +88,21 @@ _Avoid_: cluster, fleet
 The Group member of a Daemon group that holds the group's shared control state.
 _Avoid_: master, primary, leader
 
+**Lead epoch**:
+The number a Group member takes when it becomes the Lead Daemon, higher than any before it, which every message between Group members carries; a message that carries a lower one than the highest a Group member has recorded is refused, so a former Lead Daemon that comes back changes nothing.
+_Avoid_: term, generation, fencing token (for the group's)
+
 **Group member**:
 Any Daemon of a Daemon group, the Lead Daemon included. Not the *member* role of a person on a shared Daemon.
 _Avoid_: member (alone), node, worker, replica
+
+**Join token**:
+A short-lived, single-use secret the Lead Daemon mints, which a Daemon presents to join a Daemon group and have its Group member certificate signed.
+_Avoid_: bootstrap token, invite
+
+**Group store**:
+The file of a Group member that holds the highest Lead epoch it has recorded and, on the Lead Daemon, the group's certificate authority and the digest of each Join token not yet redeemed, never a Join token itself.
+_Avoid_: cluster state, group database
 
 **Group backup**:
 A consistent copy of a Lead Daemon's stores from which another Group member can become the Lead Daemon.

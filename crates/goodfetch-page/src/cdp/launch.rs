@@ -49,7 +49,8 @@ use goodfetch_engine::sandbox_probe::{self, Probed};
 use goodfetch_engine::settings::{Resolved, RunSettings, get_or_default};
 use goodfetch_engine::transport;
 use goodfetch_protocol::browser_cache::{
-    BROWSER_NOT_INSTALLED, BrowserNotInstalledDetails, MissingBrowser, READ_ONLY,
+    BROWSER_EXECUTABLE_PATH, BROWSER_NOT_INSTALLED, BrowserNotInstalledDetails, MissingBrowser,
+    READ_ONLY,
 };
 use goodfetch_protocol::page::{
     BROWSER_HEADLESS, BROWSER_HEADLESS_SHELL, BROWSER_LAUNCH_FAILED, BrowserExit,
@@ -238,7 +239,13 @@ async fn executable(
     (home, pins): (&Home, &Pins),
     shell: Option<SettingsLayer>,
 ) -> Result<(PathBuf, Option<HeldArtifact>, &'static str), CallError> {
-    let choice = BrowserChoice::Default;
+    let choice = get_or_default::<Option<&str>>(
+        on.settings().map(RunSettings::resolved),
+        &BROWSER_EXECUTABLE_PATH,
+    )
+    .map_or(BrowserChoice::Default, |path| {
+        BrowserChoice::Path(PathBuf::from(path))
+    });
     match browser_source(Platform::current(), &choice, &BTreeMap::new()) {
         BrowserSource::Pinned {
             name,
@@ -516,9 +523,14 @@ async fn launch_scripted(
     );
     let (exits, exit) = watch::channel(None);
     let released = CancellationToken::new();
+    let stop_driver = CancellationToken::new();
     on.spawn(supervise_scripted(
         on.clone(),
-        (connection.clone(), Box::pin(driver.run())),
+        (
+            connection.clone(),
+            Box::pin(driver.run_until(stop_driver.clone().cancelled_owned())),
+            stop_driver,
+        ),
         stopping,
         (exits, released.clone()),
     ));
@@ -533,11 +545,12 @@ async fn launch_scripted(
 }
 
 /// Runs a scripted browser's connection until it ends or `stopping`, which
-/// asks it to close within the Run's `timeout.close`; then says how it
-/// ended, a clean exit once asked to close, and releases it.
+/// asks it to close within the Run's `timeout.close`; then stops and awaits
+/// `driver` so its requests channel is always closed and drained (issue 2594),
+/// says how it ended, and releases it.
 async fn supervise_scripted(
     on: RunIdentity,
-    (connection, driver): (Connection, Driving),
+    (connection, driver, stop_driver): (Connection, Driving, CancellationToken),
     stopping: CancellationToken,
     (exits, released): (watch::Sender<Option<BrowserExit>>, CancellationToken),
 ) {
@@ -553,9 +566,13 @@ async fn supervise_scripted(
             )
             .await;
     };
+    tokio::pin!(driver);
     tokio::select! {
-        _ = driver => {}
-        () = closed => {}
+        _ = &mut driver => {}
+        () = closed => {
+            stop_driver.cancel();
+            let _ = driver.await;
+        }
     }
     drop(connection);
     exits.send_replace(Some(BrowserExit {
@@ -921,4 +938,87 @@ async fn supervise(supervised: Supervised) {
         })
         .await;
     released.cancel();
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use goodfetch_cdp::{Connection, Failure};
+    use goodfetch_counted_work::CountedWork;
+    use goodfetch_test_support::{TestEnv, runtime};
+    use serde_json::json;
+    use tokio::sync::watch;
+    use tokio_util::sync::CancellationToken;
+
+    use super::supervise_scripted;
+    use crate::cdp::driver::replay::Played;
+    use crate::live_run::LiveRun;
+
+    /// Issue 2594: when `stopping` triggers `Browser.close` and the scripted
+    /// browser answers `Browser.close` without closing the pipe,
+    /// `supervise_scripted` stops and awaits `driver` so its requests channel
+    /// closes and drains instead of dropping `driver` mid-flight.
+    #[test]
+    fn supervise_scripted_stops_and_drains_driver_on_close() {
+        let env = TestEnv::new();
+        let outcome = runtime().block_on(async {
+            let (live, served) = LiveRun::start(&env).await;
+            let (engine, browser) = tokio::io::duplex(1 << 16);
+            let (reader, writer) = tokio::io::split(engine);
+            let (connection, driver) =
+                Connection::new(reader, writer, CountedWork::default(), None);
+            let mut played = Played::from_duplex(browser);
+            let stopping = CancellationToken::new();
+            let stop_driver = CancellationToken::new();
+            let (exits, _exit) = watch::channel(None);
+            let released = CancellationToken::new();
+
+            let ((), (), result) = tokio::join!(
+                served,
+                supervise_scripted(
+                    live.run.identity.clone(),
+                    (
+                        connection.clone(),
+                        Box::pin(driver.run_until(stop_driver.clone().cancelled_owned())),
+                        stop_driver,
+                    ),
+                    stopping.clone(),
+                    (exits, released.clone()),
+                ),
+                async move {
+                    // Queue a command the browser will never answer, then ask to stop.
+                    let pending = connection.send_raw(
+                        "Page.enable",
+                        None,
+                        json!({}),
+                        Duration::from_secs(60),
+                    );
+                    let stopping_for_browser = stopping.clone();
+                    let browser_task = async move {
+                        let first = played.command().await;
+                        assert_eq!(first["method"], "Page.enable");
+                        stopping_for_browser.cancel();
+                        let close = played.command().await;
+                        assert_eq!(close["method"], "Browser.close");
+                        // Answer Browser.close while keeping the pipe open.
+                        played
+                            .send(&[json!({ "id": close["id"], "result": {} })])
+                            .await;
+                        released.cancelled().await;
+                        drop(played);
+                    };
+                    let (pending_res, ()) = tokio::join!(pending, browser_task);
+                    drop((connection, live));
+                    pending_res
+                }
+            );
+            result
+        });
+
+        assert!(
+            matches!(outcome, Err(Failure::Disconnected)),
+            "expected Disconnected once supervise_scripted stopped driver, got {outcome:?}"
+        );
+    }
 }

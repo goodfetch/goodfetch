@@ -55,6 +55,9 @@ struct OpenBatch {
     bytes: u64,
     /// The writes it holds.
     rows: u64,
+    /// The deferred/riding writes already answered in this open batch,
+    /// lost if the batch rolls back (ADRs 0122 and 0142).
+    riding: u64,
     /// The answers its barriers wait for, sent once it commits.
     owed: Vec<Completion>,
     /// Whether its writes ask its commit to declare how the Run's charges
@@ -193,9 +196,9 @@ impl Writer {
             return;
         }
         let open = if self.open_batch().is_none() {
-            self.open(synced, group)
+            self.open(synced, group, last)
         } else {
-            self.run_in_batch(group)
+            self.run_in_batch(group, last)
         };
         if !open {
             return;
@@ -228,12 +231,16 @@ impl Writer {
     /// Opens a batch, `synced` or not, holding `group`'s writes: whether
     /// it opened, its writes having all run. When it cannot open, every
     /// write of `group` is answered with the failure.
-    fn open(&mut self, synced: bool, group: Vec<Queued>) -> bool {
+    fn open(&mut self, synced: bool, group: Vec<Queued>, last: bool) -> bool {
         let Some(batching) = &mut self.batching else {
             return false;
         };
         let connection = self.connection.for_group(synced);
         if let Err(error) = begin(connection, &self.path, self.epoch) {
+            if !last && matches!(error, RunStateError::Storage { .. }) {
+                let attempts = u64::try_from(group.len()).unwrap_or(u64::MAX);
+                self.signals.record_rolled_back(attempts, 0);
+            }
             self.signals.failed(&self.path, &error);
             for queued in group {
                 (queued.write)(None).0(Err(error.clone()));
@@ -247,16 +254,17 @@ impl Writer {
             pages: 0,
             bytes: 0,
             rows: 0,
+            riding: 0,
             owed: Vec::new(),
             declare: false,
         });
         batching.opened.send_replace(Some(began));
-        self.run_in_batch(group)
+        self.run_in_batch(group, last)
     }
 
     /// Runs `group`'s writes in the open batch: whether it is still open,
     /// a write having ended it on a full disk or an I/O error.
-    fn run_in_batch(&mut self, group: Vec<Queued>) -> bool {
+    fn run_in_batch(&mut self, group: Vec<Queued>, last: bool) -> bool {
         let owes = self.deferral.owes();
         let Some(open) = self
             .batching
@@ -289,6 +297,7 @@ impl Writer {
                 Answered::Riding { ended, bytes } => {
                     open.pages = open.pages.saturating_add(ended);
                     open.bytes = open.bytes.saturating_add(bytes);
+                    open.riding = open.riding.saturating_add(1);
                     completion(Ok(()));
                 }
                 Answered::Barrier { declaring } => {
@@ -299,7 +308,7 @@ impl Writer {
         }
         match ended {
             Some(error) => {
-                self.fail_batch(&error);
+                self.fail_batch(&error, last);
                 false
             }
             None => true,
@@ -361,7 +370,7 @@ impl Writer {
     /// barriers, the last write's among them, are answered once that sync
     /// is in the file.
     fn stop_in_open_batch(&mut self, group: Vec<Queued>) {
-        if !self.run_in_batch(group) {
+        if !self.run_in_batch(group, true) {
             return;
         }
         let Some((answer, owed)) = self.write_open(Sealed::Early, false, false) else {
@@ -443,6 +452,14 @@ impl Writer {
                 Ok(())
             }
             Err(error) => {
+                if matches!(error, RunStateError::Storage { .. }) {
+                    let attempts = if last {
+                        0
+                    } else {
+                        u64::try_from(open.owed.len()).unwrap_or(u64::MAX)
+                    };
+                    self.signals.record_rolled_back(attempts, open.riding);
+                }
                 self.signals.failed(&self.path, error);
                 Err(error.clone())
             }
@@ -456,7 +473,7 @@ impl Writer {
     /// Rolls the open batch back on `error`, which its barriers are
     /// answered with: the writes that rode it were answered already, and
     /// are lost as a crash would lose them.
-    fn fail_batch(&mut self, error: &RunStateError) {
+    fn fail_batch(&mut self, error: &RunStateError, last: bool) {
         let Some(batching) = &mut self.batching else {
             return;
         };
@@ -465,6 +482,14 @@ impl Writer {
         };
         batching.opened.send_replace(None);
         roll_back(self.connection.for_group(open.synced));
+        if matches!(error, RunStateError::Storage { .. }) {
+            let attempts = if last {
+                0
+            } else {
+                u64::try_from(open.owed.len()).unwrap_or(u64::MAX)
+            };
+            self.signals.record_rolled_back(attempts, open.riding);
+        }
         self.signals.failed(&self.path, error);
         for completion in open.owed {
             completion(Err(error.clone()));

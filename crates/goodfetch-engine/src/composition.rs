@@ -42,6 +42,7 @@ use crate::accounts::Principal;
 use crate::admission::Gates;
 use crate::call_error::CallError;
 use crate::client::Client;
+use crate::control_state::ControlStateRegistry;
 use crate::controls::{Controls, Recorded};
 use crate::engine_context::EngineContext;
 use crate::events::Events;
@@ -58,6 +59,7 @@ use crate::secrets::ProviderFactory;
 use crate::settings::RunSettings;
 use crate::staging::{AttemptStaging, AttemptWrites};
 use crate::user_store::UserStoreKind;
+use goodfetch_protocol::group::ControlStateMode;
 use goodfetch_protocol::run::{RunId, RunKind};
 use goodfetch_protocol::secret_reference::Provider;
 
@@ -661,11 +663,23 @@ impl Handler {
     }
 }
 
+pub(crate) use crate::engine_context::NotificationDispatcher;
+pub use crate::engine_context::{
+    AdoptHookOutcome, AdoptPeerClient, GroupMembershipContext, GroupMembershipHook,
+    PeerExtensionAnswer, PeerExtensionHandler, RunAdoptHook,
+};
+pub use crate::run_state::LimitScopeReader;
+
 /// What one domain crate adds to the engine.
 #[derive(Clone)]
 pub struct Contribution {
     name: &'static str,
     handlers: Vec<Handler>,
+    operation_guards: Vec<(&'static [&'static str], Guard)>,
+    peer_extensions: Vec<(&'static str, Arc<dyn PeerExtensionHandler>)>,
+    group_membership_hooks: Vec<Arc<dyn GroupMembershipHook>>,
+    run_adopt_hooks: Vec<Arc<dyn RunAdoptHook>>,
+    limit_scope_readers: Vec<LimitScopeReader>,
     run_state_tables: Vec<RunStateTables>,
     politeness_tables: Vec<PolitenessTables>,
     drivers: Vec<(RunKind, Driver, Driving)>,
@@ -680,7 +694,9 @@ pub struct Contribution {
     runs_of_calls: Vec<Arc<dyn RunOfCall>>,
     watched_sessions: Vec<Arc<dyn WatchedSessions>>,
     user_stores: Vec<&'static UserStoreKind>,
+    control_stores: Vec<(&'static str, ControlStateMode)>,
     attempt_stagings: Vec<Arc<dyn AttemptStaging>>,
+    notification_dispatcher: Option<Arc<dyn NotificationDispatcher>>,
     run_end_observers: Vec<RunEndObserver>,
 }
 
@@ -689,13 +705,20 @@ impl Contribution {
     pub fn new(name: &'static str) -> Self {
         Self {
             user_stores: Vec::new(),
+            control_stores: Vec::new(),
             secret_providers: Vec::new(),
             runs_of_calls: Vec::new(),
             watched_sessions: Vec::new(),
             attempt_stagings: Vec::new(),
+            notification_dispatcher: None,
             run_end_observers: Vec::new(),
             name,
             handlers: Vec::new(),
+            operation_guards: Vec::new(),
+            peer_extensions: Vec::new(),
+            group_membership_hooks: Vec::new(),
+            run_adopt_hooks: Vec::new(),
+            limit_scope_readers: Vec::new(),
             run_state_tables: Vec::new(),
             politeness_tables: Vec::new(),
             drivers: Vec::new(),
@@ -707,6 +730,54 @@ impl Contribution {
             needs_you_sources: Vec::new(),
             controls: Vec::new(),
         }
+    }
+
+    /// Attaches `guard` to each named catalog operation across the composition,
+    /// allowing this contribution to intercept calls before the operation's own
+    /// handler runs (ADR 0087).
+    #[must_use]
+    pub fn with_operation_guard(
+        mut self,
+        operations: &'static [&'static str],
+        guard: Guard,
+    ) -> Self {
+        self.operation_guards.push((operations, guard));
+        self
+    }
+
+    /// Registers a Daemon group peer-link extension handler under `method`
+    /// (ADR 0087).
+    #[must_use]
+    pub fn with_peer_extension(
+        mut self,
+        method: &'static str,
+        handler: Arc<dyn PeerExtensionHandler>,
+    ) -> Self {
+        self.peer_extensions.push((method, handler));
+        self
+    }
+
+    /// Registers a Daemon group membership / removal-drain hook (ADRs 0054,
+    /// 0055 and 0087).
+    #[must_use]
+    pub fn with_group_membership_hook(mut self, hook: Arc<dyn GroupMembershipHook>) -> Self {
+        self.group_membership_hooks.push(hook);
+        self
+    }
+
+    /// Registers a `runs adopt` folder hook (ADRs 0054, 0055 and 0087).
+    #[must_use]
+    pub fn with_run_adopt_hook(mut self, hook: Arc<dyn RunAdoptHook>) -> Self {
+        self.run_adopt_hooks.push(hook);
+        self
+    }
+
+    /// Registers a reader that recovers extra [`LimitScope`]s stored in a
+    /// resumed Run's SQLite run file (ADR 0087).
+    #[must_use]
+    pub fn with_limit_scope_reader(mut self, reader: LimitScopeReader) -> Self {
+        self.limit_scope_readers.push(reader);
+        self
     }
 
     /// The same, reporting `setting` as a switchable control (ADR 0016): a
@@ -770,6 +841,15 @@ impl Contribution {
     #[must_use]
     pub fn with_user_store(mut self, kind: &'static UserStoreKind) -> Self {
         self.user_stores.push(kind);
+        self
+    }
+
+    /// The same, declaring `store` in the Daemon group control-state
+    /// registry as either single-writer at the Lead Daemon or read-mostly
+    /// and cached on every Group member (ADR 0055).
+    #[must_use]
+    pub fn with_control_store(mut self, store: &'static str, mode: ControlStateMode) -> Self {
+        self.control_stores.push((store, mode));
         self
     }
 
@@ -906,6 +986,17 @@ impl Contribution {
         self
     }
 
+    /// Registers the engine's Notification channel dispatcher (ADRs 0027 and
+    /// 0087), typically passed in from `goodfetch-notification`.
+    #[must_use]
+    pub fn with_notification_dispatcher(
+        mut self,
+        dispatcher: Arc<dyn NotificationDispatcher>,
+    ) -> Self {
+        self.notification_dispatcher = Some(dispatcher);
+        self
+    }
+
     /// The same, adding `observer` notified when a Run's end is recorded and
     /// while its run state is still open (ADR 0027).
     #[must_use]
@@ -955,6 +1046,17 @@ pub enum CompositionError {
         first: &'static str,
         /// The second.
         second: &'static str,
+    },
+    /// Two contributions declared one control-state store with conflicting
+    /// replication modes (ADR 0055).
+    #[error("control-state store `{store}` was declared as both {first:?} and {second:?}")]
+    ConflictingControlStore {
+        /// The store's name.
+        store: String,
+        /// The mode declared first.
+        first: ControlStateMode,
+        /// The conflicting mode declared later.
+        second: ControlStateMode,
     },
 }
 
@@ -1094,12 +1196,43 @@ impl Composition {
             .collect()
     }
 
+    /// The Daemon group control-state store registry built from ADR 0055's
+    /// engine defaults and every contribution's declarations.
+    ///
+    /// # Errors
+    ///
+    /// [`CompositionError::ConflictingControlStore`] when two contributions
+    /// declare one store under conflicting modes.
+    pub(crate) fn control_stores(&self) -> Result<ControlStateRegistry, CompositionError> {
+        let mut registry = ControlStateRegistry::with_defaults();
+        for contribution in &self.contributions {
+            for &(store, mode) in &contribution.control_stores {
+                registry.register(store, mode).map_err(|conflict| {
+                    CompositionError::ConflictingControlStore {
+                        store: conflict.store,
+                        first: conflict.first,
+                        second: conflict.second,
+                    }
+                })?;
+            }
+        }
+        Ok(registry)
+    }
+
     /// Every contribution's sources of "Needs you", in order.
     pub(crate) fn needs_you_sources(&self) -> Vec<NeedsYouSource> {
         self.contributions
             .iter()
             .flat_map(|contribution| contribution.needs_you_sources.iter().cloned())
             .collect()
+    }
+
+    /// The Notification dispatcher passed in by a contribution, if any.
+    pub(crate) fn notification_dispatcher(&self) -> Option<Arc<dyn NotificationDispatcher>> {
+        self.contributions
+            .iter()
+            .rev()
+            .find_map(|contribution| contribution.notification_dispatcher.clone())
     }
 
     /// The one gate in admission the contributions pass in, if any.
@@ -1135,6 +1268,39 @@ impl Composition {
             .find_map(|each| each.send_window.clone())
     }
 
+    /// All peer-link extension handlers registered across contributions.
+    pub(crate) fn peer_extensions(&self) -> BTreeMap<&'static str, Arc<dyn PeerExtensionHandler>> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| &contribution.peer_extensions)
+            .map(|(method, handler)| (*method, Arc::clone(handler)))
+            .collect()
+    }
+
+    /// All Daemon group membership hooks registered across contributions.
+    pub(crate) fn group_membership_hooks(&self) -> Arc<[Arc<dyn GroupMembershipHook>]> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.group_membership_hooks.iter().cloned())
+            .collect()
+    }
+
+    /// All `runs adopt` hooks registered across contributions.
+    pub(crate) fn run_adopt_hooks(&self) -> Arc<[Arc<dyn RunAdoptHook>]> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.run_adopt_hooks.iter().cloned())
+            .collect()
+    }
+
+    /// All Run-state extra Limit-scope readers registered across contributions.
+    pub(crate) fn limit_scope_readers(&self) -> Arc<[LimitScopeReader]> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.limit_scope_readers.iter().cloned())
+            .collect()
+    }
+
     /// Each operation's one handler.
     pub(crate) fn handlers(&self) -> Result<Handlers, CompositionError> {
         let mut handlers = Handlers::default();
@@ -1150,6 +1316,20 @@ impl Composition {
                     });
                 }
                 handlers.insert(operation, handler.clone());
+            }
+        }
+        for contribution in &self.contributions {
+            for (operations, guard) in &contribution.operation_guards {
+                for &operation in *operations {
+                    if let Some(handler) = handlers.get_mut(operation) {
+                        handler.guards = handler
+                            .guards
+                            .iter()
+                            .chain([guard])
+                            .map(Arc::clone)
+                            .collect();
+                    }
+                }
             }
         }
         Ok(handlers)

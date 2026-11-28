@@ -1,0 +1,17 @@
+{
+  "format": "peer-protocol",
+  "rule": "lower_minor",
+  "reader": "0.1",
+  "found": "0.1",
+  "compatibility": "compatible",
+  "hello": {
+    "from": "group_member",
+    "engine": "collie",
+    "needs": "foxhound",
+    "reply": {
+      "refused": {
+        "error_code": "not_in_product"
+      }
+    }
+  }
+}

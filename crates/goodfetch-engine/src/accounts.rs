@@ -14,7 +14,7 @@ mod store;
 use goodfetch_protocol::accounts::ACCOUNTS_ENABLED;
 use goodfetch_protocol::connection::Surface;
 
-pub use store::{AccountsStore, AccountsStoreError};
+pub use store::{AccountsStore, AccountsStoreError, NamedTokenLookup};
 
 use crate::settings::{Resolved, get_or_default};
 

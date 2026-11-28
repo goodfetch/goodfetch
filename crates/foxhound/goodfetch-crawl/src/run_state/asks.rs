@@ -61,6 +61,7 @@ use tokio::sync::{mpsc, oneshot};
 use super::admission::{Enqueue, LinksBatch};
 use super::{DrawnSession, StateError};
 use crate::labels;
+use crate::partition::DomainHandoffSnapshot;
 
 /// How many questions wait in the loop's mailbox before the next task
 /// waits to send its own.
@@ -89,14 +90,49 @@ pub(crate) enum HopAsk {
     Reached,
 }
 
-/// One message to the loop: a question its Run state answers, or a
-/// request's Permit, which its admission answers.
+/// One message to the loop: a question its Run state answers, a request's
+/// Permit, or a Partition handoff control command (ADR 0054).
 pub(crate) enum Message {
     /// A question its Run state answers.
     Question(Question),
     /// The Permit of a request admitted with none, asked for once its
     /// before-request Hooks returned (#2905).
     Permit(PermitAsk),
+    /// A Partition handoff command (fence/drain, hold incoming, install, or
+    /// unfence domains, ADR 0054).
+    Partition(PartitionCommand),
+}
+
+/// Partition handoff commands executed directly by the delivery loop that owns
+/// the crawl's Run state and Admission gate (ADR 0054 and ADR 0142).
+pub(crate) enum PartitionCommand {
+    /// Stops admitting `domains`, waits for their in-flight requests to end,
+    /// seals the open Run-state batch, extracts pending URLs, seen
+    /// fingerprints, and per-domain state, and removes them from this
+    /// Partition.
+    FenceAndDrain {
+        domains: Vec<String>,
+        answer: oneshot::Sender<Result<Vec<DomainHandoffSnapshot>, StateError>>,
+    },
+    /// Fences `domains` on a receiving Partition before handoff completes so
+    /// no request for them is admitted before acknowledgement.
+    HoldIncoming {
+        domains: Vec<String>,
+        answer: oneshot::Sender<Result<(), StateError>>,
+    },
+    /// Installs one moving domain's seen fingerprints, pending URLs, and
+    /// per-domain state into this Partition's Run state while keeping the
+    /// domain fenced until unfenced after acknowledgement.
+    InstallHandoff {
+        snapshot: Box<DomainHandoffSnapshot>,
+        answer: oneshot::Sender<Result<usize, StateError>>,
+    },
+    /// Lifts the handoff fence on `domains` after acknowledgement so this
+    /// Partition begins admitting them.
+    Unfence {
+        domains: Vec<String>,
+        answer: oneshot::Sender<Result<(), StateError>>,
+    },
 }
 
 /// The Permit of the request `id` of `key`, which the loop answers from
@@ -390,6 +426,72 @@ impl Asking {
         self.staged(|answer| Ask::Hop { hop, asks, answer })
             .await
             .map_err(StateError::run_file)
+    }
+
+    /// Fences `domains`, waits for in-flight requests to end, seals the open
+    /// Run-state batch, extracts pending URLs, seen fingerprints and
+    /// per-domain state, and removes them from this Partition (ADR 0054).
+    pub(crate) async fn fence_and_drain_domains(
+        &self,
+        domains: Vec<String>,
+    ) -> Result<Vec<DomainHandoffSnapshot>, StateError> {
+        let (answer, answered) = oneshot::channel();
+        self.mailbox
+            .send(Message::Partition(PartitionCommand::FenceAndDrain {
+                domains,
+                answer,
+            }))
+            .await
+            .map_err(|_| StateError::Closed)?;
+        answered.await.map_err(|_| StateError::Closed)?
+    }
+
+    /// Fences incoming `domains` on a receiving Partition until their handoff
+    /// is acknowledged (ADR 0054).
+    pub(crate) async fn hold_incoming_domains(
+        &self,
+        domains: Vec<String>,
+    ) -> Result<(), StateError> {
+        let (answer, answered) = oneshot::channel();
+        self.mailbox
+            .send(Message::Partition(PartitionCommand::HoldIncoming {
+                domains,
+                answer,
+            }))
+            .await
+            .map_err(|_| StateError::Closed)?;
+        answered.await.map_err(|_| StateError::Closed)?
+    }
+
+    /// Installs one moving domain's pending URLs, seen fingerprints and
+    /// per-domain state while keeping it fenced (ADR 0054).
+    pub(crate) async fn install_domain_handoff(
+        &self,
+        snapshot: DomainHandoffSnapshot,
+    ) -> Result<usize, StateError> {
+        let (answer, answered) = oneshot::channel();
+        self.mailbox
+            .send(Message::Partition(PartitionCommand::InstallHandoff {
+                snapshot: Box::new(snapshot),
+                answer,
+            }))
+            .await
+            .map_err(|_| StateError::Closed)?;
+        answered.await.map_err(|_| StateError::Closed)?
+    }
+
+    /// Unfences `domains` on this Partition once handoff is acknowledged
+    /// (ADR 0054).
+    pub(crate) async fn unfence_domains(&self, domains: Vec<String>) -> Result<(), StateError> {
+        let (answer, answered) = oneshot::channel();
+        self.mailbox
+            .send(Message::Partition(PartitionCommand::Unfence {
+                domains,
+                answer,
+            }))
+            .await
+            .map_err(|_| StateError::Closed)?;
+        answered.await.map_err(|_| StateError::Closed)?
     }
 }
 

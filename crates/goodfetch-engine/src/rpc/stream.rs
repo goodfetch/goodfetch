@@ -11,7 +11,8 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use goodfetch_protocol::events::{
-    EVENTS, EVENTS_SUBSCRIBE, EventsSubscribeParams, LastRead, SubscriptionEnded,
+    EVENTS, EVENTS_SUBSCRIBE, EventBatch, EventsSubscribeParams, LastRead, StreamRedirect,
+    SubscriptionEnded,
 };
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::page::{
@@ -26,6 +27,7 @@ use super::record_event;
 use crate::body;
 use crate::call_error::CallError;
 use crate::composition::{CallContext, CallStream, Handler};
+use crate::engine_context::EventsRoute;
 use crate::events::{Credits, Envelope, Events};
 use crate::mask::{Masks, Scope};
 use crate::tasks::TaskOwner;
@@ -51,21 +53,69 @@ async fn subscribe(
     context: CallContext,
 ) -> Result<SubscriptionEnded, CallError> {
     let stream = context.stream();
+    if let Some(ref run_id) = params.run_id
+        && let Some(router) = context.engine().group_router()
+    {
+        match router.route_events(run_id.clone()).await? {
+            EventsRoute::Local => {}
+            EventsRoute::Redirect { url, owner } => {
+                return Ok(SubscriptionEnded {
+                    redirect: Some(StreamRedirect { url, owner }),
+                });
+            }
+            EventsRoute::Forward {
+                owner,
+                peer_address,
+            } => {
+                let mut rx = router.forward_events(owner, peer_address, params).await?;
+                let mut pending = std::collections::VecDeque::new();
+                loop {
+                    let credits = stream.credits.spend(MAX_BATCH).await;
+                    if pending.is_empty() {
+                        let Some(batch) = rx.recv().await else {
+                            stream.credits.refund(credits);
+                            return Ok(SubscriptionEnded::default());
+                        };
+                        pending.extend(batch);
+                    }
+                    let mut out = Vec::with_capacity(credits.min(pending.len()));
+                    while out.len() < credits {
+                        let Some(ev) = pending.pop_front() else {
+                            break;
+                        };
+                        record_event(&ev.event);
+                        out.push(ev);
+                    }
+                    stream.credits.refund(credits.saturating_sub(out.len()));
+                    if out.is_empty() {
+                        continue;
+                    }
+                    let batch = EventBatch {
+                        id: stream.id().clone(),
+                        events: out,
+                    };
+                    if !stream.notify_events(EVENTS, &batch).await {
+                        return Ok(SubscriptionEnded::default());
+                    }
+                }
+            }
+        }
+    }
     let Some(mut subscription) = context
         .events()
         .subscribe(params.after, params.system_info)
         .await
     else {
-        return Ok(SubscriptionEnded {});
+        return Ok(SubscriptionEnded::default());
     };
     loop {
         let credits = stream.credits.spend(MAX_BATCH).await;
         let Some(events) = subscription.next(credits).await else {
-            return Ok(SubscriptionEnded {});
+            return Ok(SubscriptionEnded::default());
         };
         stream.credits.refund(credits.saturating_sub(events.len()));
         if !send_events(stream, events).await {
-            return Ok(SubscriptionEnded {});
+            return Ok(SubscriptionEnded::default());
         }
     }
 }

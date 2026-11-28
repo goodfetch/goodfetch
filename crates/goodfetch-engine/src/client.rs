@@ -114,6 +114,11 @@ impl Client {
         self.requests.is_closed()
     }
 
+    #[cfg(test)]
+    pub(crate) fn requests_sender(&self) -> &mpsc::Sender<Outgoing> {
+        &self.requests
+    }
+
     /// Whether `other` is the Client of the same Connection.
     pub(crate) fn same_connection(&self, other: &Self) -> bool {
         self.requests.same_channel(&other.requests)

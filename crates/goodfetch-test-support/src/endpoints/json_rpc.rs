@@ -44,6 +44,7 @@ pub(super) fn attempt(
                 }
             }
             Err(error) if is_silent(&error) => return Observed::StayedOpen,
+            Err(error) if is_closed(&error) => return Observed::Closed,
             Err(error) if error.kind() == ErrorKind::InvalidData => return Observed::Malformed,
             Err(error) => return closed_or_unreachable(&error),
         }

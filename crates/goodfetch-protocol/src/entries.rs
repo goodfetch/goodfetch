@@ -9,15 +9,15 @@ use crate::catalog::{
 };
 use crate::{
     accounts, audit, block, browser_cache, checkpoint, connection, daemon, dns, download, effect,
-    egress, engine, events, executables, foxhound, governor, hook, hostile_input, http_listener,
-    key_value_store, live_view, log, mcp, model, needs_you, notifications, ops, page, plugin,
-    politeness, recipe, response_cache, response_limits, run, run_trace, sample, schedule,
-    schema_validator, secrets, security, settings, site_preferences, skills, storage, tls, usage,
-    versions,
+    egress, engine, events, executables, foxhound, governor, group, hook, hostile_input,
+    http_listener, key_value_store, live_view, log, mcp, model, needs_you, notifications, ops,
+    page, plugin, politeness, recipe, response_cache, response_limits, run, run_trace, sample,
+    schedule, schema_validator, secrets, security, settings, site_preferences, skills, storage,
+    tls, usage, versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 74] = [
+pub const MODULES: [&Entries; 75] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &mcp::ENTRIES,
@@ -71,6 +71,7 @@ pub const MODULES: [&Entries; 74] = [
     &hook::ENTRIES,
     &plugin::ENTRIES,
     &plugin::extractor::ENTRIES,
+    &group::ENTRIES,
     &recipe::ENTRIES,
     &foxhound::ENTRIES,
     &foxhound::crawl::ENTRIES,
@@ -385,7 +386,7 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 112] = [
+    const COLLIE: [&str; 118] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -498,6 +499,12 @@ mod tests {
         "usage.list",
         "usage.set",
         "usage.raise",
+        "group.init",
+        "group.token",
+        "group.join",
+        "group.leave",
+        "group.revoke",
+        "group.lead",
     ];
 
     #[test]

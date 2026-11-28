@@ -11,9 +11,23 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use super::{ARRIVED_IN, PageOpened, SessionId};
-use crate::catalog::{Operation, OperationClass, OperationKind, Reach, Stability, schema_of};
+use crate::catalog::{
+    ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind, Reach, Stability,
+    schema_of,
+};
 use crate::run::RunId;
 use crate::settings::session_source::SessionSource;
+
+/// Refusal when a second Run, or a multi-Partition crawl, tries to share a
+/// Borrowed browser (ADRs 0054, 0056 and 0089).
+pub const BROWSER_BORROWED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "browser_borrowed",
+    description: "A Borrowed browser serves one Run at a time and cannot be shared across a second Run or across multiple Partitions of a Partitioned crawl.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
 
 /// What `run.new_session` takes: the Run whose Session it opens, the
 /// Session's own source and its own settings.

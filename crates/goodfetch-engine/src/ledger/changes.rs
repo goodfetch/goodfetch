@@ -17,10 +17,28 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 
+use tokio::sync::broadcast;
+
 /// The changes made to the Limits of one ledger file through this
 /// process's ledgers.
-#[derive(Debug, Default)]
-pub(super) struct Changes(AtomicU64);
+#[derive(Debug)]
+pub(super) struct Changes {
+    count: AtomicU64,
+    notify: broadcast::Sender<()>,
+    needs_you: broadcast::Sender<()>,
+}
+
+impl Default for Changes {
+    fn default() -> Self {
+        let (notify, _) = broadcast::channel(64);
+        let (needs_you, _) = broadcast::channel(64);
+        Self {
+            count: AtomicU64::new(0),
+            notify,
+            needs_you,
+        }
+    }
+}
 
 impl Changes {
     /// The changes of the ledger file at `path`, one count for every
@@ -40,11 +58,28 @@ impl Changes {
 
     /// How many there were so far.
     pub(super) fn count(&self) -> u64 {
-        self.0.load(Ordering::Acquire)
+        self.count.load(Ordering::Acquire)
     }
 
     /// Counts one more, committed.
     pub(super) fn add(&self) {
-        self.0.fetch_add(1, Ordering::AcqRel);
+        self.count.fetch_add(1, Ordering::AcqRel);
+        let _ = self.notify.send(());
+    }
+
+    /// Subscribes to Limit change notifications on this ledger file.
+    pub(super) fn subscribe(&self) -> broadcast::Receiver<()> {
+        self.notify.subscribe()
+    }
+
+    /// Notifies "Needs you" subscribers that a ledger-kept item may have
+    /// appeared or resolved, without invalidating in-memory Limit caches.
+    pub(super) fn notify_needs_you(&self) {
+        let _ = self.needs_you.send(());
+    }
+
+    /// Subscribes to ledger-kept "Needs you" notifications on this ledger file.
+    pub(super) fn subscribe_needs_you(&self) -> broadcast::Receiver<()> {
+        self.needs_you.subscribe()
     }
 }

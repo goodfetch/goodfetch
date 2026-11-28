@@ -10,9 +10,11 @@
 use std::time::Duration;
 
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::control_state::STORE_SCHEDULES;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::user_store::{UserStore, UserStoreError};
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler, kept_by_the_daemon};
+use goodfetch_protocol::group::ControlStateMode;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::schedule::{
     DEFAULT_PREVIEW_COUNT, MAX_PREVIEW_COUNT, SCHEDULE_CAP_EXCEEDED, SCHEDULE_CREATE,
@@ -33,6 +35,7 @@ use crate::{definition, store, trigger};
 pub fn contribution() -> Contribution {
     Contribution::new("schedule")
         .with_user_store(&store::STORE)
+        .with_control_store(STORE_SCHEDULES, ControlStateMode::ReadMostlyCached)
         .with_handler(Handler::new(&SCHEDULE_CREATE, create))
         .with_handler(Handler::new(&SCHEDULE_LIST, list))
         .with_handler(Handler::new(&SCHEDULE_GET, get))

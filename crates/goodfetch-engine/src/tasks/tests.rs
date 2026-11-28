@@ -209,6 +209,77 @@ fn stopping_an_owner_ends_its_actor_after_its_tasks_though_a_sender_remains(
     assert_eq!((stopped, handled, refused), (true, vec![1, 2], true));
 }
 
+/// Issues 1763 and 2594: when an actor breaks out of its loop while a send
+/// permit is still held, the actor stops (so `owner.wait()` completes without
+/// blocking on the permit) and its mailbox closes so a caller racing
+/// `sender.closed()` resolves immediately even if the permit is sent while
+/// other senders remain alive.
+#[rstest]
+#[case::on_a_dedicated_thread(BlockingPolicy::Threads)]
+#[case::as_a_task(BlockingPolicy::Inline)]
+fn an_actor_closes_its_mailbox_on_break_while_a_permit_is_held(#[case] policy: BlockingPolicy) {
+    let (stopped, closed) = goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(policy);
+        let (sender, mailbox) = mpsc::channel::<(bool, oneshot::Sender<()>)>(4);
+        owner
+            .actor_until(
+                "break-actor",
+                mailbox,
+                move |group: Vec<(bool, oneshot::Sender<()>)>| {
+                    let mut should_break = false;
+                    for (stop, answer) in group {
+                        if stop {
+                            should_break = true;
+                        }
+                        let _ = answer.send(());
+                    }
+                    if should_break {
+                        std::ops::ControlFlow::Break(())
+                    } else {
+                        std::ops::ControlFlow::Continue(())
+                    }
+                },
+            )
+            .unwrap();
+
+        // Reserve a permit BEFORE the actor exits and hold it across `owner.wait()`.
+        let permit = sender.reserve().await.unwrap();
+        // Trigger the actor to break out of its loop.
+        let (stop_tx, stop_rx) = oneshot::channel();
+        sender.send((true, stop_tx)).await.unwrap();
+        stop_rx.await.unwrap();
+
+        let stopped = match policy {
+            BlockingPolicy::Inline => tokio::time::timeout(Duration::from_secs(1), owner.wait())
+                .await
+                .is_ok(),
+            BlockingPolicy::Threads => {
+                owner.wait().await;
+                true
+            }
+        };
+
+        // Now send through the previously reserved permit while `sender` still lives,
+        // and race `sender.closed()` as `RunState` callers do.
+        let (late_tx, late_rx) = oneshot::channel();
+        permit.send((false, late_tx));
+
+        let closed = tokio::select! {
+            biased;
+            res = late_rx => res.is_err(),
+            () = sender.closed() => true,
+        };
+        drop(sender);
+        (stopped, closed)
+    });
+
+    assert_eq!(
+        (stopped, closed),
+        (true, true),
+        "actor break must stop while a permit is held and close the mailbox for racing callers"
+    );
+}
+
 /// What an analysis on the CPU pool told the test.
 #[derive(Debug)]
 enum Analysed {

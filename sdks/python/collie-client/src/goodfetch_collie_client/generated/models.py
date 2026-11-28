@@ -191,6 +191,16 @@ class AuditVerifyParams(BaseModel):
     )
 
 
+class AutoPartitions(StrEnum):
+    """
+    The `"auto"` value of `partitions` (ADR 0054): one Partition per eligible
+    Group member.
+    """
+
+    auto = "auto"
+    """One Partition per eligible Group member."""
+
+
 class AxisReason(BaseModel):
     """One reason a Run is not `verified` or not `complete` (ADR 0029)."""
 
@@ -1553,6 +1563,145 @@ class GovernorLevel(StrEnum):
     """Memory passed `governor.critical`, or the host's is critical."""
 
 
+class GroupInitParams(BaseModel):
+    """
+    What `group.init` takes: the Lead Daemon's Group member name and where
+    its peer listener listens.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    """
+    The Lead Daemon's Group member name: one lowercase DNS label, such
+    as its host's or pod's name.
+    """
+    peer_address: str
+    """
+    The `host:port` its peer listener takes, which the Group members
+    dial; port 0 takes a free one, which the answer names.
+    """
+
+
+class GroupJoinParams(BaseModel):
+    """What `group.join` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    authority_key: str
+    """
+    The SHA-256 of the group's certificate authority's public key, as
+    `group token` answered it: `sha256/` and its standard base64.
+    """
+    lead: str
+    """The `host:port` of the Lead Daemon's peer listener."""
+    name: str
+    """
+    The Group member name this Daemon takes: one lowercase DNS label,
+    such as its host's or pod's name.
+    """
+    peer_address: str
+    """
+    The `host:port` its own peer listener takes, which the other Group
+    members dial; port 0 takes a free one, which the answer names.
+    """
+    token: str
+    """The join token `group token` minted on the Lead Daemon."""
+
+
+class GroupLeadParams(BaseModel):
+    """What `group.lead` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    confirm: bool | None = False
+    """
+    Confirms this Lead Daemon's lead epoch by hand when no majority of its
+    last-known Group members can be reached.
+    """
+
+
+class GroupLeadReachabilityChanged(BaseModel):
+    """Payload of `group.lead_reachability_changed` (ADR 0055)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    lead_name: str
+    """The Lead Daemon's Group member name."""
+    reachable: bool
+    """Whether the Lead Daemon is reachable now."""
+    reason: str | None = None
+    """Why the Lead Daemon became unreachable, when `reachable` is `false`."""
+
+
+class GroupLeaveParams(BaseModel):
+    """What `group.leave` takes: nothing."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
+class GroupLeft(BaseModel):
+    """What `group.leave` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    handed_off: list[str] | None = None
+    """
+    Run IDs whose Checkpoints were handed off to another Group member during
+    the removal drain (ADR 0055).
+    """
+    left_checkpointed: list[str] | None = None
+    """
+    Run IDs left checkpointed and still assigned to this Group member
+    because the drain grace expired before handoff completed; `runs adopt`
+    brings them into another Group member (ADR 0055).
+    """
+    machine_bound: list[str] | None = None
+    """
+    Run IDs bound to this machine (ADR 0056) that stayed checkpointed and
+    assigned to this Group member.
+    """
+    name: str
+    """The Group member name this Daemon had."""
+
+
+class GroupMemberRevoked(BaseModel):
+    """What `group.revoke` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    name: str
+    """The Group member name removed."""
+    revocation_list: Annotated[int, Field(ge=0)]
+    """The number of the revocation list that revokes its certificates."""
+
+
+class GroupRevokeParams(BaseModel):
+    """What `group.revoke` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    """The Group member name to remove."""
+
+
+class GroupTokenParams(BaseModel):
+    """What `group.token` takes: nothing."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
 class HeaderCharacter(StrEnum):
     """A character no header value may hold."""
 
@@ -1710,6 +1859,24 @@ class IpFamily(StrEnum):
     """IPv6."""
 
 
+class JoinTokenMinted(BaseModel):
+    """What `group.token` answers: the join token, the one place it shows."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    authority_key: str
+    """
+    The SHA-256 of the group's certificate authority's public key, as
+    `sha256/` and its standard base64, which the Daemon that joins pins.
+    """
+    expires_at: PointInTime
+    """When it stops being valid, in RFC 3339, UTC."""
+    token: str
+    """The token, in lowercase hex."""
+
+
 class JsonSecret(BaseModel):
     """
     A string of a JSON body that holds a Secret placeholder's value
@@ -1847,6 +2014,27 @@ class KnownCertificateFailure(StrEnum):
     """Its own key signed it."""
     revoked = "revoked"
     """Its issuer revoked it."""
+
+
+class LeadEpoch(RootModel[int]):
+    root: Annotated[int, Field(ge=0)]
+    """
+    A Daemon group's lead epoch (ADRs 0003 and 0055): each Lead Daemon
+    promoted takes a higher one, and a Group member refuses a peer message
+    carrying a lower epoch than the highest it has recorded.
+    """
+
+
+class LeadEpochStaleDetails(BaseModel):
+    """What `lead_epoch_stale` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    highest_lead_epoch: LeadEpoch
+    """The highest lead epoch the receiver has recorded."""
+    lead_epoch: LeadEpoch
+    """The lead epoch the refused message carried."""
 
 
 class Lifecycle(StrEnum):
@@ -2793,6 +2981,19 @@ class PanicEnded(StrEnum):
     """The engine, which stops."""
 
 
+class Partitions1(RootModel[int]):
+    root: Annotated[int, Field(ge=1)]
+    """A fixed count of Partitions (at least 1)."""
+
+
+class Partitions(RootModel[Partitions1 | AutoPartitions]):
+    root: Partitions1 | AutoPartitions
+    """
+    How many Partitions a Partitioned crawl runs as (ADR 0054): a positive
+    integer count or `"auto"` for one per eligible Group member.
+    """
+
+
 class PathHazard(StrEnum):
     """What makes a name or path unsafe."""
 
@@ -3475,6 +3676,24 @@ class RedirectLimit(RootModel[RedirectLimit1 | RedirectLimit2 | RedirectLimit3])
     """
 
 
+class RedoneReport(BaseModel):
+    """
+    How much work a resumed Run redid after its prior run epoch stopped on a
+    failed write or crash (ADRs 0122 and 0142).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    attempts: Annotated[int, Field(ge=0)]
+    """In-flight attempts recovered and redone on resume."""
+    batch_writes: Annotated[int, Field(ge=0)]
+    """
+    Uncommitted writes from a rolled-back Run-state batch that had to be
+    redone on resume (`0` at `full` or after a clean stop).
+    """
+
+
 class Refused(StrEnum):
     """
     What a `value_invalid` refused: the key itself, or the value given for
@@ -3903,8 +4122,8 @@ class RunMigrateParams(BaseModel):
     location: str | None = None
     """
     Where to write the Checkpoint the Run is resumed from, a path on the
-    engine's machine; by default where the engine keeps the Run's
-    Checkpoints, its own folder.
+    engine's machine or an object-storage URL (`s3://`, `gs://`, `az://`);
+    by default where the engine keeps the Run's Checkpoints, its own folder.
     """
     run_id: RunId
     """The Run's ID."""
@@ -3962,8 +4181,17 @@ class RunOwner2(BaseModel):
     attached: PrivateEndpoint
 
 
-class RunOwner(RootModel[RunOwner1 | RunOwner2]):
-    root: RunOwner1 | RunOwner2
+class RunOwner3(BaseModel):
+    """A Group member of a Daemon group, named by its Group member name (ADR 0055)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_member: str
+
+
+class RunOwner(RootModel[RunOwner1 | RunOwner2 | RunOwner3]):
+    root: RunOwner1 | RunOwner2 | RunOwner3
     """Where the engine that owns a live Run is reached (ADR 0031)."""
 
 
@@ -4004,10 +4232,13 @@ class RunResumeParams(BaseModel):
     )
     checkpoint: str | None = None
     """
-    A Checkpoint to resume from, a path on the engine's machine, which
-    becomes the Run's state in this engine's run folder; by default the
-    Run resumes from its run file on this machine.
+    A Checkpoint to resume from, a path on the engine's machine or an
+    object-storage URL (`s3://`, `gs://`, `az://`), which becomes the
+    Run's state in this engine's run folder; by default the Run resumes
+    from its run file on this machine.
     """
+    group_member: str | None = None
+    """Optional Group member pin in a Daemon group (ADR 0055)."""
     project: ProjectSettings | None = None
     """The project configuration the Client found, layer 3 (ADR 0083)."""
     rollback: bool | None = None
@@ -4928,6 +5159,12 @@ class SettingsLayer(StrEnum):
     """An Operator policy."""
     user_configuration = "user_configuration"
     """User configuration."""
+    group_member = "group_member"
+    """
+    A Group member's own scope for machine-specific settings (ADRs 0028
+    and 0055): local addresses, TLS files and browser paths, applied only
+    on the named Group member.
+    """
     project_configuration = "project_configuration"
     """Project configuration."""
     recipe = "recipe"
@@ -5199,6 +5436,23 @@ class StartedAs(StrEnum):
     """
 
 
+class StartedPartition(BaseModel):
+    """
+    One Partition of a started Partitioned crawl (ADR 0054): its index, its
+    own Run ID, and the Group member it was placed on.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    member: str
+    """The Group member this Partition was placed on."""
+    partition: Annotated[int, Field(ge=0)]
+    """Zero-based Partition index."""
+    run_id: RunId
+    """The Partition's Run ID."""
+
+
 class StateFileFormat(StrEnum):
     """The format of a `state_file`, detected when left out."""
 
@@ -5262,6 +5516,20 @@ class StopReason5(BaseModel):
 
 
 class StopReason8(BaseModel):
+    """
+    It needed a new Usage ledger Slice from its Daemon group's Lead Daemon
+    (or local Group member), which could not be reached, and stopped at its
+    next safe point, resumable once reachable (ADR 0055): the stop of the
+    Error code `lead_unreachable`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["lead_unreachable"]
+
+
+class StopReason9(BaseModel):
     """Its engine was lost while it ran, and another engine stopped it."""
 
     model_config = ConfigDict(
@@ -5270,7 +5538,7 @@ class StopReason8(BaseModel):
     kind: Literal["engine_lost"]
 
 
-class StopReason9(BaseModel):
+class StopReason10(BaseModel):
     """
     Its Attached engine stopped on a panic in a part every Run shares,
     and stopped it first, resumable by its Run ID (ADR 0148); a Daemon
@@ -5283,7 +5551,7 @@ class StopReason9(BaseModel):
     kind: Literal["engine_panicked"]
 
 
-class StopReason10(BaseModel):
+class StopReason11(BaseModel):
     """
     The resource governor ran out of a resource for it, and it stopped
     at its next safe point, resumable (ADRs 0040 and 0122).
@@ -5299,7 +5567,7 @@ class StopReason10(BaseModel):
     """The resource that ran out."""
 
 
-class StopReason11(UnknownMember):
+class StopReason12(UnknownMember):
     """A member this package does not know, which a newer engine may send: the tag it was sent in `tag`, the fields every member shares, and what else it carries as sent (ADR 0079)."""
 
     model_config = ConfigDict(
@@ -5345,6 +5613,21 @@ class StorageLevel(StrEnum):
     Its free space or inodes fell below `storage.critical_free`: every
     Run with an essential write there stops resumably.
     """
+
+
+class StreamRedirect(BaseModel):
+    """
+    Where a Client reconnects to receive a Run's event stream directly from its
+    owning Group member (ADR 0055).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    owner: str
+    """The owning Group member's name."""
+    url: str
+    """The owning Group member's `daemon.advertise_url`."""
 
 
 class StructuredTriggerDescription1(BaseModel):
@@ -5404,12 +5687,18 @@ class StructuredTriggerDescription(
 class SubscriptionEnded(BaseModel):
     """
     What `events.subscribe` answers when its subscription ends without the
-    Client cancelling it: the engine stopped.
+    Client cancelling it: the engine stopped, or the subscription redirected to
+    the Run's owning Group member (ADR 0055).
     """
 
     model_config = ConfigDict(
         extra="allow",
     )
+    redirect: StreamRedirect | None = None
+    """
+    Set when the Run is owned by another Group member advertising a
+    reachable `daemon.advertise_url` (ADR 0055).
+    """
 
 
 class Surface(StrEnum):
@@ -7269,6 +7558,62 @@ class GotoParams(BaseModel):
     """When the navigation answers; `load` when absent."""
 
 
+class GroupFormed(BaseModel):
+    """What `group.init` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    authority_key: str
+    """
+    The SHA-256 of the group's certificate authority's public key, as
+    `sha256/` and its standard base64.
+    """
+    lead_epoch: LeadEpoch
+    """The group's lead epoch: 1, the first."""
+    peer_address: str
+    """The `host:port` the peer listener took, which `group join` dials."""
+
+
+class GroupJoined(BaseModel):
+    """What `group.join` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    certificate_expires_at: PointInTime
+    """
+    When the Group member certificate the Lead Daemon signed stops
+    being valid, in RFC 3339, UTC; the Daemon renews it before.
+    """
+    lead_epoch: LeadEpoch
+    """The group's lead epoch."""
+    peer_address: str
+    """The `host:port` the peer listener took."""
+
+
+class GroupLeadStatus(BaseModel):
+    """What `group.lead` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    confirmed: bool
+    """Whether this Lead Daemon has confirmed its lead epoch and may act."""
+    confirmed_by_operator: bool
+    """
+    Whether an operator confirmed it with `--confirm` rather than a
+    majority of its last-known Group members.
+    """
+    lead_epoch: LeadEpoch
+    """The lead epoch this Lead Daemon leads at."""
+    name: str
+    """The Lead Daemon's Group member name."""
+    warning: str | None = None
+    """The warning ADR 0055 requires after hand confirmation."""
+
+
 class HelloParams(BaseModel):
     """What a `hello` says."""
 
@@ -7979,12 +8324,17 @@ class NotInProductDetails(BaseModel):
     """
     install: str | None = None
     """
-    The command that installs the Product `needs` from the engine's own
-    channel, which `fix` names; none behind Goodfetch Cloud's gateway,
-    where an install would not help (ADR 0096).
+    The command that installs, from the engine's own channel, the
+    Product `fix` names: `needs`, or for a Group member the group's
+    Product, `product`; none behind Goodfetch Cloud's gateway, where an
+    install would not help (ADR 0096).
     """
     needs: Product
-    """The Product that carries what was asked."""
+    """
+    The Product that carries what was asked; for a Group member's
+    `hello` on the peer link, the Product that Group member runs (ADR
+    0095).
+    """
     product: Product
     """The running engine's Product."""
     product_version: ProductVersion
@@ -8363,6 +8713,32 @@ class PolicyWritten(BaseModel):
     """The file's digest after the write, the version new Runs name."""
 
 
+class PolitenessStoreDegraded(BaseModel):
+    """
+    Payload of `politeness.store_degraded` (ADRs 0024 and 0053): emitted on
+    each affected Run's event stream when the Politeness store becomes
+    unreachable, when degraded admission stops at `politeness.degraded_max`,
+    and when the store reconnects.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    admission_stopped: bool
+    """
+    Whether `politeness.degraded_max` has elapsed and admission to shared
+    keys is stopped until the store reconnects.
+    """
+    degraded: bool
+    """Whether the Politeness store is currently unreachable (degraded)."""
+    degraded_max_ms: Annotated[int, Field(ge=0)]
+    """The configured `politeness.degraded_max` window in milliseconds."""
+    reason: str | None = None
+    """Why the Politeness store became unreachable, when `degraded` is `true`."""
+    run_id: RunId
+    """The affected Run's ID."""
+
+
 class PressParams(BaseModel):
     """
     What `locator.press` takes: the locator whose element gets the key, and
@@ -8625,10 +9001,11 @@ class RunCheckpointParams(BaseModel):
     )
     location: str | None = None
     """
-    Where to write the Checkpoint, a path on the engine's machine; by
-    default where the engine keeps the Run's Checkpoints, its own folder.
-    The catalog's caller alone gives it, such as Goodfetch Cloud: an
-    SDK's `checkpoint()` takes no path, which would break on a Daemon or
+    Where to write the Checkpoint, a path on the engine's machine or an
+    object-storage URL (`s3://`, `gs://`, `az://`); by default where the
+    engine keeps the Run's Checkpoints, its own folder. The catalog's
+    caller alone gives it, such as Goodfetch Cloud: an SDK's
+    `checkpoint()` takes no path, which would break on a Daemon or
     Goodfetch Cloud (ADR 0102).
     """
     run_id: RunId
@@ -8753,11 +9130,22 @@ class RunStartParams(BaseModel):
     resumes the Run accepts (ADR 0033), where it would otherwise refuse
     the resume.
     """
+    group_member: str | None = None
+    """
+    Optional Group member pin in a Daemon group (ADR 0055): the Lead Daemon
+    places the Run on this named Group member when eligible.
+    """
     limits: list[RunLimit] | None = None
     """
     The Run's own Limits (ADRs 0041 and 0080): at most one per Usage
     kind and currency. A start that names the Run again lowers them and
     never raises them (ADR 0102).
+    """
+    partitions: Partitions | None = None
+    """
+    Partition count for a Partitioned crawl (ADR 0054, Foxhound only): a
+    positive integer or `"auto"`. A Collie engine refuses it with
+    `not_in_product` (ADRs 0087 and 0095).
     """
     plan: str | None = None
     """
@@ -8815,8 +9203,13 @@ class RunStarted(BaseModel):
     The Product it needs (ADR 0098): Collie until it uses an entry the
     catalog marks Foxhound's, Foxhound from then on.
     """
+    partitions: list[StartedPartition] | None = None
+    """
+    For a Partitioned crawl (ADR 0054), each Partition's Run ID and Group
+    member placement beside the Partitioned crawl ID; empty otherwise.
+    """
     run_id: RunId
-    """The Run's ID."""
+    """The Run's ID (or the Partitioned crawl ID for a Partitioned crawl)."""
     started_as: StartedAs
     """Whether the start began it."""
 
@@ -9279,6 +9672,7 @@ class StopReason(
         | StopReason9
         | StopReason10
         | StopReason11
+        | StopReason12
     ]
 ):
     root: (
@@ -9293,6 +9687,7 @@ class StopReason(
         | StopReason9
         | StopReason10
         | StopReason11
+        | StopReason12
     )
     """Why a Run stopped (ADRs 0029, 0080 and 0102)."""
 
@@ -9656,6 +10051,8 @@ class CatalogRunStartParams(BaseModel):
     then frees only the value, `run.finish` waits for its end and
     `run.stop` stops it.
     """
+    group_member: str | None = None
+    """Optional Group member pin in a Daemon group (ADR 0055)."""
     limits: list[RunLimit] | None = None
     """The Run's own Limits, as `run.start`'s."""
     project: ProjectSettings | None = None
@@ -9745,6 +10142,12 @@ class EventsSubscribeParams(BaseModel):
     subscription resumes after it, or starts with `events.resync` when
     the engine no longer holds it or another engine instance gave it, as
     after a Daemon restart. Absent, it starts with the next event.
+    """
+    run_id: RunId | None = None
+    """
+    The Run whose events are subscribed to in a Daemon group (ADR 0055):
+    when another Group member owns it, the stream redirects to its
+    `daemon.advertise_url` when set or forwards over the peer link.
     """
     system_info: bool | None = None
     """
@@ -10207,6 +10610,8 @@ class RecipeStartParams(BaseModel):
     then frees only the value, `run.finish` waits for its end and
     `run.stop` stops it.
     """
+    group_member: str | None = None
+    """Optional Group member pin in a Daemon group (ADR 0055)."""
     limits: list[RunLimit] | None = None
     """The Run's own Limits, as `run.start`'s."""
     project: ProjectSettings | None = None
@@ -10655,6 +11060,12 @@ class RunReport(BaseModel):
     """
     recording: RecordingReport | None = None
     """What it did with the Response recording its start named (ADR 0105)."""
+    redone: RedoneReport | None = None
+    """
+    How much work a resumed Run redid after its prior epoch stopped with
+    uncommitted Run-state batch writes or in-flight attempts (ADRs 0122
+    and 0142). Absent when nothing was redone.
+    """
     run_id: RunId
     """The Run's ID."""
     settings: list[ExplainedSetting] | None = None

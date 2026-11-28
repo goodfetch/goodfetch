@@ -33,6 +33,16 @@ pub(crate) fn connected() -> (Client, Played) {
     connected_on(&CountedWork::default())
 }
 
+impl Played {
+    /// Wraps an already-created duplex stream as the browser's end.
+    pub(crate) fn from_duplex(pipe: DuplexStream) -> Self {
+        Self {
+            pipe,
+            framer: Framer::default(),
+        }
+    }
+}
+
 /// A connection to a browser that `Played` plays, whose work `work` counts.
 pub(crate) fn connected_on(work: &CountedWork) -> (Client, Played) {
     let (client, browser) = tokio::io::duplex(1 << 16);

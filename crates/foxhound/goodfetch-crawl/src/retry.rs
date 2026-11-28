@@ -160,9 +160,6 @@ async fn reopened(
     match resumed {
         Resumed::New { run, kind, .. } => {
             let identity = &run.identity;
-            run.keys
-                .secrets()
-                .answered_by(identity.id().clone(), context.client().clone());
             let readmitted = readmit(identity, &run.state, blocked).await;
             if let Some(driver) = context.driver(kind) {
                 identity.spawn(driver(*run.clone(), context.clone(), settings));

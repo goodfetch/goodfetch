@@ -237,3 +237,32 @@ pub(super) fn without_annotations(schema: &Value) -> Value {
     }
     Value::Object(stripped)
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::without_annotations;
+
+    /// `"x-goodfetch-personal"` is treated as a schema annotation that does
+    /// not alter what a format accepts (ADR 0016, ticket 673).
+    ///
+    /// Covers: story:4-78
+    #[test]
+    fn without_annotations_strips_personal_data_keyword() {
+        let annotated = json!({
+            "type": "object",
+            "properties": {
+                "email": { "type": "string", "x-goodfetch-personal": true }
+            }
+        });
+        let plain = json!({
+            "type": "object",
+            "properties": {
+                "email": { "type": "string" }
+            }
+        });
+
+        assert_eq!(without_annotations(&annotated), plain);
+    }
+}

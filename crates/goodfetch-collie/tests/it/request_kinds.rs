@@ -487,7 +487,11 @@ fn refusals_from(env: &TestEnv, run_id: &str, from: usize) -> (usize, Vec<(Strin
     let refusals = lines
         .iter()
         .skip(from)
-        .filter(|line| line["event"] == json!("page.request_failed"))
+        .filter(|line| {
+            line["event"] == json!("page.request_failed")
+                || (line["event"] == json!("service_worker.request")
+                    && !line["data"]["failure"].is_null())
+        })
         .filter_map(|line| {
             let host = host_of(line["data"]["url"].as_str()?)?;
             let failure = &line["data"]["failure"];

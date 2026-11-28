@@ -137,12 +137,13 @@ pub(crate) struct EgressRelay {
 }
 
 /// A Session's local addresses at its relay (ADR 0044): the address of
-/// each family its connections bind, the interface name whose device its
-/// sockets bind when `egress.local_addresses` names an interface, and the
-/// engine's resolution, whose queries the relay sends from them.
+/// each family its connections bind, the network device its sockets bind when
+/// `egress.local_addresses` names an interface (resolved once on a blocking
+/// thread), and the engine's resolution, whose queries the relay sends from
+/// them.
 pub(crate) struct Local {
     pub(crate) addresses: SessionAddresses,
-    pub(crate) interface: Option<String>,
+    pub(crate) device: goodfetch_engine::local_addresses::Device,
     pub(crate) dns: Dns,
 }
 
@@ -437,9 +438,7 @@ impl EgressRelay {
             upstream: address,
             upstream_tls,
             judged,
-            local: local.map(|local| {
-                LocalBinding::new(local.addresses, local.interface.as_deref(), &local.dns)
-            }),
+            local: local.map(|local| LocalBinding::new(local.addresses, local.device, &local.dns)),
         };
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
         let address = listener.local_addr()?;

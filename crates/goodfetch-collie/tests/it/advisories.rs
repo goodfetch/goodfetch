@@ -51,8 +51,8 @@
     reason = "the tests run a local HTTP stand-in and watched target outside the engine (ADR 0060)"
 )]
 
-use std::io::{BufRead as _, BufReader, ErrorKind, Write as _};
-use std::net::{TcpListener, TcpStream};
+use std::io::{BufRead as _, BufReader, Write as _};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
@@ -62,16 +62,17 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_test_client::{Attached, Hello};
 use goodfetch_test_support::{
-    BROWSERS_PATH_VARIABLE, Canaries, SecretKind, TestEnv, browser_cache,
+    BROWSERS_PATH_VARIABLE, Canaries, Output, SecretKind, TestEnv, browser_cache,
 };
 use serde_json::{Value, json};
 
 use crate::COLLIE;
 use crate::page::{BROWSER_DEADLINE, opened};
 
-/// A minimal local HTTP server standing in for a public origin on `127.0.0.1`.
+/// A minimal blocking local HTTP server standing in for a public origin on
+/// `127.0.0.1`, woken on drop by a single loopback connect (no sleep polling).
 struct LocalHttp {
-    port: u16,
+    address: SocketAddr,
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
@@ -79,37 +80,35 @@ struct LocalHttp {
 impl LocalHttp {
     fn start(respond: impl Fn(&str) -> String + Send + Sync + 'static) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let stopped = Arc::clone(&stop);
         let respond = Arc::new(respond);
         let thread = thread::spawn(move || {
-            while !stopped.load(Ordering::Relaxed) {
-                match listener.accept() {
-                    Ok((stream, _)) => serve_one(stream, &respond),
-                    Err(error) if error.kind() == ErrorKind::WouldBlock => {
-                        thread::sleep(Duration::from_millis(10));
-                    }
-                    Err(_) => break,
+            for stream in listener.incoming() {
+                if stopped.load(Ordering::Acquire) {
+                    break;
                 }
+                let Ok(stream) = stream else { break };
+                serve_one(stream, &respond);
             }
         });
         Self {
-            port,
+            address,
             stop,
             thread: Some(thread),
         }
     }
 
     fn port(&self) -> u16 {
-        self.port
+        self.address.port()
     }
 }
 
 impl Drop for LocalHttp {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
+        self.stop.store(true, Ordering::Release);
+        let _ = TcpStream::connect(self.address);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -179,11 +178,18 @@ fn started_collie(
     (engine, page.page_id.0)
 }
 
-fn watched_ipv6_loopback() -> Option<(TcpListener, u16)> {
-    let listener = TcpListener::bind("[::1]:0").ok()?;
-    let port = listener.local_addr().ok()?.port();
-    listener.set_nonblocking(true).ok()?;
-    Some((listener, port))
+fn watched_intranet_listener() -> (TcpListener, String) {
+    let (listener, url) = if let Ok(listener) = TcpListener::bind("[::1]:0") {
+        let port = listener.local_addr().unwrap().port();
+        (listener, format!("http://[::1]:{port}/admin"))
+    } else {
+        let listener = TcpListener::bind("127.0.0.2:0")
+            .expect("watched intranet listener must bind on [::1] or 127.0.0.2");
+        let port = listener.local_addr().unwrap().port();
+        (listener, format!("http://127.0.0.2:{port}/admin"))
+    };
+    listener.set_nonblocking(true).unwrap();
+    (listener, url)
 }
 
 fn accepted_any(listener: &TcpListener) -> bool {
@@ -193,27 +199,19 @@ fn accepted_any(listener: &TcpListener) -> bool {
 /// Firecrawl CVE-2024-56800 (SSRF through an HTTP redirect to cloud metadata
 /// or an intranet address): a page navigation to an allowed origin that
 /// redirects with HTTP 302 to cloud metadata (`169.254.169.254`) or a watched
-/// private listener (`[::1]`, outside the stand-in's `127.0.0.1/32` range) is
-/// refused at the browser egress relay with `egress_refused`
-/// (`private_address`) and zero connections reach the watched listener, while
-/// a redirect to the allowed origin succeeds (positive control; ADR 0017,
-/// ADR 0067; ticket 650).
+/// private listener (outside the stand-in's `127.0.0.1/32` range) is refused
+/// at the browser egress relay with `egress_refused` (`private_address`) and
+/// zero connections reach the watched listener, while a redirect to the
+/// allowed origin succeeds (positive control; ADR 0017, ADR 0067; ticket 650).
 ///
 /// Covers: story:4-92, story:4-5, error:egress_refused, operation:page.goto
 #[test]
 fn cve_2024_56800_a_page_redirect_to_metadata_or_an_intranet_is_refused_on_chromium() {
     let env = TestEnv::new();
-    let watched = watched_ipv6_loopback();
-    let watched_port = watched.as_ref().map(|(_, port)| *port);
+    let (watched, watched_url) = watched_intranet_listener();
     let server = LocalHttp::start(move |path| match path {
         "/to-metadata" => http_redirect("302 Found", "http://169.254.169.254/latest/meta-data/"),
-        "/to-intranet" => {
-            let target = watched_port.map_or_else(
-                || "http://10.0.0.1/admin".to_owned(),
-                |port| format!("http://[::1]:{port}/admin"),
-            );
-            http_redirect("302 Found", &target)
-        }
+        "/to-intranet" => http_redirect("302 Found", &watched_url),
         "/to-public" => http_redirect("302 Found", "/ok"),
         _ => http_ok("<html><body><p>allowed-public</p></body></html>"),
     });
@@ -242,7 +240,7 @@ fn cve_2024_56800_a_page_redirect_to_metadata_or_an_intranet_is_refused_on_chrom
     let _ = engine.ask(6, "run.finish", &json!({ "run_id": "cve-2024-56800" }));
     let _ = engine.finish();
 
-    let watched_reached = watched.as_ref().is_some_and(|(l, _)| accepted_any(l));
+    let watched_reached = accepted_any(&watched);
     assert_eq!(
         (
             &metadata["error"]["data"]["code"],
@@ -372,17 +370,32 @@ fn playwright_mcp_1566_a_password_secret_is_masked_in_page_reads_and_never_retur
         }),
     );
     let _ = engine.ask(6, "run.finish", &json!({ "run_id": "playwright-1566" }));
-    let _ = engine.finish();
+    let (_, stderr) = engine.finish_with_stderr();
+
+    let snapshot_text = snapshot.to_string();
+    let evaluated_text = evaluated.to_string();
+    let leaks = canaries
+        .leaks(&[
+            Output::Bytes {
+                name: "page.formats",
+                bytes: snapshot_text.as_bytes(),
+            },
+            Output::Bytes {
+                name: "page.evaluate",
+                bytes: evaluated_text.as_bytes(),
+            },
+            Output::Bytes {
+                name: "stderr",
+                bytes: stderr.as_bytes(),
+            },
+            Output::Path(env.home()),
+        ])
+        .unwrap();
+    assert!(leaks.is_empty(), "canary leaked: {leaks:?}");
 
     let html = snapshot["result"]["html"].as_str().unwrap_or_default();
     let markdown = snapshot["result"]["markdown"].as_str().unwrap_or_default();
     let evaluated_value = evaluated["result"]["value"].as_str().unwrap_or_default();
-    assert!(
-        !html.contains(&password)
-            && !markdown.contains(&password)
-            && !evaluated_value.contains(&password),
-        "raw password leaked: html={html} markdown={markdown} eval={evaluated}"
-    );
     assert!(
         html.contains("type=\"password\"")
             && html.contains("%run_state.key_reference%")

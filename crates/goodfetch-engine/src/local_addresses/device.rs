@@ -18,7 +18,7 @@ use std::sync::Arc;
 /// which each outbound socket binds on Linux (`SO_BINDTODEVICE`), macOS and
 /// illumos (`IP_BOUND_IF`, `IPV6_BOUND_IF`).
 #[cfg(target_os = "linux")]
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Device(Option<Arc<str>>);
 
 #[cfg(target_os = "linux")]
@@ -48,7 +48,7 @@ impl Device {
 /// illumos. The index is read once, when the binding is built, as the
 /// Session's addresses are.
 #[cfg(any(target_os = "macos", target_os = "illumos"))]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Device {
     /// The Session names no interface.
     #[default]
@@ -99,7 +99,7 @@ impl Device {
 /// its own route and an administrator can change this with `WeakHostSend`
 /// (ADR 0044).
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "illumos")))]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Device;
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "illumos")))]

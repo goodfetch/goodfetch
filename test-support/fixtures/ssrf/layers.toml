@@ -153,7 +153,7 @@ runners = [
 ]
 
 [layers.chromium_request_kinds]
-summary = "A browser Session on Chromium through Collie's executable: each case as the Proving ground's request kinds page makes it (ADR 0014: a subresource, an out-of-process frame's request, a dedicated and a shared worker's, a service worker's as it installs, a WebSocket), every case of a kind from one page, the Proving ground's request record the oracle and the Run trace's `page.request_failed` the typed refusal; a case a kind never brings to the engine (a URL the WHATWG parser refuses; `0.0.0.0` and `::`, which Chromium refuses to a `fetch` itself; a dedicated or service worker's domain policy refusals, which no record sees, #632's gap) reaches nothing, with no refusal recorded."
+summary = "A browser Session on Chromium through Collie's executable: each case as the Proving ground's request kinds page makes it (ADR 0014: a subresource, an out-of-process frame's request, a dedicated and a shared worker's, a service worker's as it installs, a WebSocket), every case of a kind from one page, the Proving ground's request record the oracle and the Run trace's `page.request_failed` (or `service_worker.request` failure for a service worker) the typed refusal; a case a kind never brings to the engine (a URL the WHATWG parser refuses; `0.0.0.0` and `::`, which Chromium refuses to a `fetch` itself) reaches nothing, with no refusal recorded."
 runners = [
     { test = "crates/goodfetch-collie/tests/it/request_kinds.rs::every_address_case_of_the_ssrf_table_is_refused_for_each_kind_of_request_on_chromium", families = [
         "encoding",

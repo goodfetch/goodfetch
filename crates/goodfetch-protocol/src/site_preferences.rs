@@ -7,7 +7,7 @@
 //! them against. Whether a program's own navigation reads robots.txt for
 //! Provenance is a setting too, off by default (ticket #2448).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
@@ -32,83 +32,166 @@ pub const PERSONAL_DATA_NOTICE: SharedTypeValue = SharedTypeValue {
     arrived_in: ARRIVED_IN,
 };
 
+/// Maximum recursion depth when walking a caller-supplied JSON Schema.
+const MAX_SCHEMA_DEPTH: usize = 64;
+
+/// Maximum schema nodes visited per call, bounding work on pathological schemas.
+const MAX_SCHEMA_NODES: usize = 10_000;
+
 /// The field paths in `schema` marked with `"x-goodfetch-personal": true`
 /// (ADR 0016), sorted and deduplicated.
 ///
 /// Walks object `properties` (joining nested names with `.`), array `items`
 /// and `prefixItems` (`[]`), `additionalProperties`, schema combinators
 /// (`allOf`, `anyOf`, `oneOf`, `if`, `then`, `else`), and local `$ref` pointers
-/// into `$defs` or `definitions`, stopping on reference cycles.
+/// into `$defs` or `definitions`. Memoizes each `$ref` target's relative
+/// personal-field paths and caps recursion depth and total visited nodes so
+/// cyclic or diamond `$ref` DAGs stay linear and bounded.
 #[must_use]
 pub fn personal_fields(schema: &Value) -> Vec<String> {
+    let mut walker = PersonalWalker {
+        root: schema,
+        visiting: BTreeSet::new(),
+        memo: BTreeMap::new(),
+        visited: 0,
+    };
     let mut found = BTreeSet::new();
-    let mut visiting = BTreeSet::new();
-    collect_personal_fields(schema, schema, "", &mut visiting, &mut found);
+    walker.collect(schema, "", 0, &mut found);
     found.into_iter().collect()
 }
 
-fn collect_personal_fields(
-    root: &Value,
-    node: &Value,
-    path: &str,
-    visiting: &mut BTreeSet<String>,
-    found: &mut BTreeSet<String>,
-) {
-    let Some(object) = node.as_object() else {
-        return;
-    };
-    if object.get(PERSONAL_DATA_KEYWORD) == Some(&Value::Bool(true)) && !path.is_empty() {
-        found.insert(path.to_owned());
-    }
-    if let Some(reference) = object.get("$ref").and_then(Value::as_str)
-        && let Some(target) = resolve_local_ref(root, reference)
-        && visiting.insert(reference.to_owned())
-    {
-        collect_personal_fields(root, target, path, visiting, found);
-        visiting.remove(reference);
-    }
-    if let Some(properties) = object.get("properties").and_then(Value::as_object) {
-        for (name, property) in properties {
-            let child = if path.is_empty() {
-                name.clone()
-            } else {
-                format!("{path}.{name}")
-            };
-            collect_personal_fields(root, property, &child, visiting, found);
+struct PersonalWalker<'schema> {
+    root: &'schema Value,
+    visiting: BTreeSet<String>,
+    memo: BTreeMap<String, Vec<String>>,
+    visited: usize,
+}
+
+impl<'schema> PersonalWalker<'schema> {
+    fn collect(
+        &mut self,
+        node: &'schema Value,
+        path: &str,
+        depth: usize,
+        found: &mut BTreeSet<String>,
+    ) {
+        if depth > MAX_SCHEMA_DEPTH || self.visited >= MAX_SCHEMA_NODES {
+            return;
         }
-    }
-    if let Some(items) = object.get("items") {
-        let item_path = if path.is_empty() {
-            "[]".to_owned()
-        } else {
-            format!("{path}[]")
+        self.visited += 1;
+        let Some(object) = node.as_object() else {
+            return;
         };
-        collect_personal_fields(root, items, &item_path, visiting, found);
-    }
-    if let Some(prefix_items) = object.get("prefixItems").and_then(Value::as_array) {
-        let item_path = if path.is_empty() {
-            "[]".to_owned()
-        } else {
-            format!("{path}[]")
-        };
-        for item in prefix_items {
-            collect_personal_fields(root, item, &item_path, visiting, found);
+        if object.get(PERSONAL_DATA_KEYWORD) == Some(&Value::Bool(true)) && !path.is_empty() {
+            found.insert(path.to_owned());
         }
-    }
-    if let Some(additional) = object.get("additionalProperties") {
-        collect_personal_fields(root, additional, path, visiting, found);
-    }
-    for keyword in ["allOf", "anyOf", "oneOf"] {
-        if let Some(branches) = object.get(keyword).and_then(Value::as_array) {
-            for branch in branches {
-                collect_personal_fields(root, branch, path, visiting, found);
+        if let Some(reference) = object.get("$ref").and_then(Value::as_str) {
+            self.collect_ref(reference, path, depth, found);
+        }
+        if let Some(properties) = object.get("properties").and_then(Value::as_object) {
+            for (name, property) in properties {
+                let child = join_path(path, name);
+                self.collect(property, &child, depth + 1, found);
+            }
+        }
+        if let Some(items) = object.get("items") {
+            let item_path = join_array(path);
+            self.collect(items, &item_path, depth + 1, found);
+        }
+        if let Some(prefix_items) = object.get("prefixItems").and_then(Value::as_array) {
+            let item_path = join_array(path);
+            for item in prefix_items {
+                self.collect(item, &item_path, depth + 1, found);
+            }
+        }
+        if let Some(additional) = object.get("additionalProperties") {
+            self.collect(additional, path, depth + 1, found);
+        }
+        for keyword in ["allOf", "anyOf", "oneOf"] {
+            if let Some(branches) = object.get(keyword).and_then(Value::as_array) {
+                for branch in branches {
+                    self.collect(branch, path, depth + 1, found);
+                }
+            }
+        }
+        for keyword in ["if", "then", "else"] {
+            if let Some(branch) = object.get(keyword) {
+                self.collect(branch, path, depth + 1, found);
             }
         }
     }
-    for keyword in ["if", "then", "else"] {
-        if let Some(branch) = object.get(keyword) {
-            collect_personal_fields(root, branch, path, visiting, found);
+
+    fn collect_ref(
+        &mut self,
+        reference: &str,
+        path: &str,
+        depth: usize,
+        found: &mut BTreeSet<String>,
+    ) {
+        if let Some(relative) = self.memo.get(reference) {
+            for suffix in relative {
+                let combined = combine_relative(path, suffix);
+                if !combined.is_empty() {
+                    found.insert(combined);
+                }
+            }
+            return;
         }
+        let Some(target) = resolve_local_ref(self.root, reference) else {
+            return;
+        };
+        if !self.visiting.insert(reference.to_owned()) {
+            return;
+        }
+        let mut relative_set = BTreeSet::new();
+        if target
+            .as_object()
+            .and_then(|obj| obj.get(PERSONAL_DATA_KEYWORD))
+            == Some(&Value::Bool(true))
+        {
+            relative_set.insert(String::new());
+        }
+        self.collect(target, "", depth + 1, &mut relative_set);
+        self.visiting.remove(reference);
+        let relative: Vec<String> = relative_set.into_iter().collect();
+        for suffix in &relative {
+            let combined = combine_relative(path, suffix);
+            if !combined.is_empty() {
+                found.insert(combined);
+            }
+        }
+        // Only memoize once no active cycle could have truncated this definition.
+        if self.visiting.is_empty() {
+            self.memo.insert(reference.to_owned(), relative);
+        }
+    }
+}
+
+fn join_path(prefix: &str, segment: &str) -> String {
+    if prefix.is_empty() {
+        segment.to_owned()
+    } else {
+        format!("{prefix}.{segment}")
+    }
+}
+
+fn join_array(prefix: &str) -> String {
+    if prefix.is_empty() {
+        "[]".to_owned()
+    } else {
+        format!("{prefix}[]")
+    }
+}
+
+fn combine_relative(prefix: &str, suffix: &str) -> String {
+    if suffix.is_empty() {
+        prefix.to_owned()
+    } else if prefix.is_empty() {
+        suffix.to_owned()
+    } else if suffix.starts_with("[]") {
+        format!("{prefix}{suffix}")
+    } else {
+        format!("{prefix}.{suffix}")
     }
 }
 
@@ -236,6 +319,46 @@ mod tests {
         assert_eq!(
             personal_fields(&schema),
             vec!["attendees[].full_name", "contact.phone", "email"]
+        );
+    }
+
+    #[test]
+    fn personal_fields_bounds_diamond_ref_dags() {
+        let mut defs = serde_json::Map::new();
+        for level in 0..30 {
+            let next = format!("#/$defs/D{}", level + 1);
+            defs.insert(
+                format!("D{level}"),
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "a": { "$ref": next },
+                        "b": { "$ref": next },
+                    }
+                }),
+            );
+        }
+        defs.insert(
+            "D30".to_owned(),
+            json!({
+                "type": "object",
+                "properties": {
+                    "email": { "type": "string", "x-goodfetch-personal": true }
+                }
+            }),
+        );
+        let schema = json!({
+            "type": "object",
+            "$defs": defs,
+            "properties": { "root": { "$ref": "#/$defs/D0" } }
+        });
+
+        let found = personal_fields(&schema);
+        assert!(
+            found
+                .iter()
+                .any(|path| path.rsplit('.').next() == Some("email")),
+            "expected bounded traversal to find email: {found:?}"
         );
     }
 }

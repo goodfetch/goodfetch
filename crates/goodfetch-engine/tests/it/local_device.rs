@@ -82,19 +82,23 @@ fn in_the_namespace_interface_binding_sets_so_bindtodevice() {
                 clock,
             );
 
-            let with_device = LocalBinding::new(addresses, interface, &dns)
-                .connect(target)
-                .await
-                .unwrap();
-            let bound_relay = bound_device(&with_device);
+            let device = goodfetch_engine::local_addresses::Device::of(interface);
+            let none = goodfetch_engine::local_addresses::Device::default();
+            let missing = goodfetch_engine::local_addresses::Device::of(Some("missing_dev0"));
 
-            let without_device = LocalBinding::new(addresses, None, &dns)
-                .connect(target)
-                .await
-                .unwrap();
-            let unbound_relay = bound_device(&without_device);
-
-            let missing_relay = LocalBinding::new(addresses, Some("missing_dev0"), &dns)
+            let bound_relay = bound_device(
+                &LocalBinding::new(addresses, device.clone(), &dns)
+                    .connect(target)
+                    .await
+                    .unwrap(),
+            );
+            let unbound_relay = bound_device(
+                &LocalBinding::new(addresses, none.clone(), &dns)
+                    .connect(target)
+                    .await
+                    .unwrap(),
+            );
+            let missing_relay = LocalBinding::new(addresses, missing, &dns)
                 .connect(target)
                 .await
                 .is_err();
@@ -104,35 +108,24 @@ fn in_the_namespace_interface_binding_sets_so_bindtodevice() {
                 clock,
                 delays: Delays::default(),
             };
-            let connected_bound = http_client::connect(
-                "127.0.0.1",
-                target.port(),
-                &Egress {
-                    local_ipv4: addresses.ipv4,
-                    local_ipv6: addresses.ipv6,
-                    local_interface: interface.map(str::to_owned),
-                    proxy: None,
-                },
-                &connecting,
-            )
-            .await
-            .unwrap();
-            let bound_client = bound_device(&connected_bound.stream);
-
-            let connected_unbound = http_client::connect(
-                "127.0.0.1",
-                target.port(),
-                &Egress {
-                    local_ipv4: addresses.ipv4,
-                    local_ipv6: addresses.ipv6,
-                    local_interface: None,
-                    proxy: None,
-                },
-                &connecting,
-            )
-            .await
-            .unwrap();
-            let unbound_client = bound_device(&connected_unbound.stream);
+            let egress = |local_device| Egress {
+                local_ipv4: addresses.ipv4,
+                local_ipv6: addresses.ipv6,
+                local_device,
+                proxy: None,
+            };
+            let bound_client = bound_device(
+                &http_client::connect("127.0.0.1", target.port(), &egress(device), &connecting)
+                    .await
+                    .unwrap()
+                    .stream,
+            );
+            let unbound_client = bound_device(
+                &http_client::connect("127.0.0.1", target.port(), &egress(none), &connecting)
+                    .await
+                    .unwrap()
+                    .stream,
+            );
 
             let _ = accept.await;
             (

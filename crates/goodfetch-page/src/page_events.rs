@@ -1,8 +1,9 @@
 //! A page's events and the bodies of its responses (spec #577's `network`;
 //! ADRs 0081, 0085, 0118 and 0121). Each open page has one reader of its
-//! target's events, and one of each out-of-process frame's, which follow
-//! every request through its hops, response, bytes and end, and send an
-//! event of the page to each `page.on` call that listens to it: on that
+//! target's events, and one of each out-of-process frame's and dedicated
+//! worker's, which follow every request through its hops, response, bytes and
+//! end, and send an event of the page to each `page.on` call that listens to
+//! it: on that
 //! call alone, so only the Connection that armed it gets the page's
 //! traffic, under the credits its Client grants it (ADR 0024), lossless
 //! (`LISTENER_LIMIT` unsent at most, past which the call raises
@@ -1222,10 +1223,11 @@ async fn read(mut followed: FollowedEvents, shared: Arc<Shared>) {
     }
 }
 
-/// Reads the network events, console and uncaught exceptions of one of the
-/// page's out-of-process frames, on its `session`, until its target goes
-/// (`gone`), as the page's own: a document request the page started and
-/// the frame finished ends there.
+/// Reads the network events (and, for out-of-process frames, console and
+/// uncaught exceptions) of one of the page's out-of-process frames or
+/// dedicated workers, on its `session`, until its target goes (`gone`), as
+/// the page's own: a document request the page started and the frame finished
+/// ends there.
 async fn read_frame(
     mut followed: FollowedEvents,
     gone: CancellationToken,

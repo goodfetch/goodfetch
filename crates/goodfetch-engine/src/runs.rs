@@ -1427,6 +1427,9 @@ pub struct Runs {
     /// What the engine gives its Runs.
     engine: EngineContext,
     connection: Option<ConnectionId>,
+    /// The Client of the Connection this handle serves, which answers `caller:`
+    /// Secret references for Runs started or resumed through it (ADR 0092).
+    caller: Option<crate::client::Client>,
     limits: Arc<Limits>,
     /// The Secret-provider driver, which each Run resolves through.
     secrets: Secrets,
@@ -1726,6 +1729,7 @@ impl Runs {
             commands,
             engine: setup.engine.clone(),
             connection: None,
+            caller: None,
             limits: Arc::new(limits),
             secrets: setup.secrets.clone(),
             clean_up: CleanUpRules::of(&setup),
@@ -1914,7 +1918,13 @@ impl Runs {
             .as_ref()
             .map(|settings| self.controls.switched_off(settings.resolved()))
             .unwrap_or_default();
-        if start.run_id.is_none() && switched.unchains() {
+        let needs_caller_id = self.caller.is_some()
+            && keys::layer_set_key_reference(start.settings.as_ref()).is_some_and(
+                |(reference, _)| {
+                    reference.provider() == goodfetch_protocol::secret_reference::Provider::Caller
+                },
+            );
+        if start.run_id.is_none() && (switched.unchains() || needs_caller_id) {
             let (answer, answered) = oneshot::channel();
             self.commands
                 .send(Command::GenerateId(answer))
@@ -1954,6 +1964,9 @@ impl Runs {
     /// [`Runs::start_chosen`] before its switched-off controls are reported.
     async fn start_reported(&self, start: Start) -> Result<Started, StartError> {
         let secrets = run_secrets(&self.secrets, start.settings.as_ref());
+        if let (Some(run_id), Some(client)) = (&start.run_id, &self.caller) {
+            secrets.answered_by(run_id.clone(), client.clone());
+        }
         // Only a reference a layer set resolves here: the default's item,
         // in the OS keychain or the encrypted local file, is the engine's
         // own, made when run state first wraps a data key with it (#617).
@@ -1983,7 +1996,13 @@ impl Runs {
             ))
             .await
             .map_err(|_| StartError::Stopped)?;
-        answered.await.map_err(|_| StartError::Stopped)?
+        let started = answered.await.map_err(|_| StartError::Stopped)??;
+        if let (Started::New(run), Some(client)) = (&started, &self.caller) {
+            run.keys
+                .secrets()
+                .answered_by(run.identity.id().clone(), client.clone());
+        }
+        Ok(started)
     }
 
     /// Lets the Run `run_id` finish, and answers its Run report once it
@@ -2306,6 +2325,9 @@ impl Runs {
     /// [`Runs::resume`] once its entries' chaining is set.
     async fn resume_unchained(&self, resume: Resume) -> Result<Resumed, RunError> {
         let secrets = run_secrets(&self.secrets, resume.settings.as_ref());
+        if let Some(client) = &self.caller {
+            secrets.answered_by(resume.run_id.clone(), client.clone());
+        }
         let unwrapped = self.unwrapped_key(&resume, &secrets).await?;
         let (stored, key) = match unwrapped {
             Some(Unwrapped { stored, key }) => (Some(stored), Some(key)),
@@ -2775,6 +2797,15 @@ impl Runs {
     pub(crate) fn on_connection(&self, connection: ConnectionId) -> Self {
         Self {
             connection: Some(connection),
+            ..self.clone()
+        }
+    }
+
+    /// The same Runs, each Run started or resumed through them resolving
+    /// `caller:` Secret references through `client` (ADR 0092).
+    pub(crate) fn for_client(&self, client: crate::client::Client) -> Self {
+        Self {
+            caller: Some(client),
             ..self.clone()
         }
     }
@@ -4586,6 +4617,7 @@ impl Registry {
                 .expect("invariant: the registry runs while a handle sends to it"),
             engine: self.setup.engine.clone(),
             connection,
+            caller: None,
             limits: Arc::clone(&self.limits),
             secrets: self.setup.secrets.clone(),
             clean_up: CleanUpRules::of(&self.setup),

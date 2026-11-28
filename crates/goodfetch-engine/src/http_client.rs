@@ -94,12 +94,13 @@ pub struct LocalBinding {
 }
 
 impl LocalBinding {
-    /// The Session holding `addresses` (from `interface`, if named), resolving
-    /// through `dns` with its queries sent from them.
-    pub fn new(addresses: SessionAddresses, interface: Option<&str>, dns: &Dns) -> Self {
+    /// The Session holding `addresses` (bound to `device`, resolved once on a
+    /// blocking thread when the Session opened), resolving through `dns` with
+    /// its queries sent from them.
+    pub fn new(addresses: SessionAddresses, device: Device, dns: &Dns) -> Self {
         Self {
             addresses,
-            device: Device::of(interface),
+            device,
             dns: dns.from_local_addresses(addresses.ipv4, addresses.ipv6),
         }
     }
@@ -189,18 +190,19 @@ impl std::fmt::Debug for LocalBinding {
 }
 
 /// Where a Session's connections leave from (ADR 0044): the local address
-/// of each family it holds, its network interface's name when an interface
-/// gave them, and its proxy, which its connections reach in place of the
-/// site.
+/// of each family it holds, its network device when an interface gave them
+/// (resolved once on a blocking thread), and its proxy, which its connections
+/// reach in place of the site.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Egress {
     /// The IPv4 address its connections bind, when it holds one.
     pub local_ipv4: Option<Ipv4Addr>,
     /// The IPv6 address its connections bind, when it holds one.
     pub local_ipv6: Option<Ipv6Addr>,
-    /// The interface name its sockets bind to (`SO_BINDTODEVICE` on Linux,
-    /// `IP_BOUND_IF` on macOS and illumos; ADR 0044).
-    pub local_interface: Option<String>,
+    /// The network device its sockets bind (`SO_BINDTODEVICE` on Linux,
+    /// `IP_BOUND_IF` on macOS and illumos; ADR 0044), resolved once before
+    /// connecting so async workers never block.
+    pub local_device: Device,
     /// Its proxy's host and port.
     pub proxy: Option<(String, u16)>,
 }
@@ -282,23 +284,20 @@ pub async fn connect(
         families: egress.families(),
     };
     let dns = &connecting.dns;
-    let device = Device::of(egress.local_interface.as_deref());
+    let device = &egress.local_device;
     let raced = race
         .connect(
             name,
             port,
             dns.addresses(name, IpFamily::Ipv6, route),
             dns.addresses(name, IpFamily::Ipv4, route),
-            |address| {
-                let device = device.clone();
-                async move {
-                    attempt(
-                        address,
-                        egress.local_address(family_of(address.ip())),
-                        Some(&device),
-                    )
-                    .await
-                }
+            |address| async move {
+                attempt(
+                    address,
+                    egress.local_address(family_of(address.ip())),
+                    Some(device),
+                )
+                .await
             },
         )
         .await;

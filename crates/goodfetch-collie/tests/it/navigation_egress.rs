@@ -1103,6 +1103,7 @@ mod linux {
     /// A loopback HTTP server answering `200 OK` with `Connection: close` so
     /// each navigation opens a fresh TCP connection through the egress relay.
     struct PublicStandIn {
+        address: SocketAddr,
         port: u16,
         accepted: Arc<AtomicUsize>,
         stop: Arc<AtomicBool>,
@@ -1112,48 +1113,45 @@ mod linux {
     impl PublicStandIn {
         fn start(address: Ipv4Addr) -> Self {
             let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(address), 0)).unwrap();
-            listener.set_nonblocking(true).unwrap();
-            let port = listener.local_addr().unwrap().port();
+            let bound = listener.local_addr().unwrap();
+            let port = bound.port();
             let accepted = Arc::new(AtomicUsize::new(0));
             let stop = Arc::new(AtomicBool::new(false));
             let accepted_in_thread = Arc::clone(&accepted);
             let stop_in_thread = Arc::clone(&stop);
             let join = thread::spawn(move || {
-                while !stop_in_thread.load(Ordering::Relaxed) {
-                    match listener.accept() {
-                        Ok((mut stream, _)) => {
-                            accepted_in_thread.fetch_add(1, Ordering::SeqCst);
-                            let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-                            let mut buf = [0u8; 4096];
-                            let mut read = 0;
-                            while read < buf.len() {
-                                match stream.read(&mut buf[read..]) {
-                                    Ok(0) | Err(_) => break,
-                                    Ok(n) => {
-                                        read += n;
-                                        if buf[..read].windows(4).any(|w| w == b"\r\n\r\n") {
-                                            break;
-                                        }
-                                    }
+                for stream in listener.incoming() {
+                    if stop_in_thread.load(Ordering::Acquire) {
+                        break;
+                    }
+                    let Ok(mut stream) = stream else { break };
+                    accepted_in_thread.fetch_add(1, Ordering::SeqCst);
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                    let mut buf = [0u8; 4096];
+                    let mut read = 0;
+                    while read < buf.len() {
+                        match stream.read(&mut buf[read..]) {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => {
+                                read += n;
+                                if buf[..read].windows(4).any(|w| w == b"\r\n\r\n") {
+                                    break;
                                 }
                             }
-                            let body = b"<html><head><link rel=\"icon\" href=\"data:,\"></head><body>ok</body></html>";
-                            let response = format!(
-                                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
-                                body.len()
-                            );
-                            let _ = stream.write_all(response.as_bytes());
-                            let _ = stream.write_all(body);
-                            let _ = stream.flush();
                         }
-                        Err(error) if error.kind() == ErrorKind::WouldBlock => {
-                            thread::sleep(Duration::from_millis(5));
-                        }
-                        Err(_) => break,
                     }
+                    let body = b"<html><head><link rel=\"icon\" href=\"data:,\"></head><body>ok</body></html>";
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(response.as_bytes());
+                    let _ = stream.write_all(body);
+                    let _ = stream.flush();
                 }
             });
             Self {
+                address: bound,
                 port,
                 accepted,
                 stop,
@@ -1168,7 +1166,8 @@ mod linux {
 
     impl Drop for PublicStandIn {
         fn drop(&mut self) {
-            self.stop.store(true, Ordering::Relaxed);
+            self.stop.store(true, Ordering::Release);
+            let _ = std::net::TcpStream::connect(self.address);
             if let Some(join) = self.join.take() {
                 let _ = join.join();
             }

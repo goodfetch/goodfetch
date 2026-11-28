@@ -495,7 +495,7 @@ impl Pool {
         ordinal: u64,
     ) -> Result<Option<Local>, LocalFailure> {
         let shared = &self.shared;
-        let (addresses, interface) = match own.get(EGRESS_LOCAL_ADDRESSES.name) {
+        let (addresses, device) = match own.get(EGRESS_LOCAL_ADDRESSES.name) {
             Some(serde_json::Value::Null) => return Ok(None),
             Some(value) => {
                 let parsed = LocalAddresses::parse(value)
@@ -507,33 +507,37 @@ impl Pool {
                     .map(|settings| BlockSizes::of(settings.resolved()))
                     .unwrap_or_default();
                 let rotation = Rotation::new(parsed, blocks);
-                let interface = rotation.interface().map(str::to_owned);
-                let addresses = shared
+                let (addresses, device) = shared
                     .run
                     .identity
                     .owner()
                     .blocking(move || {
                         rotation.check(&local_addresses::System)?;
-                        rotation.session(&local_addresses::System, 0)
+                        let addresses = rotation.session(&local_addresses::System, 0)?;
+                        let device = local_addresses::Device::of(rotation.interface());
+                        Ok((addresses, device))
                     })
                     .await
                     .map_err(LocalFailure::Unavailable)?;
-                (addresses, interface)
+                (addresses, device)
             }
             None => {
                 let Some(rotation) = &shared.rotation else {
                     return Ok(None);
                 };
-                let interface = rotation.interface().map(str::to_owned);
                 let rotation = Arc::clone(rotation);
-                let addresses = shared
+                let (addresses, device) = shared
                     .run
                     .identity
                     .owner()
-                    .blocking(move || rotation.session(&local_addresses::System, ordinal))
+                    .blocking(move || {
+                        let addresses = rotation.session(&local_addresses::System, ordinal)?;
+                        let device = local_addresses::Device::of(rotation.interface());
+                        Ok((addresses, device))
+                    })
                     .await
                     .map_err(LocalFailure::Unavailable)?;
-                (addresses, interface)
+                (addresses, device)
             }
         };
         let clock = shared.run.identity.clock();
@@ -554,7 +558,7 @@ impl Pool {
             .map_err(LocalFailure::Unreadable)?;
         Ok(Some(Local {
             addresses,
-            interface,
+            device,
             dns,
         }))
     }

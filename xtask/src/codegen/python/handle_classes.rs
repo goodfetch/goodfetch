@@ -983,3 +983,21 @@ pub(super) fn handles_module(layer: &Layer, handles: &[Handle<'_>]) -> Result<St
     text.push_str(&body);
     Ok(text)
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{Imports, annotation};
+
+    /// A schema annotated only with `"x-goodfetch-personal": true` still maps
+    /// to Python `Any` rather than failing annotation lookup (ADR 0016, ticket 673).
+    ///
+    /// Covers: story:4-78
+    #[test]
+    fn annotation_accepts_personal_data_keyword() {
+        let mut imports = Imports::default();
+        let schema = json!({ "description": "personal field", "x-goodfetch-personal": true });
+        assert_eq!(annotation(&schema, &mut imports).as_deref(), Some("Any"));
+    }
+}

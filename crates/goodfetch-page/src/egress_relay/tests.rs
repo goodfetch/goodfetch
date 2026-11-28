@@ -587,53 +587,52 @@ fn through_an_upstream_proxy_a_private_answer_is_refused_before_the_proxy_sees_i
 /// the private address (ADR 0017, ADR 0067; ticket 650).
 ///
 /// Covers: story:4-92, story:4-10, error:egress_refused
-#[test]
-fn cve_2026_32857_a_changed_dns_answer_to_metadata_or_intranet_is_refused_at_the_egress_relay() {
-    for target in [
-        IpAddr::V4(Ipv4Addr::new(169, 254, 169, 254)),
-        IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
-    ] {
-        let resolver = ScriptedResolver::new([
-            goodfetch_test_support::Lookup::new("rebind.advisory.test", [PUBLIC]),
-            goodfetch_test_support::Lookup::new("rebind.advisory.test", [target]),
-        ]);
-        let network = Scripted::new(Some(&resolver), Far::Site);
-        let told = Told::default();
-        let relaying = relaying(every_host(), Upstream::Direct);
-        let runtime = goodfetch_test_support::runtime();
+#[rstest::rstest]
+#[case::metadata(IpAddr::V4(Ipv4Addr::new(169, 254, 169, 254)))]
+#[case::intranet(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)))]
+fn cve_2026_32857_a_changed_dns_answer_to_metadata_or_intranet_is_refused_at_the_egress_relay(
+    #[case] target: IpAddr,
+) {
+    let resolver = ScriptedResolver::new([
+        goodfetch_test_support::Lookup::new("rebind.advisory.test", [PUBLIC]),
+        goodfetch_test_support::Lookup::new("rebind.advisory.test", [target]),
+    ]);
+    let network = Scripted::new(Some(&resolver), Far::Site);
+    let told = Told::default();
+    let relaying = relaying(every_host(), Upstream::Direct);
+    let runtime = goodfetch_test_support::runtime();
 
-        let first = runtime.block_on(through(
-            &connect("rebind.advisory.test:443"),
-            GET,
-            &relaying,
-            &network,
-            &told,
-        ));
-        let second = runtime.block_on(through(
-            &connect("rebind.advisory.test:443"),
-            GET,
-            &relaying,
-            &network,
-            &told,
-        ));
+    let first = runtime.block_on(through(
+        &connect("rebind.advisory.test:443"),
+        GET,
+        &relaying,
+        &network,
+        &told,
+    ));
+    let second = runtime.block_on(through(
+        &connect("rebind.advisory.test:443"),
+        GET,
+        &relaying,
+        &network,
+        &told,
+    ));
 
-        assert_eq!(
-            (
-                first.0.lines().next(),
-                matches!(first.1, Served::Relayed { .. }),
-                second.0.lines().next(),
-                second.1,
-                network.connections(),
-            ),
-            (
-                Some("HTTP/1.1 200 Connection Established"),
-                true,
-                Some("HTTP/1.1 403 Forbidden"),
-                Served::Refused,
-                vec![Some(SocketAddr::new(PUBLIC, 443))],
-            )
-        );
-    }
+    assert_eq!(
+        (
+            first.0.lines().next(),
+            matches!(first.1, Served::Relayed { .. }),
+            second.0.lines().next(),
+            second.1,
+            network.connections(),
+        ),
+        (
+            Some("HTTP/1.1 200 Connection Established"),
+            true,
+            Some("HTTP/1.1 403 Forbidden"),
+            Served::Refused,
+            vec![Some(SocketAddr::new(PUBLIC, 443))],
+        )
+    );
 }
 
 /// The name of the `https://` stand-in proxy, which its leaf names.
@@ -1830,7 +1829,7 @@ fn bound_network(case: &SsrfCase, dns: &goodfetch_engine::dns::Dns) -> super::Tc
                 ipv4: Some(Ipv4Addr::LOCALHOST),
                 ipv6: None,
             },
-            None,
+            goodfetch_engine::local_addresses::Device::default(),
             dns,
         )),
     }

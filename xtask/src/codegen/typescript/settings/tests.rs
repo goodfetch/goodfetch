@@ -321,3 +321,22 @@ fn a_deprecated_setting_carries_its_deprecation_in_its_tsdoc_and_the_walkers_reg
         "{module}"
     );
 }
+
+/// `"x-goodfetch-personal": true` on a setting value schema is accepted by
+/// TypeScript settings codegen as an untyped annotation (ADR 0016, ticket 673).
+///
+/// Covers: story:4-78
+#[test]
+fn settings_module_accepts_personal_data_keyword() {
+    let settings = [setting(
+        "user.email",
+        json!({ "type": "string", "x-goodfetch-personal": true }),
+        false,
+        &["run"],
+    )];
+    let module = settings_module(&settings).unwrap();
+    assert!(
+        interface(&module, "RunSettings").contains("readonly email?: string;"),
+        "{module}"
+    );
+}

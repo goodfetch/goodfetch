@@ -69,12 +69,36 @@ async fn use_secret(params: Value, context: CallContext) -> Result<Value, CallEr
     Ok(json!({ "text": value.expose_secret() }))
 }
 
+/// Seals a field in a Run so its wrapped data key is stored in run state.
+const SEAL_VALUE: Operation = Operation {
+    name: "test.seal_value",
+    description: "Seals one value so the Run wraps and stores its data key.",
+    ..USE_SECRET
+};
+
+const SEALED_COLUMN: crate::run_state::SecretColumn = crate::run_state::SecretColumn {
+    table: "test_secrets",
+    column: "value",
+};
+
+async fn seal_value(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
+    let run = context.runs().live(run_id).await.unwrap();
+    let _ = run
+        .keys
+        .seal(&SEALED_COLUMN, "1", b"sealed-row")
+        .await
+        .expect("seal with caller:run_kek must succeed");
+    Ok(json!({ "sealed": true }))
+}
+
 fn engine() -> super::Engine {
     engine_with(
         Product::Collie,
         Some(
             Contribution::new("test-use-secret")
-                .with_handler(Handler::new(&USE_SECRET, use_secret)),
+                .with_handler(Handler::new(&USE_SECRET, use_secret))
+                .with_handler(Handler::new(&SEAL_VALUE, seal_value)),
         ),
     )
 }
@@ -303,12 +327,19 @@ fn a_caller_reference_no_resolver_answers_is_resolver_failed_naming_resolve_secr
     let cancelled = received
         .iter()
         .any(|message| message["method"] == json!("$/cancel"));
-    let error = received
+    let error_object = received
         .iter()
         .find(|message| message.get("method").is_none() && message["id"] == json!(2))
-        .map(|message| message["error"]["data"].clone())
+        .map(|message| message["error"].clone())
         .unwrap_or_default();
+    let error = &error_object["data"];
     let fix = error["fix"].as_str().unwrap_or_default();
+    assert!(
+        !error_object
+            .to_string()
+            .contains("the program's resolver said so"),
+        "client failure text leaked into error: {error_object}"
+    );
     assert_eq!(
         (
             request_id.is_some(),
@@ -326,6 +357,151 @@ fn a_caller_reference_no_resolver_answers_is_resolver_failed_naming_resolve_secr
         ),
         "{error}"
     );
+}
+
+fn start_seal_and_pause(env: &TestEnv, kek: &str) -> (String, Vec<Value>) {
+    let start_kek = kek.to_owned();
+    let (started_run_id, asked_at_start, paused_ok) =
+        attached_on(&engine(), env, |mut client: Client| async move {
+            let mut received = Vec::new();
+            let mut asked = Vec::new();
+            opened(&mut client).await;
+            let start_reply = calling(
+                &mut client,
+                1,
+                "run.start",
+                json!({}),
+                &mut received,
+                async |client: &mut Client, message: &Value| {
+                    if message["method"] == json!("secrets.resolve") {
+                        asked.push(message["params"].clone());
+                        client.send(&[reply(message, &start_kek)]).await;
+                    }
+                },
+            )
+            .await;
+            let run_id = start_reply["result"]["run_id"].as_str().map(str::to_owned);
+            let mut paused = false;
+            if let Some(id) = &run_id {
+                let seal_reply = calling(
+                    &mut client,
+                    2,
+                    "test.seal_value",
+                    json!({ "run_id": id }),
+                    &mut received,
+                    async |client: &mut Client, message: &Value| {
+                        if message["method"] == json!("secrets.resolve") {
+                            client.send(&[reply(message, &start_kek)]).await;
+                        }
+                    },
+                )
+                .await;
+                assert!(
+                    seal_reply.get("result").is_some(),
+                    "test.seal_value failed: {seal_reply}"
+                );
+                let pause_reply = calling(
+                    &mut client,
+                    3,
+                    "run.pause",
+                    json!({ "run_id": id }),
+                    &mut received,
+                    async |_, _| {},
+                )
+                .await;
+                paused = pause_reply.get("result").is_some();
+            }
+            client.close().await;
+            while let Some(message) = client.next().await {
+                received.push(message);
+            }
+            (run_id, asked, paused)
+        });
+    let run_id = started_run_id.expect("run.start with caller: key_reference must succeed");
+    assert!(paused_ok, "run.pause must succeed before run.resume");
+    (run_id, asked_at_start)
+}
+
+/// A `caller:` reference set as `run_state.key_reference` is resolved through
+/// `secrets.resolve` at `run.start` (even with no explicit `run_id`) and again
+/// at `run.resume` when unwrapping the run's data key (ADR 0092, issue 652).
+///
+/// Covers: story:4-59, setting:run_state.key_reference, operation:run.start, operation:run.resume
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test writes the Goodfetch home's user configuration itself"
+)]
+fn a_caller_run_state_key_reference_is_resolved_at_run_start_and_resume() {
+    let env = TestEnv::new();
+    let folder = env.home().join("1");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("configuration.toml"),
+        "version = \"0.1\"\n\n[settings]\nrun_state.key_reference = \"caller:run_kek\"\n",
+    )
+    .unwrap();
+    let mut canaries = Canaries::new(env.seed());
+    let kek = canaries.plant(SecretKind::RunDataKey).value().to_owned();
+    let resume_kek = kek.clone();
+    let (run_id, asked_at_start) = start_seal_and_pause(&env, &kek);
+
+    let resume_run_id = run_id.clone();
+    let (resumed_ok, asked_at_resume) =
+        attached_on(&engine(), &env, |mut client: Client| async move {
+            let mut received = Vec::new();
+            let mut asked = Vec::new();
+            opened(&mut client).await;
+            let resume_reply = calling(
+                &mut client,
+                1,
+                "run.resume",
+                json!({ "run_id": resume_run_id }),
+                &mut received,
+                async |client: &mut Client, message: &Value| {
+                    if message["method"] == json!("secrets.resolve") {
+                        asked.push(message["params"].clone());
+                        client.send(&[reply(message, &resume_kek)]).await;
+                    }
+                },
+            )
+            .await;
+            let ok = resume_reply.get("result").is_some();
+            if ok {
+                let _ = calling(
+                    &mut client,
+                    2,
+                    "run.finish",
+                    json!({ "run_id": resume_run_id }),
+                    &mut received,
+                    async |_, _| {},
+                )
+                .await;
+            }
+            client.close().await;
+            while let Some(message) = client.next().await {
+                received.push(message);
+            }
+            (ok, asked)
+        });
+
+    let leaks: Vec<String> = canaries
+        .leaks(&[Output::Path(env.folder())])
+        .unwrap()
+        .into_iter()
+        .map(|hit| format!("{:?} in {}", hit.encoding, hit.output))
+        .collect();
+    assert!(
+        resumed_ok,
+        "run.resume with caller: key_reference must succeed"
+    );
+    assert_eq!(asked_at_start.len(), 1, "{asked_at_start:?}");
+    assert_eq!(asked_at_start[0]["name"], json!("run_kek"));
+    assert_eq!(asked_at_start[0]["run_id"], json!(run_id));
+    assert_eq!(asked_at_resume.len(), 1, "{asked_at_resume:?}");
+    assert_eq!(asked_at_resume[0]["name"], json!("run_kek"));
+    assert_eq!(asked_at_resume[0]["run_id"], json!(run_id));
+    assert!(leaks.is_empty(), "caller KEK leaked to disk: {leaks:?}");
 }
 
 /// On a Daemon, a Connection that did not open the Run is never asked: its

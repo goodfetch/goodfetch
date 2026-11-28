@@ -158,3 +158,21 @@ pub(super) fn check_opened(handles: &[Handle<'_>]) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::typed;
+
+    /// `"x-goodfetch-personal"` is ignored when matching a handle read's type
+    /// against its opener's property (ADR 0016, ticket 673).
+    ///
+    /// Covers: story:4-78
+    #[test]
+    fn typed_ignores_personal_data_keyword() {
+        let annotated = json!({ "type": "string", "x-goodfetch-personal": true });
+        let plain = json!({ "type": "string" });
+        assert_eq!(typed(&annotated), plain);
+    }
+}

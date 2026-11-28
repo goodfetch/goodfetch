@@ -313,9 +313,6 @@ async fn start(
         .map_err(start_error)?;
     match started {
         Started::New(run) => {
-            run.keys
-                .secrets()
-                .answered_by(run.identity.id().clone(), context.client().clone());
             let run = CrawlRun::of(&run, &context);
             notify_personal_data(&run, &opening, settings.resolved(), &context).await;
             let started = new_foxhound_run(run.identity.id().clone());

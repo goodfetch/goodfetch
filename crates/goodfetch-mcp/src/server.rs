@@ -226,13 +226,7 @@ impl ServerHandler for McpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl std::future::Future<Output = Result<ListToolsResult, McpError>> + Send + '_ {
-        let tools = self
-            .options
-            .profile
-            .tools
-            .iter()
-            .map(|projected| projected.tool.clone())
-            .collect();
+        let tools = self.options.profile.list_tools();
         std::future::ready(Ok(ListToolsResult::with_all_items(tools)))
     }
 

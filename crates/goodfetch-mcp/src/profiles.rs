@@ -9,6 +9,7 @@ use goodfetch_protocol::catalog::{Operation, Product};
 pub use goodfetch_protocol::mcp_projection::{
     KEPT_OFF_OPERATIONS, ProfileName, is_mcp_eligible, profile_operations,
 };
+use rmcp::model::Tool;
 
 use crate::projection::{ProjectedTool, project_operation};
 
@@ -18,7 +19,7 @@ pub struct ResolvedProfile {
     /// The profile's name (e.g. `"browser"`).
     pub name: String,
     /// Projected tools sorted by tool name for deterministic snapshots.
-    pub tools: Vec<ProjectedTool>,
+    tools: Vec<ProjectedTool>,
     /// Lookup from MCP tool name to index in `tools`.
     index: BTreeMap<String, usize>,
 }
@@ -45,9 +46,24 @@ impl ResolvedProfile {
         Self { name, tools, index }
     }
 
+    /// Returns the MCP tool descriptors exposed by this profile in sorted order.
+    #[must_use]
+    pub fn list_tools(&self) -> Vec<Tool> {
+        self.tools
+            .iter()
+            .map(|projected| projected.tool.clone())
+            .collect()
+    }
+
     /// Looks up a projected tool by its MCP tool name.
     #[must_use]
     pub fn get(&self, name: &str) -> Option<&ProjectedTool> {
         self.index.get(name).map(|&idx| &self.tools[idx])
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn projected_tools(&self) -> &[ProjectedTool] {
+        &self.tools
     }
 }

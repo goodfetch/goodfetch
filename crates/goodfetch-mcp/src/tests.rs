@@ -726,7 +726,7 @@ fn clean_link_strips_credentials_query_and_fragment() {
 fn first_profile_tools_list_is_a_snapshot() {
     let profile = ResolvedProfile::for_product(Product::Collie, ProfileName::Browser);
     let summary: Vec<Value> = profile
-        .tools
+        .projected_tools()
         .iter()
         .map(|projected| {
             json!({
@@ -1003,7 +1003,7 @@ fn per_profile_tools_list_bytes_and_named_workload_results_are_snapshots() {
         let mut per_profile = Map::new();
         for profile_name in ProfileName::ALL {
             let resolved = ResolvedProfile::for_product(product, profile_name);
-            let tools: Vec<_> = resolved.tools.iter().map(|p| p.tool.clone()).collect();
+            let tools: Vec<_> = resolved.list_tools();
             let bytes = tools_list_wire_bytes(&tools);
             per_profile.insert(
                 profile_name.as_str().to_owned(),
@@ -1105,14 +1105,14 @@ fn every_profile_projection_is_a_snapshot_and_identical_in_foxhound() {
         let collie = ResolvedProfile::for_product(Product::Collie, profile_name);
         let foxhound = ResolvedProfile::for_product(Product::Foxhound, profile_name);
 
-        let collie_tools: Vec<_> = collie.tools.iter().map(|p| p.tool.clone()).collect();
-        let foxhound_tools: Vec<_> = foxhound.tools.iter().map(|p| p.tool.clone()).collect();
+        let collie_tools: Vec<_> = collie.list_tools();
+        let foxhound_tools: Vec<_> = foxhound.list_tools();
 
         let collie_bytes = tools_list_wire_bytes(&collie_tools);
         let snapshot_value = json!({
             "profile": profile_name.as_str(),
             "tools_list_bytes": collie_bytes,
-            "tools": collie.tools.iter().map(|p| json!({
+            "tools": collie.projected_tools().iter().map(|p| json!({
                 "name": p.tool.name,
                 "operation": p.operation,
                 "description": p.tool.description,
@@ -1205,7 +1205,7 @@ fn no_kept_off_or_foxhound_operation_appears_and_classes_match_catalog() {
     for product in [Product::Collie, Product::Foxhound] {
         for profile_name in ProfileName::ALL {
             let resolved = ResolvedProfile::for_product(product, profile_name);
-            for projected in &resolved.tools {
+            for projected in resolved.projected_tools() {
                 let op = all_ops.get(projected.operation).unwrap_or_else(|| {
                     panic!("unknown catalog operation `{}`", projected.operation)
                 });

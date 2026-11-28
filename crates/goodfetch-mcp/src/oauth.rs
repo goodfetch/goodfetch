@@ -322,10 +322,10 @@ impl OAuthResourceServer {
         }
     }
 
-    /// Validated OAuth configuration.
+    /// Public `Host` authority derived from the configured OAuth audience, if any.
     #[must_use]
-    pub fn config(&self) -> &OAuthConfig {
-        &self.config
+    pub fn public_authority(&self) -> Option<&str> {
+        self.config.public_authority()
     }
 
     /// Serialized RFC 9728 Protected Resource Metadata JSON bytes.

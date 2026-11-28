@@ -380,7 +380,7 @@ impl BoundHttpServer {
         let url = format_endpoint_url(scheme, local_addr);
         let public_authority = match &config.auth {
             HttpAuth::LaunchToken(_) => None,
-            HttpAuth::OAuth(oauth) => oauth.config().public_authority(),
+            HttpAuth::OAuth(oauth) => oauth.public_authority(),
         };
         let authorities = HttpAuthorities::for_listener(local_addr, &config.tls, public_authority);
         let session_manager = Arc::new(LocalSessionManager::default());

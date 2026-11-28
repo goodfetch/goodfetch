@@ -39,8 +39,8 @@ expression: "serde_json::to_string_pretty(&Value::Object(profile_sizes)).unwrap(
       "tools_list_bytes": 36
     },
     "full": {
-      "tool_count": 73,
-      "tools_list_bytes": 227761
+      "tool_count": 76,
+      "tools_list_bytes": 239458
     },
     "run": {
       "tool_count": 23,

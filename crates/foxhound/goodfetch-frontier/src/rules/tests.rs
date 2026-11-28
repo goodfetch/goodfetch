@@ -59,3 +59,39 @@ fn a_learned_rule_of_an_unknown_kind_or_form_is_not_read(
         "{read:?}"
     );
 }
+
+#[test]
+fn merged_kept_bounds_stored_urls_and_keeps_total_count() {
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    for statement in super::TABLES.statements {
+        connection.execute(statement, []).unwrap();
+    }
+    connection
+        .execute(
+            "INSERT INTO learned_rules (kind, host, path, parameter, form, evidence)
+             VALUES ('no_effect_parameter', 'shop.test', '', 'utm', '', 'three pairs')",
+            [],
+        )
+        .unwrap();
+    let rule_id = connection.last_insert_rowid();
+
+    for i in 1..=5 {
+        let url = format!("https://shop.test/item?id={i}&utm=x");
+        super::merged(&connection, rule_id, &url, None, Some(2)).unwrap();
+    }
+
+    let rules = super::learned_rules_with_totals(&connection, true).unwrap();
+    assert_eq!(rules.len(), 1);
+    assert_eq!(
+        rules[0].merged,
+        vec![
+            "https://shop.test/item?id=4&utm=x",
+            "https://shop.test/item?id=5&utm=x",
+        ]
+    );
+    assert_eq!(rules[0].merged_total, Some(5));
+
+    // Batch report (include_total = false) omits merged_total.
+    let batch_rules = super::learned_rules(&connection).unwrap();
+    assert_eq!(batch_rules[0].merged_total, None);
+}

@@ -52,6 +52,12 @@ pub struct Invariants {
     /// Learning's evidence, noted until a batch's end teaches it, once the
     /// Run learns behind (#2169).
     behind: OnceLock<Arc<Behind>>,
+    /// Continuous crawl's cap on merged URLs kept per Learned rule
+    /// (`crawl.continuous.merged_kept`, ADR 0139); unset on batch crawls.
+    merged_kept: OnceLock<usize>,
+    /// Continuous crawl's `crawl.continuous.forget_after` in milliseconds
+    /// (ADR 0139); unset when identities are never forgotten.
+    forget_after_ms: OnceLock<u64>,
 }
 
 impl fmt::Debug for Invariants {
@@ -86,6 +92,8 @@ impl Invariants {
             unwritten: OnceLock::new(),
             work: OnceLock::new(),
             behind: OnceLock::new(),
+            merged_kept: OnceLock::new(),
+            forget_after_ms: OnceLock::new(),
         })
     }
 
@@ -195,9 +203,33 @@ impl Invariants {
         pending: &mut dyn EndMerged,
         work: &CountedWork,
     ) -> rusqlite::Result<()> {
-        self.behind
-            .get()
-            .map_or(Ok(()), |behind| behind.teach(connection, pending, work))
+        let merged_kept = self.merged_kept();
+        self.behind.get().map_or(Ok(()), |behind| {
+            behind.teach(connection, pending, work, merged_kept)
+        })
+    }
+
+    /// Sets the per-rule merged URL cap for a Continuous crawl
+    /// (`crawl.continuous.merged_kept`, ADR 0139).
+    pub fn cap_merged(&self, cap: usize) {
+        let _ = self.merged_kept.set(cap);
+    }
+
+    /// The per-rule merged URL cap, if set (`None` on batch crawls).
+    #[must_use]
+    pub(crate) fn merged_kept(&self) -> Option<usize> {
+        self.merged_kept.get().copied()
+    }
+
+    /// Sets `crawl.continuous.forget_after` in milliseconds (ADR 0139).
+    pub fn set_forget_after_ms(&self, ms: u64) {
+        let _ = self.forget_after_ms.set(ms);
+    }
+
+    /// `crawl.continuous.forget_after` in milliseconds, if set.
+    #[must_use]
+    pub fn forget_after_ms(&self) -> Option<u64> {
+        self.forget_after_ms.get().copied()
     }
 
     /// The watch the run-state writer tells as each of its jobs begins and

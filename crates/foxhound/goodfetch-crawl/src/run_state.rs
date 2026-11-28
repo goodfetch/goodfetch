@@ -535,6 +535,12 @@ impl RunState {
         self.revisits.drop_unleased();
     }
 
+    /// Removes forgotten work items from the in-memory revisit schedule
+    /// (`crawl.continuous.forget_after`, ADR 0139).
+    pub(crate) fn forget_revisits(&mut self, work_items: &[String]) {
+        self.revisits.forget(work_items);
+    }
+
     /// Whether any due revisit is queued waiting in `admission`.
     pub(crate) fn has_queued_revisits(&self) -> bool {
         self.revisits.has_queued()

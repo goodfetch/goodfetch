@@ -9074,11 +9074,21 @@
         },
         "merged": {
           "arrived_in": "0.1",
-          "description": "Each URL it merged with another or refused, in the order the crawl\nmet them, a pending request it ended `skipped` with `duplicate`\nincluded.",
+          "description": "Each URL it merged with another or refused, in the order the crawl\nmet them, a pending request it ended `skipped` with `duplicate`\nincluded. In a Continuous crawl, bounded to the last\n`crawl.continuous.merged_kept` URLs.",
           "items": {
             "type": "string"
           },
           "type": "array"
+        },
+        "merged_total": {
+          "arrived_in": "0.1",
+          "description": "Total URLs this rule merged, present on a Continuous crawl where\n`crawl.continuous.merged_kept` bounds `merged` (ADR 0139).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "parameter": {
           "arrived_in": "0.1",
@@ -30599,11 +30609,85 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "How long a visited identity not seen by a Continuous crawl is kept before being forgotten, in whole milliseconds: unset (`null`, never forgotten) by default. Once forgotten, a source that names its URL again adds it as new. Accepted on a batch crawl, where `config explain` marks it inactive.",
+      "fixed_for_run": false,
+      "name": "crawl.continuous.forget_after",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
       "default": 2592000000,
       "deprecated": null,
       "description": "Maximum age of a dated sitemap or syndication entry to admit in a Continuous crawl, in whole milliseconds: 30 days (2,592,000,000 ms, CC-NEWS's rule) by default; `null` turns the bound off. Accepted on a batch crawl, where `config explain` marks it inactive.",
       "fixed_for_run": false,
       "name": "crawl.continuous.max_entry_age",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 1000,
+      "deprecated": null,
+      "description": "Maximum number of recent merged URLs kept per Learned rule in a Continuous crawl, beside its total count: 1,000 by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+      "fixed_for_run": false,
+      "name": "crawl.continuous.merged_kept",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 604800000,
+      "deprecated": null,
+      "description": "How long a Continuous crawl keeps Records in its run file after every Sink has acknowledged them, in whole milliseconds: 7 days (604,800,000 ms) by default. A Record no Sink acknowledged is never removed. Accepted on a batch crawl, where `config explain` marks it inactive.",
+      "fixed_for_run": false,
+      "name": "crawl.continuous.retention",
       "product": "foxhound",
       "products": [
         "foxhound"

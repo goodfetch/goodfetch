@@ -221,12 +221,47 @@ pub mod crawl {
             ],
         );
 
+        /// How long a visited identity not seen by a Continuous crawl is kept before being forgotten, in whole milliseconds: unset (`null`, never forgotten) by default. Once forgotten, a source that names its URL again adds it as new. Accepted on a batch crawl, where `config explain` marks it inactive.
+        ///
+        /// `crawl.continuous.forget_after`. `None` clears it.
+        pub const FORGET_AFTER: crate::settings::Setting<Option<::std::time::Duration>> =
+            crate::settings::Setting::new(
+                "crawl.continuous.forget_after",
+                &[
+                    ::goodfetch_protocol::catalog::SettingScope::Connection,
+                    ::goodfetch_protocol::catalog::SettingScope::Run,
+                ],
+            );
+
         /// Maximum age of a dated sitemap or syndication entry to admit in a Continuous crawl, in whole milliseconds: 30 days (2,592,000,000 ms, CC-NEWS's rule) by default; `null` turns the bound off. Accepted on a batch crawl, where `config explain` marks it inactive.
         ///
         /// `crawl.continuous.max_entry_age`. `None` clears it.
         pub const MAX_ENTRY_AGE: crate::settings::Setting<Option<::std::time::Duration>> =
             crate::settings::Setting::new(
                 "crawl.continuous.max_entry_age",
+                &[
+                    ::goodfetch_protocol::catalog::SettingScope::Connection,
+                    ::goodfetch_protocol::catalog::SettingScope::Run,
+                ],
+            );
+
+        /// Maximum number of recent merged URLs kept per Learned rule in a Continuous crawl, beside its total count: 1,000 by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+        ///
+        /// `crawl.continuous.merged_kept`.
+        pub const MERGED_KEPT: crate::settings::Setting<u64> = crate::settings::Setting::new(
+            "crawl.continuous.merged_kept",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+
+        /// How long a Continuous crawl keeps Records in its run file after every Sink has acknowledged them, in whole milliseconds: 7 days (604,800,000 ms) by default. A Record no Sink acknowledged is never removed. Accepted on a batch crawl, where `config explain` marks it inactive.
+        ///
+        /// `crawl.continuous.retention`.
+        pub const RETENTION: crate::settings::Setting<::std::time::Duration> =
+            crate::settings::Setting::new(
+                "crawl.continuous.retention",
                 &[
                     ::goodfetch_protocol::catalog::SettingScope::Connection,
                     ::goodfetch_protocol::catalog::SettingScope::Run,

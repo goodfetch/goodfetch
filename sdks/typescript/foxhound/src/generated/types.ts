@@ -2284,9 +2284,15 @@ export interface LearnedRule {
   /**
    * Each URL it merged with another or refused, in the order the crawl
    * met them, a pending request it ended `skipped` with `duplicate`
-   * included.
+   * included. In a Continuous crawl, bounded to the last
+   * `crawl.continuous.merged_kept` URLs.
    */
   merged: string[];
+  /**
+   * Total URLs this rule merged, present on a Continuous crawl where
+   * `crawl.continuous.merged_kept` bounds `merged` (ADR 0139).
+   */
+  mergedTotal?: number | null;
   /**
    * The query parameter it is about: one that has no effect, or the
    * offset parameter a cursor replaced; absent for a trap.

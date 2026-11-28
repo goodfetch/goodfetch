@@ -216,6 +216,16 @@ impl Asked {
     }
 }
 
+impl Question {
+    /// Whether this question admits new seeds directly (`run.add_seed` / `run.add_seeds`).
+    pub(crate) fn is_seeding(&self) -> bool {
+        matches!(
+            self,
+            Self::Stored(ask) if matches!(ask.as_ref(), Ask::Seed { .. } | Ask::Seeds { .. })
+        )
+    }
+}
+
 impl Asking {
     /// Sends the loop the question `ask`; `Closed` once the loop ended.
     async fn send(&self, ask: Ask) -> Result<(), StateError> {

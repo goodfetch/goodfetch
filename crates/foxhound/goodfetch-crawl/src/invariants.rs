@@ -7,6 +7,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::run_identity::RunIdentity;
@@ -14,6 +15,10 @@ use goodfetch_engine::run_state::RunState;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_frontier::payload::PayloadRules;
 use goodfetch_frontier::{Bounds, Scope};
+use goodfetch_protocol::foxhound::continuous::{
+    CONTINUOUS_DEFAULT_MERGED_KEPT, CRAWL_CONTINUOUS, CRAWL_CONTINUOUS_FORGET_AFTER,
+    CRAWL_CONTINUOUS_MERGED_KEPT,
+};
 use goodfetch_protocol::foxhound::crawl::LabelDeclaration;
 use rusqlite::Connection;
 
@@ -62,11 +67,29 @@ impl Invariants {
             Scope::of_settings(settings)?,
             Bounds::of_settings(settings),
         )?;
-        Ok(Self::new(
-            frontier,
-            PayloadRules::of(settings, labels)?,
-            fragments,
-        ))
+        let invariants = Self::new(frontier, PayloadRules::of(settings, labels)?, fragments);
+        invariants.configure_continuous(settings);
+        Ok(invariants)
+    }
+
+    /// Applies Continuous-crawl growth settings (`crawl.continuous.merged_kept`
+    /// and `crawl.continuous.forget_after`, ADR 0139) to the Frontier's
+    /// invariants when `crawl.continuous.enabled` is on.
+    pub(crate) fn configure_continuous(&self, settings: &Resolved) {
+        if !settings.get::<bool>(&CRAWL_CONTINUOUS) {
+            return;
+        }
+        let merged_kept = settings
+            .value(&CRAWL_CONTINUOUS_MERGED_KEPT)
+            .as_u64()
+            .unwrap_or(CONTINUOUS_DEFAULT_MERGED_KEPT);
+        self.frontier
+            .cap_merged(usize::try_from(merged_kept).unwrap_or(usize::MAX));
+        if let Some(forget_after) = settings.get::<Option<Duration>>(&CRAWL_CONTINUOUS_FORGET_AFTER)
+        {
+            let ms = u64::try_from(forget_after.as_millis()).unwrap_or(u64::MAX);
+            self.frontier.set_forget_after_ms(ms);
+        }
     }
 
     /// The invariants the run file `connection` holds, as the Run resumes

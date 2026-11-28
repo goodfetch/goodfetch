@@ -267,10 +267,28 @@ class ConnectionCrawlContinuousSettings(TypedDict):
     `crawl.continuous.enabled`.
     """
 
+    forget_after: NotRequired[timedelta | None]
+    """How long a visited identity not seen by a Continuous crawl is kept before being forgotten, in whole milliseconds: unset (`null`, never forgotten) by default. Once forgotten, a source that names its URL again adds it as new. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.continuous.forget_after`.
+    """
+
     max_entry_age: NotRequired[timedelta | None]
     """Maximum age of a dated sitemap or syndication entry to admit in a Continuous crawl, in whole milliseconds: 30 days (2,592,000,000 ms, CC-NEWS's rule) by default; `null` turns the bound off. Accepted on a batch crawl, where `config explain` marks it inactive.
 
     `crawl.continuous.max_entry_age`.
+    """
+
+    merged_kept: NotRequired[int]
+    """Maximum number of recent merged URLs kept per Learned rule in a Continuous crawl, beside its total count: 1,000 by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.continuous.merged_kept`.
+    """
+
+    retention: NotRequired[timedelta]
+    """How long a Continuous crawl keeps Records in its run file after every Sink has acknowledged them, in whole milliseconds: 7 days (604,800,000 ms) by default. A Record no Sink acknowledged is never removed. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.continuous.retention`.
     """
 
 
@@ -2668,10 +2686,28 @@ class RunCrawlContinuousSettings(TypedDict):
     `crawl.continuous.enabled`.
     """
 
+    forget_after: NotRequired[timedelta | None]
+    """How long a visited identity not seen by a Continuous crawl is kept before being forgotten, in whole milliseconds: unset (`null`, never forgotten) by default. Once forgotten, a source that names its URL again adds it as new. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.continuous.forget_after`.
+    """
+
     max_entry_age: NotRequired[timedelta | None]
     """Maximum age of a dated sitemap or syndication entry to admit in a Continuous crawl, in whole milliseconds: 30 days (2,592,000,000 ms, CC-NEWS's rule) by default; `null` turns the bound off. Accepted on a batch crawl, where `config explain` marks it inactive.
 
     `crawl.continuous.max_entry_age`.
+    """
+
+    merged_kept: NotRequired[int]
+    """Maximum number of recent merged URLs kept per Learned rule in a Continuous crawl, beside its total count: 1,000 by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.continuous.merged_kept`.
+    """
+
+    retention: NotRequired[timedelta]
+    """How long a Continuous crawl keeps Records in its run file after every Sink has acknowledged them, in whole milliseconds: 7 days (604,800,000 ms) by default. A Record no Sink acknowledged is never removed. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.continuous.retention`.
     """
 
 

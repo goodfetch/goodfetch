@@ -85,6 +85,10 @@ CREATE TABLE learned_identities (
             rule INTEGER NOT NULL,
             crawl_request TEXT NOT NULL
         ) STRICT, WITHOUT ROWID;
+CREATE TABLE learned_merge_counts (
+            rule INTEGER NOT NULL PRIMARY KEY REFERENCES learned_rules (id),
+            total INTEGER NOT NULL DEFAULT 0
+        ) STRICT, WITHOUT ROWID;
 CREATE TABLE learned_merges (
             rule INTEGER NOT NULL REFERENCES learned_rules (id),
             url TEXT NOT NULL,
@@ -356,6 +360,12 @@ CREATE TABLE seeds (
             position INTEGER NOT NULL PRIMARY KEY,
             answer TEXT NOT NULL
         ) STRICT;
+CREATE TABLE sink_acknowledgements (
+            dataset TEXT NOT NULL,
+            sink TEXT NOT NULL,
+            acknowledged_number INTEGER NOT NULL,
+            PRIMARY KEY (dataset, sink)
+        ) STRICT, WITHOUT ROWID;
 CREATE TABLE sitemap_entries (
             work_item TEXT NOT NULL,
             reason TEXT NOT NULL,
@@ -438,7 +448,8 @@ CREATE TABLE usage_totals (
 INSERT INTO "usage_totals" VALUES('proxy_bytes','',4096);
 CREATE TABLE visited (
             identity TEXT NOT NULL PRIMARY KEY,
-            crawl_request TEXT NOT NULL
+            crawl_request TEXT NOT NULL,
+            last_seen_at INTEGER
         ) STRICT, WITHOUT ROWID;
 CREATE TABLE warnings (
         position INTEGER NOT NULL PRIMARY KEY,

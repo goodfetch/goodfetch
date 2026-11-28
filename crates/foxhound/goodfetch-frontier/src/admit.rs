@@ -437,8 +437,33 @@ fn not_added(
     }
 }
 
+/// Records each learned rule that merged `url` and returns its `duplicate` answer.
+fn record_merged(
+    connection: &Connection,
+    rules: &[i64],
+    url: &str,
+    identity: Option<&str>,
+    merged_kept: Option<usize>,
+    (admitting, answered, crawl_request): (&mut Admitting, (&str, &Url), Option<&str>),
+) -> rusqlite::Result<Enqueued> {
+    for &rule in rules {
+        rules::merged(connection, rule, url, identity, merged_kept)?;
+    }
+    admitting.leaves();
+    Ok(not_added(
+        admitting,
+        answered,
+        NotAddedReason::Duplicate,
+        crawl_request,
+    ))
+}
+
 /// Admits the candidate given as `given`, keyed as `measured`, as
 /// [`admit_keyed`] does.
+#[expect(
+    clippy::too_many_lines,
+    reason = "admission checks share the holding lock and transaction scope"
+)]
 fn admit_measured(
     connection: &Connection,
     invariants: &Invariants,
@@ -494,17 +519,25 @@ fn admit_measured(
             rules,
             crawl_request,
         } => {
-            for rule in rules {
-                rules::merged(connection, rule, url.as_str(), Some(identities.plain()))?;
-            }
-            admitting.leaves();
-            let reason = NotAddedReason::Duplicate;
-            return Ok(not_added(admitting, answered, reason, Some(&crawl_request)));
+            return record_merged(
+                connection,
+                &rules,
+                url.as_str(),
+                Some(identities.plain()),
+                invariants.merged_kept(),
+                (admitting, answered, Some(&crawl_request)),
+            );
         }
     }
     let held = holding.as_ref().and_then(Holding::rules);
     if let Some((reason, rule)) = rules::refuses(connection, key.url(), bounds.learning, held)? {
-        rules::merged(connection, rule, url.as_str(), None)?;
+        rules::merged(
+            connection,
+            rule,
+            url.as_str(),
+            None,
+            invariants.merged_kept(),
+        )?;
         admitting.leaves();
         return Ok(not_added(admitting, answered, reason, None));
     }

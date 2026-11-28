@@ -145,7 +145,7 @@ pub fn learn(
         },
         work,
     )?;
-    apply(connection, changes, pending)
+    apply(connection, changes, pending, None)
 }
 
 /// Learns from `redirect` in the run file `connection` holds, handing
@@ -171,7 +171,7 @@ pub fn learn_redirect(
         &identity::keyed(redirect.to),
         work,
     )?;
-    apply(connection, change.into_iter().collect(), pending)
+    apply(connection, change.into_iter().collect(), pending, None)
 }
 
 /// Whether a request sent with `method` and `body` says anything of its
@@ -187,13 +187,14 @@ pub(crate) fn apply(
     connection: &Connection,
     changes: Vec<Change>,
     pending: &mut dyn EndMerged,
+    merged_kept: Option<usize>,
 ) -> rusqlite::Result<()> {
     for change in changes {
         match change {
             Change::Learned(merging) => {
                 for page in identity::merge_learned(connection, &merging)? {
                     for ended in pending.end_merged(connection, &page.requests)? {
-                        rules::merged(connection, merging.rule, &ended.url, None)?;
+                        rules::merged(connection, merging.rule, &ended.url, None, merged_kept)?;
                         rules::ended(connection, &page.rules, &ended.crawl_request)?;
                     }
                 }

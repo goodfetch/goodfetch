@@ -39,7 +39,8 @@ pub const TABLES: RunStateTables = RunStateTables {
     statements: &[
         "CREATE TABLE IF NOT EXISTS visited (
             identity TEXT NOT NULL PRIMARY KEY,
-            crawl_request TEXT NOT NULL
+            crawl_request TEXT NOT NULL,
+            last_seen_at INTEGER
         ) STRICT, WITHOUT ROWID",
         "CREATE TABLE IF NOT EXISTS learned_identities (
             identity TEXT NOT NULL PRIMARY KEY,
@@ -488,6 +489,77 @@ pub(crate) fn visit(
         )?
         .execute((identity, crawl_request))?;
     Ok(())
+}
+
+/// Stamps `last_seen_at = seen_at_ms` on every `visited` row belonging to
+/// `crawl_request` (used by Continuous crawls under `crawl.continuous.forget_after`,
+/// ADR 0139).
+///
+/// # Errors
+///
+/// When the run file cannot be written.
+pub fn touch_visited(
+    connection: &Connection,
+    crawl_request: &str,
+    seen_at_ms: u64,
+) -> rusqlite::Result<()> {
+    let seen_at = i64::try_from(seen_at_ms).unwrap_or(i64::MAX);
+    connection
+        .prepare_cached("UPDATE visited SET last_seen_at = ?1 WHERE crawl_request = ?2")?
+        .execute((seen_at, crawl_request))?;
+    Ok(())
+}
+
+/// Stamps `last_seen_at = seen_at_ms` on any `visited` row whose
+/// `last_seen_at IS NULL`, so identities admitted before the first stamp
+/// participate in `crawl.continuous.forget_after` (ADR 0139).
+///
+/// # Errors
+///
+/// When the run file cannot be written.
+pub fn stamp_unseen_visited(connection: &Connection, seen_at_ms: u64) -> rusqlite::Result<()> {
+    let seen_at = i64::try_from(seen_at_ms).unwrap_or(i64::MAX);
+    connection
+        .prepare_cached("UPDATE visited SET last_seen_at = ?1 WHERE last_seen_at IS NULL")?
+        .execute([seen_at])?;
+    Ok(())
+}
+
+/// Forgets every visited identity whose `last_seen_at` is at or before
+/// `cutoff_ms`, removing its rows from `visited`, `learned_identities` and
+/// `revisits` (ADR 0139).
+///
+/// Returns `(identity, crawl_request)` pairs removed so in-memory caches
+/// (`UnwrittenVisits`, `RevisitTracker`) can evict them too.
+///
+/// # Errors
+///
+/// When the run file cannot be read or written.
+pub fn forget_stale(
+    connection: &Connection,
+    cutoff_ms: u64,
+) -> rusqlite::Result<Vec<(String, String)>> {
+    let cutoff = i64::try_from(cutoff_ms).unwrap_or(i64::MAX);
+    let mut query = connection.prepare_cached(
+        "SELECT identity, crawl_request FROM visited
+         WHERE last_seen_at IS NOT NULL AND last_seen_at <= ?1",
+    )?;
+    let stale: Vec<(String, String)> = query
+        .query_map([cutoff], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if stale.is_empty() {
+        return Ok(stale);
+    }
+    let mut del_visited = connection.prepare_cached("DELETE FROM visited WHERE identity = ?1")?;
+    let mut del_learned =
+        connection.prepare_cached("DELETE FROM learned_identities WHERE crawl_request = ?1")?;
+    let mut del_revisit = connection.prepare_cached("DELETE FROM revisits WHERE work_item = ?1")?;
+    for (identity, crawl_request) in &stale {
+        del_visited.execute([identity])?;
+        del_learned.execute([crawl_request])?;
+        del_revisit.execute([crawl_request])?;
+    }
+    Ok(stale)
 }
 
 /// The Frontier's answer on one hop, as [`redirect_hop`] answers, within

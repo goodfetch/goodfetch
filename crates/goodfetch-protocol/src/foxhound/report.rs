@@ -72,6 +72,10 @@ pub const REVISIT_BROWSER_SIGNATURE: &str = "revisit_browser_signature";
 /// schedule because Politeness limits hold its requests (ADR 0086, ADR 0139).
 pub const REVISIT_DOMAIN_BEHIND: &str = "revisit_domain_behind";
 
+/// The warning that a Continuous crawl has no Sink configured, so committed
+/// Records remain in its run file and the file will keep growing (ADR 0139).
+pub const CONTINUOUS_NO_SINK: &str = "continuous_no_sink";
+
 /// The Completeness reason of the URLs learned traps refused (ADR 0005).
 pub const TRAP_PATH: &str = "trap_path";
 /// The Completeness reason of listings paged only by an offset (ADR 0005).
@@ -553,9 +557,15 @@ pub struct LearnedRule {
     pub contradiction: Option<String>,
     /// Each URL it merged with another or refused, in the order the crawl
     /// met them, a pending request it ended `skipped` with `duplicate`
-    /// included.
+    /// included. In a Continuous crawl, bounded to the last
+    /// `crawl.continuous.merged_kept` URLs.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub merged: Vec<String>,
+    /// Total URLs this rule merged, present on a Continuous crawl where
+    /// `crawl.continuous.merged_kept` bounds `merged` (ADR 0139).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub merged_total: Option<u64>,
 }
 
 /// What a learned URL rule learned (ADRs 0005 and 0120).

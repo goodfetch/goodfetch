@@ -684,6 +684,24 @@ impl UnwrittenVisits {
         holding
     }
 
+    /// Removes forgotten identities from the in-memory visited and learned
+    /// caches (`crawl.continuous.forget_after`, ADR 0139).
+    pub fn forget(&self, identities: &[String]) {
+        if identities.is_empty() {
+            return;
+        }
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        for identity in identities {
+            if let Some(id) = held.entries.find(Space::Visited, identity) {
+                held.entries.remove(id);
+            }
+            if let Some(id) = held.entries.find(Space::Learned, identity) {
+                held.entries.remove(id);
+            }
+        }
+        held.report();
+    }
+
     /// The bytes held, as of the commits acknowledged now.
     #[must_use]
     pub fn bytes(&self) -> u64 {

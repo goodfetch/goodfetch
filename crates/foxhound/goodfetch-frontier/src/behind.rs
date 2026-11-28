@@ -79,10 +79,16 @@ impl Lesson {
         connection: &Connection,
         pending: &mut dyn EndMerged,
         work: &CountedWork,
+        merged_kept: Option<usize>,
     ) -> rusqlite::Result<()> {
         for (from, to) in &self.hops {
             let change = rules::learn_redirect(connection, from, to, work)?;
-            learn::apply(connection, change.into_iter().collect(), pending)?;
+            learn::apply(
+                connection,
+                change.into_iter().collect(),
+                pending,
+                merged_kept,
+            )?;
         }
         if let Some(page) = &self.page {
             let changes = rules::learn(
@@ -95,7 +101,7 @@ impl Lesson {
                 },
                 work,
             )?;
-            learn::apply(connection, changes, pending)?;
+            learn::apply(connection, changes, pending, merged_kept)?;
         }
         Ok(())
     }
@@ -160,6 +166,7 @@ impl Behind {
         connection: &Connection,
         pending: &mut dyn EndMerged,
         work: &CountedWork,
+        merged_kept: Option<usize>,
     ) -> rusqlite::Result<()> {
         let entries = std::mem::take(&mut self.lock().entries);
         for (_, evidence) in entries {
@@ -167,7 +174,9 @@ impl Behind {
                 Evidence::Admitted { key, from } => {
                     rules::admitted(connection, &key, from.as_ref(), Some(work))?;
                 }
-                Evidence::Lesson(lesson) => lesson.teach(connection, pending, work)?,
+                Evidence::Lesson(lesson) => {
+                    lesson.teach(connection, pending, work, merged_kept)?;
+                }
             }
         }
         Ok(())

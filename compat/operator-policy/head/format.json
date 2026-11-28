@@ -226,6 +226,19 @@
               "continuous": {
                 "additionalProperties": false,
                 "properties": {
+                  "forget_after": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How long a visited identity not seen by a Continuous crawl is kept before being forgotten, in whole milliseconds: unset (`null`, never forgotten) by default. Once forgotten, a source that names its URL again adds it as new. Accepted on a batch crawl, where `config explain` marks it inactive."
+                  },
                   "max_entry_age": {
                     "anyOf": [
                       {
@@ -238,6 +251,16 @@
                       }
                     ],
                     "description": "Maximum age of a dated sitemap or syndication entry to admit in a Continuous crawl, in whole milliseconds: 30 days (2,592,000,000 ms, CC-NEWS's rule) by default; `null` turns the bound off. Accepted on a batch crawl, where `config explain` marks it inactive."
+                  },
+                  "merged_kept": {
+                    "description": "Maximum number of recent merged URLs kept per Learned rule in a Continuous crawl, beside its total count: 1,000 by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "retention": {
+                    "description": "How long a Continuous crawl keeps Records in its run file after every Sink has acknowledged them, in whole milliseconds: 7 days (604,800,000 ms) by default. A Record no Sink acknowledged is never removed. Accepted on a batch crawl, where `config explain` marks it inactive.",
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "type": "object"
@@ -1664,6 +1687,19 @@
                     "description": "Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.",
                     "type": "boolean"
                   },
+                  "forget_after": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How long a visited identity not seen by a Continuous crawl is kept before being forgotten, in whole milliseconds: unset (`null`, never forgotten) by default. Once forgotten, a source that names its URL again adds it as new. Accepted on a batch crawl, where `config explain` marks it inactive."
+                  },
                   "max_entry_age": {
                     "anyOf": [
                       {
@@ -1676,6 +1712,16 @@
                       }
                     ],
                     "description": "Maximum age of a dated sitemap or syndication entry to admit in a Continuous crawl, in whole milliseconds: 30 days (2,592,000,000 ms, CC-NEWS's rule) by default; `null` turns the bound off. Accepted on a batch crawl, where `config explain` marks it inactive."
+                  },
+                  "merged_kept": {
+                    "description": "Maximum number of recent merged URLs kept per Learned rule in a Continuous crawl, beside its total count: 1,000 by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "retention": {
+                    "description": "How long a Continuous crawl keeps Records in its run file after every Sink has acknowledged them, in whole milliseconds: 7 days (604,800,000 ms) by default. A Record no Sink acknowledged is never removed. Accepted on a batch crawl, where `config explain` marks it inactive.",
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "type": "object"
@@ -7209,6 +7255,19 @@
                     "description": "Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.",
                     "type": "boolean"
                   },
+                  "forget_after": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How long a visited identity not seen by a Continuous crawl is kept before being forgotten, in whole milliseconds: unset (`null`, never forgotten) by default. Once forgotten, a source that names its URL again adds it as new. Accepted on a batch crawl, where `config explain` marks it inactive."
+                  },
                   "max_entry_age": {
                     "anyOf": [
                       {
@@ -7221,6 +7280,16 @@
                       }
                     ],
                     "description": "Maximum age of a dated sitemap or syndication entry to admit in a Continuous crawl, in whole milliseconds: 30 days (2,592,000,000 ms, CC-NEWS's rule) by default; `null` turns the bound off. Accepted on a batch crawl, where `config explain` marks it inactive."
+                  },
+                  "merged_kept": {
+                    "description": "Maximum number of recent merged URLs kept per Learned rule in a Continuous crawl, beside its total count: 1,000 by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "retention": {
+                    "description": "How long a Continuous crawl keeps Records in its run file after every Sink has acknowledged them, in whole milliseconds: 7 days (604,800,000 ms) by default. A Record no Sink acknowledged is never removed. Accepted on a batch crawl, where `config explain` marks it inactive.",
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "type": "object"

@@ -133,10 +133,13 @@ impl ReportPart for CrawlParts {
             "records".to_owned(),
             serde_json::to_value(records).expect("invariant: Record counts encode"),
         );
+        let continuous = run_row::fixed_setting_bool(connection, CRAWL_CONTINUOUS.name)?;
         report.kind_parts.insert(
             "learned_rules".to_owned(),
-            serde_json::to_value(goodfetch_frontier::learned_rules(connection)?)
-                .expect("invariant: learned rules encode"),
+            serde_json::to_value(goodfetch_frontier::learned_rules_with_totals(
+                connection, continuous,
+            )?)
+            .expect("invariant: learned rules encode"),
         );
         let sitemaps = goodfetch_frontier::sitemap::reports(connection)?;
         if !sitemaps.is_empty() {
@@ -159,7 +162,7 @@ impl ReportPart for CrawlParts {
                 serde_json::to_value(revisits_at_min).expect("invariant: revisits_at_min encodes"),
             );
         }
-        if run_row::fixed_setting_bool(connection, CRAWL_CONTINUOUS.name)? {
+        if continuous {
             let now_ms = report
                 .ended_at
                 .duration_since(UNIX_EPOCH)

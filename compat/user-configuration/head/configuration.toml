@@ -398,6 +398,9 @@ keep_url_fragment = true
 [settings.crawl.continuous]
 enabled = true
 max_entry_age = 30000
+retention = 30000
+merged_kept = 4
+forget_after = 30000
 
 [settings.crawl.sitemap]
 read_lastmod = true

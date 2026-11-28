@@ -1071,6 +1071,99 @@ pub const CRAWL_CONTINUOUS_MAX_ENTRY_AGE_YIELDS_TO_BATCH: Yielding = Yielding {
     reason: "a batch crawl does not filter standing source entries by age",
 };
 
+/// Default `crawl.continuous.retention`: 7 days in milliseconds (ADR 0139).
+pub const CONTINUOUS_DEFAULT_RETENTION_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+
+/// Default `crawl.continuous.merged_kept`: 1,000 URLs per Learned rule (ADR 0139).
+pub const CONTINUOUS_DEFAULT_MERGED_KEPT: u64 = 1_000;
+
+fn default_retention() -> Value {
+    json!(CONTINUOUS_DEFAULT_RETENTION_MS)
+}
+
+fn default_merged_kept() -> Value {
+    json!(CONTINUOUS_DEFAULT_MERGED_KEPT)
+}
+
+fn none() -> Value {
+    Value::Null
+}
+
+/// `crawl.continuous.retention` (ADR 0139).
+pub const CRAWL_CONTINUOUS_RETENTION: Setting = Setting {
+    name: "crawl.continuous.retention",
+    description: "How long a Continuous crawl keeps Records in its run file after every Sink has acknowledged them, in whole milliseconds: 7 days (604,800,000 ms) by default. A Record no Sink acknowledged is never removed. Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Duration,
+    default: default_retention,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.continuous.merged_kept` (ADR 0139).
+pub const CRAWL_CONTINUOUS_MERGED_KEPT: Setting = Setting {
+    name: "crawl.continuous.merged_kept",
+    description: "Maximum number of recent merged URLs kept per Learned rule in a Continuous crawl, beside its total count: 1,000 by default. Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Count,
+    default: default_merged_kept,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.continuous.forget_after` (ADR 0139).
+pub const CRAWL_CONTINUOUS_FORGET_AFTER: Setting = Setting {
+    name: "crawl.continuous.forget_after",
+    description: "How long a visited identity not seen by a Continuous crawl is kept before being forgotten, in whole milliseconds: unset (`null`, never forgotten) by default. Once forgotten, a source that names its URL again adds it as new. Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Duration,
+    default: none,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.continuous.retention` yields to `crawl.continuous = false`.
+pub const CRAWL_CONTINUOUS_RETENTION_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &CRAWL_CONTINUOUS_RETENTION,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl does not prune run-file Records",
+};
+
+/// `crawl.continuous.merged_kept` yields to `crawl.continuous = false`.
+pub const CRAWL_CONTINUOUS_MERGED_KEPT_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &CRAWL_CONTINUOUS_MERGED_KEPT,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl keeps every merged URL of a Learned rule",
+};
+
+/// `crawl.continuous.forget_after` yields to `crawl.continuous = false`.
+pub const CRAWL_CONTINUOUS_FORGET_AFTER_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &CRAWL_CONTINUOUS_FORGET_AFTER,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl never forgets visited identities",
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -1083,6 +1176,9 @@ pub const ENTRIES: Entries = Entries {
     settings: &[
         CRAWL_CONTINUOUS,
         CRAWL_CONTINUOUS_MAX_ENTRY_AGE,
+        CRAWL_CONTINUOUS_RETENTION,
+        CRAWL_CONTINUOUS_MERGED_KEPT,
+        CRAWL_CONTINUOUS_FORGET_AFTER,
         CRAWL_SITEMAP_READ_LASTMOD,
         CRAWL_SITEMAP_NEWS_REVISIT,
         CRAWL_SITEMAP_REVISIT,

@@ -641,6 +641,8 @@ fn read_sitemap(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
         "UPDATE work_items SET initial_interval_ms = 3600000 WHERE id = ?1",
         [&id],
     )?;
+    goodfetch_dataset::acknowledge_sink(connection, "books", "warehouse", 1)?;
+    goodfetch_frontier::stamp_unseen_visited(connection, 1_767_603_600_000)?;
     let missing = SitemapSeed {
         sitemap: "https://maps.test/missing.xml".to_owned(),
         rules: seed.rules.clone(),
@@ -808,6 +810,10 @@ fn bound() -> Contribution {
 
 /// Starts the Run `paused` as [`BOUND`] says, with what its owners and its
 /// program left in it.
+#[expect(
+    clippy::too_many_lines,
+    reason = "fixture builder populating every table of the paused run-state corpus"
+)]
 async fn bind(_: Value, context: CallContext) -> Result<Value, CallError> {
     let started = context
         .runs()

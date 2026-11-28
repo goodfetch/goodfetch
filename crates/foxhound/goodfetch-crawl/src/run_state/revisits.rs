@@ -477,4 +477,24 @@ impl RevisitTracker {
     pub(super) fn drop_unleased(&mut self) {
         self.active.retain(|_, active| active.in_flight);
     }
+
+    /// Removes forgotten work items from the in-memory revisit schedule
+    /// (`crawl.continuous.forget_after`, ADR 0139).
+    pub(super) fn forget(&mut self, work_items: &[String]) {
+        if work_items.is_empty() {
+            return;
+        }
+        for id in work_items {
+            if let Some(whole) = &mut self.whole
+                && let Some(row) = whole.rows.remove(id)
+            {
+                whole.remove_due(&row);
+                whole.bytes = whole.bytes.saturating_sub(ENTRY_BYTES);
+            }
+            self.unwritten.remove(id);
+            self.templates.remove(id);
+            self.last_outcomes.remove(id);
+            self.active.remove(id);
+        }
+    }
 }

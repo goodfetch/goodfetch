@@ -100,8 +100,9 @@ use goodfetch_frontier::revisit::{self, RevisitRow, SiteHintSwitches, SiteHints,
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
 use goodfetch_protocol::foxhound::continuous::{
-    CRAWL_CONTINUOUS, CRAWL_CONTINUOUS_MAX_ENTRY_AGE, CRAWL_SITEMAP_NEWS_REVISIT,
-    CRAWL_SITEMAP_READ_LASTMOD, CRAWL_SITEMAP_REVISIT, REVISIT_ADAPTIVE_DEFAULT_RATE_CHANGED,
+    CRAWL_CONTINUOUS, CRAWL_CONTINUOUS_FORGET_AFTER, CRAWL_CONTINUOUS_MAX_ENTRY_AGE,
+    CRAWL_CONTINUOUS_RETENTION, CRAWL_SITEMAP_NEWS_REVISIT, CRAWL_SITEMAP_READ_LASTMOD,
+    CRAWL_SITEMAP_REVISIT, REVISIT_ADAPTIVE_DEFAULT_RATE_CHANGED,
     REVISIT_ADAPTIVE_DEFAULT_RATE_UNCHANGED, REVISIT_CHANGE_CHECK, REVISIT_GONE_AFTER,
     REVISIT_ON_ERROR, REVISIT_ON_UNCHANGED, REVISIT_POLICY, REVISIT_SITE_HINTS_CACHE_CONTROL,
     REVISIT_SITE_HINTS_CHANGEFREQ, REVISIT_SITE_HINTS_EXPIRES, REVISIT_SITE_HINTS_PRIORITY,
@@ -120,12 +121,13 @@ use goodfetch_protocol::foxhound::frontier::FRONTIER_LEARNING;
 use goodfetch_protocol::foxhound::hook::CrawlHookDeclaration;
 use goodfetch_protocol::foxhound::outcomes::{OutcomeKind, SkipReason};
 use goodfetch_protocol::foxhound::report::{
-    BLOCK_CLASSIFICATION_OFF, LEARNING_OFF, LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK, PROVENANCE_OFF,
-    RECORDS_OFF, REVISIT_BROWSER_SIGNATURE, REVISIT_DOMAIN_BEHIND,
+    BLOCK_CLASSIFICATION_OFF, CONTINUOUS_NO_SINK, LEARNING_OFF, LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK,
+    PROVENANCE_OFF, RECORDS_OFF, REVISIT_BROWSER_SIGNATURE, REVISIT_DOMAIN_BEHIND,
 };
 use goodfetch_protocol::foxhound::settings::{
     DATASET_RECORDS, FETCH_BLOCK_CLASSIFICATION, PROVENANCE_LOG,
 };
+use goodfetch_protocol::foxhound::sink::SINKS;
 use goodfetch_protocol::governor::WorkKind;
 use goodfetch_protocol::page::proxy::{PROXY_PROVIDER, PROXY_SERVER};
 use goodfetch_protocol::page::{SITE_PREFERENCES_REFUSED, SessionId};
@@ -583,6 +585,139 @@ async fn idled(
 /// attempt it starts handing over `handing` with its own part. It owns the
 /// crawl's Run state, which starts from the Session pool the run file
 /// holds and from `choices`, and answers what every other task asks of it
+/// Current wall-clock time of `run` in milliseconds since the Unix epoch.
+fn now_ms_of(run: &CrawlRun) -> u64 {
+    run.identity
+        .point_in_time()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// Periodic retention and identity-forgetting state for a Continuous crawl
+/// (ADR 0139).
+struct ContinuousMaintenance {
+    has_sinks: bool,
+    retention: Duration,
+    forget_after_ms: Option<u64>,
+    sweep_interval_ms: u64,
+    last_sweep_ms: u64,
+}
+
+impl ContinuousMaintenance {
+    fn of(run: &CrawlRun, resolved: &Resolved) -> Option<Self> {
+        let has_sinks = !resolved
+            .value(&SINKS)
+            .as_object()
+            .is_none_or(serde_json::Map::is_empty);
+        let retention: Duration = resolved.get(&CRAWL_CONTINUOUS_RETENTION);
+        let forget_after_ms = resolved
+            .get::<Option<Duration>>(&CRAWL_CONTINUOUS_FORGET_AFTER)
+            .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+        if !has_sinks && forget_after_ms.is_none() {
+            return None;
+        }
+        let retention_ms = u64::try_from(retention.as_millis()).unwrap_or(u64::MAX);
+        let shortest = match (has_sinks, forget_after_ms) {
+            (true, Some(f)) => retention_ms.min(f),
+            (true, None) => retention_ms,
+            (false, Some(f)) => f,
+            (false, None) => unreachable!(),
+        };
+        let sweep_interval_ms = shortest.clamp(100, 60_000);
+        Some(Self {
+            has_sinks,
+            retention,
+            forget_after_ms,
+            sweep_interval_ms,
+            last_sweep_ms: now_ms_of(run),
+        })
+    }
+
+    async fn maybe_run(&mut self, run: &CrawlRun, state: &mut RunState) {
+        let now = run.identity.point_in_time();
+        let now_ms = now
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+        if now_ms.saturating_sub(self.last_sweep_ms) < self.sweep_interval_ms {
+            return;
+        }
+        self.last_sweep_ms = now_ms;
+        if self.has_sinks
+            && let Some(cutoff) = now.checked_sub(self.retention)
+        {
+            let _ = run
+                .state
+                .write(move |connection| goodfetch_dataset::prune_acknowledged(connection, cutoff))
+                .await;
+        }
+        if let Some(forget_ms) = self.forget_after_ms {
+            forget_stale_identities(run, state, forget_ms).await;
+        }
+    }
+}
+
+/// Stamps unseen visited identities and forgets any not seen within
+/// `forget_after_ms`, evicting them from in-memory caches as well (ADR 0139).
+async fn forget_stale_identities(run: &CrawlRun, state: &mut RunState, forget_after_ms: u64) {
+    let now_ms = now_ms_of(run);
+    let cutoff_ms = now_ms.saturating_sub(forget_after_ms);
+    let Ok(forgotten) = run
+        .state
+        .write(move |connection| {
+            goodfetch_frontier::stamp_unseen_visited(connection, now_ms)?;
+            goodfetch_frontier::forget_stale(connection, cutoff_ms)
+        })
+        .await
+    else {
+        return;
+    };
+    if !forgotten.is_empty() {
+        let (identities, work_items): (Vec<String>, Vec<String>) = forgotten.into_iter().unzip();
+        if let Some(unwritten) = state.stored().frontier().unwritten() {
+            unwritten.forget(&identities);
+        }
+        state.forget_revisits(&work_items);
+    }
+}
+
+/// Starts Continuous-crawl housekeeping: emits `continuous_no_sink` when no
+/// Sink is configured and builds the periodic maintenance state if needed.
+async fn start_continuous(
+    run: &CrawlRun,
+    continuous: bool,
+    resolved: &Resolved,
+) -> Option<ContinuousMaintenance> {
+    if !continuous {
+        return None;
+    }
+    warn_continuous_no_sink(run, resolved).await;
+    ContinuousMaintenance::of(run, resolved)
+}
+
+/// Emits `continuous_no_sink` once when a Continuous crawl has no Sink configured
+/// (ADR 0139).
+async fn warn_continuous_no_sink(run: &CrawlRun, resolved: &Resolved) {
+    if !resolved
+        .value(&SINKS)
+        .as_object()
+        .is_none_or(serde_json::Map::is_empty)
+    {
+        return;
+    }
+    if let Err(error) = run
+        .warnings
+        .warn_once_deferred(RunWarning {
+            code: CONTINUOUS_NO_SINK.to_owned(),
+            message: "This Continuous crawl has no Sink configured, so committed Records are kept in the run file and it will keep growing until a Sink acknowledges them or the Run ends.".to_owned(),
+            sessions: Vec::new(),
+            folder: None,
+        })
+        .await
+    {
+        tracing::warn!(%error, run_id = %run.identity.id(), "the crawl's continuous_no_sink warning could not be recorded");
+    }
+}
+
 /// Enqueues due revisits (or drops queued revisits after `run.finish()`).
 /// Returns `false` if reading due revisits failed and the Run ended.
 async fn advance_revisits(
@@ -697,7 +832,11 @@ async fn deliver(
     // Resolved once, as the Run opened: no turn reads the settings again
     // (ADR 0138).
     let (resolved, read) = (settings.resolved(), Read::of(settings.resolved()));
+    let mut maintenance = start_continuous(run, read.continuous, resolved).await;
     loop {
+        if let Some(maint) = &mut maintenance {
+            maint.maybe_run(run, &mut state).await;
+        }
         if !prepare_and_lease(
             (run, &read, &run_leases),
             (&mut admission, &mut state),
@@ -856,9 +995,20 @@ async fn answered(
             return false;
         }
     };
+    let is_seeding = question.is_seeding();
+    if is_seeding && let Some(forget_ms) = state.stored().frontier().forget_after_ms() {
+        forget_stale_identities(run, state, forget_ms).await;
+    }
     let Some(added) = state.answer(question).await else {
         return false;
     };
+    if is_seeding && state.stored().frontier().forget_after_ms().is_some() {
+        let now_ms = now_ms_of(run);
+        let _ = run
+            .state
+            .write(move |connection| goodfetch_frontier::stamp_unseen_visited(connection, now_ms))
+            .await;
+    }
     for waiting in added {
         admission.enqueue(waiting);
     }
@@ -937,6 +1087,7 @@ pub(crate) async fn resume(
             work_items::recover_leases(connection, &lost, retry_max, resumed_at, recovered)?;
             let fragments = labels::Fragments::read(connection)?;
             let invariants = Invariants::read(connection, fragments.clone())?;
+            invariants.configure_continuous(&resolved);
             Ok((
                 work_items::left(connection)?,
                 labels::read(connection)?,

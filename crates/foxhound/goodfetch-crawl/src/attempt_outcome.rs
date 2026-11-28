@@ -164,6 +164,14 @@ impl Outcome {
                     Some(Ok(committed)) => {
                         if let Some(row) = revisit {
                             revisit::upsert(connection, &row)?;
+                            work_items::prune_old_outcomes(connection, &row.work_item)?;
+                            if let Some(seen_at_ms) = row.last_fetched_at {
+                                goodfetch_frontier::touch_visited(
+                                    connection,
+                                    &row.work_item,
+                                    seen_at_ms,
+                                )?;
+                            }
                         }
                         Ended::Committed(committed)
                     }
@@ -198,6 +206,10 @@ impl Outcome {
                     && let Some(row) = revisit
                 {
                     revisit::upsert(connection, &row)?;
+                    work_items::prune_old_outcomes(connection, &row.work_item)?;
+                    if let Some(seen_at_ms) = row.last_fetched_at {
+                        goodfetch_frontier::touch_visited(connection, &row.work_item, seen_at_ms)?;
+                    }
                 }
                 ended
             }
@@ -268,6 +280,18 @@ fn write_source(
     options: SourceReadOptions,
     (keys, work, changed): (&Keys, &CountedWork, &mut Changed),
 ) -> rusqlite::Result<Ended> {
+    if let Some(forget_ms) = invariants.forget_after_ms()
+        && let Some(now_ms) = options.revisit.as_ref().map(|plan| plan.now_ms)
+    {
+        goodfetch_frontier::stamp_unseen_visited(connection, now_ms)?;
+        let stale = goodfetch_frontier::forget_stale(connection, now_ms.saturating_sub(forget_ms))?;
+        if !stale.is_empty()
+            && let Some(unwritten) = invariants.unwritten()
+        {
+            let identities: Vec<String> = stale.into_iter().map(|(id, _)| id).collect();
+            unwritten.forget(&identities);
+        }
+    }
     let (read, source_revisit) = match document {
         SourceDocument::Sitemap(document) => {
             let read = work_items::read_sitemap(

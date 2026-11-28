@@ -377,6 +377,7 @@ fn three_matching_pairs_teach_a_parameter_with_no_effect() {
                     &format!("{ITEM}?n=5"),
                     &format!("{ITEM}?n=4"),
                 ]),
+                merged_total: None,
             }],
             Vec::new(),
         )
@@ -473,6 +474,7 @@ fn a_trap_closes_after_a_hundred_pages_that_bring_nothing_new() {
                 ),
                 contradiction: None,
                 merged: vec![month(101)],
+                merged_total: None,
             }],
             vec![CompletenessReason {
                 completeness: Completeness::Unverified,
@@ -631,6 +633,7 @@ fn a_cursor_found_on_an_offset_listing_is_preferred() {
                 ),
                 contradiction: None,
                 merged: vec![format!("{LIST}?offset=60")],
+                merged_total: None,
             }],
             rule_reason(
                 "cursor_pagination",
@@ -832,6 +835,7 @@ fn form_rule(form: EquivalentForm, evidence: String, merged: &[&str]) -> Learned
         evidence,
         contradiction: None,
         merged: strings(merged),
+        merged_total: None,
     }
 }
 

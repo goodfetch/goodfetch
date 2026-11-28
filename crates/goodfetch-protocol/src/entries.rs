@@ -98,7 +98,7 @@ pub const KIND_PARTS: [&KindPart; 1] = [&foxhound::progress::CRAWL_RUN_PROGRESS]
 
 /// Every setting value that yields to another setting, which
 /// `config explain` names in its `yields_to` (#2418).
-pub const YIELDING: [&Yielding; 29] = [
+pub const YIELDING: [&Yielding; 32] = [
     &foxhound::continuous::REVISIT_POLICY_YIELDS_TO_BATCH,
     &foxhound::continuous::REVISIT_CHANGE_CHECK_YIELDS_TO_BATCH,
     &foxhound::continuous::REVISIT_ON_UNCHANGED_YIELDS_TO_BATCH,
@@ -112,6 +112,9 @@ pub const YIELDING: [&Yielding; 29] = [
     &foxhound::continuous::CRAWL_SITEMAP_NEWS_REVISIT_YIELDS_TO_BATCH,
     &foxhound::continuous::CRAWL_SITEMAP_REVISIT_YIELDS_TO_BATCH,
     &foxhound::continuous::CRAWL_CONTINUOUS_MAX_ENTRY_AGE_YIELDS_TO_BATCH,
+    &foxhound::continuous::CRAWL_CONTINUOUS_RETENTION_YIELDS_TO_BATCH,
+    &foxhound::continuous::CRAWL_CONTINUOUS_MERGED_KEPT_YIELDS_TO_BATCH,
+    &foxhound::continuous::CRAWL_CONTINUOUS_FORGET_AFTER_YIELDS_TO_BATCH,
     &foxhound::continuous::CRAWL_REVISIT_ORDER_YIELDS_TO_BATCH,
     &foxhound::continuous::CRAWL_REVISIT_DOMAIN_SHARE_YIELDS_TO_BATCH,
     &foxhound::continuous::KEEP_ALIVE_YIELDS_TO_CONTINUOUS,

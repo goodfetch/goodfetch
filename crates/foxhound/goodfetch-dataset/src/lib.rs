@@ -38,7 +38,10 @@ pub use declaration::{Datasets, Declarations, Refused, counted_validator};
 pub use encoding::ExportOptions;
 pub use open::{open_dataset, open_run};
 pub use pipeline::{WriteExportError, write_export};
-pub use records::{Checked, Committing, Query, RECORD_COLUMNS, commit, dataset_record, read};
+pub use records::{
+    Checked, Committing, Query, RECORD_COLUMNS, acknowledge_sink, commit, dataset_record,
+    prune_acknowledged, read, register_sink,
+};
 pub use rejections::{Rejection, RequestUrl, fuzz_rejection};
 pub use resume::Began;
 pub use run_tables::{ColumnType, RUN_FILE_TABLES, RunColumn, RunFileTable, RunTable};
@@ -99,6 +102,12 @@ pub const TABLES: RunStateTables = RunStateTables {
             contentless_unindexed = 1,
             tokenize = 'unicode61 remove_diacritics 2 separators ''\u{2066}\u{2067}\u{2068}\u{2069}'''
         )",
+        "CREATE TABLE IF NOT EXISTS sink_acknowledgements (
+            dataset TEXT NOT NULL,
+            sink TEXT NOT NULL,
+            acknowledged_number INTEGER NOT NULL,
+            PRIMARY KEY (dataset, sink)
+        ) STRICT, WITHOUT ROWID",
     ],
 };
 

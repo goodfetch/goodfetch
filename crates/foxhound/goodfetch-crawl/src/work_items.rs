@@ -2280,6 +2280,19 @@ fn write_outcome(write: &mut EndWrite<'_>, id: &str, ending: Ending) -> rusqlite
     Ok(())
 }
 
+/// Removes earlier outcome rows for `id`, keeping only the latest outcome row
+/// while `request_counts` and `revisits` keep the counters (ADR 0139).
+pub(crate) fn prune_old_outcomes(connection: &Connection, id: &str) -> rusqlite::Result<()> {
+    connection
+        .prepare_cached(
+            "DELETE FROM outcomes
+             WHERE work_item = ?1
+               AND position < (SELECT max(position) FROM outcomes WHERE work_item = ?1)",
+        )?
+        .execute([id])?;
+    Ok(())
+}
+
 /// What an ended request counts under among its Run's ended requests: its
 /// kind, and its skip reason, Error code or Block cause, none for
 /// `succeeded`.

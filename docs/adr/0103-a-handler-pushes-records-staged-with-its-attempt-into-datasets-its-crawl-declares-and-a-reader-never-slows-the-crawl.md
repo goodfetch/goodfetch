@@ -2,6 +2,8 @@
 
 A crawl's handler pushes each Record through its context into a Dataset its crawl declares. The Record is staged with the attempt and commits once with it, numbered in its Dataset. A program reads committed Records back as a stream that starts at the Dataset's first Record and never slows the crawl. Sinks are settings, an Export is a file the program saves wherever the engine runs, and every Run keeps a Key-value store.
 
+> Amended by [ADR 0139](0139-a-continuous-crawl-is-a-run-that-revisits-each-url-by-its-revisit-policy-reads-syndication-feeds-as-standing-sources-and-ends-only-when-told.md): in a Continuous crawl, Records leave the run file once every Sink has acknowledged them and `crawl.continuous.retention` (7 days) has passed; a Record no Sink acknowledged is never removed, so a Continuous crawl with no Sink keeps every Record and warns about the file's growth, and exports read what the run file holds.
+
 **What this answers.**
 - Pain 11 of the [research on competitors' APIs](https://github.com/goodfetch/goodfetch/blob/research/consumer-api/rnd/research/2026-10-14-consumer-api.md) (duplicate or partial results on retry), and its open questions 13 (push or pull) and 14 (a schema per Dataset, or plain dicts).
 - The [crawl frameworks note](https://github.com/goodfetch/goodfetch/blob/research/consumer-api/rnd/research/research_notes/Consumer%20API%20of%20competitors/crawl-frameworks.md) §4.2 and §6.14.

@@ -98,6 +98,10 @@ pub const TABLES: RunStateTables = RunStateTables {
             contradiction TEXT,
             UNIQUE (kind, host, path, parameter, form)
         ) STRICT",
+        "CREATE TABLE IF NOT EXISTS learned_merge_counts (
+            rule INTEGER NOT NULL PRIMARY KEY REFERENCES learned_rules (id),
+            total INTEGER NOT NULL DEFAULT 0
+        ) STRICT, WITHOUT ROWID",
         "CREATE TABLE IF NOT EXISTS learned_merges (
             rule INTEGER NOT NULL REFERENCES learned_rules (id),
             url TEXT NOT NULL,
@@ -798,13 +802,40 @@ pub(crate) fn merged(
     rule: i64,
     url: &str,
     identity: Option<&str>,
+    merged_kept: Option<usize>,
 ) -> rusqlite::Result<()> {
-    connection
+    let inserted = connection
         .prepare_cached(
             "INSERT INTO learned_merges (rule, url, identity) VALUES (?1, ?2, ?3)
              ON CONFLICT DO NOTHING",
         )?
         .execute((rule, url, identity))?;
+    if inserted > 0 {
+        connection
+            .prepare_cached(
+                "INSERT INTO learned_merge_counts (rule, total) VALUES (?1, 1)
+                 ON CONFLICT (rule) DO UPDATE SET total = learned_merge_counts.total + 1",
+            )?
+            .execute([rule])?;
+        if let Some(cap) = merged_kept {
+            if cap == 0 {
+                connection
+                    .prepare_cached("DELETE FROM learned_merges WHERE rule = ?1")?
+                    .execute([rule])?;
+            } else {
+                let cap_i64 = i64::try_from(cap).unwrap_or(i64::MAX);
+                connection
+                    .prepare_cached(
+                        "DELETE FROM learned_merges
+                         WHERE rule = ?1
+                           AND rowid NOT IN (
+                               SELECT rowid FROM learned_merges WHERE rule = ?1 ORDER BY rowid DESC LIMIT ?2
+                           )",
+                    )?
+                    .execute((rule, cap_i64))?;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -1840,9 +1871,27 @@ fn is_hexadecimal(segment: &str) -> bool {
 ///
 /// When the run file cannot be read.
 pub fn learned_rules(connection: &Connection) -> rusqlite::Result<Vec<LearnedRule>> {
+    learned_rules_with_totals(connection, false)
+}
+
+/// The rules the run file `connection` holds, in the order they were
+/// learned, each with the URLs it merged in the order met, and when
+/// `include_total` is true (a Continuous crawl, ADR 0139), its
+/// `merged_total` count beside the bounded `merged` list.
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+pub fn learned_rules_with_totals(
+    connection: &Connection,
+    include_total: bool,
+) -> rusqlite::Result<Vec<LearnedRule>> {
     let mut statement = connection.prepare_cached(
-        "SELECT id, kind, host, path, parameter, form, evidence, contradiction
-         FROM learned_rules ORDER BY id",
+        "SELECT r.id, r.kind, r.host, r.path, r.parameter, r.form, r.evidence, r.contradiction,
+                coalesce(c.total, 0)
+         FROM learned_rules r
+         LEFT JOIN learned_merge_counts c ON c.rule = r.id
+         ORDER BY r.id",
     )?;
     let rules = statement
         .query_map([], |row| {
@@ -1855,18 +1904,22 @@ pub fn learned_rules(connection: &Connection) -> rusqlite::Result<Vec<LearnedRul
                 row.get::<_, String>(5)?,
                 row.get::<_, String>(6)?,
                 row.get::<_, Option<String>>(7)?,
+                row.get::<_, i64>(8)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut merges = connection
         .prepare_cached("SELECT url FROM learned_merges WHERE rule = ?1 ORDER BY rowid")?;
     let mut learned = Vec::with_capacity(rules.len());
-    for (id, kind, host, path, parameter, form, evidence, contradiction) in rules {
+    for (id, kind, host, path, parameter, form, evidence, contradiction, merged_total) in rules {
         let kind = kind_named(&kind)?;
         let form = (!form.is_empty()).then(|| form_named(&form)).transpose()?;
         let urls = merges
             .query_map([id], |row| row.get(0))?
             .collect::<rusqlite::Result<Vec<String>>>()?;
+        let total = u64::try_from(merged_total)
+            .unwrap_or(0)
+            .max(u64::try_from(urls.len()).unwrap_or(u64::MAX));
         learned.push(LearnedRule {
             kind,
             host,
@@ -1876,6 +1929,7 @@ pub fn learned_rules(connection: &Connection) -> rusqlite::Result<Vec<LearnedRul
             evidence,
             contradiction,
             merged: urls,
+            merged_total: include_total.then_some(total),
         });
     }
     Ok(learned)

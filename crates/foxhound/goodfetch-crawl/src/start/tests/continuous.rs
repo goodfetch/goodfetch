@@ -662,7 +662,11 @@ fn conditional_get_304_ends_unchanged_with_zero_parses_and_change_runs_handler()
         .iter()
         .filter_map(|o| o["kind"].as_str())
         .collect();
-    assert_eq!(kinds, vec!["succeeded", "unchanged", "succeeded"]);
+    // Continuous crawls keep only the latest outcome row per URL while counters
+    // retain every revisit outcome (issue 1867, ADR 0139).
+    assert_eq!(kinds, vec!["succeeded"]);
+    assert_eq!(report["result"]["freshness"]["unchanged"], 1, "{report}");
+    assert_eq!(report["result"]["freshness"]["changed"], 1, "{report}");
 }
 
 /// `revisit.change_check` modes (`conditional+signature`, `conditional`,
@@ -2855,5 +2859,271 @@ fn report_so_far_answers_live_continuous_crawl_with_freshness_and_refuses_batch(
     assert!(
         batch.get("freshness").is_none(),
         "batch Run report must not carry freshness: {batch_report}"
+    );
+}
+
+/// Growth bounds for Continuous crawls (issue 1867, ADR 0139):
+/// - `crawl.continuous.retention`, `crawl.continuous.merged_kept`, and
+///   `crawl.continuous.forget_after` yield to `crawl.continuous.enabled = false`
+///   on batch crawls.
+/// - A Continuous crawl with no Sink emits `continuous_no_sink` and keeps its
+///   Records in the run file; `outcomes` keeps only the latest per URL while
+///   counters stay accurate.
+/// - `crawl.continuous.forget_after` forgets an identity not seen for that long,
+///   so adding its URL again admits it as new instead of `duplicate`.
+///
+/// Covers: setting:crawl.continuous.retention, setting:crawl.continuous.merged_kept, setting:crawl.continuous.forget_after
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end Continuous growth scenario covering config.explain, no-Sink warning, latest outcomes, and forget_after"
+)]
+fn continuous_growth_no_sink_warning_latest_outcomes_and_forget_after() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use tokio::time::advance;
+
+    let env = TestEnv::new();
+    let visits = Arc::new(AtomicU32::new(0));
+    let visits_http = Arc::clone(&visits);
+
+    let site = Arc::new(ScriptedSite {
+        recorded: std::sync::Mutex::new(Vec::new()),
+        respond: Box::new(move |hop| {
+            if hop.url.path() == "/robots.txt" {
+                return (
+                    200,
+                    vec![("content-type".to_owned(), "text/plain".to_owned())],
+                    String::new(),
+                );
+            }
+            let n = visits_http.fetch_add(1, Ordering::SeqCst) + 1;
+            let body = if hop.url.path().contains("/changing") {
+                format!("<html><body><p>version-{n}</p></body></html>")
+            } else {
+                format!("<html><body><p>article-{n}</p></body></html>")
+            };
+            (
+                200,
+                vec![(
+                    "content-type".to_owned(),
+                    "text/html; charset=utf-8".to_owned(),
+                )],
+                body,
+            )
+        }),
+    });
+    let engine = engine_with_site(Arc::clone(&site));
+    let mut handler = |_: &Value| Reply::Records(Vec::new());
+
+    let (explained, no_sink_report, outcomes_rows, dup_before, added_after) = super::crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            // 1. Batch crawl marks all 3 growth settings inactive via config.explain.
+            let explained = client
+                .call(
+                    "config.explain",
+                    json!({
+                        "settings": {
+                            "crawl": {
+                                "continuous": {
+                                    "enabled": false,
+                                    "retention": 86_400_000,
+                                    "merged_kept": 50,
+                                    "forget_after": 3_600_000
+                                }
+                            }
+                        }
+                    }),
+                    &mut handler,
+                )
+                .await;
+
+            // 2. Continuous crawl with no Sink + 3 visits of /changing:
+            //    emits continuous_no_sink and keeps only latest outcome row per URL.
+            let started = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "cont-growth-1",
+                        "seeds": [seed("https://growth.test/changing")],
+                        "labels": { "page": {} },
+                        "settings": {
+                            "crawl": {
+                                "continuous": {
+                                    "enabled": true,
+                                    "retention": 60_000,
+                                    "merged_kept": 2
+                                }
+                            },
+                            "revisit": {
+                                "policy": { "kind": "every", "interval": 10_000 },
+                                "change_check": "signature"
+                            }
+                        }
+                    }),
+                    &mut handler,
+                )
+                .await;
+            assert!(started["result"].is_object(), "start failed: {started}");
+
+            let _ = progress_matching(
+                client,
+                "cont-growth-1",
+                |p| p["idle"] == json!(true),
+                &mut handler,
+            )
+            .await;
+            for _ in 0..2 {
+                advance(Duration::from_secs(12)).await;
+                let _ = progress_matching(
+                    client,
+                    "cont-growth-1",
+                    |p| p["idle"] == json!(true),
+                    &mut handler,
+                )
+                .await;
+            }
+            let no_sink_report = client
+                .call(
+                    "run.finish",
+                    json!({ "run_id": "cont-growth-1" }),
+                    &mut handler,
+                )
+                .await;
+            let outcomes = client
+                .call(
+                    "run.outcomes",
+                    json!({ "run_id": "cont-growth-1" }),
+                    &mut handler,
+                )
+                .await;
+            let outcomes_rows = outcomes["result"]["outcomes"]
+                .as_array()
+                .map_or(0, Vec::len);
+
+            // 3. Continuous crawl with forget_after: 15s and revisit.policy: never:
+            //    duplicate before 15s, admitted as new after 20s.
+            let started2 = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "cont-forget-1",
+                        "seeds": [seed("https://forget.test/article")],
+                        "labels": { "page": {} },
+                        "settings": {
+                            "crawl": {
+                                "continuous": {
+                                    "enabled": true,
+                                    "forget_after": 15_000
+                                }
+                            },
+                            "revisit": { "policy": { "kind": "never" } }
+                        }
+                    }),
+                    &mut handler,
+                )
+                .await;
+            assert!(started2["result"].is_object(), "start2 failed: {started2}");
+            let _ = progress_matching(
+                client,
+                "cont-forget-1",
+                |p| p["idle"] == json!(true),
+                &mut handler,
+            )
+            .await;
+
+            // Immediately re-seeding is a duplicate.
+            let dup_before = client
+                .call(
+                    "run.add_seed",
+                    json!({
+                        "run_id": "cont-forget-1",
+                        "seed": seed("https://forget.test/article")
+                    }),
+                    &mut handler,
+                )
+                .await;
+
+            // Advance past forget_after (15s) -> identity is forgotten, re-seeding adds it as new.
+            advance(Duration::from_secs(20)).await;
+            let added_after = client
+                .call(
+                    "run.add_seed",
+                    json!({
+                        "run_id": "cont-forget-1",
+                        "seed": seed("https://forget.test/article")
+                    }),
+                    &mut handler,
+                )
+                .await;
+
+            let _ = client
+                .call(
+                    "run.finish",
+                    json!({ "run_id": "cont-forget-1" }),
+                    &mut handler,
+                )
+                .await;
+            (
+                explained,
+                no_sink_report,
+                outcomes_rows,
+                dup_before,
+                added_after,
+            )
+        },
+    )
+    .0;
+
+    // 1. Batch crawl yields_to checks.
+    let settings = explained["result"]["settings"]
+        .as_array()
+        .expect("config.explain settings");
+    for key in [
+        "crawl.continuous.retention",
+        "crawl.continuous.merged_kept",
+        "crawl.continuous.forget_after",
+    ] {
+        let entry = settings
+            .iter()
+            .find(|s| s["key"] == key)
+            .unwrap_or_else(|| panic!("missing {key} in config.explain"));
+        assert_eq!(
+            entry["yields_to"]["key"], "crawl.continuous.enabled",
+            "expected {key} to yield to crawl.continuous.enabled: {entry}"
+        );
+    }
+
+    // 2. No-Sink warning + latest outcome per URL + freshness counters.
+    let warnings = no_sink_report["result"]["warnings"]
+        .as_array()
+        .expect("report warnings");
+    assert!(
+        warnings.iter().any(|w| w["code"] == "continuous_no_sink"),
+        "expected continuous_no_sink warning: {warnings:?}"
+    );
+    assert_eq!(
+        outcomes_rows, 1,
+        "outcomes should keep only the latest row per URL after 3 visits"
+    );
+    assert_eq!(
+        no_sink_report["result"]["freshness"]["changed"], 2,
+        "freshness should still count both changed revisits: {no_sink_report}"
+    );
+
+    // 3. forget_after: duplicate before, added after.
+    assert_eq!(
+        dup_before["result"]["kind"], "not_added",
+        "before forget_after, re-seeding must be duplicate: {dup_before}"
+    );
+    assert_eq!(
+        dup_before["result"]["reason"], "duplicate",
+        "before forget_after, reason must be duplicate: {dup_before}"
+    );
+    assert_eq!(
+        added_after["result"]["kind"], "added",
+        "after forget_after, re-seeding must add as new: {added_after}"
     );
 }

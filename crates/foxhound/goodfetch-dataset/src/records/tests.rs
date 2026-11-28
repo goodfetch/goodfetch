@@ -317,3 +317,106 @@ fn a_commit_indexes_each_records_words_only_while_indexing_is_on() {
          committed with indexing off is indexed"
     );
 }
+
+#[test]
+fn prune_acknowledged_removes_only_records_every_sink_acknowledged_past_retention() {
+    use std::time::{Duration, UNIX_EPOCH};
+
+    use goodfetch_counted_work::CountedWork;
+    use goodfetch_engine::mask::Masks;
+    use goodfetch_protocol::foxhound::crawl::PushedRecord;
+    use goodfetch_protocol::foxhound::dataset::{DatasetDeclaration, RecordData};
+
+    let connection = Connection::open_in_memory().unwrap();
+    for statement in crate::TABLES.statements {
+        connection.execute(statement, []).unwrap();
+    }
+    let datasets = crate::Datasets::declare(&[DatasetDeclaration {
+        name: "pages".to_owned(),
+        schema: None,
+        key: Vec::new(),
+    }])
+    .unwrap();
+    datasets.record(&connection).unwrap();
+
+    let t0 = UNIX_EPOCH + Duration::from_secs(1_000_000);
+    let t1 = t0 + Duration::from_secs(3_600);
+    let t2 = t0 + Duration::from_secs(10_000);
+    let work = CountedWork::default();
+    let masks = Masks::new();
+    let provenance = provenance();
+    let push = |req: &str, at: std::time::SystemTime, title: &str| {
+        let checked = datasets
+            .check(
+                vec![PushedRecord {
+                    dataset: "pages".to_owned(),
+                    data: RecordData::of(&serde_json::json!({ "title": title })).unwrap(),
+                }],
+                &work,
+            )
+            .unwrap();
+        super::commit(
+            &connection,
+            super::Committing {
+                request_id: req,
+                url: "https://shop.test/",
+                at: &at,
+                provenance: &provenance,
+                masks: &masks,
+                work: &work,
+                index: true,
+            },
+            &checked,
+        )
+        .unwrap();
+    };
+    push("r1", t0, "alpha");
+    push("r2", t0, "beta");
+    push("r3", t2, "gamma");
+
+    let read_all = || {
+        super::read(
+            &connection,
+            Query {
+                dataset: "pages",
+                after: 0,
+                through: None,
+                wall: None,
+            },
+            10,
+        )
+        .unwrap()
+    };
+
+    // With no Sink registered, nothing is ever pruned even past retention.
+    assert_eq!(super::prune_acknowledged(&connection, t2).unwrap(), 0);
+    assert_eq!(read_all().len(), 3);
+
+    // Two Sinks registered; only one acknowledges through 2 -> min_ack is 0 -> nothing pruned.
+    super::register_sink(&connection, "pages", "warehouse").unwrap();
+    super::register_sink(&connection, "pages", "archive").unwrap();
+    super::acknowledge_sink(&connection, "pages", "warehouse", 2).unwrap();
+    assert_eq!(super::prune_acknowledged(&connection, t1).unwrap(), 0);
+
+    // Second Sink acknowledges through 1 -> only Record 1 (at t0 <= t1) is pruned.
+    super::acknowledge_sink(&connection, "pages", "archive", 1).unwrap();
+    assert_eq!(super::prune_acknowledged(&connection, t1).unwrap(), 1);
+
+    // Second Sink acknowledges through 3 -> Record 2 (t0 <= t1) pruned; Record 3 (t2 > t1) kept.
+    super::acknowledge_sink(&connection, "pages", "archive", 3).unwrap();
+    assert_eq!(super::prune_acknowledged(&connection, t1).unwrap(), 1);
+    let remaining = read_all();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].number, 3);
+
+    // Even past t2, warehouse has only acknowledged through 2, so Record 3 stays.
+    assert_eq!(super::prune_acknowledged(&connection, t2).unwrap(), 0);
+
+    // Once warehouse acknowledges 3 as well, Record 3 is pruned; a new commit takes number 4 (never 1).
+    super::acknowledge_sink(&connection, "pages", "warehouse", 3).unwrap();
+    assert_eq!(super::prune_acknowledged(&connection, t2).unwrap(), 1);
+    push("r4", t2, "delta");
+    let after = read_all();
+    assert_eq!(after.len(), 1);
+    assert_eq!(after[0].number, 4);
+}

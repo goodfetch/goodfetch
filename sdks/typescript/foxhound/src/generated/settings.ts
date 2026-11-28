@@ -235,11 +235,29 @@ export interface FoxhoundSettings {
        */
       readonly enabled?: boolean;
       /**
+       * How long a visited identity not seen by a Continuous crawl is kept before being forgotten, in whole milliseconds: unset (`null`, never forgotten) by default. Once forgotten, a source that names its URL again adds it as new. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `crawl.continuous.forget_after`.
+       */
+      readonly forgetAfter?: number | null;
+      /**
        * Maximum age of a dated sitemap or syndication entry to admit in a Continuous crawl, in whole milliseconds: 30 days (2,592,000,000 ms, CC-NEWS's rule) by default; `null` turns the bound off. Accepted on a batch crawl, where `config explain` marks it inactive.
        *
        * `crawl.continuous.max_entry_age`.
        */
       readonly maxEntryAge?: number | null;
+      /**
+       * Maximum number of recent merged URLs kept per Learned rule in a Continuous crawl, beside its total count: 1,000 by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `crawl.continuous.merged_kept`.
+       */
+      readonly mergedKept?: number;
+      /**
+       * How long a Continuous crawl keeps Records in its run file after every Sink has acknowledged them, in whole milliseconds: 7 days (604,800,000 ms) by default. A Record no Sink acknowledged is never removed. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `crawl.continuous.retention`.
+       */
+      readonly retention?: number;
     };
     /**
      * Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.
@@ -1773,11 +1791,29 @@ export interface CrawlSettings {
        */
       readonly enabled?: boolean;
       /**
+       * How long a visited identity not seen by a Continuous crawl is kept before being forgotten, in whole milliseconds: unset (`null`, never forgotten) by default. Once forgotten, a source that names its URL again adds it as new. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `crawl.continuous.forget_after`.
+       */
+      readonly forgetAfter?: number | null;
+      /**
        * Maximum age of a dated sitemap or syndication entry to admit in a Continuous crawl, in whole milliseconds: 30 days (2,592,000,000 ms, CC-NEWS's rule) by default; `null` turns the bound off. Accepted on a batch crawl, where `config explain` marks it inactive.
        *
        * `crawl.continuous.max_entry_age`.
        */
       readonly maxEntryAge?: number | null;
+      /**
+       * Maximum number of recent merged URLs kept per Learned rule in a Continuous crawl, beside its total count: 1,000 by default. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `crawl.continuous.merged_kept`.
+       */
+      readonly mergedKept?: number;
+      /**
+       * How long a Continuous crawl keeps Records in its run file after every Sink has acknowledged them, in whole milliseconds: 7 days (604,800,000 ms) by default. A Record no Sink acknowledged is never removed. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `crawl.continuous.retention`.
+       */
+      readonly retention?: number;
     };
     /**
      * Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.
@@ -3324,7 +3360,10 @@ const SPELLING: Spelling = {
     contentTypes: "content_types",
     continuous: ["continuous", {
       enabled: "enabled",
+      forgetAfter: "forget_after",
       maxEntryAge: "max_entry_age",
+      mergedKept: "merged_kept",
+      retention: "retention",
     }],
     domainKeys: "domain_keys",
     domainOrder: "domain_order",

@@ -102,6 +102,12 @@ CREATE TABLE learned_identities (
 INSERT INTO "learned_identities" VALUES('GET https://list.test/items?n=1',1,'6');
 INSERT INTO "learned_identities" VALUES('GET https://list.test/items?n=2',1,'8');
 INSERT INTO "learned_identities" VALUES('GET https://list.test/items?n=3',1,'10');
+CREATE TABLE learned_merge_counts (
+            rule INTEGER NOT NULL PRIMARY KEY REFERENCES learned_rules (id),
+            total INTEGER NOT NULL DEFAULT 0
+        ) STRICT, WITHOUT ROWID;
+INSERT INTO "learned_merge_counts" VALUES(1,7);
+INSERT INTO "learned_merge_counts" VALUES(2,2);
 CREATE TABLE learned_merges (
             rule INTEGER NOT NULL REFERENCES learned_rules (id),
             url TEXT NOT NULL,
@@ -548,6 +554,13 @@ INSERT INTO "seeds" VALUES(16,'{"kind":"added","id":"14","url":"https://shop.tes
 INSERT INTO "seeds" VALUES(17,'{"kind":"not_added","reason":"path_budget","url":"https://shop.test/pages/2"}');
 INSERT INTO "seeds" VALUES(18,'{"kind":"added","id":"15","url":"https://list.test/guide"}');
 INSERT INTO "seeds" VALUES(19,'{"kind":"added","id":"16","url":"https://list.test/guide/"}');
+CREATE TABLE sink_acknowledgements (
+            dataset TEXT NOT NULL,
+            sink TEXT NOT NULL,
+            acknowledged_number INTEGER NOT NULL,
+            PRIMARY KEY (dataset, sink)
+        ) STRICT, WITHOUT ROWID;
+INSERT INTO "sink_acknowledgements" VALUES('books','warehouse',1);
 CREATE TABLE sitemap_entries (
             work_item TEXT NOT NULL,
             reason TEXT NOT NULL,
@@ -640,29 +653,30 @@ CREATE TABLE usage_totals (
 INSERT INTO "usage_totals" VALUES('requests','',17);
 CREATE TABLE visited (
             identity TEXT NOT NULL PRIMARY KEY,
-            crawl_request TEXT NOT NULL
+            crawl_request TEXT NOT NULL,
+            last_seen_at INTEGER
         ) STRICT, WITHOUT ROWID;
-INSERT INTO "visited" VALUES('GET https://guarded.test/','4');
-INSERT INTO "visited" VALUES('GET https://list.test/guide','15');
-INSERT INTO "visited" VALUES('GET https://list.test/guide/','16');
-INSERT INTO "visited" VALUES('GET https://list.test/items?n=1','5');
-INSERT INTO "visited" VALUES('GET https://list.test/items?n=1&ref=a','6');
-INSERT INTO "visited" VALUES('GET https://list.test/items?n=2','7');
-INSERT INTO "visited" VALUES('GET https://list.test/items?n=2&ref=b','8');
-INSERT INTO "visited" VALUES('GET https://list.test/items?n=3','9');
-INSERT INTO "visited" VALUES('GET https://list.test/items?n=3&ref=c','10');
-INSERT INTO "visited" VALUES('GET https://list.test/items?n=3&ref=d','17');
-INSERT INTO "visited" VALUES('GET https://list.test/rows?after=r20/sale','18');
-INSERT INTO "visited" VALUES('GET https://list.test/rows?after=r40/sale','19');
-INSERT INTO "visited" VALUES('GET https://list.test/rows?after=r60/sale','20');
-INSERT INTO "visited" VALUES('GET https://list.test/rows?offset=0','11');
-INSERT INTO "visited" VALUES('GET https://list.test/rows?offset=20','12');
-INSERT INTO "visited" VALUES('GET https://list.test/rows?offset=40','13');
-INSERT INTO "visited" VALUES('GET https://outlet.test/sale','25');
-INSERT INTO "visited" VALUES('GET https://shop.test/','1');
-INSERT INTO "visited" VALUES('GET https://shop.test/broken','2');
-INSERT INTO "visited" VALUES('GET https://shop.test/pages/1','14');
-INSERT INTO "visited" VALUES('key:search-1','3');
+INSERT INTO "visited" VALUES('GET https://guarded.test/','4',1767603600000);
+INSERT INTO "visited" VALUES('GET https://list.test/guide','15',1767603600000);
+INSERT INTO "visited" VALUES('GET https://list.test/guide/','16',1767603600000);
+INSERT INTO "visited" VALUES('GET https://list.test/items?n=1','5',1767603600000);
+INSERT INTO "visited" VALUES('GET https://list.test/items?n=1&ref=a','6',1767603600000);
+INSERT INTO "visited" VALUES('GET https://list.test/items?n=2','7',1767603600000);
+INSERT INTO "visited" VALUES('GET https://list.test/items?n=2&ref=b','8',1767603600000);
+INSERT INTO "visited" VALUES('GET https://list.test/items?n=3','9',1767603600000);
+INSERT INTO "visited" VALUES('GET https://list.test/items?n=3&ref=c','10',1767603600000);
+INSERT INTO "visited" VALUES('GET https://list.test/items?n=3&ref=d','17',1767603600000);
+INSERT INTO "visited" VALUES('GET https://list.test/rows?after=r20/sale','18',1767603600000);
+INSERT INTO "visited" VALUES('GET https://list.test/rows?after=r40/sale','19',1767603600000);
+INSERT INTO "visited" VALUES('GET https://list.test/rows?after=r60/sale','20',1767603600000);
+INSERT INTO "visited" VALUES('GET https://list.test/rows?offset=0','11',1767603600000);
+INSERT INTO "visited" VALUES('GET https://list.test/rows?offset=20','12',1767603600000);
+INSERT INTO "visited" VALUES('GET https://list.test/rows?offset=40','13',1767603600000);
+INSERT INTO "visited" VALUES('GET https://outlet.test/sale','25',NULL);
+INSERT INTO "visited" VALUES('GET https://shop.test/','1',1767603600000);
+INSERT INTO "visited" VALUES('GET https://shop.test/broken','2',1767603600000);
+INSERT INTO "visited" VALUES('GET https://shop.test/pages/1','14',1767603600000);
+INSERT INTO "visited" VALUES('key:search-1','3',1767603600000);
 CREATE TABLE warnings (
         position INTEGER NOT NULL PRIMARY KEY,
         code TEXT NOT NULL,

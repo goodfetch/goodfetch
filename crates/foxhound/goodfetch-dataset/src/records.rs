@@ -125,9 +125,11 @@ pub fn commit(
     committing: Committing<'_>,
     records: &Checked,
 ) -> rusqlite::Result<Vec<DatasetRecords>> {
-    let mut insert = connection.prepare_cached("INSERT INTO records (dataset, number, work_item, url, committed_at, data, schema_hash, provenance)
-         VALUES (?1, (SELECT coalesce(max(number), 0) + 1 FROM records WHERE dataset = ?1), ?2, ?3, ?4, ?5, ?6, ?7)
-         RETURNING number")?;
+    let mut insert = connection.prepare_cached(
+        "INSERT INTO records (dataset, number, work_item, url, committed_at, data, schema_hash, provenance)
+         VALUES (?1, max(coalesce((SELECT max(number) FROM records WHERE dataset = ?1), 0), coalesce((SELECT max(acknowledged_number) FROM sink_acknowledgements WHERE dataset = ?1), 0)) + 1, ?2, ?3, ?4, ?5, ?6, ?7)
+         RETURNING number",
+    )?;
     let mut index = if committing.index {
         Some(connection.prepare_cached(INDEX_RECORD)?)
     } else {
@@ -184,6 +186,90 @@ pub fn commit(
         &mut counted,
     )?;
     Ok(counted)
+}
+
+/// Registers `sink` as a consumer of `dataset` with an initial acknowledgement
+/// of `0` if not already registered, so retention will never prune `dataset`'s
+/// Records before `sink` acknowledges them (ADR 0139).
+///
+/// # Errors
+///
+/// The run file's, when the row cannot be written.
+pub fn register_sink(connection: &Connection, dataset: &str, sink: &str) -> rusqlite::Result<()> {
+    connection
+        .prepare_cached(
+            "INSERT INTO sink_acknowledgements (dataset, sink, acknowledged_number)
+             VALUES (?1, ?2, 0)
+             ON CONFLICT (dataset, sink) DO NOTHING",
+        )?
+        .execute((dataset, sink))?;
+    Ok(())
+}
+
+/// Records that `sink` has acknowledged delivery of `dataset`'s Records through
+/// `number` (monotonically advancing the stored watermark, ADR 0139).
+///
+/// # Errors
+///
+/// The run file's, when the row cannot be written.
+pub fn acknowledge_sink(
+    connection: &Connection,
+    dataset: &str,
+    sink: &str,
+    number: u64,
+) -> rusqlite::Result<()> {
+    let number = i64::try_from(number).unwrap_or(i64::MAX);
+    connection
+        .prepare_cached(
+            "INSERT INTO sink_acknowledgements (dataset, sink, acknowledged_number)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT (dataset, sink) DO UPDATE
+               SET acknowledged_number = max(sink_acknowledgements.acknowledged_number, excluded.acknowledged_number)",
+        )?
+        .execute((dataset, sink, number))?;
+    Ok(())
+}
+
+/// Prunes committed Records whose Dataset has at least one registered Sink,
+/// whose number every registered Sink for that Dataset has acknowledged, and
+/// whose `committed_at` is at or before `cutoff` (ADR 0139).
+///
+/// A Dataset with no registered Sink has 0 Records removed. Returns the total
+/// number of Records deleted.
+///
+/// # Errors
+///
+/// The run file's, when the rows cannot be read or deleted.
+pub fn prune_acknowledged(connection: &Connection, cutoff: SystemTime) -> rusqlite::Result<u64> {
+    let cutoff = StoredTime(cutoff);
+    let cutoff_sql = cutoff.to_sql()?;
+    let mut watermarks = connection.prepare_cached(
+        "SELECT dataset, min(acknowledged_number) FROM sink_acknowledgements GROUP BY dataset",
+    )?;
+    let targets: Vec<(String, i64)> = watermarks
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut deleted = 0_u64;
+    let mut delete_index = connection.prepare_cached(
+        "DELETE FROM record_search
+         WHERE dataset = ?1
+           AND number IN (
+               SELECT number FROM records
+               WHERE dataset = ?1 AND number <= ?2 AND committed_at <= ?3
+           )",
+    )?;
+    let mut delete_records = connection.prepare_cached(
+        "DELETE FROM records WHERE dataset = ?1 AND number <= ?2 AND committed_at <= ?3",
+    )?;
+    for (dataset, min_ack) in targets {
+        if min_ack <= 0 {
+            continue;
+        }
+        delete_index.execute((&dataset, min_ack, &cutoff_sql))?;
+        let removed = delete_records.execute((&dataset, min_ack, &cutoff_sql))?;
+        deleted = deleted.saturating_add(u64::try_from(removed).unwrap_or(u64::MAX));
+    }
+    Ok(deleted)
 }
 
 /// Which committed Records a read takes: one Dataset's, after a number,

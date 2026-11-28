@@ -8,6 +8,8 @@ A write that fails before a sample sees it rolls back, is never acknowledged, an
 
 Logs are bounded as follows. `goodfetch daemon run` logs to stdout for its platform to rotate. Every other Daemon writes JSON lines to files it rotates at 10 MiB, keeping five. The default level is `info`, which logs state changes and never one line per request.
 
+> Amended by [ADR 0139](0139-a-continuous-crawl-is-a-run-that-revisits-each-url-by-its-revisit-policy-reads-syndication-feeds-as-standing-sources-and-ends-only-when-told.md): a Continuous crawl also bounds its run file's growth by removing acknowledged Records past `crawl.continuous.retention` (7 days), keeping only the latest outcome per URL beside counters, bounding each Learned rule's merged URLs to `crawl.continuous.merged_kept` (1,000) beside a total count, and optionally forgetting unseen identities past `crawl.continuous.forget_after`.
+
 **What this answers.** The [pitfall catalog](https://github.com/goodfetch/goodfetch/blob/prototype/sdk-api/sdk-api-sketch/pitfalls.md)'s rows O03 ("the disk fills under a running crawl") and O10 ("log volume on long runs"), from items 4.B6 and 4.B13 of the [common pitfalls research](https://github.com/goodfetch/goodfetch/blob/research/common-pitfalls/rnd/research/2026-10-16-common-pitfalls.md). [ADR 0116](0116-a-saved-file-is-written-whole-or-not-at-all-and-a-failed-write-says-whether-its-path-or-its-storage-failed.md) covers the files a program saves, and [ADR 0040](0040-one-resource-governor-per-engine-sized-from-measured-load.md) covers memory. Neither says what a running Run does when its own writes fail, and ADR 0037's RT-17 left logs to a spec.
 
 **Comparable projects, re-read on 2026-10-16.**

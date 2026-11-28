@@ -470,3 +470,22 @@ fn a_deprecated_setting_names_the_field_each_scope_type_declares_it_as(
         .collect();
     assert!(undeclared.is_empty(), "{undeclared:?} in {module}");
 }
+
+/// `"x-goodfetch-personal": true` on a setting value schema is accepted by
+/// Python settings codegen as an untyped annotation (ADR 0016, ticket 673).
+///
+/// Covers: story:4-78
+#[test]
+fn settings_module_accepts_personal_data_keyword() {
+    let settings = [setting(
+        "user.email",
+        json!({ "type": "string", "x-goodfetch-personal": true }),
+        false,
+        &["run"],
+    )];
+    let module = settings_module(&settings).unwrap();
+    assert!(
+        class(&module, "RunUserSettings").contains("\n    email: NotRequired[str]\n"),
+        "{module}"
+    );
+}

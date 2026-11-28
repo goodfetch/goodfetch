@@ -620,3 +620,45 @@ fn the_catalog_lists_a_crawls_parts_of_run_progress_which_only_foxhound_reaches(
     }
     assert_eq!(collie["kind_parts"], json!([]));
 }
+
+/// The `"x-goodfetch-personal"` keyword is accepted in JSON Schema Draft
+/// 2020-12 and by the schema bundle / codegen annotation walkers, and both
+/// Products carry `personal_data_notice` in `audit_kind` and
+/// `run_warning_code` (ADR 0016; ticket 673).
+///
+/// Covers: story:4-78
+#[test]
+fn the_bundle_and_codegen_accept_the_personal_data_keyword() {
+    let emitted = emit();
+    for product in [Product::Collie, Product::Foxhound] {
+        let projected = project(&emitted.catalog, &emitted.bundle, product).unwrap();
+        let has = |shared_type: &str, name: &str| {
+            projected["shared_type_values"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| entry["type"] == shared_type && entry["name"] == name)
+        };
+        assert!(has("audit_kind", "personal_data_notice"));
+        assert!(has("run_warning_code", "personal_data_notice"));
+    }
+
+    let annotated = json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["email"],
+        "properties": {
+            "email": {
+                "type": "string",
+                "x-goodfetch-personal": true
+            }
+        }
+    });
+    let validator = jsonschema::validator_for(&annotated).unwrap();
+    assert!(validator.is_valid(&json!({ "email": "ada@example.test" })));
+    assert!(!validator.is_valid(&json!({ "email": 42 })));
+    assert_eq!(
+        goodfetch_protocol::site_preferences::personal_fields(&annotated),
+        vec!["email"]
+    );
+}

@@ -1420,9 +1420,24 @@ impl PageContext {
         let navigation = self.main_document(paused);
         if self.sender.records_at_once() {
             self.record_refusal(paused.url(), paused.method(), refused.failure());
+        } else if let Sender::ServiceWorker { session, log } = &self.sender {
+            let failure = refused.failure();
+            record_outcome(self.run.identity(), &failure.code);
+            log.service_worker_request(&ServiceWorkerRequest {
+                session_id: session.clone(),
+                url: paused.url().to_owned(),
+                method: paused.method().to_owned(),
+                resource_type: paused.resource_type(),
+                failure: Some(RequestFailure {
+                    error_text: NetError::BlockedByClient.name().to_owned(),
+                    error: Some(failure),
+                }),
+            });
         } else if let Some(network_id) = paused.network_id() {
             self.refusals
                 .leave(network_id.as_str(), refused.failure(), !navigation);
+        } else {
+            self.record_refusal(paused.url(), paused.method(), refused.failure());
         }
         if navigation {
             self.state.leave(refused.error());
@@ -1701,6 +1716,8 @@ impl PageContext {
             // recorded too.
             let recorded = !held.navigation || !self.driver.navigation_waits();
             self.refusals.leave(network_id.as_str(), refusal, recorded);
+        } else {
+            self.record_refusal(held.url(), held.method(), refusal);
         }
     }
 
@@ -1753,6 +1770,9 @@ impl PageContext {
         let Sender::ServiceWorker { session, log } = &self.sender else {
             return;
         };
+        if let Some(error) = failure.as_ref().and_then(|failure| failure.error.as_ref()) {
+            record_outcome(self.run.identity(), &error.code);
+        }
         log.service_worker_request(&ServiceWorkerRequest {
             session_id: session.clone(),
             url: held.url().to_owned(),

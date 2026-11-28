@@ -454,6 +454,76 @@ fn a_private_receiver_refused_by_the_policy_is_rejected() {
     );
 }
 
+/// Firecrawl CVE-2025-57818 (SSRF through a tenant webhook URL reaching cloud
+/// metadata or an internal network): under `egress.no_private_endpoints = true`
+/// both cloud metadata (`169.254.169.254`) and an intranet/loopback webhook
+/// receiver are refused before any connection (`rejected`, not retried) with
+/// zero requests delivered, while the same local receiver succeeds with the
+/// policy off (positive control; ADR 0017, ADR 0067; ticket 650).
+///
+/// Adding a new webhook-egress bypass regression test: add a named test in this
+/// file citing its advisory and declaring `Covers: story:4-92` paired with a
+/// positive control (see `crates/goodfetch-collie/tests/it/advisories.rs` for
+/// the full bypass-regression and fuzz-seed contributing note).
+///
+/// Covers: story:4-92, setting:egress.no_private_endpoints
+#[test]
+fn cve_2025_57818_a_webhook_url_to_metadata_or_an_intranet_is_refused_under_no_private_endpoints() {
+    let (server, delivered) = receiver(204, &[], 0);
+    let runtime = runtime();
+    let no_private = settings(json!({ "egress": { "no_private_endpoints": true } }));
+    let local_allowed = settings(json!({}));
+
+    let metadata_channel = webhook(
+        "http://169.254.169.254/latest/meta-data/",
+        signer(&[V1_SECRET], None),
+        Payload::Full,
+        &no_private,
+        Clock::system(),
+    );
+    let metadata_failure = runtime
+        .block_on(metadata_channel.send(&message()))
+        .unwrap_err();
+
+    let intranet_channel = webhook(
+        &server.url("/hooks"),
+        signer(&[V1_SECRET], None),
+        Payload::Full,
+        &no_private,
+        Clock::system(),
+    );
+    let intranet_failure = runtime
+        .block_on(intranet_channel.send(&message()))
+        .unwrap_err();
+    let received_while_blocked = delivered.lock().unwrap().len();
+
+    let control_channel = webhook(
+        &server.url("/hooks"),
+        signer(&[V1_SECRET], None),
+        Payload::Full,
+        &local_allowed,
+        Clock::system(),
+    );
+    let control_sent = runtime.block_on(control_channel.send(&message()));
+
+    assert_eq!(
+        (
+            summary(&metadata_channel.map_failure(metadata_failure)),
+            summary(&intranet_channel.map_failure(intranet_failure)),
+            received_while_blocked,
+            control_sent.is_ok(),
+            delivered.lock().unwrap().len(),
+        ),
+        (
+            ("rejected", false, None),
+            ("rejected", false, None),
+            0,
+            true,
+            1,
+        )
+    );
+}
+
 /// A receiver that takes the delivery and never answers is a `timeout`,
 /// retried, once the channel's wait has passed on the paused clock.
 /// Covers: story:11-269

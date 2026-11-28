@@ -206,6 +206,7 @@ export type CollieWireType =
   | "SchedulePreviewParams"
   | "ScheduleTrigger"
   | "SchemaValidatorFailedDetails"
+  | "SecretsResolveParams"
   | "SessionOnParams"
   | "SessionOpened"
   | "SessionParams"
@@ -444,6 +445,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "SchedulePreviewParams": { fields: { "after": ["after", "time"], "time_zone": "timeZone", "trigger": ["trigger", { type: "ScheduleTrigger" }] } },
     "ScheduleTrigger": { type: "EveryTrigger" },
     "SchemaValidatorFailedDetails": { fields: { "exception_message": "exceptionMessage", "exception_type": "exceptionType" } },
+    "SecretsResolveParams": { fields: { "run_id": "runId" } },
     "SessionOnParams": { fields: { "session_id": "sessionId" } },
     "SessionOpened": { fields: { "session_id": "sessionId" } },
     "SessionParams": { fields: { "session_id": "sessionId" } },

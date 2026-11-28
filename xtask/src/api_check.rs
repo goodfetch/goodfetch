@@ -75,7 +75,7 @@ const UNCHECKED_FIELDS: [&str; 5] = [
 ];
 
 /// The schema keywords that describe and validate nothing.
-const UNCHECKED_KEYWORDS: [&str; 10] = [
+const UNCHECKED_KEYWORDS: [&str; 11] = [
     "$comment",
     "arrived_in",
     "default",
@@ -85,6 +85,7 @@ const UNCHECKED_KEYWORDS: [&str; 10] = [
     "readOnly",
     "title",
     "writeOnly",
+    "x-goodfetch-personal",
     "$schema",
 ];
 
@@ -918,5 +919,37 @@ fn compare_bounds(
                 changes.widens(side, at, format!("`{keyword}` widened"));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{Changes, Definitions, Schemas, Side};
+
+    /// Adding `"x-goodfetch-personal": true` to a schema property is treated as
+    /// a non-breaking annotation by `api_check` (ADR 0016, ticket 673).
+    ///
+    /// Covers: story:4-78
+    #[test]
+    fn adding_personal_data_keyword_is_not_a_schema_break() {
+        let before = json!({
+            "type": "object",
+            "properties": { "email": { "type": "string" } }
+        });
+        let after = json!({
+            "type": "object",
+            "properties": {
+                "email": { "type": "string", "x-goodfetch-personal": true }
+            }
+        });
+        let definitions = Definitions::of(&before, &after);
+        let mut changes = Changes::default();
+        Schemas::new(&definitions).compare(&before, &after, Side::Input, "entry", &mut changes);
+        assert!(
+            changes.is_empty(),
+            "x-goodfetch-personal must not be flagged as a schema break or unknown keyword"
+        );
     }
 }

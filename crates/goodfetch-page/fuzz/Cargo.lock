@@ -1631,6 +1631,7 @@ dependencies = [
  "serde_json",
  "serde_json_canonicalizer",
  "sha2 0.10.9",
+ "socket2",
  "sqlite-plugin",
  "subtle",
  "tempfile",

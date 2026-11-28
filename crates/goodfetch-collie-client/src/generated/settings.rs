@@ -442,6 +442,154 @@ pub mod checkpoint {
                 ::goodfetch_protocol::catalog::SettingScope::Run,
             ],
         );
+
+    /// The `checkpoint.object_storage.*` settings.
+    pub mod object_storage {
+
+        /// The `checkpoint.object_storage.az.*` settings.
+        pub mod az {
+
+            /// Azure Storage account name used for `az://` Checkpoints.
+            ///
+            /// `checkpoint.object_storage.az.account`. `None` clears it.
+            pub const ACCOUNT: crate::settings::Setting<Option<String>> =
+                crate::settings::Setting::new(
+                    "checkpoint.object_storage.az.account",
+                    &[
+                        ::goodfetch_protocol::catalog::SettingScope::Connection,
+                        ::goodfetch_protocol::catalog::SettingScope::Run,
+                    ],
+                );
+
+            /// Secret reference for the Base64-encoded Azure Storage `SharedKey` used for `az://` Checkpoints.
+            ///
+            /// `checkpoint.object_storage.az.account_key`. `None` clears it.
+            pub const ACCOUNT_KEY: crate::settings::Setting<Option<String>> =
+                crate::settings::Setting::new(
+                    "checkpoint.object_storage.az.account_key",
+                    &[
+                        ::goodfetch_protocol::catalog::SettingScope::Connection,
+                        ::goodfetch_protocol::catalog::SettingScope::Run,
+                    ],
+                );
+
+            /// Endpoint URL for `az://` Checkpoints, such as an Azurite emulator URL; defaults to `https://<account>.blob.core.windows.net`.
+            ///
+            /// `checkpoint.object_storage.az.endpoint`. `None` clears it.
+            pub const ENDPOINT: crate::settings::Setting<Option<String>> =
+                crate::settings::Setting::new(
+                    "checkpoint.object_storage.az.endpoint",
+                    &[
+                        ::goodfetch_protocol::catalog::SettingScope::Connection,
+                        ::goodfetch_protocol::catalog::SettingScope::Run,
+                    ],
+                );
+
+            /// Secret reference for the Azure Storage SAS query token used for `az://` Checkpoints when `account_key` is not set.
+            ///
+            /// `checkpoint.object_storage.az.sas_token`. `None` clears it.
+            pub const SAS_TOKEN: crate::settings::Setting<Option<String>> =
+                crate::settings::Setting::new(
+                    "checkpoint.object_storage.az.sas_token",
+                    &[
+                        ::goodfetch_protocol::catalog::SettingScope::Connection,
+                        ::goodfetch_protocol::catalog::SettingScope::Run,
+                    ],
+                );
+        }
+
+        /// The `checkpoint.object_storage.gs.*` settings.
+        pub mod gs {
+
+            /// Secret reference for the `OAuth2` bearer access token used for `gs://` Checkpoints.
+            ///
+            /// `checkpoint.object_storage.gs.access_token`. `None` clears it.
+            pub const ACCESS_TOKEN: crate::settings::Setting<Option<String>> =
+                crate::settings::Setting::new(
+                    "checkpoint.object_storage.gs.access_token",
+                    &[
+                        ::goodfetch_protocol::catalog::SettingScope::Connection,
+                        ::goodfetch_protocol::catalog::SettingScope::Run,
+                    ],
+                );
+
+            /// Endpoint URL for `gs://` Checkpoints; defaults to `https://storage.googleapis.com`.
+            ///
+            /// `checkpoint.object_storage.gs.endpoint`. `None` clears it.
+            pub const ENDPOINT: crate::settings::Setting<Option<String>> =
+                crate::settings::Setting::new(
+                    "checkpoint.object_storage.gs.endpoint",
+                    &[
+                        ::goodfetch_protocol::catalog::SettingScope::Connection,
+                        ::goodfetch_protocol::catalog::SettingScope::Run,
+                    ],
+                );
+        }
+
+        /// The `checkpoint.object_storage.s3.*` settings.
+        pub mod s3 {
+
+            /// Secret reference for the AWS access key ID used for `s3://` Checkpoints.
+            ///
+            /// `checkpoint.object_storage.s3.access_key_id`. `None` clears it.
+            pub const ACCESS_KEY_ID: crate::settings::Setting<Option<String>> =
+                crate::settings::Setting::new(
+                    "checkpoint.object_storage.s3.access_key_id",
+                    &[
+                        ::goodfetch_protocol::catalog::SettingScope::Connection,
+                        ::goodfetch_protocol::catalog::SettingScope::Run,
+                    ],
+                );
+
+            /// Endpoint URL for `s3://` Checkpoints, for S3-compatible stores such as R2 or `RustFS`; defaults to AWS S3 for the configured region.
+            ///
+            /// `checkpoint.object_storage.s3.endpoint`. `None` clears it.
+            pub const ENDPOINT: crate::settings::Setting<Option<String>> =
+                crate::settings::Setting::new(
+                    "checkpoint.object_storage.s3.endpoint",
+                    &[
+                        ::goodfetch_protocol::catalog::SettingScope::Connection,
+                        ::goodfetch_protocol::catalog::SettingScope::Run,
+                    ],
+                );
+
+            /// Signing region for `s3://` Checkpoints; defaults to `us-east-1`.
+            ///
+            /// `checkpoint.object_storage.s3.region`. `None` clears it.
+            pub const REGION: crate::settings::Setting<Option<String>> =
+                crate::settings::Setting::new(
+                    "checkpoint.object_storage.s3.region",
+                    &[
+                        ::goodfetch_protocol::catalog::SettingScope::Connection,
+                        ::goodfetch_protocol::catalog::SettingScope::Run,
+                    ],
+                );
+
+            /// Secret reference for the AWS secret access key used for `s3://` Checkpoints.
+            ///
+            /// `checkpoint.object_storage.s3.secret_access_key`. `None` clears it.
+            pub const SECRET_ACCESS_KEY: crate::settings::Setting<Option<String>> =
+                crate::settings::Setting::new(
+                    "checkpoint.object_storage.s3.secret_access_key",
+                    &[
+                        ::goodfetch_protocol::catalog::SettingScope::Connection,
+                        ::goodfetch_protocol::catalog::SettingScope::Run,
+                    ],
+                );
+
+            /// Optional Secret reference for the AWS session token used for temporary credentials on `s3://` Checkpoints.
+            ///
+            /// `checkpoint.object_storage.s3.session_token`. `None` clears it.
+            pub const SESSION_TOKEN: crate::settings::Setting<Option<String>> =
+                crate::settings::Setting::new(
+                    "checkpoint.object_storage.s3.session_token",
+                    &[
+                        ::goodfetch_protocol::catalog::SettingScope::Connection,
+                        ::goodfetch_protocol::catalog::SettingScope::Run,
+                    ],
+                );
+        }
+    }
 }
 
 /// The `clean_up.*` settings.

@@ -4002,8 +4002,8 @@ class RunMigrateParams(BaseModel):
     location: str | None = None
     """
     Where to write the Checkpoint the Run is resumed from, a path on the
-    engine's machine; by default where the engine keeps the Run's
-    Checkpoints, its own folder.
+    engine's machine or an object-storage URL (`s3://`, `gs://`, `az://`);
+    by default where the engine keeps the Run's Checkpoints, its own folder.
     """
     run_id: RunId
     """The Run's ID."""
@@ -4112,9 +4112,10 @@ class RunResumeParams(BaseModel):
     )
     checkpoint: str | None = None
     """
-    A Checkpoint to resume from, a path on the engine's machine, which
-    becomes the Run's state in this engine's run folder; by default the
-    Run resumes from its run file on this machine.
+    A Checkpoint to resume from, a path on the engine's machine or an
+    object-storage URL (`s3://`, `gs://`, `az://`), which becomes the
+    Run's state in this engine's run folder; by default the Run resumes
+    from its run file on this machine.
     """
     group_member: str | None = None
     """Optional Group member pin in a Daemon group (ADR 0055)."""
@@ -8697,10 +8698,11 @@ class RunCheckpointParams(BaseModel):
     )
     location: str | None = None
     """
-    Where to write the Checkpoint, a path on the engine's machine; by
-    default where the engine keeps the Run's Checkpoints, its own folder.
-    The catalog's caller alone gives it, such as Goodfetch Cloud: an
-    SDK's `checkpoint()` takes no path, which would break on a Daemon or
+    Where to write the Checkpoint, a path on the engine's machine or an
+    object-storage URL (`s3://`, `gs://`, `az://`); by default where the
+    engine keeps the Run's Checkpoints, its own folder. The catalog's
+    caller alone gives it, such as Goodfetch Cloud: an SDK's
+    `checkpoint()` takes no path, which would break on a Daemon or
     Goodfetch Cloud (ADR 0102).
     """
     run_id: RunId

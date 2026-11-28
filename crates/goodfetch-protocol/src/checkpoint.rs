@@ -28,10 +28,11 @@ pub struct RunCheckpointParams {
     /// The Run's ID.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub run_id: RunId,
-    /// Where to write the Checkpoint, a path on the engine's machine; by
-    /// default where the engine keeps the Run's Checkpoints, its own folder.
-    /// The catalog's caller alone gives it, such as Goodfetch Cloud: an
-    /// SDK's `checkpoint()` takes no path, which would break on a Daemon or
+    /// Where to write the Checkpoint, a path on the engine's machine or an
+    /// object-storage URL (`s3://`, `gs://`, `az://`); by default where the
+    /// engine keeps the Run's Checkpoints, its own folder. The catalog's
+    /// caller alone gives it, such as Goodfetch Cloud: an SDK's
+    /// `checkpoint()` takes no path, which would break on a Daemon or
     /// Goodfetch Cloud (ADR 0102).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1", "catalog_only" = true))]
@@ -46,8 +47,8 @@ pub struct RunMigrateParams {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub run_id: RunId,
     /// Where to write the Checkpoint the Run is resumed from, a path on the
-    /// engine's machine; by default where the engine keeps the Run's
-    /// Checkpoints, its own folder.
+    /// engine's machine or an object-storage URL (`s3://`, `gs://`, `az://`);
+    /// by default where the engine keeps the Run's Checkpoints, its own folder.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub location: Option<String>,
@@ -60,9 +61,10 @@ pub struct RunResumeParams {
     /// The Run's ID.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub run_id: RunId,
-    /// A Checkpoint to resume from, a path on the engine's machine, which
-    /// becomes the Run's state in this engine's run folder; by default the
-    /// Run resumes from its run file on this machine.
+    /// A Checkpoint to resume from, a path on the engine's machine or an
+    /// object-storage URL (`s3://`, `gs://`, `az://`), which becomes the
+    /// Run's state in this engine's run folder; by default the Run resumes
+    /// from its run file on this machine.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub checkpoint: Option<String>,
@@ -440,6 +442,171 @@ pub const CHECKPOINT_INTERVAL: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `checkpoint.object_storage.s3.endpoint` (issue 3472).
+pub const CHECKPOINT_OBJECT_STORAGE_S3_ENDPOINT: Setting = Setting {
+    name: "checkpoint.object_storage.s3.endpoint",
+    description: "Endpoint URL for `s3://` Checkpoints, for S3-compatible stores such as R2 or `RustFS`; defaults to AWS S3 for the configured region.",
+    kind: ValueKind::Text,
+    default: none,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `checkpoint.object_storage.s3.region` (issue 3472).
+pub const CHECKPOINT_OBJECT_STORAGE_S3_REGION: Setting = Setting {
+    name: "checkpoint.object_storage.s3.region",
+    description: "Signing region for `s3://` Checkpoints; defaults to `us-east-1`.",
+    kind: ValueKind::Text,
+    default: none,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `checkpoint.object_storage.s3.access_key_id` (issue 3472).
+pub const CHECKPOINT_OBJECT_STORAGE_S3_ACCESS_KEY_ID: Setting = Setting {
+    name: "checkpoint.object_storage.s3.access_key_id",
+    description: "Secret reference for the AWS access key ID used for `s3://` Checkpoints.",
+    kind: ValueKind::SecretReference,
+    default: none,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `checkpoint.object_storage.s3.secret_access_key` (issue 3472).
+pub const CHECKPOINT_OBJECT_STORAGE_S3_SECRET_ACCESS_KEY: Setting = Setting {
+    name: "checkpoint.object_storage.s3.secret_access_key",
+    description: "Secret reference for the AWS secret access key used for `s3://` Checkpoints.",
+    kind: ValueKind::SecretReference,
+    default: none,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `checkpoint.object_storage.s3.session_token` (issue 3472).
+pub const CHECKPOINT_OBJECT_STORAGE_S3_SESSION_TOKEN: Setting = Setting {
+    name: "checkpoint.object_storage.s3.session_token",
+    description: "Optional Secret reference for the AWS session token used for temporary credentials on `s3://` Checkpoints.",
+    kind: ValueKind::SecretReference,
+    default: none,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `checkpoint.object_storage.gs.endpoint` (issue 3472).
+pub const CHECKPOINT_OBJECT_STORAGE_GS_ENDPOINT: Setting = Setting {
+    name: "checkpoint.object_storage.gs.endpoint",
+    description: "Endpoint URL for `gs://` Checkpoints; defaults to `https://storage.googleapis.com`.",
+    kind: ValueKind::Text,
+    default: none,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `checkpoint.object_storage.gs.access_token` (issue 3472).
+pub const CHECKPOINT_OBJECT_STORAGE_GS_ACCESS_TOKEN: Setting = Setting {
+    name: "checkpoint.object_storage.gs.access_token",
+    description: "Secret reference for the `OAuth2` bearer access token used for `gs://` Checkpoints.",
+    kind: ValueKind::SecretReference,
+    default: none,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `checkpoint.object_storage.az.endpoint` (issue 3472).
+pub const CHECKPOINT_OBJECT_STORAGE_AZ_ENDPOINT: Setting = Setting {
+    name: "checkpoint.object_storage.az.endpoint",
+    description: "Endpoint URL for `az://` Checkpoints, such as an Azurite emulator URL; defaults to `https://<account>.blob.core.windows.net`.",
+    kind: ValueKind::Text,
+    default: none,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `checkpoint.object_storage.az.account` (issue 3472).
+pub const CHECKPOINT_OBJECT_STORAGE_AZ_ACCOUNT: Setting = Setting {
+    name: "checkpoint.object_storage.az.account",
+    description: "Azure Storage account name used for `az://` Checkpoints.",
+    kind: ValueKind::Text,
+    default: none,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `checkpoint.object_storage.az.account_key` (issue 3472).
+pub const CHECKPOINT_OBJECT_STORAGE_AZ_ACCOUNT_KEY: Setting = Setting {
+    name: "checkpoint.object_storage.az.account_key",
+    description: "Secret reference for the Base64-encoded Azure Storage `SharedKey` used for `az://` Checkpoints.",
+    kind: ValueKind::SecretReference,
+    default: none,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `checkpoint.object_storage.az.sas_token` (issue 3472).
+pub const CHECKPOINT_OBJECT_STORAGE_AZ_SAS_TOKEN: Setting = Setting {
+    name: "checkpoint.object_storage.az.sas_token",
+    description: "Secret reference for the Azure Storage SAS query token used for `az://` Checkpoints when `account_key` is not set.",
+    kind: ValueKind::SecretReference,
+    default: none,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -455,7 +622,20 @@ pub const ENTRIES: Entries = Entries {
     ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[CHECKPOINT_INTERVAL],
+    settings: &[
+        CHECKPOINT_INTERVAL,
+        CHECKPOINT_OBJECT_STORAGE_S3_ENDPOINT,
+        CHECKPOINT_OBJECT_STORAGE_S3_REGION,
+        CHECKPOINT_OBJECT_STORAGE_S3_ACCESS_KEY_ID,
+        CHECKPOINT_OBJECT_STORAGE_S3_SECRET_ACCESS_KEY,
+        CHECKPOINT_OBJECT_STORAGE_S3_SESSION_TOKEN,
+        CHECKPOINT_OBJECT_STORAGE_GS_ENDPOINT,
+        CHECKPOINT_OBJECT_STORAGE_GS_ACCESS_TOKEN,
+        CHECKPOINT_OBJECT_STORAGE_AZ_ENDPOINT,
+        CHECKPOINT_OBJECT_STORAGE_AZ_ACCOUNT,
+        CHECKPOINT_OBJECT_STORAGE_AZ_ACCOUNT_KEY,
+        CHECKPOINT_OBJECT_STORAGE_AZ_SAS_TOKEN,
+    ],
     hook_stages: &[],
     shared_type_values: &[],
 };

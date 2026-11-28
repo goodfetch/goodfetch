@@ -1,0 +1,24 @@
+# Pinned container images for the Checkpoint object-storage integration tests
+# (issue 3472: RustFS for S3/S3-compatible, Azurite for Azure Blob, and
+# fake-gcs-server for GCS). Each `digest` is the multi-platform index of
+# `repository:tag`, so Linux x64 and arm64 each run their own architecture's
+# image and no image can move.
+#
+# Read by `ci/object-storage/fetch.sh` (`just fetch`), which pulls them before
+# ADR 0043's outbound-traffic deny, by `xtask image-pins` (ADR 0067), and by
+# `goodfetch-collie`'s Linux object-storage Checkpoint integration tests.
+
+[rustfs]
+repository = "docker.io/rustfs/rustfs"
+tag = "1.0.7"
+digest = "sha256:69bd3c4d8d79b74723bfd68c9fbd9085155d4d4b44a5a136d87502f3075cc68c"
+
+[azurite]
+repository = "mcr.microsoft.com/azure-storage/azurite"
+tag = "3.34.0"
+digest = "sha256:647c63a91102a9d8e8000aab803436e1fc85fbb285e7ce830a82ee5d6661cf37"
+
+[fake_gcs]
+repository = "docker.io/fsouza/fake-gcs-server"
+tag = "1.56.1"
+digest = "sha256:797ce226d62f947c009dc40246b30cfb456b8473d8241407f9d6f2c04e4d69ef"

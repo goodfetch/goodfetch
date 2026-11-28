@@ -16559,7 +16559,7 @@
         "location": {
           "arrived_in": "0.1",
           "catalog_only": true,
-          "description": "Where to write the Checkpoint, a path on the engine's machine; by\ndefault where the engine keeps the Run's Checkpoints, its own folder.\nThe catalog's caller alone gives it, such as Goodfetch Cloud: an\nSDK's `checkpoint()` takes no path, which would break on a Daemon or\nGoodfetch Cloud (ADR 0102).",
+          "description": "Where to write the Checkpoint, a path on the engine's machine or an\nobject-storage URL (`s3://`, `gs://`, `az://`); by default where the\nengine keeps the Run's Checkpoints, its own folder. The catalog's\ncaller alone gives it, such as Goodfetch Cloud: an SDK's\n`checkpoint()` takes no path, which would break on a Daemon or\nGoodfetch Cloud (ADR 0102).",
           "type": [
             "string",
             "null"
@@ -17211,7 +17211,7 @@
         },
         "location": {
           "arrived_in": "0.1",
-          "description": "Where to write the Checkpoint the Run is resumed from, a path on the\nengine's machine; by default where the engine keeps the Run's\nCheckpoints, its own folder.",
+          "description": "Where to write the Checkpoint the Run is resumed from, a path on the\nengine's machine or an object-storage URL (`s3://`, `gs://`, `az://`);\nby default where the engine keeps the Run's Checkpoints, its own folder.",
           "type": [
             "string",
             "null"
@@ -17856,7 +17856,7 @@
         },
         "checkpoint": {
           "arrived_in": "0.1",
-          "description": "A Checkpoint to resume from, a path on the engine's machine, which\nbecomes the Run's state in this engine's run folder; by default the\nRun resumes from its run file on this machine.",
+          "description": "A Checkpoint to resume from, a path on the engine's machine or an\nobject-storage URL (`s3://`, `gs://`, `az://`), which becomes the\nRun's state in this engine's run folder; by default the Run resumes\nfrom its run file on this machine.",
           "type": [
             "string",
             "null"
@@ -30460,6 +30460,282 @@
           "description": "A duration in milliseconds.",
           "minimum": 0,
           "type": "integer"
+        },
+        "weakening": null,
+        "weakens": false
+      },
+      {
+        "arrived_in": "0.1",
+        "authority": "every",
+        "clearable": true,
+        "default": null,
+        "deprecated": null,
+        "description": "Azure Storage account name used for `az://` Checkpoints.",
+        "fixed_for_run": false,
+        "name": "checkpoint.object_storage.az.account",
+        "product": "collie",
+        "products": [
+          "collie",
+          "foxhound"
+        ],
+        "scopes": [
+          "connection",
+          "run"
+        ],
+        "value": {
+          "type": "string"
+        },
+        "weakening": null,
+        "weakens": false
+      },
+      {
+        "arrived_in": "0.1",
+        "authority": "every",
+        "clearable": true,
+        "default": null,
+        "deprecated": null,
+        "description": "Secret reference for the Base64-encoded Azure Storage `SharedKey` used for `az://` Checkpoints.",
+        "fixed_for_run": false,
+        "name": "checkpoint.object_storage.az.account_key",
+        "product": "collie",
+        "products": [
+          "collie",
+          "foxhound"
+        ],
+        "scopes": [
+          "connection",
+          "run"
+        ],
+        "value": {
+          "description": "A Secret reference, such as `env:NAME`.",
+          "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+          "type": "string"
+        },
+        "weakening": null,
+        "weakens": false
+      },
+      {
+        "arrived_in": "0.1",
+        "authority": "every",
+        "clearable": true,
+        "default": null,
+        "deprecated": null,
+        "description": "Endpoint URL for `az://` Checkpoints, such as an Azurite emulator URL; defaults to `https://<account>.blob.core.windows.net`.",
+        "fixed_for_run": false,
+        "name": "checkpoint.object_storage.az.endpoint",
+        "product": "collie",
+        "products": [
+          "collie",
+          "foxhound"
+        ],
+        "scopes": [
+          "connection",
+          "run"
+        ],
+        "value": {
+          "type": "string"
+        },
+        "weakening": null,
+        "weakens": false
+      },
+      {
+        "arrived_in": "0.1",
+        "authority": "every",
+        "clearable": true,
+        "default": null,
+        "deprecated": null,
+        "description": "Secret reference for the Azure Storage SAS query token used for `az://` Checkpoints when `account_key` is not set.",
+        "fixed_for_run": false,
+        "name": "checkpoint.object_storage.az.sas_token",
+        "product": "collie",
+        "products": [
+          "collie",
+          "foxhound"
+        ],
+        "scopes": [
+          "connection",
+          "run"
+        ],
+        "value": {
+          "description": "A Secret reference, such as `env:NAME`.",
+          "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+          "type": "string"
+        },
+        "weakening": null,
+        "weakens": false
+      },
+      {
+        "arrived_in": "0.1",
+        "authority": "every",
+        "clearable": true,
+        "default": null,
+        "deprecated": null,
+        "description": "Secret reference for the `OAuth2` bearer access token used for `gs://` Checkpoints.",
+        "fixed_for_run": false,
+        "name": "checkpoint.object_storage.gs.access_token",
+        "product": "collie",
+        "products": [
+          "collie",
+          "foxhound"
+        ],
+        "scopes": [
+          "connection",
+          "run"
+        ],
+        "value": {
+          "description": "A Secret reference, such as `env:NAME`.",
+          "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+          "type": "string"
+        },
+        "weakening": null,
+        "weakens": false
+      },
+      {
+        "arrived_in": "0.1",
+        "authority": "every",
+        "clearable": true,
+        "default": null,
+        "deprecated": null,
+        "description": "Endpoint URL for `gs://` Checkpoints; defaults to `https://storage.googleapis.com`.",
+        "fixed_for_run": false,
+        "name": "checkpoint.object_storage.gs.endpoint",
+        "product": "collie",
+        "products": [
+          "collie",
+          "foxhound"
+        ],
+        "scopes": [
+          "connection",
+          "run"
+        ],
+        "value": {
+          "type": "string"
+        },
+        "weakening": null,
+        "weakens": false
+      },
+      {
+        "arrived_in": "0.1",
+        "authority": "every",
+        "clearable": true,
+        "default": null,
+        "deprecated": null,
+        "description": "Secret reference for the AWS access key ID used for `s3://` Checkpoints.",
+        "fixed_for_run": false,
+        "name": "checkpoint.object_storage.s3.access_key_id",
+        "product": "collie",
+        "products": [
+          "collie",
+          "foxhound"
+        ],
+        "scopes": [
+          "connection",
+          "run"
+        ],
+        "value": {
+          "description": "A Secret reference, such as `env:NAME`.",
+          "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+          "type": "string"
+        },
+        "weakening": null,
+        "weakens": false
+      },
+      {
+        "arrived_in": "0.1",
+        "authority": "every",
+        "clearable": true,
+        "default": null,
+        "deprecated": null,
+        "description": "Endpoint URL for `s3://` Checkpoints, for S3-compatible stores such as R2 or `RustFS`; defaults to AWS S3 for the configured region.",
+        "fixed_for_run": false,
+        "name": "checkpoint.object_storage.s3.endpoint",
+        "product": "collie",
+        "products": [
+          "collie",
+          "foxhound"
+        ],
+        "scopes": [
+          "connection",
+          "run"
+        ],
+        "value": {
+          "type": "string"
+        },
+        "weakening": null,
+        "weakens": false
+      },
+      {
+        "arrived_in": "0.1",
+        "authority": "every",
+        "clearable": true,
+        "default": null,
+        "deprecated": null,
+        "description": "Signing region for `s3://` Checkpoints; defaults to `us-east-1`.",
+        "fixed_for_run": false,
+        "name": "checkpoint.object_storage.s3.region",
+        "product": "collie",
+        "products": [
+          "collie",
+          "foxhound"
+        ],
+        "scopes": [
+          "connection",
+          "run"
+        ],
+        "value": {
+          "type": "string"
+        },
+        "weakening": null,
+        "weakens": false
+      },
+      {
+        "arrived_in": "0.1",
+        "authority": "every",
+        "clearable": true,
+        "default": null,
+        "deprecated": null,
+        "description": "Secret reference for the AWS secret access key used for `s3://` Checkpoints.",
+        "fixed_for_run": false,
+        "name": "checkpoint.object_storage.s3.secret_access_key",
+        "product": "collie",
+        "products": [
+          "collie",
+          "foxhound"
+        ],
+        "scopes": [
+          "connection",
+          "run"
+        ],
+        "value": {
+          "description": "A Secret reference, such as `env:NAME`.",
+          "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+          "type": "string"
+        },
+        "weakening": null,
+        "weakens": false
+      },
+      {
+        "arrived_in": "0.1",
+        "authority": "every",
+        "clearable": true,
+        "default": null,
+        "deprecated": null,
+        "description": "Optional Secret reference for the AWS session token used for temporary credentials on `s3://` Checkpoints.",
+        "fixed_for_run": false,
+        "name": "checkpoint.object_storage.s3.session_token",
+        "product": "collie",
+        "products": [
+          "collie",
+          "foxhound"
+        ],
+        "scopes": [
+          "connection",
+          "run"
+        ],
+        "value": {
+          "description": "A Secret reference, such as `env:NAME`.",
+          "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+          "type": "string"
         },
         "weakening": null,
         "weakens": false

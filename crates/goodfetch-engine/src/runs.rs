@@ -2399,8 +2399,66 @@ impl Runs {
     }
 
     /// [`Runs::resume`] once its entries' chaining is set.
-    async fn resume_unchained(&self, resume: Resume) -> Result<Resumed, RunError> {
+    async fn resume_unchained(&self, mut resume: Resume) -> Result<Resumed, RunError> {
         let secrets = run_secrets(&self.secrets, resume.settings.as_ref());
+        let mut _staged_checkpoint = None;
+        if let Some(from) = &mut resume.checkpoint
+            && let Some(raw) = from.path.to_str()
+        {
+            match crate::checkpoint_storage::Location::parse(raw) {
+                Ok(crate::checkpoint_storage::Location::Local(_)) => {}
+                Err(error) => {
+                    let folder = self.folder(resume.run_id.clone()).await?;
+                    return Err(RunError::Unavailable {
+                        run_id: resume.run_id.clone(),
+                        folder,
+                        error: error.to_string(),
+                    });
+                }
+                Ok(crate::checkpoint_storage::Location::Object(object)) => {
+                    let folder = self.folder(resume.run_id.clone()).await?;
+                    let machine_snapshot;
+                    let resolved = if let Some(s) = &resume.settings {
+                        s.resolved()
+                    } else {
+                        machine_snapshot = self.engine.settings().snapshot().await;
+                        machine_snapshot
+                            .resolved()
+                            .map_err(|error| RunError::Unavailable {
+                                run_id: resume.run_id.clone(),
+                                folder: folder.clone(),
+                                error: error.to_string(),
+                            })?
+                    };
+                    let driver = crate::checkpoint_storage::Driver::from_settings(
+                        object.scheme,
+                        resolved,
+                        &secrets,
+                        Some(&resume.run_id),
+                        self.engine.clock(),
+                        self.engine.blocking_threads(),
+                    )
+                    .await
+                    .map_err(|error| RunError::Unavailable {
+                        run_id: resume.run_id.clone(),
+                        folder: folder.clone(),
+                        error: error.to_string(),
+                    })?;
+                    let nonce = self.engine.draw_u64();
+                    let staged = folder.join(format!(".resume-checkpoint-{nonce}.sqlite"));
+                    driver
+                        .download(&object, &staged, nonce)
+                        .await
+                        .map_err(|error| RunError::Unavailable {
+                            run_id: resume.run_id.clone(),
+                            folder: folder.clone(),
+                            error: error.to_string(),
+                        })?;
+                    from.path.clone_from(&staged);
+                    _staged_checkpoint = Some(StagedCheckpointFile(staged));
+                }
+            }
+        }
         let unwrapped = self.unwrapped_key(&resume, &secrets).await?;
         let (stored, key) = match unwrapped {
             Some(Unwrapped { stored, key }) => (Some(stored), Some(key)),
@@ -4885,12 +4943,19 @@ impl Registry {
         for line in live.raw_endings.drain(..) {
             line.write(Ok(()));
         }
+        let object_storage = run.identity.settings().map(|s| {
+            (
+                Arc::new(s.resolved().clone()),
+                run.shared.keys.secrets().clone(),
+            )
+        });
         let checkpoint_to = stopping.map(|_| CheckpointTo {
             destination: location.unwrap_or_else(|| live.folder.join(CHECKPOINT_FILE)),
             vfs,
             nonce,
             events: events.clone(),
             governor: self.setup.governor.clone(),
+            object_storage,
         });
         let epoch = run.state.epoch();
         let closing = Closing {
@@ -5140,11 +5205,16 @@ impl Registry {
         answer: oneshot::Sender<Result<Checkpoint, RunError>>,
     ) {
         let folder = self.folder(&run_id);
-        let live_state = self
-            .live
-            .get(&run_id)
-            .and_then(|live| live.run.as_ref())
-            .map(|run| run.state.clone());
+        let live_run = self.live.get(&run_id).and_then(|live| live.run.as_ref());
+        let live_state = live_run.map(|run| run.state.clone());
+        let object_storage = live_run.and_then(|run| {
+            run.identity.settings().map(|s| {
+                (
+                    Arc::new(s.resolved().clone()),
+                    run.shared.keys.secrets().clone(),
+                )
+            })
+        });
         let live_epoch = live_state.as_ref().map(RunState::epoch);
         if let Err(refused) = lifecycle::apply(state, RunEvent::Checkpoint) {
             let _ = answer.send(Err(RunError::refused(&run_id, &folder, refused)));
@@ -5161,6 +5231,7 @@ impl Registry {
             tasks: Arc::new(self.ending_owner.child()),
             governor: self.setup.governor.clone(),
             sealing: live_state,
+            object_storage,
         };
         let registry = self.runs.clone();
         self.ending_owner.spawn(async move {
@@ -5387,6 +5458,19 @@ async fn periodic_checkpoints(run: LiveRun, interval: Duration) {
     }
 }
 
+/// Removes a temporary staged Checkpoint file when dropped.
+struct StagedCheckpointFile(PathBuf);
+
+impl Drop for StagedCheckpointFile {
+    fn drop(&mut self) {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "best-effort cleanup of a temporary Checkpoint staging file on drop"
+        )]
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 /// A Checkpoint being written of a Run, live or interrupted.
 struct Taking {
     run_id: RunId,
@@ -5403,18 +5487,93 @@ struct Taking {
     /// run file, so the copy holds every write answered before it (ADR
     /// 0142); none once the Run's end was written.
     sealing: Option<RunState>,
+    /// Settings and Secret resolver for object-storage Checkpoints (`s3://`,
+    /// `gs://`, `az://`, issue 3472).
+    object_storage: Option<(Arc<Resolved>, RunSecrets)>,
 }
 
 impl Taking {
+    /// Resolves whether the Checkpoint destination is local or object storage,
+    /// initializing the object-storage driver (and resolving Secret references)
+    /// before any bytes are written or sent.
+    async fn prepare_destination(
+        &self,
+    ) -> Result<
+        (
+            Option<(
+                crate::checkpoint_storage::ObjectLocation,
+                crate::checkpoint_storage::Driver,
+            )>,
+            PathBuf,
+            Option<StagedCheckpointFile>,
+        ),
+        RunError,
+    > {
+        let parsed = match self.destination.to_str() {
+            Some(raw) => crate::checkpoint_storage::Location::parse(raw).map_err(|error| {
+                RunError::WriteFailed {
+                    run_id: self.run_id.clone(),
+                    message: error.to_string(),
+                    folder: self.folder.clone(),
+                    reason: "invalid_input",
+                    os_code: None,
+                }
+            })?,
+            None => crate::checkpoint_storage::Location::Local(self.destination.clone()),
+        };
+        match parsed {
+            crate::checkpoint_storage::Location::Local(path) => Ok((None, path, None)),
+            crate::checkpoint_storage::Location::Object(object) => {
+                let (settings, secrets) =
+                    self.object_storage
+                        .as_ref()
+                        .ok_or_else(|| {
+                            RunError::WriteFailed {
+                        run_id: self.run_id.clone(),
+                        message:
+                            "object-storage Checkpoints require a live Run's settings and Secrets"
+                                .to_owned(),
+                        folder: self.folder.clone(),
+                        reason: "invalid_input",
+                        os_code: None,
+                    }
+                        })?;
+                let driver = crate::checkpoint_storage::Driver::from_settings(
+                    object.scheme,
+                    settings,
+                    secrets,
+                    Some(&self.run_id),
+                    self.clock,
+                    self.tasks.blocking_threads(),
+                )
+                .await
+                .map_err(|error| RunError::WriteFailed {
+                    run_id: self.run_id.clone(),
+                    message: error.to_string(),
+                    folder: self.folder.clone(),
+                    reason: error.write_reason(),
+                    os_code: None,
+                })?;
+                let staged = self
+                    .folder
+                    .join(format!(".upload-checkpoint-{}.sqlite", self.nonce));
+                let guard = StagedCheckpointFile(staged.clone());
+                Ok((Some((object, driver)), staged, Some(guard)))
+            }
+        }
+    }
+
     /// Writes it: a live Run's, of `live_epoch`, announced first; an
     /// interrupted Run's under its writer lock. A destination on a
     /// filesystem at the `critical` storage level fails at once with a
     /// full disk, before a byte is written (ADR 0122).
     async fn take(self, live_epoch: Option<u64>) -> Result<Checkpoint, RunError> {
-        let (governor, destination) = (self.governor.clone(), self.destination.clone());
+        let (object_target, local_destination, _staged_guard) = self.prepare_destination().await?;
+
+        let (governor, check_path) = (self.governor.clone(), local_destination.clone());
         let critical = self
             .tasks
-            .blocking(move || governor.storage_at(&destination))
+            .blocking(move || governor.storage_at(&check_path))
             .await
             .is_some_and(|filesystem| filesystem.is_critical());
         if critical {
@@ -5422,7 +5581,7 @@ impl Taking {
                 run_id: self.run_id,
                 message: format!(
                     "the filesystem of `{}` is at the critical storage level",
-                    self.destination.display()
+                    local_destination.display()
                 ),
                 folder: self.folder,
                 reason: "storage_full",
@@ -5449,7 +5608,7 @@ impl Taking {
         }
         let (folder, destination, vfs, nonce) = (
             self.folder.clone(),
-            self.destination.clone(),
+            local_destination.clone(),
             self.vfs.clone(),
             self.nonce,
         );
@@ -5480,9 +5639,24 @@ impl Taking {
                 folder: self.folder,
             });
         };
+        let reported_location = if let Some((object, driver)) = object_target {
+            driver
+                .upload(&local_destination, &object)
+                .await
+                .map_err(|error| RunError::WriteFailed {
+                    run_id: self.run_id.clone(),
+                    message: error.to_string(),
+                    folder: self.folder.clone(),
+                    reason: error.write_reason(),
+                    os_code: None,
+                })?;
+            object.raw
+        } else {
+            self.destination.display().to_string()
+        };
         Ok(Checkpoint {
             run_id: self.run_id,
-            location: self.destination.display().to_string(),
+            location: reported_location,
             size: written.size,
             digest: written.digest,
             run_epoch: written.run_epoch,
@@ -5560,6 +5734,7 @@ struct CheckpointTo {
     nonce: u64,
     events: Events,
     governor: Governor,
+    object_storage: Option<(Arc<Resolved>, RunSecrets)>,
 }
 
 /// What a stop of the Run `run_id` in `folder` that its run file could not
@@ -5886,6 +6061,7 @@ async fn take_closing_checkpoint(
         folder,
         governor: to.governor,
         sealing: None,
+        object_storage: to.object_storage,
     };
     match taking.take(Some(epoch)).await {
         Ok(checkpoint) => Some(checkpoint),

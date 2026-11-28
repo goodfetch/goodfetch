@@ -145,6 +145,80 @@ export interface Settings {
      * `checkpoint.interval`.
      */
     readonly interval?: number | null;
+    readonly objectStorage?: {
+      readonly az?: {
+        /**
+         * Azure Storage account name used for `az://` Checkpoints.
+         *
+         * `checkpoint.object_storage.az.account`.
+         */
+        readonly account?: string | null;
+        /**
+         * Secret reference for the Base64-encoded Azure Storage `SharedKey` used for `az://` Checkpoints.
+         *
+         * `checkpoint.object_storage.az.account_key`.
+         */
+        readonly accountKey?: string | null;
+        /**
+         * Endpoint URL for `az://` Checkpoints, such as an Azurite emulator URL; defaults to `https://<account>.blob.core.windows.net`.
+         *
+         * `checkpoint.object_storage.az.endpoint`.
+         */
+        readonly endpoint?: string | null;
+        /**
+         * Secret reference for the Azure Storage SAS query token used for `az://` Checkpoints when `account_key` is not set.
+         *
+         * `checkpoint.object_storage.az.sas_token`.
+         */
+        readonly sasToken?: string | null;
+      };
+      readonly gs?: {
+        /**
+         * Secret reference for the `OAuth2` bearer access token used for `gs://` Checkpoints.
+         *
+         * `checkpoint.object_storage.gs.access_token`.
+         */
+        readonly accessToken?: string | null;
+        /**
+         * Endpoint URL for `gs://` Checkpoints; defaults to `https://storage.googleapis.com`.
+         *
+         * `checkpoint.object_storage.gs.endpoint`.
+         */
+        readonly endpoint?: string | null;
+      };
+      readonly s3?: {
+        /**
+         * Secret reference for the AWS access key ID used for `s3://` Checkpoints.
+         *
+         * `checkpoint.object_storage.s3.access_key_id`.
+         */
+        readonly accessKeyId?: string | null;
+        /**
+         * Endpoint URL for `s3://` Checkpoints, for S3-compatible stores such as R2 or `RustFS`; defaults to AWS S3 for the configured region.
+         *
+         * `checkpoint.object_storage.s3.endpoint`.
+         */
+        readonly endpoint?: string | null;
+        /**
+         * Signing region for `s3://` Checkpoints; defaults to `us-east-1`.
+         *
+         * `checkpoint.object_storage.s3.region`.
+         */
+        readonly region?: string | null;
+        /**
+         * Secret reference for the AWS secret access key used for `s3://` Checkpoints.
+         *
+         * `checkpoint.object_storage.s3.secret_access_key`.
+         */
+        readonly secretAccessKey?: string | null;
+        /**
+         * Optional Secret reference for the AWS session token used for temporary credentials on `s3://` Checkpoints.
+         *
+         * `checkpoint.object_storage.s3.session_token`.
+         */
+        readonly sessionToken?: string | null;
+      };
+    };
   };
   readonly cleanUp?: {
     /**
@@ -1041,6 +1115,80 @@ export interface RunSettings {
      * `checkpoint.interval`.
      */
     readonly interval?: number | null;
+    readonly objectStorage?: {
+      readonly az?: {
+        /**
+         * Azure Storage account name used for `az://` Checkpoints.
+         *
+         * `checkpoint.object_storage.az.account`.
+         */
+        readonly account?: string | null;
+        /**
+         * Secret reference for the Base64-encoded Azure Storage `SharedKey` used for `az://` Checkpoints.
+         *
+         * `checkpoint.object_storage.az.account_key`.
+         */
+        readonly accountKey?: string | null;
+        /**
+         * Endpoint URL for `az://` Checkpoints, such as an Azurite emulator URL; defaults to `https://<account>.blob.core.windows.net`.
+         *
+         * `checkpoint.object_storage.az.endpoint`.
+         */
+        readonly endpoint?: string | null;
+        /**
+         * Secret reference for the Azure Storage SAS query token used for `az://` Checkpoints when `account_key` is not set.
+         *
+         * `checkpoint.object_storage.az.sas_token`.
+         */
+        readonly sasToken?: string | null;
+      };
+      readonly gs?: {
+        /**
+         * Secret reference for the `OAuth2` bearer access token used for `gs://` Checkpoints.
+         *
+         * `checkpoint.object_storage.gs.access_token`.
+         */
+        readonly accessToken?: string | null;
+        /**
+         * Endpoint URL for `gs://` Checkpoints; defaults to `https://storage.googleapis.com`.
+         *
+         * `checkpoint.object_storage.gs.endpoint`.
+         */
+        readonly endpoint?: string | null;
+      };
+      readonly s3?: {
+        /**
+         * Secret reference for the AWS access key ID used for `s3://` Checkpoints.
+         *
+         * `checkpoint.object_storage.s3.access_key_id`.
+         */
+        readonly accessKeyId?: string | null;
+        /**
+         * Endpoint URL for `s3://` Checkpoints, for S3-compatible stores such as R2 or `RustFS`; defaults to AWS S3 for the configured region.
+         *
+         * `checkpoint.object_storage.s3.endpoint`.
+         */
+        readonly endpoint?: string | null;
+        /**
+         * Signing region for `s3://` Checkpoints; defaults to `us-east-1`.
+         *
+         * `checkpoint.object_storage.s3.region`.
+         */
+        readonly region?: string | null;
+        /**
+         * Secret reference for the AWS secret access key used for `s3://` Checkpoints.
+         *
+         * `checkpoint.object_storage.s3.secret_access_key`.
+         */
+        readonly secretAccessKey?: string | null;
+        /**
+         * Optional Secret reference for the AWS session token used for temporary credentials on `s3://` Checkpoints.
+         *
+         * `checkpoint.object_storage.s3.session_token`.
+         */
+        readonly sessionToken?: string | null;
+      };
+    };
   };
   readonly cleanUp?: {
     /**
@@ -2111,6 +2259,25 @@ const SPELLING: Spelling = {
   }],
   checkpoint: ["checkpoint", {
     interval: "interval",
+    objectStorage: ["object_storage", {
+      az: ["az", {
+        account: "account",
+        accountKey: "account_key",
+        endpoint: "endpoint",
+        sasToken: "sas_token",
+      }],
+      gs: ["gs", {
+        accessToken: "access_token",
+        endpoint: "endpoint",
+      }],
+      s3: ["s3", {
+        accessKeyId: "access_key_id",
+        endpoint: "endpoint",
+        region: "region",
+        secretAccessKey: "secret_access_key",
+        sessionToken: "session_token",
+      }],
+    }],
   }],
   cleanUp: ["clean_up", {
     channel: "channel",

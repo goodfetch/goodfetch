@@ -226,6 +226,23 @@ budget = 4
 [settings.checkpoint]
 interval = 30000
 
+[settings.checkpoint.object_storage.s3]
+endpoint = "example"
+region = "example"
+access_key_id = "env:EXAMPLE"
+secret_access_key = "env:EXAMPLE"
+session_token = "env:EXAMPLE"
+
+[settings.checkpoint.object_storage.gs]
+endpoint = "example"
+access_token = "env:EXAMPLE"
+
+[settings.checkpoint.object_storage.az]
+endpoint = "example"
+account = "example"
+account_key = "env:EXAMPLE"
+sas_token = "env:EXAMPLE"
+
 [settings.effect.output]
 max_size = 4
 
@@ -710,6 +727,23 @@ budget = 4
 
 [lock.checkpoint]
 interval = 30000
+
+[lock.checkpoint.object_storage.s3]
+endpoint = "example"
+region = "example"
+access_key_id = "env:EXAMPLE"
+secret_access_key = "env:EXAMPLE"
+session_token = "env:EXAMPLE"
+
+[lock.checkpoint.object_storage.gs]
+endpoint = "example"
+access_token = "env:EXAMPLE"
+
+[lock.checkpoint.object_storage.az]
+endpoint = "example"
+account = "example"
+account_key = "env:EXAMPLE"
+sas_token = "env:EXAMPLE"
 
 [lock.effect.output]
 max_size = 4

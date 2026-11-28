@@ -927,8 +927,8 @@ impl Schedule {
 
 impl<T> crate::blocking::Call<T, ::goodfetch_protocol::checkpoint::RunMigrateParams> {
     /// Where to write the Checkpoint the Run is resumed from, a path on the
-    /// engine's machine; by default where the engine keeps the Run's
-    /// Checkpoints, its own folder.
+    /// engine's machine or an object-storage URL (`s3://`, `gs://`, `az://`);
+    /// by default where the engine keeps the Run's Checkpoints, its own folder.
     pub fn location(self, location: impl Into<String>) -> Self {
         self.edit(move |params| params.location = Some(location.into()))
     }

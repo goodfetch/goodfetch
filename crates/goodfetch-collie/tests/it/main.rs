@@ -45,6 +45,8 @@ mod certificate_exceptions;
 mod certs;
 #[cfg(target_os = "macos")]
 mod checkpoint;
+#[cfg(target_os = "linux")]
+mod checkpoint_object_storage;
 mod clean_up_rules;
 mod client_conformance;
 mod command_line;

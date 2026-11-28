@@ -166,6 +166,94 @@ class ConnectionCacheSettings(TypedDict):
     """
 
 
+class ConnectionCheckpointObjectStorageAzSettings(TypedDict):
+    """The `checkpoint.object_storage.az` settings of `FoxhoundSettings`."""
+
+    account: NotRequired[str | None]
+    """Azure Storage account name used for `az://` Checkpoints.
+
+    `checkpoint.object_storage.az.account`.
+    """
+
+    account_key: NotRequired[str | None]
+    """Secret reference for the Base64-encoded Azure Storage `SharedKey` used for `az://` Checkpoints.
+
+    `checkpoint.object_storage.az.account_key`.
+    """
+
+    endpoint: NotRequired[str | None]
+    """Endpoint URL for `az://` Checkpoints, such as an Azurite emulator URL; defaults to `https://<account>.blob.core.windows.net`.
+
+    `checkpoint.object_storage.az.endpoint`.
+    """
+
+    sas_token: NotRequired[str | None]
+    """Secret reference for the Azure Storage SAS query token used for `az://` Checkpoints when `account_key` is not set.
+
+    `checkpoint.object_storage.az.sas_token`.
+    """
+
+
+class ConnectionCheckpointObjectStorageGsSettings(TypedDict):
+    """The `checkpoint.object_storage.gs` settings of `FoxhoundSettings`."""
+
+    access_token: NotRequired[str | None]
+    """Secret reference for the `OAuth2` bearer access token used for `gs://` Checkpoints.
+
+    `checkpoint.object_storage.gs.access_token`.
+    """
+
+    endpoint: NotRequired[str | None]
+    """Endpoint URL for `gs://` Checkpoints; defaults to `https://storage.googleapis.com`.
+
+    `checkpoint.object_storage.gs.endpoint`.
+    """
+
+
+class ConnectionCheckpointObjectStorageS3Settings(TypedDict):
+    """The `checkpoint.object_storage.s3` settings of `FoxhoundSettings`."""
+
+    access_key_id: NotRequired[str | None]
+    """Secret reference for the AWS access key ID used for `s3://` Checkpoints.
+
+    `checkpoint.object_storage.s3.access_key_id`.
+    """
+
+    endpoint: NotRequired[str | None]
+    """Endpoint URL for `s3://` Checkpoints, for S3-compatible stores such as R2 or `RustFS`; defaults to AWS S3 for the configured region.
+
+    `checkpoint.object_storage.s3.endpoint`.
+    """
+
+    region: NotRequired[str | None]
+    """Signing region for `s3://` Checkpoints; defaults to `us-east-1`.
+
+    `checkpoint.object_storage.s3.region`.
+    """
+
+    secret_access_key: NotRequired[str | None]
+    """Secret reference for the AWS secret access key used for `s3://` Checkpoints.
+
+    `checkpoint.object_storage.s3.secret_access_key`.
+    """
+
+    session_token: NotRequired[str | None]
+    """Optional Secret reference for the AWS session token used for temporary credentials on `s3://` Checkpoints.
+
+    `checkpoint.object_storage.s3.session_token`.
+    """
+
+
+class ConnectionCheckpointObjectStorageSettings(TypedDict):
+    """The `checkpoint.object_storage` settings of `FoxhoundSettings`."""
+
+    az: NotRequired[ConnectionCheckpointObjectStorageAzSettings]
+
+    gs: NotRequired[ConnectionCheckpointObjectStorageGsSettings]
+
+    s3: NotRequired[ConnectionCheckpointObjectStorageS3Settings]
+
+
 class ConnectionCheckpointSettings(TypedDict):
     """The `checkpoint` settings of `FoxhoundSettings`."""
 
@@ -174,6 +262,8 @@ class ConnectionCheckpointSettings(TypedDict):
 
     `checkpoint.interval`.
     """
+
+    object_storage: NotRequired[ConnectionCheckpointObjectStorageSettings]
 
 
 class ConnectionCleanUpSettings(TypedDict):
@@ -2256,6 +2346,94 @@ class RunCacheSettings(TypedDict):
     """
 
 
+class RunCheckpointObjectStorageAzSettings(TypedDict):
+    """The `checkpoint.object_storage.az` settings of `CrawlSettings`."""
+
+    account: NotRequired[str | None]
+    """Azure Storage account name used for `az://` Checkpoints.
+
+    `checkpoint.object_storage.az.account`.
+    """
+
+    account_key: NotRequired[str | None]
+    """Secret reference for the Base64-encoded Azure Storage `SharedKey` used for `az://` Checkpoints.
+
+    `checkpoint.object_storage.az.account_key`.
+    """
+
+    endpoint: NotRequired[str | None]
+    """Endpoint URL for `az://` Checkpoints, such as an Azurite emulator URL; defaults to `https://<account>.blob.core.windows.net`.
+
+    `checkpoint.object_storage.az.endpoint`.
+    """
+
+    sas_token: NotRequired[str | None]
+    """Secret reference for the Azure Storage SAS query token used for `az://` Checkpoints when `account_key` is not set.
+
+    `checkpoint.object_storage.az.sas_token`.
+    """
+
+
+class RunCheckpointObjectStorageGsSettings(TypedDict):
+    """The `checkpoint.object_storage.gs` settings of `CrawlSettings`."""
+
+    access_token: NotRequired[str | None]
+    """Secret reference for the `OAuth2` bearer access token used for `gs://` Checkpoints.
+
+    `checkpoint.object_storage.gs.access_token`.
+    """
+
+    endpoint: NotRequired[str | None]
+    """Endpoint URL for `gs://` Checkpoints; defaults to `https://storage.googleapis.com`.
+
+    `checkpoint.object_storage.gs.endpoint`.
+    """
+
+
+class RunCheckpointObjectStorageS3Settings(TypedDict):
+    """The `checkpoint.object_storage.s3` settings of `CrawlSettings`."""
+
+    access_key_id: NotRequired[str | None]
+    """Secret reference for the AWS access key ID used for `s3://` Checkpoints.
+
+    `checkpoint.object_storage.s3.access_key_id`.
+    """
+
+    endpoint: NotRequired[str | None]
+    """Endpoint URL for `s3://` Checkpoints, for S3-compatible stores such as R2 or `RustFS`; defaults to AWS S3 for the configured region.
+
+    `checkpoint.object_storage.s3.endpoint`.
+    """
+
+    region: NotRequired[str | None]
+    """Signing region for `s3://` Checkpoints; defaults to `us-east-1`.
+
+    `checkpoint.object_storage.s3.region`.
+    """
+
+    secret_access_key: NotRequired[str | None]
+    """Secret reference for the AWS secret access key used for `s3://` Checkpoints.
+
+    `checkpoint.object_storage.s3.secret_access_key`.
+    """
+
+    session_token: NotRequired[str | None]
+    """Optional Secret reference for the AWS session token used for temporary credentials on `s3://` Checkpoints.
+
+    `checkpoint.object_storage.s3.session_token`.
+    """
+
+
+class RunCheckpointObjectStorageSettings(TypedDict):
+    """The `checkpoint.object_storage` settings of `CrawlSettings`."""
+
+    az: NotRequired[RunCheckpointObjectStorageAzSettings]
+
+    gs: NotRequired[RunCheckpointObjectStorageGsSettings]
+
+    s3: NotRequired[RunCheckpointObjectStorageS3Settings]
+
+
 class RunCheckpointSettings(TypedDict):
     """The `checkpoint` settings of `CrawlSettings`."""
 
@@ -2264,6 +2442,8 @@ class RunCheckpointSettings(TypedDict):
 
     `checkpoint.interval`.
     """
+
+    object_storage: NotRequired[RunCheckpointObjectStorageSettings]
 
 
 class RunCleanUpSettings(TypedDict):

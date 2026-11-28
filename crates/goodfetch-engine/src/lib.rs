@@ -21,6 +21,7 @@ mod cache_operations;
 mod call_error;
 mod certs_operations;
 pub mod checkpoint;
+pub mod checkpoint_storage;
 pub mod children;
 pub mod client;
 pub mod clock;

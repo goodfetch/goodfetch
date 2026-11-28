@@ -1493,6 +1493,163 @@
                   }
                 ],
                 "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
+              },
+              "object_storage": {
+                "additionalProperties": false,
+                "properties": {
+                  "az": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "account": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Azure Storage account name used for `az://` Checkpoints."
+                      },
+                      "account_key": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Secret reference for the Base64-encoded Azure Storage `SharedKey` used for `az://` Checkpoints."
+                      },
+                      "endpoint": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Endpoint URL for `az://` Checkpoints, such as an Azurite emulator URL; defaults to `https://<account>.blob.core.windows.net`."
+                      },
+                      "sas_token": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Secret reference for the Azure Storage SAS query token used for `az://` Checkpoints when `account_key` is not set."
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "gs": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "access_token": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Secret reference for the `OAuth2` bearer access token used for `gs://` Checkpoints."
+                      },
+                      "endpoint": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Endpoint URL for `gs://` Checkpoints; defaults to `https://storage.googleapis.com`."
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "s3": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "access_key_id": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Secret reference for the AWS access key ID used for `s3://` Checkpoints."
+                      },
+                      "endpoint": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Endpoint URL for `s3://` Checkpoints, for S3-compatible stores such as R2 or `RustFS`; defaults to AWS S3 for the configured region."
+                      },
+                      "region": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Signing region for `s3://` Checkpoints; defaults to `us-east-1`."
+                      },
+                      "secret_access_key": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Secret reference for the AWS secret access key used for `s3://` Checkpoints."
+                      },
+                      "session_token": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Optional Secret reference for the AWS session token used for temporary credentials on `s3://` Checkpoints."
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "object"
               }
             },
             "type": "object"
@@ -6511,6 +6668,163 @@
                   }
                 ],
                 "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally."
+              },
+              "object_storage": {
+                "additionalProperties": false,
+                "properties": {
+                  "az": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "account": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Azure Storage account name used for `az://` Checkpoints."
+                      },
+                      "account_key": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Secret reference for the Base64-encoded Azure Storage `SharedKey` used for `az://` Checkpoints."
+                      },
+                      "endpoint": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Endpoint URL for `az://` Checkpoints, such as an Azurite emulator URL; defaults to `https://<account>.blob.core.windows.net`."
+                      },
+                      "sas_token": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Secret reference for the Azure Storage SAS query token used for `az://` Checkpoints when `account_key` is not set."
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "gs": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "access_token": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Secret reference for the `OAuth2` bearer access token used for `gs://` Checkpoints."
+                      },
+                      "endpoint": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Endpoint URL for `gs://` Checkpoints; defaults to `https://storage.googleapis.com`."
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "s3": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "access_key_id": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Secret reference for the AWS access key ID used for `s3://` Checkpoints."
+                      },
+                      "endpoint": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Endpoint URL for `s3://` Checkpoints, for S3-compatible stores such as R2 or `RustFS`; defaults to AWS S3 for the configured region."
+                      },
+                      "region": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Signing region for `s3://` Checkpoints; defaults to `us-east-1`."
+                      },
+                      "secret_access_key": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Secret reference for the AWS secret access key used for `s3://` Checkpoints."
+                      },
+                      "session_token": {
+                        "anyOf": [
+                          {
+                            "description": "A Secret reference, such as `env:NAME`.",
+                            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Optional Secret reference for the AWS session token used for temporary credentials on `s3://` Checkpoints."
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "object"
               }
             },
             "type": "object"

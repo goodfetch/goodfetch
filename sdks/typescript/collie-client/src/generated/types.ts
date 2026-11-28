@@ -8984,10 +8984,11 @@ export interface RunAborting {
  */
 export interface RunCheckpointParams {
   /**
-   * Where to write the Checkpoint, a path on the engine's machine; by
-   * default where the engine keeps the Run's Checkpoints, its own folder.
-   * The catalog's caller alone gives it, such as Goodfetch Cloud: an
-   * SDK's `checkpoint()` takes no path, which would break on a Daemon or
+   * Where to write the Checkpoint, a path on the engine's machine or an
+   * object-storage URL (`s3://`, `gs://`, `az://`); by default where the
+   * engine keeps the Run's Checkpoints, its own folder. The catalog's
+   * caller alone gives it, such as Goodfetch Cloud: an SDK's
+   * `checkpoint()` takes no path, which would break on a Daemon or
    * Goodfetch Cloud (ADR 0102).
    */
   location?: string | null;
@@ -9296,8 +9297,8 @@ export interface TimeRange {
 export interface RunMigrateParams {
   /**
    * Where to write the Checkpoint the Run is resumed from, a path on the
-   * engine's machine; by default where the engine keeps the Run's
-   * Checkpoints, its own folder.
+   * engine's machine or an object-storage URL (`s3://`, `gs://`, `az://`);
+   * by default where the engine keeps the Run's Checkpoints, its own folder.
    */
   location?: string | null;
   /**
@@ -9671,9 +9672,10 @@ export interface WeakenedSetting {
  */
 export interface RunResumeParams {
   /**
-   * A Checkpoint to resume from, a path on the engine's machine, which
-   * becomes the Run's state in this engine's run folder; by default the
-   * Run resumes from its run file on this machine.
+   * A Checkpoint to resume from, a path on the engine's machine or an
+   * object-storage URL (`s3://`, `gs://`, `az://`), which becomes the
+   * Run's state in this engine's run folder; by default the Run resumes
+   * from its run file on this machine.
    */
   checkpoint?: string | null;
   /**

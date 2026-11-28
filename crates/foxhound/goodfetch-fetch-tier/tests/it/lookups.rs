@@ -207,3 +207,145 @@ fn a_proxy_whose_every_address_refused_is_looked_up_again_on_the_next_connection
     let refused = Err(TransportFailure::ProxyUnreachable);
     assert_eq!((sends, asked), (vec![refused.clone(), refused], vec![1, 2]));
 }
+
+/// Writes a single-exchange WARC 1.1 fixture for `url` on `host` to `path`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "synchronous test setup on the test thread, never on an async worker"
+)]
+fn write_single_response_warc(path: &std::path::Path, host: &str, url: &Url) {
+    use goodfetch_engine::warc::{RequestRecord, ResponseRecord, WarcInfo, Writer};
+
+    let now: jiff::Timestamp = "2026-01-05T09:00:00Z".parse().unwrap();
+    let mut writer = Writer::new(Vec::new(), false);
+    writer
+        .write_warcinfo(&WarcInfo {
+            record_id: "<urn:uuid:00000000-0000-0000-0000-000000000001>".to_owned(),
+            date: now,
+            filename: None,
+            software: "goodfetch-foxhound/0.1".to_owned(),
+            run_id: Some("dns-replay".to_owned()),
+            mode: Some("record".to_owned()),
+            recorded_from: Some(now),
+            recorded_to: Some(now),
+            writer_version: goodfetch_engine::warc::WRITER_VERSION.to_owned(),
+        })
+        .unwrap();
+    let req_id = "<urn:uuid:00000000-0000-0000-0000-000000000002>";
+    let resp_id = "<urn:uuid:00000000-0000-0000-0000-000000000003>";
+    let target = url.to_string();
+    let req_headers = vec![("Host".to_owned(), host.to_owned())];
+    let resp_headers = vec![("Content-Type".to_owned(), "text/plain".to_owned())];
+    writer
+        .write_request(&RequestRecord {
+            record_id: req_id,
+            date: now,
+            target_uri: &target,
+            concurrent_to: Some(resp_id),
+            method: "GET",
+            headers: &req_headers,
+            body: &[],
+        })
+        .unwrap();
+    writer
+        .write_response(&ResponseRecord {
+            record_id: resp_id,
+            date: now,
+            target_uri: &target,
+            concurrent_to: Some(req_id),
+            status: 200,
+            headers: &resp_headers,
+            body: b"from-warc",
+            truncated: None,
+        })
+        .unwrap();
+    std::fs::write(path, writer.into_inner()).unwrap();
+}
+
+/// A host mapped by `network.resolve` to loopback is reached live during a
+/// Response recording replay while a second host is answered from the file
+/// and the Proving ground's DNS fixture sees zero lookups for the second host
+/// (ADR 0105, issue 801, issue 311).
+///
+/// Covers: story:6-59
+#[test]
+fn a_replaying_transport_reaches_loopback_resolved_host_live_and_sends_no_dns_query_for_replayed_host()
+ {
+    use std::sync::Arc;
+
+    use goodfetch_engine::clock::Clock;
+    use goodfetch_engine::mask::Masks;
+    use goodfetch_engine::response_cache::{Caching, ResponseSource};
+    use goodfetch_engine::response_recording::Recordings;
+    use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
+    use goodfetch_protocol::run::RunId;
+
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let live_host = "1.rendered.test";
+    let replayed_host = "replayed.ttl-60.mixed.dns.test";
+    let missing_host = "missing.ttl-60.mixed.dns.test";
+    let live_url: Url = proving_ground.url(live_host, "/shell").parse().unwrap();
+    let replayed_url: Url = format!("http://{replayed_host}/article").parse().unwrap();
+    let missing_url: Url = format!("http://{missing_host}/absent").parse().unwrap();
+
+    let warc_path = env.folder().join("dns-replay.warc");
+    write_single_response_warc(&warc_path, replayed_host, &replayed_url);
+
+    let resolve = HostMapping::new([(live_host, vec![proving_ground.address().ip()])]);
+    let fixture: SocketAddr = proving_ground.description().fixtures.dns.parse().unwrap();
+    let config = TransportConfig {
+        egress: Policy::new(&["*"], &[] as &[&str])
+            .unwrap()
+            .with_private_ranges(&["127.0.0.0/8".to_owned()])
+            .unwrap(),
+        resolve: resolve.clone(),
+        resolver: ResolverConfiguration::name_servers([fixture]).into(),
+        local: Some(LocalSource {
+            ipv4: Some(Ipv4Addr::LOCALHOST),
+            ipv6: None,
+            interface: None,
+        }),
+        ..crate::config(&proving_ground, None, &[])
+    };
+    let live_transport: Arc<dyn Transport> = Arc::new(Reqwest::new(config).unwrap());
+
+    let recordings = Recordings::default();
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let run_id = RunId::parse("dns-replay").unwrap();
+    let replayed = running_clock_runtime()
+        .block_on(recordings.open_replay(
+            warc_path.to_str().unwrap(),
+            Masks::default(),
+            100,
+            &owner,
+        ))
+        .unwrap();
+    recordings.attach(run_id.clone(), replayed);
+
+    let source = ResponseSource::default()
+        .recording(recordings.get(&run_id).unwrap())
+        .resolve(Arc::new(resolve));
+    let caching = Caching::of(source, "ada", run_id, Clock::system()).unwrap();
+    let wrapped = goodfetch_fetch_tier::cached_transport(&caching, live_transport);
+
+    // 1. Loopback-mapped host reaches the Proving ground live.
+    assert_eq!(send(wrapped.as_ref(), &live_url), Ok(200));
+    // 2. Unmapped host is answered from the WARC recording.
+    assert_eq!(send(wrapped.as_ref(), &replayed_url), Ok(200));
+    // 3. Unrecorded unmapped host fails with `response_not_recorded`.
+    let missed = send(wrapped.as_ref(), &missing_url).unwrap_err();
+    assert!(matches!(missed, TransportFailure::Recorded(_)));
+
+    // 4. The Proving ground's DNS fixture saw ZERO queries for either replayed
+    //    or missing unmapped hosts.
+    let observations = proving_ground.observations().unwrap();
+    assert_eq!(
+        queries_of(&observations, replayed_host),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        queries_of(&observations, missing_host),
+        Vec::<String>::new()
+    );
+}

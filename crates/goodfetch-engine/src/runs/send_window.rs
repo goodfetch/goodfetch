@@ -6,12 +6,14 @@
 use std::pin::Pin;
 use std::sync::Arc;
 
+use goodfetch_protocol::run::RunId;
 use tokio::time::Instant;
 
 use crate::call_error::CallError;
 use crate::lease::LeaseCheck;
 use crate::run_identity::RunIdentity;
 use crate::run_state::RunState;
+pub use crate::sync::ActiveEffects;
 
 /// ADR 0106's send window: the engine's declared Effects, which mark the
 /// bodies a Run's command counts for sent before it goes out, and which a
@@ -44,6 +46,11 @@ pub(crate) trait SendWindow: Send + Sync {
         lease: Option<&'a dyn LeaseCheck>,
         command: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<(), CallError>> + Send + 'a>>;
+
+    /// Returns the Run's in-memory count of running declared Effect bodies,
+    /// read without locks, file opens or spawns on the Response cache hot
+    /// path (ADRs 0046, 0106 and 0140).
+    fn active_bodies(&self, run: &RunId) -> ActiveEffects;
 }
 
 /// A live Run's send window, which a function takes in place of the Run's
@@ -54,6 +61,7 @@ pub struct RunSendWindow {
     window: Option<Arc<dyn SendWindow>>,
     identity: RunIdentity,
     state: RunState,
+    active_bodies: ActiveEffects,
 }
 
 impl std::fmt::Debug for RunSendWindow {
@@ -62,6 +70,7 @@ impl std::fmt::Debug for RunSendWindow {
             .debug_struct("RunSendWindow")
             .field("run_id", self.identity.id())
             .field("window", &self.window.is_some())
+            .field("in_effect", &self.active_bodies.is_running())
             .finish_non_exhaustive()
     }
 }
@@ -74,11 +83,29 @@ impl RunSendWindow {
         identity: RunIdentity,
         state: RunState,
     ) -> Self {
+        let active_bodies = window
+            .as_ref()
+            .map_or_else(ActiveEffects::default, |w| w.active_bodies(identity.id()));
         Self {
             window,
             identity,
             state,
+            active_bodies,
         }
+    }
+
+    /// The Run's in-memory count of running declared Effect bodies, shared
+    /// with the Response cache so checking whether an Effect's body runs
+    /// performs a single atomic load with no I/O (ADRs 0046, 0106 and 0140).
+    #[must_use]
+    pub fn active_bodies(&self) -> ActiveEffects {
+        self.active_bodies.clone()
+    }
+
+    /// Whether any declared Effect body of this Run is currently running.
+    #[must_use]
+    pub fn in_effect(&self) -> bool {
+        self.active_bodies.is_running()
     }
 
     /// Marks sent, synced, each body of the Run declared through the

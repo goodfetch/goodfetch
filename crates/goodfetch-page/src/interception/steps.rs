@@ -124,13 +124,41 @@ pub(crate) fn send_on(
     signing: Option<&RequestSigner>,
     fetch: bool,
 ) -> Result<Sent, Stopped> {
-    // Step 3: the egress check and the domain policy.
-    let request = egress::Request {
-        url: paused.url,
-        kind: paused.egress,
-    };
-    if let Judgment::Refused(refused) = egress::judge(&request, policy) {
-        return Err(Stopped::Refused(refused));
+    send_on_with(paused, policy, blocking, signing, fetch, false)
+}
+
+/// As [`send_on`], for a Run replaying a Response recording (ADR 0105):
+/// skips step 3's egress refusal so private addresses recorded in the WARC
+/// are answered from the file rather than refused before step 5.
+pub(crate) fn send_on_replaying(
+    paused: &Paused<'_>,
+    policy: &Policy,
+    blocking: &Blocking,
+    signing: Option<&RequestSigner>,
+    fetch: bool,
+) -> Result<Sent, Stopped> {
+    send_on_with(paused, policy, blocking, signing, fetch, true)
+}
+
+fn send_on_with(
+    paused: &Paused<'_>,
+    policy: &Policy,
+    blocking: &Blocking,
+    signing: Option<&RequestSigner>,
+    fetch: bool,
+    replaying: bool,
+) -> Result<Sent, Stopped> {
+    // Step 3: the egress check and the domain policy (skipped while
+    // replaying so private addresses recorded in the file are answered
+    // without egress refusal or DNS lookup, ADR 0105).
+    if !replaying {
+        let request = egress::Request {
+            url: paused.url,
+            kind: paused.egress,
+        };
+        if let Judgment::Refused(refused) = egress::judge(&request, policy) {
+            return Err(Stopped::Refused(refused));
+        }
     }
     // Step 4: the never-block list, the Filter lists and
     // `browser.block_resources`.

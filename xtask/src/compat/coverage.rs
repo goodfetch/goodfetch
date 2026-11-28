@@ -34,6 +34,7 @@ pub(super) fn uncovered(format: &Format, set: &Tree) -> Result<Vec<String>> {
                 .filter(|(path, _)| has_extension(path, "sql"))
                 .filter_map(|(_, bytes)| std::str::from_utf8(bytes).ok()),
         ),
+        Storage::Warc => warc_uncovered(set),
         Storage::Json | Storage::Transcript | Storage::Toml => {
             let mut documents = Vec::new();
             for (path, bytes) in set {
@@ -79,6 +80,40 @@ pub(super) fn uncovered(format: &Format, set: &Tree) -> Result<Vec<String>> {
     };
     uncovered.sort();
     Ok(uncovered)
+}
+
+/// Checks that a WARC profile's corpus holds both plain `.warc` and gzipped
+/// `.warc.gz` files and every record kind the writer emits (`warcinfo`,
+/// `request`, `response`, `revisit`, and `WARC-Truncated: disconnect`).
+fn warc_uncovered(set: &Tree) -> Vec<String> {
+    let mut seen: BTreeSet<&'static str> = BTreeSet::new();
+    for (path, bytes) in set {
+        if path.ends_with(".warc.gz") && bytes.starts_with(&[0x1f, 0x8b]) {
+            seen.insert("gzip");
+        } else if has_extension(path, "warc") {
+            let text = String::from_utf8_lossy(bytes);
+            for kind in ["warcinfo", "request", "response", "revisit"] {
+                if text.contains(&format!("WARC-Type: {kind}")) {
+                    seen.insert(kind);
+                }
+            }
+            if text.contains("WARC-Truncated: disconnect") {
+                seen.insert("truncated");
+            }
+        }
+    }
+    [
+        "warcinfo",
+        "request",
+        "response",
+        "revisit",
+        "truncated",
+        "gzip",
+    ]
+    .into_iter()
+    .filter(|required| !seen.contains(required))
+    .map(str::to_owned)
+    .collect()
 }
 
 fn child(prefix: &str, name: &str) -> String {

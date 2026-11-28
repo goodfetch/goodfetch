@@ -459,6 +459,13 @@ impl Sessions {
                 .mask(&CdpPage::of(driver), (run, session, page), &open.injections)
                 .await?;
         }
+        // A replaying Run's page gets its time-and-randomness init script
+        // once, before any document script runs (ADRs 0105 and 0140, issue 801).
+        if let Some(script) = open.interception.replay_script() {
+            CdpPage::of(driver)
+                .add_init_script_opening(script.to_owned())
+                .await?;
+        }
         // A page a program opened reads robots.txt for each document its
         // main frame receives, beside its navigation, never before it (ADR
         // 0086).

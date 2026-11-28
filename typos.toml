@@ -68,4 +68,5 @@ extend-ignore-re = [
   "full gates seulement sur ma demande",
   "gestion dynamique en fonction",
   "JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs",
+  "sha256:[A-Z2-7]{52}",
 ]

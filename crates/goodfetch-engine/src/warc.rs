@@ -34,6 +34,12 @@ use crate::response_limits::RATIO_APPLIES_PAST;
 
 #[cfg(test)]
 pub(crate) mod tests;
+mod write;
+
+pub use write::{
+    REVISIT_SERVER_NOT_MODIFIED, RequestRecord, ResponseRecord, RevisitRecord,
+    TRUNCATED_DISCONNECT, WRITER_VERSION, WarcInfo, Writer, sha256_digest, warc_date,
+};
 
 /// The two bytes a gzip member starts with (RFC 1952).
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];

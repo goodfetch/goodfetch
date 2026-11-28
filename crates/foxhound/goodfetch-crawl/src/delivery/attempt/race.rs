@@ -184,6 +184,15 @@ impl On<'_> {
                 // page as it drops, so the page never holds the Run's
                 // handles past the Run.
                 let page_id = served.page_id();
+                tiers.commit_cached(page_id).await;
+                if matches!(
+                    facts.origin,
+                    Some(
+                        goodfetch_protocol::foxhound::provenance::ResponseOrigin::ResponseCache { .. }
+                    )
+                ) {
+                    let _ = run.charging.reclassify_request_as_cache_hit().await;
+                }
                 self.lessons
                     .learn(tiers, page_id, &leased.crawl_request)
                     .await;
@@ -200,6 +209,7 @@ impl On<'_> {
                     ),
                     facts.encoding,
                     facts.certificate_exception,
+                    facts.origin,
                 )
                 .await;
                 let answer = first.handle(page_id, FetchTier::Http, facts.response).await;
@@ -243,6 +253,7 @@ impl On<'_> {
                     tier_provenance(&BROWSER, Chosen::Raced),
                     encoding,
                     certificate_exception,
+                    None,
                 )
                 .await;
                 let answer = self.handle(&page_id, FetchTier::Browser, response).await;

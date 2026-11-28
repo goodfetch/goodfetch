@@ -520,6 +520,8 @@ impl Reqwest {
             reused,
             decoded: false,
             certificate_exception: None,
+            custom_tls: false,
+            origin: None,
         })
     }
 
@@ -532,10 +534,13 @@ impl Reqwest {
             .await
             .map_err(TransportFailure::CertificateChanged)?;
         let (clients, presents) = self.scope_of(host).await?;
+        let trusted_ca = self.trust.uses_trusted_ca(host);
         for _ in 0..DECISIONS {
             let decision = match self.send_on(&clients, hop, reuse).await {
                 Ok(mut sent) => {
                     sent.certificate_exception = self.trust.exception(host);
+                    sent.custom_tls =
+                        sent.certificate_exception.is_some() || presents || trusted_ca;
                     return Ok(sent);
                 }
                 Err((failure, None)) => return Err(failure),

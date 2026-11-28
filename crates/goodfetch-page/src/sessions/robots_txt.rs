@@ -185,6 +185,14 @@ impl Reader {
                 }
                 Body::Cut { .. } => "its body was cut".to_owned(),
             },
+            Err(error) if error.code() == goodfetch_protocol::run::RESPONSE_NOT_RECORDED.name => {
+                // Under replay, a robots.txt the recording lacks is already
+                // listed as a miss and reads as no rules (ADR 0105).
+                return Ok(Answer::Response {
+                    status: 404,
+                    body: Vec::new(),
+                });
+            }
             Err(error) => error.message().to_owned(),
         };
         // A fetch the Session's end, its lease's or its browser's cut short

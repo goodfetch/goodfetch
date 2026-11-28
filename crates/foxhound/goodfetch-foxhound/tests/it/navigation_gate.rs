@@ -583,10 +583,13 @@ const PROGRESS_POLL: Duration = Duration::from_millis(50);
 /// A handler whose `goto` waits for its domain's delay between starts is
 /// not timed out meanwhile: the wait lasts longer than the attempt's lease
 /// was granted for, the lease is renewed through it, the Run's live status
-/// names it, and the attempt then commits, never sent again. The handler
-/// opens its page within the lease, which nothing renews before its `goto`
-/// waits, so a first seed's handler starts the Run's browser before it
-/// ([`warm_up_the_browser`]).
+/// names it, and the attempt then commits, never sent again. The handler's
+/// `timeout.handler` bounds its own browser calls outside the permit wait
+/// (ADR 0080), so a first seed's handler starts the Run's browser before it
+/// ([`warm_up_the_browser`]) and the handler gets enough time to open its
+/// page and finish the admitted navigation under host load while the delay
+/// stays longer than the whole lease (`timeout.handler` plus its 10 s
+/// margin).
 ///
 /// Covers: story:5-134, setting:timeout.handler, setting:politeness.domain.delay, operation:run.progress
 #[test]
@@ -594,10 +597,13 @@ fn a_handler_waiting_for_a_permit_is_not_timed_out_and_its_wait_is_named() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
-    // A lease of 1 s plus the 10 s margin, shorter than the delay.
+    // A lease of 10 s plus the 10 s margin (20 s), shorter than the 22 s
+    // delay; `respect_robots_txt` is off so only the handler's `goto` waits
+    // out the delay.
     let more = json!({
-        "timeout": { "handler": 1_000 },
-        "politeness": { "domain": { "delay": 12_000 } },
+        "timeout": { "handler": 10_000 },
+        "politeness": { "domain": { "delay": 22_000 } },
+        "site_preferences": { "respect_robots_txt": false },
     });
     let warm_up_seed = proving_ground.url(HISTORY, "/");
 
@@ -640,6 +646,10 @@ fn a_handler_waiting_for_a_permit_is_not_timed_out_and_its_wait_is_named() {
                     "params": { "run_id": handle["run_id"] },
                 }));
                 let progress = answer_to(engine, &id, &mut others);
+                if let Some(at) = others.iter().position(|other| other["id"] == "goto") {
+                    went = Some(others.remove(at));
+                    break;
+                }
                 phases = progress["result"]["in_flight"]
                     .as_array()
                     .into_iter()
@@ -651,7 +661,9 @@ fn a_handler_waiting_for_a_permit_is_not_timed_out_and_its_wait_is_named() {
                 }
                 std::thread::sleep(PROGRESS_POLL);
             }
-            went = Some(answer_to(engine, "goto", &mut others));
+            if went.is_none() {
+                went = Some(answer_to(engine, "goto", &mut others));
+            }
             json!({ "result": { "records": [] } })
         },
     );

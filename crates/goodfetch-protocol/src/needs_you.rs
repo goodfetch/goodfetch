@@ -388,6 +388,14 @@ pub const WALL_DOMAIN_DENIED: SharedTypeValue = SharedTypeValue {
     arrived_in: ARRIVED_IN,
 };
 
+/// A Run used the Wall allowance on a domain in `wall.domains`.
+pub const WALL_ALLOWANCE_USED: SharedTypeValue = SharedTypeValue {
+    shared_type: SharedType::AuditKind,
+    name: "wall_allowance_used",
+    description: "A Run used the Wall allowance on a domain in `wall.domains`, recorded once per Run and domain (ADR 0052); `details` give the `domain`, the Wall `kind`, and the `actions` taken.",
+    arrived_in: ARRIVED_IN,
+};
+
 /// A person added a domain, or `*`, to `consent.domains`.
 pub const CONSENT_DOMAIN_ALLOWED: SharedTypeValue = SharedTypeValue {
     shared_type: SharedType::AuditKind,
@@ -453,5 +461,6 @@ pub const ENTRIES: Entries = Entries {
         CONSENT_DOMAIN_ALLOWED,
         REFETCH_DOMAIN_REMOVED,
         WALL_DOMAIN_DENIED,
+        WALL_ALLOWANCE_USED,
     ],
 };

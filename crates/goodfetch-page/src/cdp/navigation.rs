@@ -148,6 +148,40 @@ impl CdpPage {
             .await
     }
 
+    /// Clears stored site data for `origin` and reloads the page bypassing the
+    /// browser cache (`Storage.clearDataForOrigin` + `Page.reload` with
+    /// `ignore_cache: true`, ADR 0052).
+    pub(crate) async fn clear_site_data_and_reload_uncached(
+        &self,
+        origin: &str,
+    ) -> Result<Option<u16>, CallError> {
+        let call = Call::Navigation {
+            url: origin.to_owned(),
+        };
+        if !origin.is_empty() {
+            self.page
+                .command_for(
+                    &goodfetch_cdp::generated::storage::ClearDataForOriginParams {
+                        origin: origin.to_owned(),
+                        storage_types: "all".to_owned(),
+                    },
+                    &call,
+                )
+                .await?;
+        }
+        self.page
+            .command_for(
+                &page::ReloadParams {
+                    ignore_cache: Some(true),
+                    script_to_evaluate_on_load: None,
+                    loader_id: None,
+                },
+                &call,
+            )
+            .await?;
+        Ok(None)
+    }
+
     /// The encoding the document of the world whose context is `context`
     /// was decoded with; none when it names none.
     ///

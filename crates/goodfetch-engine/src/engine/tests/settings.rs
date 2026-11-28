@@ -78,11 +78,11 @@ fn a_run_whose_settings_an_operator_policy_locked_is_refused_before_it_begins() 
 ///
 /// Covers: story:3-88, error:capability_unavailable
 #[rstest]
-/// Covers: setting:wall.domains
-#[case::wall_domains_in_configuration(
-    "wall.domains = [\"paper.example\"]\n",
+/// Covers: setting:timeout.sink_write
+#[case::timeout_sink_write_in_configuration(
+    "timeout.sink_write = 45000\n",
     json!({}),
-    "wall.domains",
+    "timeout.sink_write",
     "user_configuration"
 )]
 /// Covers: setting:sample.echo_repeats
@@ -130,11 +130,11 @@ fn a_run_setting_what_the_engine_does_not_build_yet_is_refused_before_it_begins(
 /// A setting whose feature is not built, left at its default or set to it,
 /// refuses nothing: the Run starts, and its report lists nothing weakened.
 ///
-/// Covers: story:3-88, setting:wall.domains, setting:sample.echo_repeats
+/// Covers: story:3-88, setting:timeout.sink_write, setting:sample.echo_repeats
 #[rstest]
 #[case::left_alone(json!({}))]
 #[case::set_to_their_defaults(json!({
-    "wall": { "domains": [] },
+    "timeout": { "sink_write": 30000 },
     "sample": { "echo_repeats": 1 },
 }))]
 fn a_run_leaving_an_unbuilt_setting_at_its_default_starts(#[case] settings: Value) {

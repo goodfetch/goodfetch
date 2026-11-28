@@ -61,6 +61,8 @@ mod state_import;
 mod trace;
 pub mod url_pattern;
 mod version_check;
+mod wall_state;
+mod walls;
 
 pub use browser_run::BrowserRun;
 pub use cdp::launch::{Launcher, Scripted, ScriptedBrowsers};

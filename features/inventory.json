@@ -12131,6 +12131,17 @@
       ]
     },
     {
+      "id": "setting:wall.on_wall",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:wall.refetch_domains",
       "kind": "setting",
       "area": 5,

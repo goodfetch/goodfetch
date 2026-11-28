@@ -59,6 +59,8 @@ use crate::noindex;
 use crate::page_reads::Reads;
 use crate::trace;
 use crate::url_pattern::UrlPattern;
+use crate::wall_state::RefetchEligibility;
+use crate::walls::{self, WallObservation, WallPolicy};
 
 /// What the Page check reads of the document, in the guard's world.
 const READ: &str = include_str!("recovery/page_check.js");
@@ -207,6 +209,9 @@ struct Read {
     /// The `content` of each of its robots `meta` elements.
     #[serde(default)]
     robots: Vec<String>,
+    /// Wall detection result when `wall.domains` covers this Run (ADR 0052).
+    #[serde(default)]
+    wall: Option<WallObservation>,
 }
 
 /// Judges the document `response` answered for `judging`'s navigation:
@@ -299,12 +304,20 @@ async fn by_page_check(
 /// check.
 async fn by_built_in(judging: &Judging<'_>, response: &PageResponse) -> Result<(), CallError> {
     let holds_login = judging.checking.login.holds_login();
+    let needs_wall_read = wall_allowance_active(judging.run);
+    let read_result = if login_path(&response.url) {
+        None
+    } else if holds_login || needs_wall_read {
+        Some(read(judging, &[]).await?)
+    } else {
+        None
+    };
     let login = if login_path(&response.url) {
         judging
             .requested
             .is_some_and(|requested| !same_document(requested, &response.url))
     } else {
-        holds_login && read(judging, &[]).await?.password
+        holds_login && read_result.as_ref().is_some_and(|r| r.password)
     };
     trace::counted_provenance(
         judging.run,
@@ -321,7 +334,29 @@ async fn by_built_in(judging: &Judging<'_>, response: &PageResponse) -> Result<(
     if login && holds_login {
         return Err(logged_out(response, JudgedBy::BuiltIn));
     }
+    if let Some(wall) = read_result.as_ref().and_then(|r| r.wall.as_ref()) {
+        walls::handle_detected_wall(
+            judging.run,
+            judging.session,
+            judging.page_id,
+            judging.driver,
+            response,
+            wall,
+            RefetchEligibility {
+                logged_in: holds_login,
+                identified: false,
+                exit_kept: true,
+            },
+        )
+        .await;
+    }
     Ok(())
+}
+
+fn wall_allowance_active(run: &BrowserRun) -> bool {
+    run.identity
+        .settings()
+        .is_some_and(|settings| WallPolicy::of(settings.resolved()).has_any_allowance())
 }
 
 /// Whether `matcher` matches the document's URL rather than its content.
@@ -338,7 +373,17 @@ async fn read(judging: &Judging<'_>, matches: &[&PageMatch]) -> Result<Read, Cal
         .metrics()
         .counted_work()
         .count(Row::NavigationDetectionReads);
-    let argument = json!({ "matches": matches });
+    let wall_rules = wall_allowance_active(judging.run).then(|| {
+        let rules = judging.run.walls.rules();
+        json!({
+            "paywall_selectors": rules.paywall_selectors(),
+            "ad_blocker_wall_selectors": rules.ad_blocker_wall_selectors(),
+        })
+    });
+    let argument = json!({
+        "matches": matches,
+        "wall_rules": wall_rules,
+    });
     // A navigation's judgement, the Page's own work: no call's read.
     let read = Reads::of(CdpPage::of(judging.driver))
         .in_page(READ, argument, judging.operation.unwrap_or(NEXT_CALL))

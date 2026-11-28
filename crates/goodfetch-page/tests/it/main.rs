@@ -37,3 +37,4 @@ mod session_counts;
 mod session_end;
 mod url_pattern;
 mod version_check;
+mod wall_allowance;

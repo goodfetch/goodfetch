@@ -375,6 +375,49 @@ document.getElementById(\"result\").textContent = `extra=${extra};cookie=${cooki
 </html>
 ";
 
+const PAYWALL_OVERLAY: &str = "<!DOCTYPE html>
+<html lang=\"en\" style=\"overflow: hidden\">
+<head><meta charset=\"utf-8\"><title>Paywall overlay</title></head>
+<body style=\"overflow: hidden\">
+<div class=\"paywall-overlay\" style=\"position:fixed;inset:0;width:100vw;height:100vh\">Subscribe to continue reading.</div>
+<main><article><h1>Full article behind overlay</h1><p>This served article contains plenty of words so that the withholds-content test sees it as complete behind the overlay. One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty-one twenty-two twenty-three twenty-four twenty-five twenty-six twenty-seven twenty-eight twenty-nine thirty thirty-one thirty-two thirty-three thirty-four thirty-five thirty-six thirty-seven thirty-eight thirty-nine forty forty-one forty-two forty-three forty-four forty-five forty-six forty-seven forty-eight forty-nine fifty fifty-one fifty-two fifty-three fifty-four fifty-five fifty-six fifty-seven fifty-eight fifty-nine sixty sixty-one sixty-two sixty-three sixty-four sixty-five sixty-six sixty-seven sixty-eight sixty-nine seventy seventy-one seventy-two seventy-three seventy-four seventy-five seventy-six seventy-seven seventy-eight seventy-nine eighty eighty-one eighty-two eighty-three eighty-four eighty-five eighty-six eighty-seven eighty-eight eighty-nine ninety ninety-one ninety-two ninety-three ninety-four ninety-five ninety-six ninety-seven ninety-eight ninety-nine one-hundred one-hundred-one one-hundred-two one-hundred-three one-hundred-four one-hundred-five one-hundred-six one-hundred-seven one-hundred-eight one-hundred-nine one-hundred-ten one-hundred-eleven one-hundred-twelve one-hundred-thirteen one-hundred-fourteen one-hundred-fifteen one-hundred-sixteen one-hundred-seventeen one-hundred-eighteen one-hundred-nineteen one-hundred-twenty one-hundred-twenty-one one-hundred-twenty-two one-hundred-twenty-three one-hundred-twenty-four one-hundred-twenty-five one-hundred-twenty-six one-hundred-twenty-seven one-hundred-twenty-eight one-hundred-twenty-nine one-hundred-thirty one-hundred-thirty-one one-hundred-thirty-two one-hundred-thirty-three one-hundred-thirty-four one-hundred-thirty-five one-hundred-thirty-six one-hundred-thirty-seven one-hundred-thirty-eight one-hundred-thirty-nine one-hundred-forty one-hundred-forty-one one-hundred-forty-two one-hundred-forty-three one-hundred-forty-four one-hundred-forty-five.</p></article></main>
+</body>
+</html>
+";
+
+const PAYWALL_PAID_SECTION: &str = "<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+<meta charset=\"utf-8\">
+<title>Paid section withheld</title>
+<script type=\"application/ld+json\">{\"@context\":\"https://schema.org\",\"@type\":\"NewsArticle\",\"isAccessibleForFree\":false,\"hasPart\":{\"@type\":\"WebPageElement\",\"isAccessibleForFree\":false,\"cssSelector\":\".paid-body\"}}</script>
+</head>
+<body>
+<main><article><h1>Declared paid section</h1><div class=\"paid-body\"></div></article></main>
+</body>
+</html>
+";
+
+const PAYWALL_SHORT: &str = "<!DOCTYPE html>
+<html lang=\"en\">
+<head><meta charset=\"utf-8\"><title>Short paywall preview</title></head>
+<body>
+<div class=\"paywall-overlay\" style=\"position:fixed;inset:0;width:100vw;height:100vh\">Subscribe now.</div>
+<main><article><h1>Short preview</h1><p>Only a short teaser is served here.</p></article></main>
+</body>
+</html>
+";
+
+const AD_BLOCKER_WALL: &str = "<!DOCTYPE html>
+<html lang=\"en\" style=\"overflow: hidden\">
+<head><meta charset=\"utf-8\"><title>Ad-blocker wall</title></head>
+<body style=\"overflow: hidden\">
+<div class=\"adblock-wall\" style=\"position:fixed;inset:0;width:100vw;height:100vh\">Please disable your ad blocker.</div>
+<main><article><h1>Article behind ad-blocker wall</h1><p>Served article body.</p></article></main>
+</body>
+</html>
+";
+
 /// A live-hiding page with its report sent to `report`.
 fn reporting(page: &str, report: &str) -> String {
     page.replace("REPORT_SCRIPT", &REPORT.replace("REPORT", report))
@@ -420,6 +463,10 @@ pub(crate) fn respond(name: &str, request: &Request<'_>) -> Option<Reply> {
         "/listed-challenge" => {
             Reply::html_with_status(StatusCode::FORBIDDEN, LISTED_CHALLENGE.to_owned())
         }
+        "/paywall-overlay" => Reply::html(PAYWALL_OVERLAY.to_owned()),
+        "/paywall-paid-section" => Reply::html(PAYWALL_PAID_SECTION.to_owned()),
+        "/paywall-short" => Reply::html(PAYWALL_SHORT.to_owned()),
+        "/ad-blocker-wall" => Reply::html(AD_BLOCKER_WALL.to_owned()),
         "/js/fingerprint2.min.js" => asset("application/javascript", CLEARING_SCRIPT),
         path if path.ends_with(".gif") => asset("image/gif", GIF),
         path if path.ends_with(".css") => asset("text/css", b"main { margin: 1em; }\n"),

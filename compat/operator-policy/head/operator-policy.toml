@@ -262,6 +262,7 @@ gpc = "auto"
 domains = ["example"]
 refetch_domains = ["example"]
 denied_domains = ["example"]
+on_wall = "report"
 
 [settings.filter_lists]
 ads = true
@@ -707,6 +708,7 @@ gpc = "auto"
 domains = ["example"]
 refetch_domains = ["example"]
 denied_domains = ["example"]
+on_wall = "report"
 
 [lock.filter_lists]
 ads = true

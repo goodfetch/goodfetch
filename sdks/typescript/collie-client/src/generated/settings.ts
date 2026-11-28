@@ -770,6 +770,12 @@ export interface Settings {
      */
     readonly domains?: readonly string[];
     /**
+     * What a Wall on a domain outside `wall.domains` does: `report` (the default) leaves the page as served; `ask` raises a Human pause for a person's answer (never on a domain in `wall.denied_domains`, where it acts as `report`).
+     *
+     * `wall.on_wall`.
+     */
+    readonly onWall?: "report" | "ask";
+    /**
      * The domains on which reading past a Wall may fetch a page again. A Recipe or a run only narrows it; it is widened only in configuration, never by an answer.
      *
      * `wall.refetch_domains`.
@@ -1514,6 +1520,12 @@ export interface RunSettings {
      */
     readonly domains?: readonly string[];
     /**
+     * What a Wall on a domain outside `wall.domains` does: `report` (the default) leaves the page as served; `ask` raises a Human pause for a person's answer (never on a domain in `wall.denied_domains`, where it acts as `report`).
+     *
+     * `wall.on_wall`.
+     */
+    readonly onWall?: "report" | "ask";
+    /**
      * The domains on which reading past a Wall may fetch a page again. A Recipe or a run only narrows it; it is widened only in configuration, never by an answer.
      *
      * `wall.refetch_domains`.
@@ -2059,6 +2071,7 @@ const SPELLING: Spelling = {
   wall: ["wall", {
     deniedDomains: "denied_domains",
     domains: "domains",
+    onWall: "on_wall",
     refetchDomains: "refetch_domains",
   }],
   webhook: ["webhook", {

@@ -728,7 +728,7 @@ pub const WALL_DOMAINS: Setting = Setting {
     authority: Authority::Narrowed,
     weakens: None,
     fixed_for_run: false,
-    unbuilt: Some("wall_reading"),
+    unbuilt: None,
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };
@@ -756,6 +756,24 @@ pub const WALL_DENIED_DOMAINS: Setting = Setting {
     default: empty_list,
     clearable: false,
     authority: Authority::OperatorPolicy,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// The values `wall.on_wall` takes (ADR 0052).
+pub const WALL_ON_WALL_VALUES: &[&str] = &["report", "ask"];
+
+/// `wall.on_wall` (ADR 0052).
+pub const WALL_ON_WALL: Setting = Setting {
+    name: "wall.on_wall",
+    description: "What a Wall on a domain outside `wall.domains` does: `report` (the default) leaves the page as served; `ask` raises a Human pause for a person's answer (never on a domain in `wall.denied_domains`, where it acts as `report`).",
+    kind: ValueKind::Choice(WALL_ON_WALL_VALUES),
+    default: report,
+    clearable: false,
+    authority: Authority::Every,
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
@@ -1329,6 +1347,7 @@ pub const ENTRIES: Entries = Entries {
         WALL_DOMAINS,
         WALL_REFETCH_DOMAINS,
         WALL_DENIED_DOMAINS,
+        WALL_ON_WALL,
         FILTER_LISTS_ADS,
         FILTER_LISTS_TRACKERS,
         FILTER_LISTS_ANNOYANCES,

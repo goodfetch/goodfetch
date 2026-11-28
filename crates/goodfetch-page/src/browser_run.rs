@@ -50,6 +50,9 @@ pub struct BrowserRun {
     pub send_window: RunSendWindow,
     /// Its process Plugins, which its pages' Extractors start.
     pub plugins: Arc<RunPlugins>,
+    /// Its compiled Wall detection rules and per-Run Wall allowance state
+    /// (ADR 0052; ticket #757).
+    pub walls: crate::wall_state::RunWalls,
     /// The engine's context: its sandbox probe, its Audit log, its
     /// known-certificates store and where its listeners record refusals.
     pub engine: EngineContext,
@@ -74,6 +77,7 @@ impl BrowserRun {
             progress: parts.progress.clone(),
             send_window: parts.send_window.clone(),
             plugins: Arc::clone(&parts.plugins),
+            walls: crate::wall_state::RunWalls::default(),
             engine: engine.clone(),
         })
     }

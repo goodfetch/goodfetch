@@ -27632,6 +27632,33 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "report",
+      "deprecated": null,
+      "description": "What a Wall on a domain outside `wall.domains` does: `report` (the default) leaves the page as served; `ask` raises a Human pause for a person's answer (never on a domain in `wall.denied_domains`, where it acts as `report`).",
+      "fixed_for_run": false,
+      "name": "wall.on_wall",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "enum": [
+          "report",
+          "ask"
+        ]
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "narrowed",
       "clearable": false,
       "default": [],
@@ -28365,6 +28392,13 @@
       "name": "verdict_rejected",
       "product": "collie",
       "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Run used the Wall allowance on a domain in `wall.domains`, recorded once per Run and domain (ADR 0052); `details` give the `domain`, the Wall `kind`, and the `actions` taken.",
+      "name": "wall_allowance_used",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

@@ -1867,6 +1867,17 @@ pub mod wall {
         ],
     );
 
+    /// What a Wall on a domain outside `wall.domains` does: `report` (the default) leaves the page as served; `ask` raises a Human pause for a person's answer (never on a domain in `wall.denied_domains`, where it acts as `report`).
+    ///
+    /// `wall.on_wall`.
+    pub const ON_WALL: crate::settings::Setting<OnWall> = crate::settings::Setting::new(
+        "wall.on_wall",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+        ],
+    );
+
     /// The domains on which reading past a Wall may fetch a page again. A Recipe or a run only narrows it; it is widened only in configuration, never by an answer.
     ///
     /// `wall.refetch_domains`.
@@ -1878,4 +1889,22 @@ pub mod wall {
                 ::goodfetch_protocol::catalog::SettingScope::Run,
             ],
         );
+
+    /// A word a setting of this module takes, as the catalog spells it.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub enum OnWall {
+        /// `report`.
+        Report,
+        /// `ask`.
+        Ask,
+    }
+
+    impl ::goodfetch_protocol::catalog::SettingWord for OnWall {
+        fn word(&self) -> &'static str {
+            match self {
+                Self::Report => "report",
+                Self::Ask => "ask",
+            }
+        }
+    }
 }

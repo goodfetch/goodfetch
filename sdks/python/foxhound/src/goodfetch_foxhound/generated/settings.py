@@ -1864,6 +1864,12 @@ class ConnectionWallSettings(TypedDict):
     `wall.domains`.
     """
 
+    on_wall: NotRequired[Literal["report", "ask"]]
+    """What a Wall on a domain outside `wall.domains` does: `report` (the default) leaves the page as served; `ask` raises a Human pause for a person's answer (never on a domain in `wall.denied_domains`, where it acts as `report`).
+
+    `wall.on_wall`.
+    """
+
     refetch_domains: NotRequired[list[str]]
     """The domains on which reading past a Wall may fetch a page again. A Recipe or a run only narrows it; it is widened only in configuration, never by an answer.
 
@@ -3398,6 +3404,12 @@ class RunWallSettings(TypedDict):
     """The domains whose Walls a run may read past by generic means. A Recipe or a run only narrows it; it is widened only in configuration or by a person's answer.
 
     `wall.domains`.
+    """
+
+    on_wall: NotRequired[Literal["report", "ask"]]
+    """What a Wall on a domain outside `wall.domains` does: `report` (the default) leaves the page as served; `ask` raises a Human pause for a person's answer (never on a domain in `wall.denied_domains`, where it acts as `report`).
+
+    `wall.on_wall`.
     """
 
     refetch_domains: NotRequired[list[str]]

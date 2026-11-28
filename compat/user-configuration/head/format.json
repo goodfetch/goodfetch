@@ -4520,6 +4520,13 @@
                 },
                 "type": "array"
               },
+              "on_wall": {
+                "description": "What a Wall on a domain outside `wall.domains` does: `report` (the default) leaves the page as served; `ask` raises a Human pause for a person's answer (never on a domain in `wall.denied_domains`, where it acts as `report`).",
+                "enum": [
+                  "report",
+                  "ask"
+                ]
+              },
               "refetch_domains": {
                 "description": "The domains on which reading past a Wall may fetch a page again. A Recipe or a run only narrows it; it is widened only in configuration, never by an answer.",
                 "items": {

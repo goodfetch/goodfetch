@@ -357,6 +357,10 @@ pub struct PageFacts {
     /// guess could read is escalated as it is served (ADR 0119), and a
     /// handler's call while it runs.
     pub escalated: Option<&'static str>,
+    /// The Page signature computed during the single untouched Page analysis,
+    /// when requested by `frontier.learning` or a Continuous crawl (ADR 0138,
+    /// ADR 0139, ADR 0140).
+    pub signature: Option<[u8; 32]>,
 }
 
 /// A document a fetch answered, read as a served page holds it: its text,
@@ -1258,13 +1262,19 @@ impl FetchTiers {
         choice: &TierChoice,
         hand_over: &Arc<HandOver>,
     ) -> Result<PageId, Unfollowed> {
-        let hop = first_hop(request)?;
+        let mut hop = first_hop(request)?;
+        let mut following = tier.following.clone();
+        apply_conditional_revisit(
+            &mut hop,
+            &mut following,
+            hand_over.conditional_revisit.as_ref(),
+        );
         let gate = ChainGate {
             hand_over: Arc::clone(hand_over),
         };
         let accepts = Accepts {
             types: hand_over.content_types.clone(),
-            handled: tier.following.handled.clone(),
+            handled: following.handled.clone(),
         };
         let identity = &run.identity;
         let clock = identity.clock();
@@ -1283,7 +1293,7 @@ impl FetchTiers {
             encoding: hand_over.encoding,
             readers: Some(&hand_over.untouched),
         };
-        let fetched = follow_reading(hop, &tier.following, &gate, on, |hop| {
+        let fetched = follow_reading(hop, &following, &gate, on, |hop| {
             let lead = std::mem::replace(&mut first, false);
             let clock = &clock;
             async move {
@@ -1617,6 +1627,7 @@ impl FetchTiers {
             certificate_exception: page.certificate_exception.clone(),
             use_signals: pages.use_signals.get(page_id).cloned().unwrap_or_default(),
             escalated: page.escalated,
+            signature: page.untouched.signed().map(|(signature, _)| signature),
         })
     }
 
@@ -2092,6 +2103,7 @@ impl FetchTiers {
             certificate_exception: page.certificate_exception,
             use_signals,
             escalated: page.escalated,
+            signature: page.untouched.signed().map(|(signature, _)| signature),
         })
     }
 
@@ -2243,6 +2255,54 @@ impl FetchTiers {
             .browser
             .get(page_id)
             .and_then(|read| read.ended_at.clone())
+    }
+
+    /// Computes the Page signature of an open browser page `page_id` for a
+    /// Continuous crawl revisit (ADR 0139): reads the rendered document HTML
+    /// via [`BrowserPages::read`] and hashes it on `run`'s analysis pool.
+    /// Returns `None` if the page is closed or cannot be read.
+    pub async fn browser_signature(
+        &self,
+        run: &RunIdentity,
+        page_id: &PageId,
+        url: &str,
+        extractor: Option<goodfetch_extractor::BuiltIn>,
+    ) -> Option<[u8; 32]> {
+        let pages = self.served.browser.get()?;
+        let value = pages
+            .read(
+                page_id,
+                "() => ({ html: document.documentElement ? document.documentElement.outerHTML : '', base: document.baseURI || location.href })",
+                serde_json::json!({}),
+                "revisit.signature",
+            )
+            .await
+            .ok()??;
+        let html = value.get("html")?.as_str()?.to_owned();
+        let base_url = value
+            .get("base")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(url)
+            .to_owned();
+        let url = url.to_owned();
+        let work = run.metrics().counted_work().clone();
+        let extractor = chosen_extractor(run, extractor);
+        let signature = run
+            .owner()
+            .analysis(run.metrics().counted_work(), move || {
+                goodfetch_extractor::page_signature(
+                    &goodfetch_extractor::Document {
+                        html: &html,
+                        url: &url,
+                        base_url: &base_url,
+                        serialization: goodfetch_extractor::Serialization::Served,
+                    },
+                    extractor.extractor(),
+                    &work,
+                )
+            })
+            .await;
+        Some(signature)
     }
 
     /// Closes the browser page `page_id` [`FetchTiers::browser`] opened.
@@ -3152,4 +3212,35 @@ fn blocked(block: Block, response: &PageResponse, received: std::time::SystemTim
 /// its Label's `content.extractor`, `label` (ADR 0138; spec #2164).
 fn chosen_extractor(run: &RunIdentity, label: Option<BuiltIn>) -> goodfetch_extractor::Chosen {
     goodfetch_page::extractor::served(run.settings().map(RunSettings::resolved), label)
+}
+
+/// Attaches a Continuous crawl revisit's stored `ETag` and `Last-Modified`
+/// validators to `hop` and enables `304 -> Stop::NotModified` on `following`
+/// (ADR 0139).
+fn apply_conditional_revisit(
+    hop: &mut Hop,
+    following: &mut Following,
+    conditional: Option<&crate::gate::ConditionalRevisit>,
+) {
+    let Some(conditional) = conditional else {
+        return;
+    };
+    following.conditional_revisit = true;
+    if let Some(etag) = &conditional.etag
+        && !hop
+            .headers
+            .iter()
+            .any(|(name, _)| name.eq_ignore_ascii_case("if-none-match"))
+    {
+        hop.headers.push(("if-none-match".to_owned(), etag.clone()));
+    }
+    if let Some(last_modified) = &conditional.last_modified
+        && !hop
+            .headers
+            .iter()
+            .any(|(name, _)| name.eq_ignore_ascii_case("if-modified-since"))
+    {
+        hop.headers
+            .push(("if-modified-since".to_owned(), last_modified.clone()));
+    }
 }

@@ -11501,6 +11501,62 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": "conditional+signature",
+      "deprecated": null,
+      "description": "How a Continuous crawl checks whether a revisited URL changed, set for the Run or for one of its Labels: `conditional+signature` (the default) sends `If-None-Match` and `If-Modified-Since`, treating 304 as unchanged and otherwise comparing the Page signature; `conditional` treats every 200 as changed; `signature` sends no validators and compares the Page signature; `none` treats every revisit as changed. A URL last served by a browser tier always uses `signature`. Accepted on a batch crawl, where `config explain` marks it inactive.",
+      "fixed_for_run": false,
+      "name": "revisit.change_check",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "label"
+      ],
+      "value": {
+        "enum": [
+          "conditional+signature",
+          "conditional",
+          "signature",
+          "none"
+        ]
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "skip",
+      "deprecated": null,
+      "description": "What a Continuous crawl does when a revisit finds the page unchanged, set for the Run or for one of its Labels: `skip` (the default) runs no handler, pushes no Record, and ends the request `unchanged`; `handler` runs the handler anyway. Accepted on a batch crawl, where `config explain` marks it inactive.",
+      "fixed_for_run": false,
+      "name": "revisit.on_unchanged",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "label"
+      ],
+      "value": {
+        "enum": [
+          "skip",
+          "handler"
+        ]
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": {
         "kind": "never"
       },

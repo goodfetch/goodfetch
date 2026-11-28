@@ -51,6 +51,11 @@ pub const LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK: &str = "local_address_rotated_with
 /// (ADR 0021).
 pub const BROWSER_VERSION_UNREAD: &str = "browser_version_unread";
 
+/// The warning that a Continuous crawl revisited a URL last served by a
+/// browser tier using `signature` instead of the configured
+/// `revisit.change_check` (ADR 0139).
+pub const REVISIT_BROWSER_SIGNATURE: &str = "revisit_browser_signature";
+
 /// The Completeness reason of the URLs learned traps refused (ADR 0005).
 pub const TRAP_PATH: &str = "trap_path";
 /// The Completeness reason of listings paged only by an offset (ADR 0005).
@@ -107,6 +112,14 @@ pub struct CrawlRunReport {
     pub report: RunReport,
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's `skip_serializing_if` passes the field by reference"
+)]
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
+
 /// How a crawl's requests ended (ADR 0079).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RequestCounts {
@@ -122,6 +135,10 @@ pub struct RequestCounts {
     /// How many a site blocked.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub blocked: u64,
+    /// How many Continuous crawl revisits ended unchanged (ADR 0139).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub unchanged: u64,
     /// How many were left pending.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub pending: u64,

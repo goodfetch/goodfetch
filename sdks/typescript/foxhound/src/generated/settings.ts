@@ -980,6 +980,18 @@ export interface FoxhoundSettings {
   };
   readonly revisit?: {
     /**
+     * How a Continuous crawl checks whether a revisited URL changed, set for the Run or for one of its Labels: `conditional+signature` (the default) sends `If-None-Match` and `If-Modified-Since`, treating 304 as unchanged and otherwise comparing the Page signature; `conditional` treats every 200 as changed; `signature` sends no validators and compares the Page signature; `none` treats every revisit as changed. A URL last served by a browser tier always uses `signature`. Accepted on a batch crawl, where `config explain` marks it inactive.
+     *
+     * `revisit.change_check`.
+     */
+    readonly changeCheck?: "conditional+signature" | "conditional" | "signature" | "none";
+    /**
+     * What a Continuous crawl does when a revisit finds the page unchanged, set for the Run or for one of its Labels: `skip` (the default) runs no handler, pushes no Record, and ends the request `unchanged`; `handler` runs the handler anyway. Accepted on a batch crawl, where `config explain` marks it inactive.
+     *
+     * `revisit.on_unchanged`.
+     */
+    readonly onUnchanged?: "skip" | "handler";
+    /**
      * How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ "kind": "never" }` for pages read once, or `{ "kind": "every", "interval": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
      *
      * `revisit.policy`.
@@ -2414,6 +2426,18 @@ export interface CrawlSettings {
   };
   readonly revisit?: {
     /**
+     * How a Continuous crawl checks whether a revisited URL changed, set for the Run or for one of its Labels: `conditional+signature` (the default) sends `If-None-Match` and `If-Modified-Since`, treating 304 as unchanged and otherwise comparing the Page signature; `conditional` treats every 200 as changed; `signature` sends no validators and compares the Page signature; `none` treats every revisit as changed. A URL last served by a browser tier always uses `signature`. Accepted on a batch crawl, where `config explain` marks it inactive.
+     *
+     * `revisit.change_check`.
+     */
+    readonly changeCheck?: "conditional+signature" | "conditional" | "signature" | "none";
+    /**
+     * What a Continuous crawl does when a revisit finds the page unchanged, set for the Run or for one of its Labels: `skip` (the default) runs no handler, pushes no Record, and ends the request `unchanged`; `handler` runs the handler anyway. Accepted on a batch crawl, where `config explain` marks it inactive.
+     *
+     * `revisit.on_unchanged`.
+     */
+    readonly onUnchanged?: "skip" | "handler";
+    /**
      * How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ "kind": "never" }` for pages read once, or `{ "kind": "every", "interval": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
      *
      * `revisit.policy`.
@@ -2958,6 +2982,18 @@ export interface LabelSettings {
   };
   readonly revisit?: {
     /**
+     * How a Continuous crawl checks whether a revisited URL changed, set for the Run or for one of its Labels: `conditional+signature` (the default) sends `If-None-Match` and `If-Modified-Since`, treating 304 as unchanged and otherwise comparing the Page signature; `conditional` treats every 200 as changed; `signature` sends no validators and compares the Page signature; `none` treats every revisit as changed. A URL last served by a browser tier always uses `signature`. Accepted on a batch crawl, where `config explain` marks it inactive.
+     *
+     * `revisit.change_check`.
+     */
+    readonly changeCheck?: "conditional+signature" | "conditional" | "signature" | "none";
+    /**
+     * What a Continuous crawl does when a revisit finds the page unchanged, set for the Run or for one of its Labels: `skip` (the default) runs no handler, pushes no Record, and ends the request `unchanged`; `handler` runs the handler anyway. Accepted on a batch crawl, where `config explain` marks it inactive.
+     *
+     * `revisit.on_unchanged`.
+     */
+    readonly onUnchanged?: "skip" | "handler";
+    /**
      * How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ "kind": "never" }` for pages read once, or `{ "kind": "every", "interval": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
      *
      * `revisit.policy`.
@@ -3328,6 +3364,8 @@ const SPELLING: Spelling = {
     resolutionDelay: "resolution_delay",
   }],
   revisit: ["revisit", {
+    changeCheck: "change_check",
+    onUnchanged: "on_unchanged",
     policy: "policy",
   }],
   runState: ["run_state", {

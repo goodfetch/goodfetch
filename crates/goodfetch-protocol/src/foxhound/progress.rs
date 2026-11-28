@@ -124,6 +124,9 @@ pub struct RequestProgress {
     /// How many wait in a Human pause.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub in_human_pause: u64,
+    // ADR 0102 keeps `RequestProgress` and `RequestCounts` separate wire structs
+    // with the same ended-request counters (ADR 0079, ADR 0139).
+    // jscpd:ignore-start
     /// How many succeeded.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub succeeded: u64,
@@ -136,6 +139,11 @@ pub struct RequestProgress {
     /// How many a site blocked.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub blocked: u64,
+    /// How many Continuous crawl revisits ended unchanged (ADR 0139).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub unchanged: u64,
+    // jscpd:ignore-end
     /// The skipped ones, by skip reason.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]

@@ -141,15 +141,23 @@ impl Outcome {
                 lease_epoch,
                 unsuccessful,
                 ended_at,
-            } => end(
-                &mut EndWrite {
-                    connection,
-                    ended_at,
-                    changed: &mut changed,
-                },
-                AttemptKey::new(&work_item, lease_epoch),
-                unsuccessful,
-            )?,
+            } => {
+                let ended = end(
+                    &mut EndWrite {
+                        connection,
+                        ended_at,
+                        changed: &mut changed,
+                    },
+                    AttemptKey::new(&work_item, lease_epoch),
+                    unsuccessful,
+                )?;
+                if matches!(ended, Ended::Unsuccessful { ended: true, .. })
+                    && let Some(row) = revisit
+                {
+                    revisit::upsert(connection, &row)?;
+                }
+                ended
+            }
             Ending::Sitemap {
                 attempt,
                 egress,
@@ -189,7 +197,9 @@ pub(crate) fn end(
     let (recorded, again) = match &unsuccessful {
         Unsuccessful::Retried(failure) => (Some(failure.code.clone()), Again::Retried),
         Unsuccessful::Failed(failure) => (Some(failure.code.clone()), Again::Not),
-        Unsuccessful::Skipped { .. } | Unsuccessful::Blocked(_) => (None, Again::Not),
+        Unsuccessful::Skipped { .. } | Unsuccessful::Blocked(_) | Unsuccessful::Unchanged => {
+            (None, Again::Not)
+        }
         Unsuccessful::Released => (None, Again::Released),
     };
     let ended = work_items::end(

@@ -1187,6 +1187,10 @@ struct Counted {
     level: &'static str,
     /// The calls no page will make again its crawl was made.
     barrier_calls: u64,
+    /// Outcomes ending `unchanged` in a Continuous crawl (ADR 0139, ADR 0140).
+    unchanged_outcomes: u64,
+    /// Outcomes ending `succeeded` (changed / first visit) in a Continuous crawl.
+    changed_outcomes: u64,
 }
 
 impl Counted {
@@ -1486,6 +1490,8 @@ fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
             } else {
                 0
             },
+            unchanged_outcomes: crawled.unchanged_outcomes,
+            changed_outcomes: crawled.changed_outcomes,
         }
     });
     ran.prepare_calls = prepare_calls;
@@ -2040,6 +2046,8 @@ fn main() {
                 0
             },
             "revisits": if is_continuous(cell.name) { cell.pages / 2 } else { 0 },
+            "unchanged_outcomes": if is_continuous(cell.name) { cell.unchanged_outcomes } else { 0 },
+            "changed_outcomes": if is_continuous(cell.name) { cell.changed_outcomes } else { 0 },
             "full_pages": if full { cell.pages } else { 0 },
         });
         let printed = json!({

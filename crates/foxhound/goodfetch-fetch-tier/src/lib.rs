@@ -67,8 +67,8 @@ pub use driver::{
     TransportFailure, fetch, met,
 };
 pub use gate::{
-    ChainHop, FetchAdmission, HandOver, HopAnswer, HopChecks, ReservedSend, RobotsTxtFetch,
-    RunHandOver, room_taken,
+    ChainHop, ConditionalRevisit, FetchAdmission, HandOver, HopAnswer, HopChecks, ReservedSend,
+    RobotsTxtFetch, RunHandOver, room_taken,
 };
 pub use goodfetch_extractor::BuiltIn;
 pub use goodfetch_page::BrowserRun;

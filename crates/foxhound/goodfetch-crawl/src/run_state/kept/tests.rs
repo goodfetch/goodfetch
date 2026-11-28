@@ -51,6 +51,7 @@ fn leased(n: u64, domains: u64) -> Leased {
         trap_link_suspected: false,
         is_revisit: false,
         revisit_previous: goodfetch_frontier::revisit::PreviousState::default(),
+        revisit_row: None,
     }
 }
 

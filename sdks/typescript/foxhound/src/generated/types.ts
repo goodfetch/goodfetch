@@ -180,6 +180,9 @@ export type CrawlRequestOutcome1 =
       kind: "blocked";
     }
   | {
+      kind: "unchanged";
+    }
+  | {
       kind: "unknown";
       /**
        * The tag the engine sent.
@@ -580,11 +583,12 @@ export type Now = "now";
  * - `failed`: Its last attempt failed, and no retry is left.
  * - `skipped`: A decision ended it: a skip is never retried.
  * - `blocked`: The site refused it, with a Block cause.
+ * - `unchanged`: A Continuous crawl revisit found the page unchanged (304 or matching Page signature) and skipped its handler (ADR 0139).
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "OutcomeKind".
  */
-export type OutcomeKind = "succeeded" | "failed" | "skipped" | "blocked" | (string & {});
+export type OutcomeKind = "succeeded" | "failed" | "skipped" | "blocked" | "unchanged" | (string & {});
 /**
  * Where `run.outcomes` starts: after a position, or from the next commit.
  *
@@ -1795,6 +1799,10 @@ export interface RequestProgress {
    * How many succeeded.
    */
   succeeded: number;
+  /**
+   * How many Continuous crawl revisits ended unchanged (ADR 0139).
+   */
+  unchanged?: number;
 }
 /**
  * A sitemap seed's sitemaps (ADR 0102): those it read, those it could
@@ -2123,6 +2131,10 @@ export interface RequestCounts {
    * How many succeeded.
    */
   succeeded: number;
+  /**
+   * How many Continuous crawl revisits ended unchanged (ADR 0139).
+   */
+  unchanged?: number;
 }
 /**
  * A Sink that applies to a crawl's Run (ADRs 0026 and 0103).

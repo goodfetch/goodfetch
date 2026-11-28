@@ -109,6 +109,7 @@ use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, CancelledBy};
 use goodfetch_protocol::effect::EffectAttempt;
 use goodfetch_protocol::foxhound::block::BlockCause;
+use goodfetch_protocol::foxhound::continuous::{RevisitChangeCheck, RevisitOnUnchanged};
 use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled,
     HANDLER_FAILED, LEASE_LOST, WORK_ITEM_LEASED,
@@ -208,6 +209,10 @@ pub(super) enum Answer {
     /// A sitemap's fetch read what its sitemap lists (ADR 0093): no
     /// handler ran.
     SitemapRead(sitemap::Document),
+    /// A Continuous crawl revisit found the page unchanged (304 or matching
+    /// Page signature) under `revisit.on_unchanged: skip`: no handler ran and
+    /// no Record was pushed (ADR 0139).
+    Unchanged,
     /// The lease ended with no answer.
     LeaseEnded,
     /// The program's Connection ended.
@@ -229,6 +234,53 @@ impl Answer {
     pub(super) fn unanswered(&self) -> bool {
         matches!(self, Self::LeaseEnded | Self::ClientGone | Self::Released)
     }
+}
+
+/// Continuous crawl revisit settings and previous signature carried into an
+/// attempt (ADR 0139).
+#[derive(Clone, Debug, Default)]
+pub(super) struct RevisitPlan {
+    pub(super) continuous: bool,
+    pub(super) change_check: RevisitChangeCheck,
+    pub(super) on_unchanged: RevisitOnUnchanged,
+    pub(super) previous_signature: Option<String>,
+}
+
+/// Validators, Page signature, and tier captured by a Continuous crawl attempt
+/// to persist in the `revisits` table (ADR 0139).
+#[derive(Clone, Debug, Default)]
+pub(super) struct RevisitMeta {
+    pub(super) etag: Option<String>,
+    pub(super) last_modified: Option<String>,
+    pub(super) signature: Option<String>,
+    pub(super) tier: Option<FetchTier>,
+    pub(super) unchanged: bool,
+}
+
+fn hex_signature(bytes: [u8; 32]) -> String {
+    let mut out = String::with_capacity(64);
+    for byte in bytes {
+        use std::fmt::Write as _;
+        let _ = write!(&mut out, "{byte:02x}");
+    }
+    out
+}
+
+fn header_from_pairs(headers: &[(String, String)], name: &str) -> Option<String> {
+    headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(name))
+        .map(|(_, v)| v.clone())
+}
+
+fn header_from_map(
+    headers: &std::collections::BTreeMap<String, String>,
+    name: &str,
+) -> Option<String> {
+    headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(name))
+        .map(|(_, v)| v.clone())
 }
 
 /// What an attempt is handled with beside its tier: what it hands over
@@ -266,6 +318,8 @@ pub(super) struct Tiering {
     /// before-request Hooks returned, when its crawl takes each Permit
     /// then (#2905); none when it was taken as the request was leased.
     permit: Option<Permitting>,
+    /// Continuous crawl revisit plan for this attempt (ADR 0139).
+    revisit: RevisitPlan,
 }
 
 /// What an attempt whose Session sends from its own transport asks the
@@ -312,7 +366,14 @@ impl Tiering {
             site_files: None,
             escalating: None,
             permit: None,
+            revisit: RevisitPlan::default(),
         }
+    }
+
+    /// Attaches the Continuous crawl [`RevisitPlan`] to this attempt.
+    pub(super) fn revisiting(mut self, revisit: RevisitPlan) -> Self {
+        self.revisit = revisit;
+        self
     }
 
     /// The same, asking through `permit` for its request's Permit once its
@@ -561,6 +622,9 @@ pub(super) struct Attempt {
     /// sent on the tier its Label's comparison chose, which drops that
     /// choice and retries the request as a sample (`escalation`, #2419).
     pub(super) refused: bool,
+    /// Validators, Page signature, and tier captured for a Continuous crawl
+    /// revisit (ADR 0139).
+    pub(super) revisit_meta: Option<RevisitMeta>,
 }
 
 /// The answer of an attempt that needs the crawl's HTTP tier, which could
@@ -620,10 +684,13 @@ pub(super) async fn attempt(
     (in_flight, lessons): (SharedInFlight, &Lessons),
 ) -> Attempt {
     let (document, sent_at) = (Mutex::new(None), Mutex::new(None));
+    let revisit_meta = Mutex::new(None);
     let (moved, refused) = (OnceLock::new(), OnceLock::new());
     let escalated = OnceLock::new();
     let on = On {
         permit: tiering.permit.as_ref(),
+        revisit: &tiering.revisit,
+        revisit_meta: &revisit_meta,
         document: &document,
         escalated_to: &escalated,
         sent_at: &sent_at,
@@ -703,6 +770,7 @@ pub(super) async fn attempt(
         handed_at: sent_at.into_inner().filter(|_| ran),
         moved: ran && moved.into_inner().is_some(),
         refused: ran && refused.into_inner().is_some(),
+        revisit_meta: revisit_meta.into_inner().filter(|_| ran),
         server,
         leased,
         _counted: counted,
@@ -873,6 +941,10 @@ struct On<'a> {
     /// Where it asks for its request's Permit once its before-request
     /// Hooks returned, when its crawl takes each Permit then (#2905).
     permit: Option<&'a Permitting>,
+    /// Continuous crawl revisit plan for this attempt (ADR 0139).
+    revisit: &'a RevisitPlan,
+    /// Validators, Page signature, and tier captured by this attempt.
+    revisit_meta: &'a Mutex<Option<RevisitMeta>>,
 }
 
 impl On<'_> {
@@ -1436,6 +1508,32 @@ impl On<'_> {
         {
             return ended;
         }
+        if self.revisit.continuous && !matches!(how, Chosen::Sample(_)) {
+            let etag = facts
+                .response
+                .as_ref()
+                .and_then(|response| header_from_map(&response.headers, "etag"));
+            let last_modified = facts
+                .response
+                .as_ref()
+                .and_then(|response| header_from_map(&response.headers, "last-modified"));
+            let signature = facts.signature.map(hex_signature);
+            let unchanged = self.leased.is_revisit
+                && self.revisit.change_check.uses_signature()
+                && signature.is_some()
+                && signature == self.revisit.previous_signature;
+            *self.revisit_meta.lock().await = Some(RevisitMeta {
+                etag,
+                last_modified,
+                signature,
+                tier: Some(choice.tier),
+                unchanged,
+            });
+            if unchanged && self.revisit.on_unchanged == RevisitOnUnchanged::Skip {
+                let _ = served.close();
+                return Err(Answer::Unchanged);
+            }
+        }
         self.learn(tiers, &page_id, how).await;
         self.in_flight
             .lock()
@@ -1643,6 +1741,24 @@ impl On<'_> {
                             redirects,
                         }
                     }
+                    Stop::NotModified { headers } => {
+                        let etag = header_from_pairs(&headers, "etag");
+                        let last_modified = header_from_pairs(&headers, "last-modified");
+                        let meta = RevisitMeta {
+                            etag,
+                            last_modified,
+                            signature: None,
+                            tier: Some(choice.tier),
+                            unchanged: true,
+                        };
+                        if let Ok(mut guard) = self.revisit_meta.try_lock() {
+                            *guard = Some(meta);
+                        }
+                        Unserved {
+                            answer: Answer::Unchanged,
+                            redirects,
+                        }
+                    }
                 })
             } => document,
             _ = lease.ended() => Err(Answer::LeaseEnded.into()),
@@ -1780,16 +1896,24 @@ impl On<'_> {
             certificate_exception,
         )
         .await;
-        self.in_flight
-            .lock()
+        let answer = if self
+            .browser_revisit_unchanged(tiers, &page_id, navigated.response.as_ref(), how)
             .await
-            .went_on(run, &leased.crawl_request.id, InFlightPhase::Handling);
-        let params = self.params(
-            Some(FetchTier::Browser),
-            Some(page_id.clone()),
-            navigated.response,
-        );
-        let answer = self.page_ready(&params).await;
+        {
+            Answer::Unchanged
+        } else {
+            self.in_flight.lock().await.went_on(
+                run,
+                &leased.crawl_request.id,
+                InFlightPhase::Handling,
+            );
+            let params = self.params(
+                Some(FetchTier::Browser),
+                Some(page_id.clone()),
+                navigated.response,
+            );
+            self.page_ready(&params).await
+        };
         drop(handed_over);
         let ended_at = tiers.browser_ended_at(&page_id);
         tiers.close_browser(&page_id).await;
@@ -1798,6 +1922,42 @@ impl On<'_> {
             encoding: encoding.map(|encoding| encoding.encoding),
             ended_at,
         }
+    }
+
+    /// Computes and records a browser-tier Page signature for Continuous crawl
+    /// revisits, returning `true` when the revisit is unchanged and should skip
+    /// its handler (ADR 0139).
+    async fn browser_revisit_unchanged(
+        &self,
+        tiers: &FetchTiers,
+        page_id: &PageId,
+        response: Option<&PageResponse>,
+        how: Chosen,
+    ) -> bool {
+        if !self.revisit.continuous || matches!(how, Chosen::Sample(_)) {
+            return false;
+        }
+        let page_url = response.map_or(self.leased.crawl_request.url.as_str(), |r| r.url.as_str());
+        let signature = tiers
+            .browser_signature(
+                &self.run.identity,
+                page_id,
+                page_url,
+                self.hand_over.extractor,
+            )
+            .await
+            .map(hex_signature);
+        let unchanged = self.leased.is_revisit
+            && signature.is_some()
+            && signature == self.revisit.previous_signature;
+        *self.revisit_meta.lock().await = Some(RevisitMeta {
+            etag: None,
+            last_modified: None,
+            signature,
+            tier: Some(FetchTier::Browser),
+            unchanged,
+        });
+        unchanged && self.revisit.on_unchanged == RevisitOnUnchanged::Skip
     }
 }
 
@@ -2151,7 +2311,9 @@ async fn late(run: Arc<CrawlRun>, lease: WorkItemLease, mut sent: Sent<CrawlRequ
 /// nothing of it.
 pub(super) fn effect(answer: &Answer) -> Effect {
     match answer {
-        Answer::Handled(CrawlRequestHandled { skipped: None, .. }) => Effect::Success,
+        Answer::Handled(CrawlRequestHandled { skipped: None, .. }) | Answer::Unchanged => {
+            Effect::Success
+        }
         Answer::Failed(failure) => match failure.why() {
             Why::Blocked(cause) => Effect::Blocked(cause.clone()),
             Why::PageCheckFailed { .. } => Effect::PageCheckFailed,

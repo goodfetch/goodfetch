@@ -494,7 +494,7 @@ impl Enums {
         let mut body = String::new();
         let mut arms = String::new();
         for word in words {
-            let variant = rust_type(&word.replace('-', "_"))
+            let variant = rust_type(&word.replace(['-', '+'], "_"))
                 .filter(|variant| {
                     variant
                         .chars()

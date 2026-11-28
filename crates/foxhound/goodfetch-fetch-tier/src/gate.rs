@@ -152,7 +152,19 @@ pub fn room_taken(room: Room, now: Instant) -> Result<SecondCopy, Instant> {
 /// what every attempt of its Run hands over alike, built once as the Run's
 /// crawl starts and shared (ADR 0138), and what is its own. The crawl
 /// builds it once per attempt, before the attempt starts, and each of its
-/// runs on a tier takes it whole.
+/// Validators carried by a Continuous crawl revisit for conditional HTTP
+/// requests (`If-None-Match` / `If-Modified-Since`, ADR 0139).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ConditionalRevisit {
+    /// Stored `ETag` validator from the previous visit.
+    pub etag: Option<String>,
+    /// Stored `Last-Modified` validator from the previous visit.
+    pub last_modified: Option<String>,
+}
+
+/// What a crawl's attempt hands over with its pages, built once per
+/// attempt: what every attempt of its Run hands over alike, and what its
+/// own request adds. Every tier the attempt runs on takes it whole.
 #[derive(Clone)]
 pub struct HandOver {
     /// What every attempt of its Run hands over alike.
@@ -203,6 +215,9 @@ pub struct HandOver {
     /// page, whatever tier the attempt runs on (#2422); none when the
     /// attempt reads no site file, or the Run has no transport.
     pub site_files: Option<RobotsTxtFetch>,
+    /// Conditional request validators for a Continuous crawl revisit (ADR 0139);
+    /// `None` on batch crawls, first visits, and non-conditional revisits.
+    pub conditional_revisit: Option<ConditionalRevisit>,
 }
 
 /// A redirect hop of a crawl request, as the actor that owns its crawl's

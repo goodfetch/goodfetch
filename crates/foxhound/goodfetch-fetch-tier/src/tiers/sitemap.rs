@@ -57,6 +57,12 @@ impl HttpTier {
                 )
                 .into()
             }
+            Stop::NotModified { .. } => CallError::new(
+                &RESPONSE_NOT_OK,
+                "unexpected 304 Not Modified on a sitemap fetch",
+                &serde_json::json!({ "url": url.as_str() }),
+            )
+            .into(),
         })?;
         let status = fetched.status;
         if (200..300).contains(&status) {

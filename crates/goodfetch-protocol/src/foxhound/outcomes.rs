@@ -49,6 +49,9 @@ pub enum OutcomeKind {
     Skipped,
     /// The site refused it, with a Block cause.
     Blocked,
+    /// A Continuous crawl revisit found the page unchanged (304 or matching
+    /// Page signature) and skipped its handler (ADR 0139).
+    Unchanged,
     /// A kind a newer engine gives that this reader does not know, kept as
     /// received (ADR 0079).
     #[serde(untagged)]
@@ -58,7 +61,13 @@ pub enum OutcomeKind {
 
 impl OutcomeKind {
     /// The kinds this reader knows, in declaration order.
-    pub const ALL: [Self; 4] = [Self::Succeeded, Self::Failed, Self::Skipped, Self::Blocked];
+    pub const ALL: [Self; 5] = [
+        Self::Succeeded,
+        Self::Failed,
+        Self::Skipped,
+        Self::Blocked,
+        Self::Unchanged,
+    ];
 
     /// Its name on the wire and in run state.
     pub const fn as_str(&self) -> &str {
@@ -67,6 +76,7 @@ impl OutcomeKind {
             Self::Failed => "failed",
             Self::Skipped => "skipped",
             Self::Blocked => "blocked",
+            Self::Unchanged => "unchanged",
             Self::Unknown(kind) => kind.as_str(),
         }
     }
@@ -242,6 +252,9 @@ pub enum Ending {
         #[schemars(extend("arrived_in" = "0.1"))]
         cause: BlockCause,
     },
+    /// A Continuous crawl revisit found the page unchanged and ran no handler
+    /// (ADR 0139).
+    Unchanged,
     /// An ending a newer engine gives that this reader does not know, kept
     /// as received with its tag (ADR 0079).
     #[serde(untagged, deserialize_with = "Ending::read_unknown")]
@@ -251,7 +264,7 @@ pub enum Ending {
 
 impl Ending {
     /// The tags of the endings this reader knows, in declaration order.
-    const KNOWN_TAGS: [&str; 4] = ["succeeded", "failed", "skipped", "blocked"];
+    const KNOWN_TAGS: [&str; 5] = ["succeeded", "failed", "skipped", "blocked", "unchanged"];
 
     /// Its kind: an unknown ending's is its tag.
     pub fn kind(&self) -> OutcomeKind {
@@ -260,6 +273,7 @@ impl Ending {
             Self::Failed { .. } => OutcomeKind::Failed,
             Self::Skipped { .. } => OutcomeKind::Skipped,
             Self::Blocked { .. } => OutcomeKind::Blocked,
+            Self::Unchanged => OutcomeKind::Unchanged,
             Self::Unknown(member) => OutcomeKind::Unknown(member.tag_value()),
         }
     }

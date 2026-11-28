@@ -204,6 +204,7 @@ fn committed(env: &TestEnv, run_id: &str) -> (Value, Value) {
         failed: ended.failed,
         skipped: ended.skipped,
         blocked: ended.blocked,
+        unchanged: ended.unchanged,
         by_skip_reason: ended.by_skip_reason,
         by_error_code: ended.by_error_code,
         by_block_cause: ended.by_block_cause,

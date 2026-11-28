@@ -5,6 +5,10 @@
     clippy::disallowed_methods,
     reason = "a test's own runtime polls the chain's step, whose blocking work runs inline (ADR 0060)"
 )]
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use std::collections::BTreeSet;
 use std::time::Duration;
@@ -14,7 +18,7 @@ use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use rstest::rstest;
 use url::Url;
 
-use super::{Following, MarkupRefresh, Step, next_hop};
+use super::{Following, MarkupRefresh, Step, Stop, next_hop};
 use crate::driver::{Fetched, Hop};
 
 /// The crawl's defaults: refresh stubs followed whatever their delay.
@@ -25,6 +29,7 @@ fn following() -> Following {
         refresh_max_delay: None,
         handled: BTreeSet::new(),
         retry_after_max: None,
+        conditional_revisit: false,
     }
 }
 
@@ -106,4 +111,55 @@ async fn a_chain_following_no_refresh_answers_the_stub() {
         ),
         (None, None, Some("http://site.test/next".to_owned()))
     );
+}
+
+/// A 304 answering a Continuous crawl revisit's conditional request ends
+/// `Stop::NotModified` immediately with zero HTML parses, while a non-revisit
+/// 304 still fails with `response_not_ok` (ADR 0118, ADR 0139).
+///
+/// Covers: setting:revisit.change_check
+#[tokio::test]
+async fn conditional_revisit_304_ends_not_modified_with_zero_parses() {
+    let mut fetched = Fetched {
+        url: Url::parse("http://site.test/page").unwrap(),
+        status: 304,
+        headers: vec![("etag".to_owned(), "\"v1\"".to_owned())],
+        body: Bytes::new(),
+        unaccepted: None,
+        certificate_exception: None,
+        text: None,
+        pass: None,
+    };
+    let hop = Hop {
+        url: fetched.url.clone(),
+        method: http::Method::GET,
+        headers: vec![("if-none-match".to_owned(), "\"v1\"".to_owned())],
+        body: None,
+        read: true,
+    };
+    let work = goodfetch_counted_work::CountedWork::default();
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let reading = std::sync::Arc::new(MarkupRefresh(work.clone()));
+
+    let revisit_following = Following {
+        conditional_revisit: true,
+        ..following()
+    };
+    let result = next_hop(&hop, &mut fetched, &revisit_following, (&owner, &reading)).await;
+    match result {
+        Err(Stop::NotModified { headers }) => {
+            assert!(headers.iter().any(|(k, v)| k == "etag" && v == "\"v1\""));
+        }
+        Ok(_) => panic!("expected Stop::NotModified, got Ok"),
+        Err(other) => panic!("expected Stop::NotModified, got {other:?}"),
+    }
+    assert_eq!(
+        work.read(goodfetch_counted_work::Row::PageParses),
+        0,
+        "a 304 revisit must perform 0 HTML parses"
+    );
+
+    // Without conditional_revisit, a 304 still fails with response_not_ok.
+    let batch_result = next_hop(&hop, &mut fetched, &following(), (&owner, &reading)).await;
+    assert!(matches!(batch_result, Err(Stop::Failed(_))));
 }

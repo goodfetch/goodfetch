@@ -1037,6 +1037,30 @@ pub mod provenance {
 /// The `revisit.*` settings.
 pub mod revisit {
 
+    /// How a Continuous crawl checks whether a revisited URL changed, set for the Run or for one of its Labels: `conditional+signature` (the default) sends `If-None-Match` and `If-Modified-Since`, treating 304 as unchanged and otherwise comparing the Page signature; `conditional` treats every 200 as changed; `signature` sends no validators and compares the Page signature; `none` treats every revisit as changed. A URL last served by a browser tier always uses `signature`. Accepted on a batch crawl, where `config explain` marks it inactive.
+    ///
+    /// `revisit.change_check`.
+    pub const CHANGE_CHECK: crate::settings::Setting<ChangeCheck> = crate::settings::Setting::new(
+        "revisit.change_check",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+            ::goodfetch_protocol::catalog::SettingScope::Label,
+        ],
+    );
+
+    /// What a Continuous crawl does when a revisit finds the page unchanged, set for the Run or for one of its Labels: `skip` (the default) runs no handler, pushes no Record, and ends the request `unchanged`; `handler` runs the handler anyway. Accepted on a batch crawl, where `config explain` marks it inactive.
+    ///
+    /// `revisit.on_unchanged`.
+    pub const ON_UNCHANGED: crate::settings::Setting<OnUnchanged> = crate::settings::Setting::new(
+        "revisit.on_unchanged",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+            ::goodfetch_protocol::catalog::SettingScope::Label,
+        ],
+    );
+
     /// How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ "kind": "never" }` for pages read once, or `{ "kind": "every", "interval": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
     ///
     /// `revisit.policy`.
@@ -1050,6 +1074,48 @@ pub mod revisit {
             ::goodfetch_protocol::catalog::SettingScope::Label,
         ],
     );
+
+    /// A word a setting of this module takes, as the catalog spells it.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub enum ChangeCheck {
+        /// `conditional+signature`.
+        ConditionalSignature,
+        /// `conditional`.
+        Conditional,
+        /// `signature`.
+        Signature,
+        /// `none`.
+        None,
+    }
+
+    impl ::goodfetch_protocol::catalog::SettingWord for ChangeCheck {
+        fn word(&self) -> &'static str {
+            match self {
+                Self::ConditionalSignature => "conditional+signature",
+                Self::Conditional => "conditional",
+                Self::Signature => "signature",
+                Self::None => "none",
+            }
+        }
+    }
+
+    /// A word a setting of this module takes, as the catalog spells it.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub enum OnUnchanged {
+        /// `skip`.
+        Skip,
+        /// `handler`.
+        Handler,
+    }
+
+    impl ::goodfetch_protocol::catalog::SettingWord for OnUnchanged {
+        fn word(&self) -> &'static str {
+            match self {
+                Self::Skip => "skip",
+                Self::Handler => "handler",
+            }
+        }
+    }
 }
 
 /// The `session.*` settings.

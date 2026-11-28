@@ -131,6 +131,7 @@ const SUCCEEDED: &str = "succeeded";
 const FAILED: &str = "failed";
 const SKIPPED: &str = "skipped";
 const BLOCKED: &str = "blocked";
+const UNCHANGED: &str = "unchanged";
 
 /// Whether a work item is still leased to an attempt, which every end of an
 /// attempt checks first.
@@ -176,6 +177,9 @@ pub(crate) struct Leased {
     /// Previous revisit schedule state for this URL when known (loaded on
     /// spilled revisit lease or resume with 0 extra queries).
     pub(crate) revisit_previous: goodfetch_frontier::revisit::PreviousState,
+    /// Previous persisted [`RevisitRow`] for this URL when known (loaded on
+    /// revisit lease for conditional GET validators, signature, and `last_tier`).
+    pub(crate) revisit_row: Option<goodfetch_frontier::revisit::RevisitRow>,
 }
 
 impl Leased {
@@ -348,6 +352,9 @@ pub(crate) enum Unsuccessful {
     },
     /// Blocked by its site.
     Blocked(BlockCause),
+    /// A Continuous crawl revisit found the page unchanged and skipped its
+    /// handler (ADR 0139).
+    Unchanged,
     /// Back to pending with its attempt uncounted, its error as it was:
     /// the program gave its request back (ADR 0102).
     Released,
@@ -1380,27 +1387,45 @@ pub(crate) fn leasable_revisits(
          FROM work_items w
          WHERE w.id = ?1 AND w.status IN ('succeeded', 'failed', 'unchanged')",
     )?;
-    let mut prev_stmt = connection
-        .prepare_cached("SELECT interval_ms, visits, changes FROM revisits WHERE work_item = ?1")?;
+    let mut prev_stmt = connection.prepare_cached(
+        "SELECT interval_ms, last_fetched_at, last_changed_at, signature, etag, last_modified,
+                visits, changes, consecutive_gone, last_tier
+         FROM revisits WHERE work_item = ?1",
+    )?;
     let mut rows = leased_rows(connection, &mut statement, ids)?;
     for row in &mut rows {
         row.is_revisit = true;
-        if let Some((interval_ms, visits, changes)) = prev_stmt
+        if let Some(prev_row) = prev_stmt
             .query_row([&row.crawl_request.id], |r| {
-                Ok((
-                    r.get::<_, Option<i64>>(0)?
-                        .map(|v| u64::try_from(v).unwrap_or(0)),
-                    u64::try_from(r.get::<_, i64>(1)?).unwrap_or(0),
-                    u64::try_from(r.get::<_, i64>(2)?).unwrap_or(0),
-                ))
+                let opt_u64 = |idx| -> rusqlite::Result<Option<u64>> {
+                    Ok(r.get::<_, Option<i64>>(idx)?
+                        .map(|v| u64::try_from(v).unwrap_or(0)))
+                };
+                Ok(goodfetch_frontier::revisit::RevisitRow {
+                    work_item: row.crawl_request.id.clone(),
+                    identity: row.crawl_request.url.clone(),
+                    domain_key: row.waiting.key.clone(),
+                    next_visit_at: None,
+                    interval_ms: opt_u64(0)?,
+                    last_fetched_at: opt_u64(1)?,
+                    last_changed_at: opt_u64(2)?,
+                    signature: r.get(3)?,
+                    etag: r.get(4)?,
+                    last_modified: r.get(5)?,
+                    visits: u64::try_from(r.get::<_, i64>(6)?).unwrap_or(0),
+                    changes: u64::try_from(r.get::<_, i64>(7)?).unwrap_or(0),
+                    consecutive_gone: u32::try_from(r.get::<_, i64>(8)?).unwrap_or(0),
+                    last_tier: r.get(9)?,
+                })
             })
             .optional()?
         {
             row.revisit_previous = goodfetch_frontier::revisit::PreviousState {
-                interval_ms,
-                visits,
-                changes,
+                interval_ms: prev_row.interval_ms,
+                visits: prev_row.visits,
+                changes: prev_row.changes,
             };
+            row.revisit_row = Some(prev_row);
         }
     }
     Ok(rows)
@@ -1507,6 +1532,7 @@ fn leased_rows(
                     trap_link_suspected: false,
                     is_revisit: false,
                     revisit_previous: goodfetch_frontier::revisit::PreviousState::default(),
+                    revisit_row: None,
                 })
             })
             .optional()?;
@@ -1753,6 +1779,10 @@ pub(crate) fn end(
         Unsuccessful::Blocked(cause) => {
             set(BLOCKED, None)?;
             Ending::Blocked { cause }
+        }
+        Unsuccessful::Unchanged => {
+            set(UNCHANGED, None)?;
+            Ending::Unchanged
         }
         Unsuccessful::Released => {
             connection

@@ -91,14 +91,18 @@ use goodfetch_engine::runs::Ending;
 use goodfetch_engine::runs::outcome::record_outcome;
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_fetch_tier::{
-    ContentTypes, FetchAdmission, FetchTiers, HandOver, HopChecks, HttpFrom, HttpTier, LocalSource,
-    ReservedSend, RunHandOver, SetTier, TierChoice, UntouchedDemand, UntouchedReaders,
+    ConditionalRevisit, ContentTypes, FetchAdmission, FetchTiers, HandOver, HopChecks, HttpFrom,
+    HttpTier, LocalSource, ReservedSend, RunHandOver, SetTier, TierChoice, UntouchedDemand,
+    UntouchedReaders,
 };
 use goodfetch_frontier::Bounds;
 use goodfetch_frontier::revisit::{self, RevisitRow, SiteHints, VisitResult};
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
-use goodfetch_protocol::foxhound::continuous::{CRAWL_CONTINUOUS, REVISIT_POLICY, RevisitPolicy};
+use goodfetch_protocol::foxhound::continuous::{
+    CRAWL_CONTINUOUS, REVISIT_CHANGE_CHECK, REVISIT_ON_UNCHANGED, REVISIT_POLICY,
+    RevisitChangeCheck, RevisitOnUnchanged, RevisitPolicy,
+};
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_CONTENT_TYPES, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_LOST,
     LEASE_LOST, TIMEOUT_HANDLER, WORK_ITEM_QUEUED, WORK_ITEM_RETRIED,
@@ -109,10 +113,10 @@ use goodfetch_protocol::foxhound::fetch::{
 };
 use goodfetch_protocol::foxhound::frontier::FRONTIER_LEARNING;
 use goodfetch_protocol::foxhound::hook::CrawlHookDeclaration;
-use goodfetch_protocol::foxhound::outcomes::SkipReason;
+use goodfetch_protocol::foxhound::outcomes::{OutcomeKind, SkipReason};
 use goodfetch_protocol::foxhound::report::{
     BLOCK_CLASSIFICATION_OFF, LEARNING_OFF, LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK, PROVENANCE_OFF,
-    RECORDS_OFF,
+    RECORDS_OFF, REVISIT_BROWSER_SIGNATURE,
 };
 use goodfetch_protocol::foxhound::settings::{
     DATASET_RECORDS, FETCH_BLOCK_CLASSIFICATION, PROVENANCE_LOG,
@@ -290,6 +294,16 @@ pub(crate) async fn drive(
         code_free: code_free.map(std::sync::Arc::new),
         hooks,
         asking: arrivals.asking.clone(),
+        continuous: settings.resolved().get(&CRAWL_CONTINUOUS),
+        run_change_check: RevisitChangeCheck::read(
+            settings.resolved().value(&REVISIT_CHANGE_CHECK),
+        )
+        .unwrap_or_default(),
+        run_on_unchanged: RevisitOnUnchanged::read(
+            settings.resolved().value(&REVISIT_ON_UNCHANGED),
+        )
+        .unwrap_or_default(),
+        browser_signature_warned: std::sync::OnceLock::new(),
     };
     for (setting, code, message) in SWITCHED_OFF {
         if !settings.resolved().get::<bool>(setting) {
@@ -855,14 +869,14 @@ pub(crate) async fn resume(
     let egress = resumed_domain_policy(settings.resolved(), run.identity.id());
     let opened = crawls.open(&run, egress, invariants, datasets).await;
     let code_free = CodeFree::of(code_free, &crawls, &tiers, &run.identity);
-    drive(
+    Box::pin(drive(
         run,
         context,
         opened,
         crawls,
         settings,
         (tiers, labels, choices, (code_free, hooks)),
-    )
+    ))
     .await;
 }
 
@@ -903,6 +917,14 @@ struct Fetching<'a> {
     /// the crawl's Run state through, for the Session it runs again in
     /// (#2416).
     asking: Asking,
+    /// Whether this Run is a Continuous crawl (`crawl.continuous`, ADR 0139).
+    continuous: bool,
+    /// Run-level `revisit.change_check` fallback for Labels that set none.
+    run_change_check: RevisitChangeCheck,
+    /// Run-level `revisit.on_unchanged` fallback for Labels that set none.
+    run_on_unchanged: RevisitOnUnchanged,
+    /// Whether the Run has already emitted [`REVISIT_BROWSER_SIGNATURE`] once.
+    browser_signature_warned: std::sync::OnceLock<()>,
 }
 
 /// The readers of the untouched page a Run's documents are read by (ADR
@@ -923,21 +945,35 @@ impl Untouched {
         let work = run.identity.metrics().counted_work();
         goodfetch_fetch_tier::compile_served_call_selectors(work);
         let demands = code_free.map(CodeFree::untouched).unwrap_or_default();
+        let (continuous, run_change_check) =
+            run.identity
+                .settings()
+                .map_or((false, RevisitChangeCheck::default()), |settings| {
+                    let resolved = settings.resolved();
+                    (
+                        resolved.get::<bool>(&CRAWL_CONTINUOUS),
+                        RevisitChangeCheck::read(resolved.value(&REVISIT_CHANGE_CHECK))
+                            .unwrap_or_default(),
+                    )
+                });
+        let learns = attempt::learns(&run.identity);
         let demand =
-            |(links, fields): &code_free::Demand, page_check: Option<PageCheck>| UntouchedDemand {
-                links: links.clone(),
-                fields: fields.clone(),
-                page_check,
-                signs: attempt::learns(&run.identity),
-                // A program's handler reads its pages: each keeps its untouched
-                // tree for the handler's calls (spec #1577's #1918).
-                keeps: code_free.is_none(),
-                // A code-free crawl's formats are read ahead in each document's
-                // hand-off to the CPU pool (issue 2189).
-                formats: code_free.map(CodeFree::formats).unwrap_or_default(),
+            |(links, fields): &code_free::Demand, page_check: Option<PageCheck>, signs: bool| {
+                UntouchedDemand {
+                    links: links.clone(),
+                    fields: fields.clone(),
+                    page_check,
+                    signs,
+                    // A program's handler reads its pages: each keeps its untouched
+                    // tree for the handler's calls (spec #1577's #1918).
+                    keeps: code_free.is_none(),
+                    // A code-free crawl's formats are read ahead in each document's
+                    // hand-off to the CPU pool (issue 2189).
+                    formats: code_free.map(CodeFree::formats).unwrap_or_default(),
+                }
             };
-        let readers = |own, page_check| {
-            std::sync::Arc::new(UntouchedReaders::of(demand(own, page_check), work))
+        let readers = |own, page_check, signs| {
+            std::sync::Arc::new(UntouchedReaders::of(demand(own, page_check, signs), work))
         };
         let run_check = attempt::run_page_check(&run.identity);
         let checks: BTreeMap<&str, &PageCheck> = labels.settings.page_checks().collect();
@@ -945,6 +981,12 @@ impl Untouched {
             .keys()
             .copied()
             .chain(demands.labels.keys().map(String::as_str))
+            .chain(
+                labels
+                    .settings
+                    .revisit_change_checks()
+                    .map(|(label, _)| label),
+            )
             .collect();
         Self {
             labels: own
@@ -955,10 +997,18 @@ impl Untouched {
                         .map(|&check| check.clone())
                         .or_else(|| run_check.clone());
                     let own = demands.labels.get(label).unwrap_or(&demands.run);
-                    (label.to_owned(), readers(own, check))
+                    let label_change_check = labels
+                        .settings
+                        .revisit_change_check(label, run_change_check);
+                    let signs = learns || (continuous && label_change_check.uses_signature());
+                    (label.to_owned(), readers(own, check, signs))
                 })
                 .collect(),
-            run: readers(&demands.run, run_check),
+            run: readers(
+                &demands.run,
+                run_check,
+                learns || (continuous && run_change_check.uses_signature()),
+            ),
         }
     }
 
@@ -994,6 +1044,7 @@ impl Fetching<'_> {
             ReservedSend,
         ),
         site_files: Option<&HttpTier>,
+        conditional_revisit: Option<ConditionalRevisit>,
     ) -> std::sync::Arc<HandOver> {
         let label = leased.crawl_request.label.as_str();
         std::sync::Arc::new(HandOver {
@@ -1017,6 +1068,7 @@ impl Fetching<'_> {
             untouched: std::sync::Arc::clone(self.untouched.of_label(label)),
             capture: None,
             site_files: site_files.map(HttpTier::robots_txt_fetch),
+            conditional_revisit,
         })
     }
 
@@ -1241,33 +1293,24 @@ async fn lease_to_servers(
                 (transport, site_files),
                 (&copies, pooled.settings, admission.permits_after_hooks()),
             );
-            let admission = FetchAdmission::holding(
-                permits
-                    .pop()
-                    .expect("invariant: one admission per work item admitted"),
-            );
+            let (tiering, conditional_revisit) =
+                plan_revisit_for_lease(run, fetching, pooled.state, &leased, tiering).await;
+            let permit = permits
+                .pop()
+                .expect("invariant: one admission per work item admitted");
+            let admission = FetchAdmission::holding(permit);
             let watch = Watch::new(run.identity.metrics());
             let hand_over = fetching.hand_over(
                 (run, pooled.handing),
                 (&leased, &lease, &watch),
                 (copies, admission.clone(), reserved_send),
                 reader.as_ref(),
+                conditional_revisit,
             );
             let fetches = tiering.tier().or(leased.sitemap.then_some(FetchTier::Http));
             pooled.fetching.in_flight.lock().await.began(
                 run,
-                InFlightRequest {
-                    request_id: leased.crawl_request.id.clone(),
-                    url: leased.crawl_request.url.clone(),
-                    phase: if fetches.is_some() {
-                        InFlightPhase::Fetching
-                    } else {
-                        InFlightPhase::Handling
-                    },
-                    tier: fetches.map(|tier| tier.as_str().to_owned()),
-                    attempt: leased.attempt,
-                    started_at: run.identity.point_in_time(),
-                },
+                in_flight_request(&leased, fetches, run.identity.point_in_time()),
             );
             pages.start(Box::new(Start {
                 server: (place, server.context.clone()),
@@ -1287,6 +1330,96 @@ async fn lease_to_servers(
         }
     }
     Ok(())
+}
+
+fn in_flight_request(
+    leased: &Leased,
+    fetches: Option<FetchTier>,
+    started_at: SystemTime,
+) -> InFlightRequest {
+    InFlightRequest {
+        request_id: leased.crawl_request.id.clone(),
+        url: leased.crawl_request.url.clone(),
+        phase: if fetches.is_some() {
+            InFlightPhase::Fetching
+        } else {
+            InFlightPhase::Handling
+        },
+        tier: fetches.map(|tier| tier.as_str().to_owned()),
+        attempt: leased.attempt,
+        started_at,
+    }
+}
+
+/// Builds the Continuous crawl [`attempt::RevisitPlan`] and optional
+/// [`ConditionalRevisit`] validators for a leased work item, emitting
+/// [`REVISIT_BROWSER_SIGNATURE`] once when a browser-tier URL falls back to
+/// `signature` (ADR 0139).
+async fn plan_revisit_for_lease(
+    run: &std::sync::Arc<CrawlRun>,
+    fetching: &Fetching<'_>,
+    state: &RunState,
+    leased: &Leased,
+    tiering: Tiering,
+) -> (Tiering, Option<ConditionalRevisit>) {
+    if !fetching.continuous || leased.sitemap {
+        return (tiering, None);
+    }
+    let label = leased.crawl_request.label.as_str();
+    let configured_check = fetching
+        .labels
+        .settings
+        .revisit_change_check(label, fetching.run_change_check);
+    let on_unchanged = fetching
+        .labels
+        .settings
+        .revisit_on_unchanged(label, fetching.run_on_unchanged);
+    let prev_row = leased
+        .revisit_row
+        .as_ref()
+        .or_else(|| state.revisit_row(&leased.crawl_request.id));
+    let was_browser = prev_row
+        .and_then(|row| row.last_tier.as_deref())
+        .is_some_and(|tier| tier == "browser" || tier == "light_browser");
+    let effective_check = if was_browser {
+        RevisitChangeCheck::Signature
+    } else {
+        configured_check
+    };
+    if leased.is_revisit
+        && was_browser
+        && configured_check != RevisitChangeCheck::Signature
+        && fetching.browser_signature_warned.set(()).is_ok()
+    {
+        warn_switched_off(
+            run,
+            REVISIT_BROWSER_SIGNATURE,
+            "A URL last served by a browser tier uses `signature` on revisit, whatever `revisit.change_check` says (ADR 0139).",
+        )
+        .await;
+    }
+    let conditional = if leased.is_revisit
+        && effective_check.uses_conditional()
+        && on_unchanged == RevisitOnUnchanged::Skip
+    {
+        prev_row.and_then(|row| {
+            (row.etag.is_some() || row.last_modified.is_some()).then(|| ConditionalRevisit {
+                etag: row.etag.clone(),
+                last_modified: row.last_modified.clone(),
+            })
+        })
+    } else {
+        None
+    };
+    (
+        tiering.revisiting(attempt::RevisitPlan {
+            continuous: true,
+            change_check: effective_check,
+            on_unchanged,
+            previous_signature: prev_row.and_then(|row| row.signature.clone()),
+        }),
+        conditional,
+    )
 }
 
 /// What a crawl with nothing to deliver now does next.
@@ -1608,28 +1741,58 @@ fn planned_revisit(
     if !read.continuous || attempt.leased.sitemap {
         return None;
     }
-    if !matches!(&attempt.answer, Answer::Handled(handled) if handled.skipped.is_none()) {
-        return None;
-    }
+    let is_unchanged = match &attempt.answer {
+        Answer::Unchanged => true,
+        Answer::Handled(handled) if handled.skipped.is_none() => attempt
+            .revisit_meta
+            .as_ref()
+            .is_some_and(|meta| meta.unchanged),
+        _ => return None,
+    };
     let request = &attempt.leased.crawl_request;
     let policy = fetching
         .labels
         .settings
         .revisit_policy(&request.label, &read.run_revisit_policy);
+    let prev_row = state
+        .revisit_row(&request.id)
+        .or(attempt.leased.revisit_row.as_ref());
     let previous = state
         .revisit_previous(&request.id)
         .unwrap_or(attempt.leased.revisit_previous);
+    let visit_result = if is_unchanged {
+        VisitResult::Unchanged
+    } else {
+        VisitResult::Changed
+    };
     let scheduled = if run.end.is_let_finish() {
         None
     } else {
-        revisit::next_visit(
-            policy,
-            previous,
-            VisitResult::Changed,
-            SiteHints::default(),
-            now_ms,
-        )
+        revisit::next_visit(policy, previous, visit_result, SiteHints::default(), now_ms)
     };
+    let meta = attempt.revisit_meta.as_ref();
+    let (etag, last_modified, signature, last_tier) =
+        if matches!(&attempt.answer, Answer::Unchanged) {
+            // RFC 9110 §15.4.5: a 304 updates validators if present, otherwise keeps stored ones.
+            (
+                meta.and_then(|m| m.etag.clone())
+                    .or_else(|| prev_row.and_then(|r| r.etag.clone())),
+                meta.and_then(|m| m.last_modified.clone())
+                    .or_else(|| prev_row.and_then(|r| r.last_modified.clone())),
+                meta.and_then(|m| m.signature.clone())
+                    .or_else(|| prev_row.and_then(|r| r.signature.clone())),
+                meta.and_then(|m| m.tier.map(|t| t.as_str().to_owned()))
+                    .or_else(|| prev_row.and_then(|r| r.last_tier.clone())),
+            )
+        } else {
+            (
+                meta.and_then(|m| m.etag.clone()),
+                meta.and_then(|m| m.last_modified.clone()),
+                meta.and_then(|m| m.signature.clone()),
+                meta.and_then(|m| m.tier.map(|t| t.as_str().to_owned()))
+                    .or_else(|| prev_row.and_then(|r| r.last_tier.clone())),
+            )
+        };
     Some(RevisitRow {
         work_item: request.id.clone(),
         identity: request.url.clone(),
@@ -1637,14 +1800,22 @@ fn planned_revisit(
         next_visit_at: scheduled.map(|s| s.next_visit_at),
         interval_ms: scheduled.map(|s| s.interval_ms),
         last_fetched_at: Some(now_ms),
-        last_changed_at: Some(now_ms),
-        signature: None,
-        etag: None,
-        last_modified: None,
+        last_changed_at: if is_unchanged {
+            prev_row.and_then(|r| r.last_changed_at)
+        } else {
+            Some(now_ms)
+        },
+        signature,
+        etag,
+        last_modified,
         visits: previous.visits.saturating_add(1),
-        changes: previous.changes.saturating_add(1),
+        changes: if is_unchanged {
+            previous.changes
+        } else {
+            previous.changes.saturating_add(1)
+        },
         consecutive_gone: 0,
-        last_tier: None,
+        last_tier,
     })
 }
 
@@ -1668,8 +1839,13 @@ async fn completed(
     let mut keyed = Vec::new();
     for (outcome, settling) in finished.into_iter().zip(&settlings) {
         servers[settling.server].in_flight -= 1;
-        if let Some(revisit_row) = outcome.revisit {
-            state.record_revisit(outcome.leased.clone(), revisit_row, outcome.commits);
+        if let Some((revisit_row, outcome_kind)) = outcome.revisit {
+            state.record_revisit(
+                outcome.leased.clone(),
+                revisit_row,
+                outcome_kind,
+                outcome.commits,
+            );
         } else if outcome.leased.is_revisit {
             state.revisit_unsuccessful(&outcome.leased.crawl_request.id);
         }
@@ -2260,7 +2436,7 @@ struct Finished {
     again: Again,
     changed: Changed,
     commits: u64,
-    revisit: Option<RevisitRow>,
+    revisit: Option<(RevisitRow, OutcomeKind)>,
 }
 
 /// Queues `attempt`'s outcome as one job of the run state's writer (ADR
@@ -2314,6 +2490,7 @@ async fn queue_outcome(
             let ending = file.sitemap_read(AttemptKey::new(work_item, lease_epoch), document);
             return queued(on, (leased, lease), (scored, None, ending), false).await;
         }
+        Answer::Unchanged => Unsuccessful::Unchanged,
         Answer::Handled(handled) => {
             match lease.committing(
                 &run.state,
@@ -2366,13 +2543,16 @@ async fn queue_outcome(
             }
         }
     };
+    let revisit = matches!(unsuccessful, Unsuccessful::Unchanged)
+        .then_some(revisit)
+        .flatten();
     let ending = attempt_outcome::Ending::End {
         work_item,
         lease_epoch,
         unsuccessful,
         ended_at: run.identity.point_in_time(),
     };
-    queued(on, (leased, lease), (scored, None, ending), commits).await
+    queued(on, (leased, lease), (scored, revisit, ending), commits).await
 }
 
 /// Queues the outcome of `leased`'s attempt under `lease`, ending as
@@ -2473,7 +2653,7 @@ impl QueuedOutcome {
                 )
                 .await;
                 finished.keyed = committed.keyed;
-                finished.revisit = revisit;
+                finished.revisit = revisit.map(|row| (row, OutcomeKind::Succeeded));
             }
             attempt_outcome::Ended::LeaseLost => {
                 let _ = lease.committed(Ok(None));
@@ -2490,6 +2670,7 @@ impl QueuedOutcome {
                         record_outcome(&run.identity, &code);
                     }
                     finished.again = again;
+                    finished.revisit = revisit.map(|row| (row, OutcomeKind::Unchanged));
                 } else {
                     tracing::debug!(run_id = %run.identity.id(), work_item = %leased.crawl_request.id, "an attempt past its lease commits nothing");
                 }

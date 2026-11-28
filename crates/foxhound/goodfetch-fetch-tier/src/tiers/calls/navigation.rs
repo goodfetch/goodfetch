@@ -322,6 +322,14 @@ fn stopped(stop: Stop) -> CallError {
                 },
             )
         }
+        Stop::NotModified { .. } => CallError::new(
+            &NAVIGATION_FAILED,
+            "unexpected 304 Not Modified on a handler navigation",
+            &NavigationFailedDetails {
+                url: None,
+                error: None,
+            },
+        ),
     }
 }
 

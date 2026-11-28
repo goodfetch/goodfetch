@@ -42,6 +42,10 @@ pub(super) struct RevisitTracker {
     /// Cached `Leased` templates for work items that finished, kept only while
     /// `whole` is `Some` so in-memory revisits need 0 SQL reads to lease.
     templates: HashMap<String, Leased>,
+    /// Latest outcome counted in `Tally` for each work item that finished a
+    /// visit, so re-admission decrements the exact previous outcome kind
+    /// (`succeeded` vs `unchanged`).
+    last_outcomes: HashMap<String, CountedAs>,
 }
 
 /// A revisit currently waiting in its domain queue or leased in flight.
@@ -225,6 +229,7 @@ impl RevisitTracker {
             unwritten: BTreeMap::new(),
             active: HashMap::new(),
             templates: HashMap::new(),
+            last_outcomes: HashMap::new(),
         }
     }
 
@@ -243,25 +248,30 @@ impl RevisitTracker {
         self.unwritten.clear();
     }
 
-    /// Returns previous schedule state for `work_item` from memory if known.
-    pub(super) fn previous_state(&self, work_item: &str) -> Option<PreviousState> {
+    /// Returns the previous [`RevisitRow`] for `work_item` from memory if known.
+    pub(super) fn previous_row(&self, work_item: &str) -> Option<&RevisitRow> {
         self.unwritten
             .get(work_item)
             .map(|(row, _)| row)
             .or_else(|| self.whole.as_ref().and_then(|w| w.rows.get(work_item)))
-            .map(|row| PreviousState {
-                interval_ms: row.interval_ms,
-                visits: row.visits,
-                changes: row.changes,
-            })
     }
 
-    /// Records a committed attempt's updated [`RevisitRow`] and caches its
-    /// [`Leased`] template while in memory.
+    /// Returns previous schedule state for `work_item` from memory if known.
+    pub(super) fn previous_state(&self, work_item: &str) -> Option<PreviousState> {
+        self.previous_row(work_item).map(|row| PreviousState {
+            interval_ms: row.interval_ms,
+            visits: row.visits,
+            changes: row.changes,
+        })
+    }
+
+    /// Records a committed (or unchanged) attempt's updated [`RevisitRow`] and
+    /// caches its [`Leased`] template while in memory.
     pub(super) fn record_committed(
         &mut self,
         leased: Leased,
         row: RevisitRow,
+        outcome: OutcomeKind,
         committed: u64,
         beside: impl FnOnce() -> u64,
     ) {
@@ -271,12 +281,15 @@ impl RevisitTracker {
         let id = row.work_item.clone();
         self.active.remove(&id);
         self.unwritten.insert(id.clone(), (row.clone(), committed));
+        self.last_outcomes
+            .insert(id.clone(), (outcome, String::new()));
         if let Some(whole) = &mut self.whole {
             if whole.insert(row, beside()) {
                 self.templates.insert(id, leased);
             } else {
                 self.whole = None;
                 self.templates.clear();
+                self.last_outcomes.clear();
             }
         }
     }
@@ -295,6 +308,7 @@ impl RevisitTracker {
         {
             self.whole = None;
             self.templates.clear();
+            self.last_outcomes.clear();
         }
         self.whole.is_some()
     }
@@ -387,11 +401,29 @@ impl RevisitTracker {
             },
             |leased| leased.waiting.clone(),
         );
+        let prev_row = self.previous_row(&entry.work_item).cloned();
+        let leased = template.map(|t| {
+            let mut l = Leased::for_revisit(t);
+            if let Some(row) = prev_row {
+                l.revisit_previous = PreviousState {
+                    interval_ms: row.interval_ms,
+                    visits: row.visits,
+                    changes: row.changes,
+                };
+                l.revisit_row = Some(row);
+            }
+            l
+        });
+        let previous_outcome = self
+            .last_outcomes
+            .get(&entry.work_item)
+            .cloned()
+            .unwrap_or_else(|| (OutcomeKind::Succeeded, String::new()));
         self.active.insert(
             entry.work_item.clone(),
             ActiveRevisit {
-                leased: template.map(Leased::for_revisit),
-                previous_outcome: (OutcomeKind::Succeeded, String::new()),
+                leased,
+                previous_outcome,
                 in_flight: false,
             },
         );

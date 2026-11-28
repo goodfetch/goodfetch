@@ -7,6 +7,11 @@
 //! `run_state.memory.budget: 0`), ends cleanly on `run.finish`, counts idle
 //! time toward `timeout.run`, and leaves batch crawls untouched.
 
+#![expect(
+    clippy::disallowed_types,
+    reason = "in-memory test transport records headers under a plain lock, on no loom path"
+)]
+
 use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
@@ -24,7 +29,12 @@ fn seed(url: &str) -> Value {
 fn every_label(interval_ms: u64) -> Value {
     json!({
         "page": {
-            "settings": { "revisit": { "policy": { "kind": "every", "interval": interval_ms } } }
+            "settings": {
+                "revisit": {
+                    "policy": { "kind": "every", "interval": interval_ms },
+                    "change_check": "none",
+                }
+            }
         }
     })
 }
@@ -237,7 +247,10 @@ fn a_later_failed_revisit_does_not_take_back_coverage() {
                         "labels": {
                             "page": {
                                 "settings": {
-                                    "revisit": { "policy": { "kind": "every", "interval": 10_000 } }
+                                    "revisit": {
+                                        "policy": { "kind": "every", "interval": 10_000 },
+                                        "change_check": "none",
+                                    }
                                 }
                             }
                         },
@@ -377,5 +390,583 @@ fn batch_accepts_revisit_policy_marked_inactive_and_spilled_continuous_uses_revi
     assert!(
         discarded.get("error").is_none(),
         "expected discard ok: {discarded}"
+    );
+}
+
+type RecordedRequest = (String, Vec<(String, String)>);
+type SiteResponse = (u16, Vec<(String, String)>, String);
+type Responder = Box<dyn Fn(&goodfetch_fetch_tier::Hop) -> SiteResponse + Send + Sync>;
+
+/// Custom in-memory HTTP transport that records request headers and serves
+/// scripted responses for conditional GET / 304 / signature tests (#1841).
+struct ScriptedSite {
+    recorded: std::sync::Mutex<Vec<RecordedRequest>>,
+    respond: Responder,
+}
+
+impl goodfetch_fetch_tier::Transport for ScriptedSite {
+    fn send<'a>(
+        &'a self,
+        hop: &'a goodfetch_fetch_tier::Hop,
+        _reuse: goodfetch_fetch_tier::Reuse,
+    ) -> goodfetch_fetch_tier::Sending<'a, goodfetch_fetch_tier::Sent> {
+        if hop.url.path() == "/robots.txt" {
+            let sent = goodfetch_fetch_tier::Sent {
+                status: 404,
+                headers: vec![("content-type".to_owned(), "text/plain".to_owned())],
+                body: Box::new(goodfetch_memory_site::Whole::new("not found")),
+                reused: false,
+                decoded: false,
+                certificate_exception: None,
+            };
+            return Box::pin(std::future::ready(Ok(sent)));
+        }
+        self.recorded
+            .lock()
+            .unwrap()
+            .push((hop.url.to_string(), hop.headers.clone()));
+        let (status, headers, body) = (self.respond)(hop);
+        let sent = goodfetch_fetch_tier::Sent {
+            status,
+            headers,
+            body: Box::new(goodfetch_memory_site::Whole::new(body)),
+            reused: false,
+            decoded: false,
+            certificate_exception: None,
+        };
+        Box::pin(std::future::ready(Ok(sent)))
+    }
+}
+
+fn engine_with_site(site: std::sync::Arc<ScriptedSite>) -> goodfetch_engine::Engine {
+    let identity = goodfetch_engine::Identity {
+        product: goodfetch_protocol::catalog::Product::Foxhound,
+        product_version: goodfetch_protocol::connection::ProductVersion::parse("1.4.0").unwrap(),
+        channel: goodfetch_engine::Channel::CratesIo,
+    };
+    let composition = goodfetch_engine::Composition::default()
+        .with(goodfetch_engine::contribution())
+        .with(goodfetch_frontier::contribution())
+        .with(goodfetch_session_pool::contribution())
+        .with(goodfetch_dataset::contribution(crate::url_of))
+        .with(crate::contribution(
+            goodfetch_fetch_tier::FetchTiers::serving(site),
+        ));
+    goodfetch_engine::Engine::new(identity, &composition).unwrap()
+}
+
+/// A revisit sends stored `If-None-Match` and `If-Modified-Since` validators
+/// (independent of the Response cache, even after 40 days); a 304 ends
+/// `unchanged` with 0 HTML parses and no handler run, leaving
+/// `run.failed_requests` and `run.retry_failed` unchanged; a changed 200
+/// runs the handler with 1 single Page analysis parse (ADR 0118, ADR 0139, ADR 0140).
+///
+/// Covers: row:CO-31, setting:revisit.change_check, setting:revisit.on_unchanged, operation:run.failed_requests, operation:run.retry_failed
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end Continuous crawl 304/change test scenario"
+)]
+#[test]
+fn conditional_get_304_ends_unchanged_with_zero_parses_and_change_runs_handler() {
+    let env = TestEnv::new();
+    let version = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(1));
+    let v_resp = std::sync::Arc::clone(&version);
+    let site = std::sync::Arc::new(ScriptedSite {
+        recorded: std::sync::Mutex::new(Vec::new()),
+        respond: Box::new(move |hop| {
+            let current = v_resp.load(std::sync::atomic::Ordering::SeqCst);
+            let etag = format!("\"v{current}\"");
+            let lm = "Mon, 05 Jan 2026 08:00:00 GMT".to_owned();
+            let inm = hop
+                .headers
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case("if-none-match"))
+                .map(|(_, v)| v.as_str());
+            if inm == Some(etag.as_str()) {
+                return (
+                    304,
+                    vec![("etag".to_owned(), etag), ("last-modified".to_owned(), lm)],
+                    String::new(),
+                );
+            }
+            (
+                200,
+                vec![
+                    (
+                        "content-type".to_owned(),
+                        "text/html; charset=utf-8".to_owned(),
+                    ),
+                    ("etag".to_owned(), etag),
+                    ("last-modified".to_owned(), lm),
+                ],
+                format!(
+                    "<!doctype html><html><body><h1>Version {current}</h1><p>Body {current}</p></body></html>"
+                ),
+            )
+        }),
+    });
+    let metrics = goodfetch_engine::metrics::Metrics::none();
+    let work = metrics.counted_work().clone();
+    let engine = engine_with_site(std::sync::Arc::clone(&site)).with_metrics(metrics);
+    let visit_count = Rc::new(Cell::new(0usize));
+    let visit_count_h = Rc::clone(&visit_count);
+    let mut handler = move |_: &Value| {
+        visit_count_h.set(visit_count_h.get() + 1);
+        Reply::Records(vec![json!({ "seen": visit_count_h.get() })])
+    };
+
+    let (
+        (parses_after_first, parses_after_304, parses_after_change),
+        (failed_reqs, retried, outcomes, report),
+    ) = super::crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            // 40-day interval exceeds Response cache's 30-day ceiling.
+            let interval_ms = 40 * 86_400_000u64;
+            client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "cond-304",
+                        "seeds": [seed("https://shop.test/cond")],
+                        "settings": {
+                            "crawl": { "continuous": true },
+                            "fetch": { "tier": "http" },
+                        },
+                        "labels": {
+                            "page": {
+                                "settings": {
+                                    "revisit": {
+                                        "policy": { "kind": "every", "interval": interval_ms },
+                                        "change_check": "conditional+signature",
+                                        "on_unchanged": "skip",
+                                    }
+                                }
+                            }
+                        },
+                    }),
+                    &mut handler,
+                )
+                .await;
+            let _ = progress_matching(
+                client,
+                "cond-304",
+                |p| p["idle"] == true && visit_count.get() == 1,
+                &mut handler,
+            )
+            .await;
+            let p1 = work.read(goodfetch_counted_work::Row::PageParses);
+
+            // Advance 40 days -> conditional GET -> 304 -> unchanged, 0 parses, no handler.
+            advance(Duration::from_hours(40 * 24)).await;
+            let _ = progress_matching(
+                client,
+                "cond-304",
+                |p| p["idle"] == true && p["requests"]["unchanged"] == 1,
+                &mut handler,
+            )
+            .await;
+            let p2 = work.read(goodfetch_counted_work::Row::PageParses);
+            assert_eq!(visit_count.get(), 1, "304 must not invoke handler");
+
+            let failed_reqs = client
+                .call(
+                    "run.failed_requests",
+                    json!({ "run_id": "cond-304" }),
+                    &mut handler,
+                )
+                .await;
+            let retried = client
+                .call(
+                    "run.retry_failed",
+                    json!({ "run_id": "cond-304" }),
+                    &mut handler,
+                )
+                .await;
+
+            // Now site changes to v2 -> next revisit gets 200 -> handler runs.
+            version.store(2, std::sync::atomic::Ordering::SeqCst);
+            advance(Duration::from_hours(40 * 24)).await;
+            let _ = progress_matching(
+                client,
+                "cond-304",
+                |p| p["idle"] == true && visit_count.get() == 2,
+                &mut handler,
+            )
+            .await;
+            let p3 = work.read(goodfetch_counted_work::Row::PageParses);
+
+            let report = client
+                .call("run.finish", json!({ "run_id": "cond-304" }), &mut handler)
+                .await;
+            let outcomes = client
+                .call(
+                    "run.outcomes",
+                    json!({ "run_id": "cond-304" }),
+                    &mut handler,
+                )
+                .await;
+            ((p1, p2, p3), (failed_reqs, retried, outcomes, report))
+        },
+    )
+    .0;
+
+    assert_eq!(
+        parses_after_304, parses_after_first,
+        "a 304 revisit must add 0 Page analysis parses"
+    );
+    assert_eq!(
+        parses_after_change,
+        parses_after_first + 1,
+        "a changed 200 revisit must compute its Page signature in the single Page analysis with no extra parse"
+    );
+    assert_eq!(
+        failed_reqs["result"]["requests"]
+            .as_array()
+            .map_or(99, Vec::len),
+        0,
+        "unchanged must not appear in run.failed_requests: {failed_reqs}"
+    );
+    assert_eq!(
+        retried["result"]["readmitted"], 0,
+        "run.retry_failed must not retry unchanged: {retried}"
+    );
+    assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
+    assert_eq!(report["result"]["requests"]["failed"], 0, "{report}");
+
+    let reqs = site.recorded.lock().unwrap();
+    assert_eq!(reqs.len(), 3, "expected 3 HTTP requests, got {reqs:?}");
+    assert!(
+        reqs[1]
+            .1
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("if-none-match") && v == "\"v1\""),
+        "revisit must send stored ETag in If-None-Match: {:?}",
+        reqs[1].1
+    );
+    assert!(
+        reqs[1].1.iter().any(|(k, v)| {
+            k.eq_ignore_ascii_case("if-modified-since") && v == "Mon, 05 Jan 2026 08:00:00 GMT"
+        }),
+        "revisit must send stored Last-Modified in If-Modified-Since: {:?}",
+        reqs[1].1
+    );
+    let kinds: Vec<&str> = outcomes["result"]["outcomes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|o| o["kind"].as_str())
+        .collect();
+    assert_eq!(kinds, vec!["succeeded", "unchanged", "succeeded"]);
+}
+
+/// `revisit.change_check` modes (`conditional+signature`, `conditional`,
+/// `signature`, `none`), `revisit.on_unchanged` (`skip`, `handler`), and
+/// `config.explain` yielding on a batch crawl (ADR 0139).
+///
+/// Covers: setting:revisit.change_check, setting:revisit.on_unchanged, operation:config.explain
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end test covering all revisit.change_check and revisit.on_unchanged modes"
+)]
+#[test]
+fn revisit_change_check_and_on_unchanged_modes() {
+    let env = TestEnv::new();
+    let site =
+        std::sync::Arc::new(ScriptedSite {
+            recorded: std::sync::Mutex::new(Vec::new()),
+            respond: Box::new(move |_| {
+                // Always returns 200 with identical body & ETag (ignores conditional headers).
+                (
+                200,
+                vec![
+                    ("content-type".to_owned(), "text/html; charset=utf-8".to_owned()),
+                    ("etag".to_owned(), "\"same\"".to_owned()),
+                ],
+                "<!doctype html><html><body><h1>Stable</h1><p>Unchanged content</p></body></html>"
+                    .to_owned(),
+            )
+            }),
+        });
+    let engine = engine_with_site(std::sync::Arc::clone(&site));
+    let calls_by_label =
+        std::cell::RefCell::new(std::collections::BTreeMap::<String, usize>::new());
+    let mut handler = |params: &Value| {
+        let label = params["crawl_request"]["label"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        *calls_by_label.borrow_mut().entry(label).or_default() += 1;
+        Reply::Records(Vec::new())
+    };
+
+    let (explained, report) = super::crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let explained = client
+                .call(
+                    "config.explain",
+                    json!({
+                        "keys": ["revisit.change_check", "revisit.on_unchanged"],
+                        "settings": {
+                            "revisit": { "change_check": "signature", "on_unchanged": "handler" }
+                        }
+                    }),
+                    &mut handler,
+                )
+                .await;
+            client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "modes",
+                        "seeds": [
+                            { "url": "https://shop.test/cs", "label": "cs" },
+                            { "url": "https://shop.test/cond", "label": "cond" },
+                            { "url": "https://shop.test/sig", "label": "sig" },
+                            { "url": "https://shop.test/none", "label": "none" },
+                            { "url": "https://shop.test/run-handler", "label": "run_handler" },
+                        ],
+                        "settings": {
+                            "crawl": { "continuous": true },
+                            "fetch": { "tier": "http" },
+                        },
+                        "labels": {
+                            "cs": { "settings": { "revisit": { "policy": { "kind": "every", "interval": 5_000 }, "change_check": "conditional+signature" } } },
+                            "cond": { "settings": { "revisit": { "policy": { "kind": "every", "interval": 5_000 }, "change_check": "conditional" } } },
+                            "sig": { "settings": { "revisit": { "policy": { "kind": "every", "interval": 5_000 }, "change_check": "signature" } } },
+                            "none": { "settings": { "revisit": { "policy": { "kind": "every", "interval": 5_000 }, "change_check": "none" } } },
+                            "run_handler": { "settings": { "revisit": { "policy": { "kind": "every", "interval": 5_000 }, "change_check": "signature", "on_unchanged": "handler" } } },
+                        },
+                    }),
+                    &mut handler,
+                )
+                .await;
+            let _ = progress_matching(
+                client,
+                "modes",
+                |p| p["idle"] == true && p["requests"]["succeeded"] == 5,
+                &mut handler,
+            )
+            .await;
+            // Advance 5s for one revisit of all 5 URLs.
+            advance(Duration::from_secs(5)).await;
+            let _ = progress_matching(
+                client,
+                "modes",
+                |p| p["idle"] == true && p["requests"]["unchanged"] == 2 && site.recorded.lock().unwrap().len() >= 10,
+                &mut handler,
+            )
+            .await;
+            let report = client
+                .call("run.finish", json!({ "run_id": "modes" }), &mut handler)
+                .await;
+            (explained, report)
+        },
+    )
+    .0;
+
+    // config.explain marks both inactive on batch crawl.
+    for setting in explained["result"]["settings"].as_array().unwrap() {
+        assert_eq!(setting["yields_to"]["key"], "crawl.continuous", "{setting}");
+        assert_eq!(setting["yields_to"]["value"], false, "{setting}");
+    }
+
+    let counts = calls_by_label.borrow();
+    // `cs` and `sig` saw matching signature -> skipped handler on revisit (1 call each).
+    assert_eq!(counts.get("cs").copied(), Some(1), "{counts:?}");
+    assert_eq!(counts.get("sig").copied(), Some(1), "{counts:?}");
+    // `cond` treats every 200 as changed; `none` skips checks; `run_handler` runs handler on unchanged -> 2 calls each.
+    assert_eq!(counts.get("cond").copied(), Some(2), "{counts:?}");
+    assert_eq!(counts.get("none").copied(), Some(2), "{counts:?}");
+    assert_eq!(counts.get("run_handler").copied(), Some(2), "{counts:?}");
+    assert_eq!(report["result"]["requests"]["unchanged"], 2, "{report}");
+
+    // Verify `sig` and `none` sent NO If-None-Match header on revisit, while `cs` and `cond` did.
+    let reqs = site.recorded.lock().unwrap();
+    let revisit_has_inm = |path: &str| {
+        reqs.iter()
+            .filter(|(u, _)| u.ends_with(path))
+            .nth(1)
+            .is_some_and(|(_, h)| {
+                h.iter()
+                    .any(|(k, _)| k.eq_ignore_ascii_case("if-none-match"))
+            })
+    };
+    assert!(
+        revisit_has_inm("/cs"),
+        "conditional+signature must send If-None-Match"
+    );
+    assert!(
+        revisit_has_inm("/cond"),
+        "conditional must send If-None-Match"
+    );
+    assert!(
+        !revisit_has_inm("/sig"),
+        "signature must send no validators"
+    );
+    assert!(!revisit_has_inm("/none"), "none must send no validators");
+}
+
+/// A URL last served by a browser tier uses `signature` on revisit whatever
+/// `revisit.change_check` says (sending no validators), and the Run report
+/// notes it with `revisit_browser_signature` (ADR 0139).
+///
+/// Covers: setting:revisit.change_check, setting:revisit.on_unchanged
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end resume test for browser-tier signature fallback and report warning"
+)]
+#[test]
+fn browser_tier_last_served_revisit_uses_signature_and_warns() {
+    let env = TestEnv::new();
+    let site = std::sync::Arc::new(ScriptedSite {
+        recorded: std::sync::Mutex::new(Vec::new()),
+        respond: Box::new(move |_| {
+            (
+                200,
+                vec![
+                    (
+                        "content-type".to_owned(),
+                        "text/html; charset=utf-8".to_owned(),
+                    ),
+                    ("etag".to_owned(), "\"browser-etag\"".to_owned()),
+                ],
+                "<!doctype html><html><body><h1>Browser Page</h1><p>Stable</p></body></html>"
+                    .to_owned(),
+            )
+        }),
+    });
+    let engine = engine_with_site(std::sync::Arc::clone(&site));
+    let calls = Rc::new(Cell::new(0usize));
+    let calls_h = Rc::clone(&calls);
+    let mut handler = move |_: &Value| {
+        calls_h.set(calls_h.get() + 1);
+        Reply::Records(Vec::new())
+    };
+
+    // Pass 1: initial visit records signature + etag, then stop cleanly.
+    let _ = super::crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "browser-sig",
+                        "seeds": [seed("https://shop.test/browser")],
+                        "settings": {
+                            "crawl": { "continuous": true },
+                            "fetch": { "tier": "http" },
+                        },
+                        "labels": {
+                            "page": {
+                                "settings": {
+                                    "revisit": {
+                                        "policy": { "kind": "every", "interval": 5_000 },
+                                        "change_check": "conditional+signature",
+                                    }
+                                }
+                            }
+                        },
+                    }),
+                    &mut handler,
+                )
+                .await;
+            let _ = progress_matching(
+                client,
+                "browser-sig",
+                |p| p["idle"] == true && calls.get() == 1,
+                &mut handler,
+            )
+            .await;
+            client
+                .call("run.stop", json!({ "run_id": "browser-sig" }), &mut handler)
+                .await
+        },
+    )
+    .0;
+
+    // Mark the persisted revisit row as last served by the `browser` tier.
+    let conn = super::run_file(&env, "browser-sig");
+    conn.execute("UPDATE revisits SET last_tier = 'browser'", [])
+        .unwrap();
+    drop(conn);
+
+    // Pass 2: resume — revisit must skip conditional headers, use signature,
+    // end unchanged with no handler call, and emit `revisit_browser_signature`.
+    let report = super::crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "browser-sig",
+                        "seeds": [seed("https://shop.test/browser")],
+                        "settings": {
+                            "crawl": { "continuous": true },
+                            "fetch": { "tier": "http" },
+                        },
+                        "labels": {
+                            "page": {
+                                "settings": {
+                                    "revisit": {
+                                        "policy": { "kind": "every", "interval": 5_000 },
+                                        "change_check": "conditional+signature",
+                                    }
+                                }
+                            }
+                        },
+                    }),
+                    &mut handler,
+                )
+                .await;
+            advance(Duration::from_secs(6)).await;
+            let _ = progress_matching(
+                client,
+                "browser-sig",
+                |p| p["idle"] == true && p["requests"]["unchanged"] == 1,
+                &mut handler,
+            )
+            .await;
+            client
+                .call(
+                    "run.finish",
+                    json!({ "run_id": "browser-sig" }),
+                    &mut handler,
+                )
+                .await
+        },
+    )
+    .0;
+
+    assert_eq!(
+        calls.get(),
+        1,
+        "unchanged browser-tier revisit must not call handler"
+    );
+    let reqs = site.recorded.lock().unwrap();
+    assert_eq!(reqs.len(), 2, "expected 2 HTTP requests, got {reqs:?}");
+    assert!(
+        !reqs[1]
+            .1
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("if-none-match")),
+        "browser-tier revisit must not send If-None-Match: {:?}",
+        reqs[1].1
+    );
+    let warnings = report["result"]["warnings"]
+        .as_array()
+        .expect("report warnings");
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w["code"] == "revisit_browser_signature"),
+        "expected revisit_browser_signature warning in report: {warnings:?}"
     );
 }

@@ -63,6 +63,7 @@ fn defaults() -> Following {
         refresh_max_delay: Some(Duration::from_secs(100)),
         handled: BTreeSet::new(),
         retry_after_max: Some(Duration::from_mins(15)),
+        conditional_revisit: false,
     }
 }
 

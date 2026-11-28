@@ -60,7 +60,7 @@ A value this package does not know, which a newer engine may send, is kept as re
 - `link_limit`: The `enqueueLinks` call that matched it already added its `limit` links (ADR 0093).
 """
 
-OutcomeKind: TypeAlias = Literal["succeeded", "failed", "skipped", "blocked"] | str
+OutcomeKind: TypeAlias = Literal["succeeded", "failed", "skipped", "blocked", "unchanged"] | str
 """How a crawl request ended (ADR 0079).
 
 A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
@@ -69,6 +69,7 @@ A value this package does not know, which a newer engine may send, is kept as re
 - `failed`: Its last attempt failed, and no retry is left.
 - `skipped`: A decision ended it: a skip is never retried.
 - `blocked`: The site refused it, with a Block cause.
+- `unchanged`: A Continuous crawl revisit found the page unchanged (304 or matching Page signature) and skipped its handler (ADR 0139).
 """
 
 SkipReason: TypeAlias = Literal["out_of_scope", "domain_policy", "duplicate", "robots_txt", "crawl_delay", "use_signals", "hook", "handler", "model_allowance", "content_type"] | str

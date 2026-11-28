@@ -445,15 +445,28 @@ impl RunState {
         self.heard()
     }
 
+    /// Previous [`RevisitRow`] for `id` held in memory, if any.
+    pub(crate) fn revisit_row(&self, id: &str) -> Option<&RevisitRow> {
+        self.revisits.previous_row(id)
+    }
+
     /// Previous revisit schedule state for `id` held in memory, if any.
     pub(crate) fn revisit_previous(&self, id: &str) -> Option<PreviousState> {
         self.revisits.previous_state(id)
     }
 
-    /// Records a committed attempt's revisit row in memory (ADR 0139).
-    pub(crate) fn record_revisit(&mut self, leased: Leased, row: RevisitRow, committed: u64) {
+    /// Records a committed (or unchanged) attempt's revisit row in memory (ADR 0139).
+    pub(crate) fn record_revisit(
+        &mut self,
+        leased: Leased,
+        row: RevisitRow,
+        outcome: goodfetch_protocol::foxhound::outcomes::OutcomeKind,
+        committed: u64,
+    ) {
         self.revisits
-            .record_committed(leased, row, committed, || self.stored.frontier_bytes());
+            .record_committed(leased, row, outcome, committed, || {
+                self.stored.frontier_bytes()
+            });
     }
 
     /// Marks an unsuccessful revisit attempt as no longer active.

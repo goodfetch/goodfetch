@@ -487,6 +487,10 @@ pub(crate) struct Crawled {
     /// The pages [`BESIDE_HOST`] answered: a handler's navigations beside
     /// its page, each a second copy of a request its Run admitted.
     pub(crate) besides: u64,
+    /// Outcomes ending `unchanged` in a Continuous crawl (ADR 0139, ADR 0140).
+    pub(crate) unchanged_outcomes: u64,
+    /// Outcomes ending `succeeded` (changed or first visit) in the Run report.
+    pub(crate) changed_outcomes: u64,
 }
 
 /// The entries the Run traces under `home` hold once its crawl ended: one
@@ -818,19 +822,19 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         credits: CREDITS,
         after_start,
     };
-    let (records, handled) = if second_engine {
+    let (records, handled, unchanged_outcomes, changed_outcomes) = if second_engine {
         let mut beside = started.clone();
         beside["params"]["run_id"] = json!(BESIDE_RUN);
         let site: Arc<dyn Transport> = site;
-        let ((mut records, handled), (more, more_handled)) = goodfetch_test_support::runtime()
-            .block_on(async {
+        let ((mut records, handled, u1, c1), (more, more_handled, u2, c2)) =
+            goodfetch_test_support::runtime().block_on(async {
                 tokio::join!(
                     serve(Arc::clone(&site), &started, driven(seed)),
                     serve(site, &beside, driven(seed + 1)),
                 )
             });
         records.extend(more);
-        (records, handled + more_handled)
+        (records, handled + more_handled, u1 + u2, c1 + c2)
     } else {
         drive(site, &started, driven(seed))
     };
@@ -843,6 +847,8 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         attempts: attempts.load(Ordering::Relaxed),
         requests: requests.load(Ordering::Relaxed),
         besides: besides.load(Ordering::Relaxed),
+        unchanged_outcomes,
+        changed_outcomes,
     }
 }
 
@@ -876,13 +882,17 @@ pub(crate) fn drive(
     site: Arc<dyn Transport>,
     crawl_start: &Value,
     on: Driven<'_>,
-) -> (Vec<Value>, u64) {
+) -> (Vec<Value>, u64, u64, u64) {
     goodfetch_test_support::runtime().block_on(serve(site, crawl_start, on))
 }
 
 /// [`drive`]'s crawl, on the runtime it is awaited on: the Run is the one
 /// `crawl_start` names.
-async fn serve(site: Arc<dyn Transport>, crawl_start: &Value, on: Driven<'_>) -> (Vec<Value>, u64) {
+async fn serve(
+    site: Arc<dyn Transport>,
+    crawl_start: &Value,
+    on: Driven<'_>,
+) -> (Vec<Value>, u64, u64, u64) {
     let Driven {
         home,
         start,
@@ -914,6 +924,8 @@ async fn serve(site: Arc<dyn Transport>, crawl_start: &Value, on: Driven<'_>) ->
         send(&mut writer, &hello()).await;
         send(&mut writer, &encode(crawl_start)).await;
         let mut records = Vec::new();
+        let mut unchanged_outcomes = 0u64;
+        let mut changed_outcomes = 0u64;
         let mut handled = Handled::of(handler, navigation);
         let mut calls_out = 0;
         while let Some(line) = next_line(&mut lines).await {
@@ -941,6 +953,12 @@ async fn serve(site: Arc<dyn Transport>, crawl_start: &Value, on: Driven<'_>) ->
                 }
             } else if message["id"] == "finish" {
                 assert!(message.get("result").is_some(), "{message}");
+                unchanged_outcomes = message["result"]["requests"]["unchanged"]
+                    .as_u64()
+                    .unwrap_or(0);
+                changed_outcomes = message["result"]["requests"]["succeeded"]
+                    .as_u64()
+                    .unwrap_or(0);
                 if handler.is_some() {
                     break;
                 }
@@ -955,7 +973,12 @@ async fn serve(site: Arc<dyn Transport>, crawl_start: &Value, on: Driven<'_>) ->
         }
         writer.shutdown().await.expect("invariant: in memory");
         while let Ok(Some(_)) = lines.next_line().await {}
-        (records, handled.answered())
+        (
+            records,
+            handled.answered(),
+            unchanged_outcomes,
+            changed_outcomes,
+        )
     };
     let (served, read) = tokio::join!(
         engine.run_attached(

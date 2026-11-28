@@ -16,7 +16,11 @@ use std::collections::BTreeMap;
 use encoding_rs::Encoding;
 use goodfetch_engine::{CallError, named};
 use goodfetch_extractor::BuiltIn;
-use goodfetch_protocol::foxhound::continuous::{REVISIT_POLICY, RevisitPolicy};
+use goodfetch_protocol::foxhound::continuous::{
+    REVISIT_CHANGE_CHECK, REVISIT_CHANGE_CHECK_VALUES, REVISIT_ON_UNCHANGED,
+    REVISIT_ON_UNCHANGED_VALUES, REVISIT_POLICY, RevisitChangeCheck, RevisitOnUnchanged,
+    RevisitPolicy,
+};
 use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CRAWL_CONTENT_TYPES, CRAWL_RETRY_HANDLER_FAILED, LabelDeclaration,
 };
@@ -67,6 +71,8 @@ pub struct LabelSettings {
     hook_timeouts: BTreeMap<String, u64>,
     retries_handler_failed: BTreeMap<String, bool>,
     revisit_policies: BTreeMap<String, RevisitPolicy>,
+    revisit_change_checks: BTreeMap<String, RevisitChangeCheck>,
+    revisit_on_unchanged: BTreeMap<String, RevisitOnUnchanged>,
 }
 
 /// How a request's tier is chosen.
@@ -170,6 +176,8 @@ impl LabelSettings {
             hook_timeouts: BTreeMap::new(),
             retries_handler_failed: BTreeMap::new(),
             revisit_policies: BTreeMap::new(),
+            revisit_change_checks: BTreeMap::new(),
+            revisit_on_unchanged: BTreeMap::new(),
         };
         for (name, declaration) in labels {
             let mut keys = Vec::new();
@@ -237,6 +245,27 @@ impl LabelSettings {
             let policy =
                 RevisitPolicy::read(value).map_err(|reason| invalid(name, &key, value, &reason))?;
             self.revisit_policies.insert(name.to_owned(), policy);
+        } else if key == REVISIT_CHANGE_CHECK.name {
+            let Some(check) = RevisitChangeCheck::read(value) else {
+                return Err(invalid(
+                    name,
+                    &key,
+                    value,
+                    &format!("is none of {}", REVISIT_CHANGE_CHECK_VALUES.join(", ")),
+                ));
+            };
+            self.revisit_change_checks.insert(name.to_owned(), check);
+        } else if key == REVISIT_ON_UNCHANGED.name {
+            let Some(on_unchanged) = RevisitOnUnchanged::read(value) else {
+                return Err(invalid(
+                    name,
+                    &key,
+                    value,
+                    &format!("is none of {}", REVISIT_ON_UNCHANGED_VALUES.join(", ")),
+                ));
+            };
+            self.revisit_on_unchanged
+                .insert(name.to_owned(), on_unchanged);
         } else if key == SESSION_SOURCE.name || key.starts_with(SESSION_SOURCE_KEYS) {
             // The Session pool reads a Label's own Session source.
         } else if key == FETCH_TIER.name {
@@ -252,6 +281,30 @@ impl LabelSettings {
     #[must_use]
     pub fn revisit_policy<'a>(&'a self, label: &str, run: &'a RevisitPolicy) -> &'a RevisitPolicy {
         self.revisit_policies.get(label).unwrap_or(run)
+    }
+
+    /// The `revisit.change_check` of `label`, falling back to `run` when the
+    /// Label sets none (ADR 0139).
+    #[must_use]
+    pub fn revisit_change_check(&self, label: &str, run: RevisitChangeCheck) -> RevisitChangeCheck {
+        self.revisit_change_checks
+            .get(label)
+            .copied()
+            .unwrap_or(run)
+    }
+
+    /// The `revisit.on_unchanged` of `label`, falling back to `run` when the
+    /// Label sets none (ADR 0139).
+    #[must_use]
+    pub fn revisit_on_unchanged(&self, label: &str, run: RevisitOnUnchanged) -> RevisitOnUnchanged {
+        self.revisit_on_unchanged.get(label).copied().unwrap_or(run)
+    }
+
+    /// Each Label that declares `revisit.change_check`, with its value.
+    pub fn revisit_change_checks(&self) -> impl Iterator<Item = (&str, RevisitChangeCheck)> {
+        self.revisit_change_checks
+            .iter()
+            .map(|(name, check)| (name.as_str(), *check))
     }
 
     /// Each declared Label that sets `timeout.hook`, with its value in

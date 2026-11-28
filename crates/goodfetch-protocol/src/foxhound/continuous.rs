@@ -24,6 +24,123 @@ fn never_policy() -> Value {
     json!({ "kind": "never" })
 }
 
+fn conditional_signature() -> Value {
+    Value::String("conditional+signature".to_owned())
+}
+
+fn skip_unchanged() -> Value {
+    Value::String("skip".to_owned())
+}
+
+/// The values `revisit.change_check` takes (ADR 0139).
+pub const REVISIT_CHANGE_CHECK_VALUES: &[&str] =
+    &["conditional+signature", "conditional", "signature", "none"];
+
+/// How a Continuous crawl checks whether a revisited URL changed
+/// (`revisit.change_check`, ADR 0139).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub enum RevisitChangeCheck {
+    /// Send `If-None-Match` / `If-Modified-Since`; a 304 means unchanged,
+    /// otherwise the Page signature decides.
+    #[default]
+    #[serde(rename = "conditional+signature")]
+    ConditionalSignature,
+    /// Send `If-None-Match` / `If-Modified-Since`; every 200 counts as changed.
+    #[serde(rename = "conditional")]
+    Conditional,
+    /// Send no validators; compare the Page signature.
+    #[serde(rename = "signature")]
+    Signature,
+    /// Send no validators and skip signature comparison; every revisit counts as changed.
+    #[serde(rename = "none")]
+    None,
+}
+
+impl RevisitChangeCheck {
+    /// Its wire and setting name.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ConditionalSignature => "conditional+signature",
+            Self::Conditional => "conditional",
+            Self::Signature => "signature",
+            Self::None => "none",
+        }
+    }
+
+    /// Parses a [`RevisitChangeCheck`] from a setting string.
+    #[must_use]
+    pub fn named(name: &str) -> Option<Self> {
+        match name {
+            "conditional+signature" => Some(Self::ConditionalSignature),
+            "conditional" => Some(Self::Conditional),
+            "signature" => Some(Self::Signature),
+            "none" => Some(Self::None),
+            _ => None,
+        }
+    }
+
+    /// Parses a [`RevisitChangeCheck`] from a JSON setting value.
+    #[must_use]
+    pub fn read(value: &Value) -> Option<Self> {
+        value.as_str().and_then(Self::named)
+    }
+
+    /// Whether this mode sends conditional request validators on document tiers.
+    #[must_use]
+    pub const fn uses_conditional(self) -> bool {
+        matches!(self, Self::ConditionalSignature | Self::Conditional)
+    }
+
+    /// Whether this mode compares the Page signature on a 200 response.
+    #[must_use]
+    pub const fn uses_signature(self) -> bool {
+        matches!(self, Self::ConditionalSignature | Self::Signature)
+    }
+}
+
+/// The values `revisit.on_unchanged` takes (ADR 0139).
+pub const REVISIT_ON_UNCHANGED_VALUES: &[&str] = &["skip", "handler"];
+
+/// What a Continuous crawl does when a revisit finds the page unchanged
+/// (`revisit.on_unchanged`, ADR 0139).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RevisitOnUnchanged {
+    /// Run no handler, push no Record, and end the revisit `unchanged`.
+    #[default]
+    Skip,
+    /// Run the handler anyway.
+    Handler,
+}
+
+impl RevisitOnUnchanged {
+    /// Its wire and setting name.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Skip => "skip",
+            Self::Handler => "handler",
+        }
+    }
+
+    /// Parses a [`RevisitOnUnchanged`] from a setting string.
+    #[must_use]
+    pub fn named(name: &str) -> Option<Self> {
+        match name {
+            "skip" => Some(Self::Skip),
+            "handler" => Some(Self::Handler),
+            _ => None,
+        }
+    }
+
+    /// Parses a [`RevisitOnUnchanged`] from a JSON setting value.
+    #[must_use]
+    pub fn read(value: &Value) -> Option<Self> {
+        value.as_str().and_then(Self::named)
+    }
+}
+
 /// How a Continuous crawl schedules revisits of a URL (`revisit.policy`, ADR 0139).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -154,6 +271,56 @@ pub const KEEP_ALIVE_YIELDS_TO_CONTINUOUS: Yielding = Yielding {
     reason: "a Continuous crawl implies `crawl.keep_alive`",
 };
 
+/// `revisit.change_check` (ADR 0139).
+pub const REVISIT_CHANGE_CHECK: Setting = Setting {
+    name: "revisit.change_check",
+    description: "How a Continuous crawl checks whether a revisited URL changed, set for the Run or for one of its Labels: `conditional+signature` (the default) sends `If-None-Match` and `If-Modified-Since`, treating 304 as unchanged and otherwise comparing the Page signature; `conditional` treats every 200 as changed; `signature` sends no validators and compares the Page signature; `none` treats every revisit as changed. A URL last served by a browser tier always uses `signature`. Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Choice(REVISIT_CHANGE_CHECK_VALUES),
+    default: conditional_signature,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `revisit.on_unchanged` (ADR 0139).
+pub const REVISIT_ON_UNCHANGED: Setting = Setting {
+    name: "revisit.on_unchanged",
+    description: "What a Continuous crawl does when a revisit finds the page unchanged, set for the Run or for one of its Labels: `skip` (the default) runs no handler, pushes no Record, and ends the request `unchanged`; `handler` runs the handler anyway. Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Choice(REVISIT_ON_UNCHANGED_VALUES),
+    default: skip_unchanged,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `revisit.change_check` yields to `crawl.continuous = false`.
+pub const REVISIT_CHANGE_CHECK_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &REVISIT_CHANGE_CHECK,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl does not revisit URLs",
+};
+
+/// `revisit.on_unchanged` yields to `crawl.continuous = false`.
+pub const REVISIT_ON_UNCHANGED_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &REVISIT_ON_UNCHANGED,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl does not revisit URLs",
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -163,7 +330,12 @@ pub const ENTRIES: Entries = Entries {
     error_codes: &[],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[CRAWL_CONTINUOUS, REVISIT_POLICY],
+    settings: &[
+        CRAWL_CONTINUOUS,
+        REVISIT_POLICY,
+        REVISIT_CHANGE_CHECK,
+        REVISIT_ON_UNCHANGED,
+    ],
     hook_stages: &[],
     shared_type_values: &[],
 };

@@ -77,6 +77,9 @@ pub struct Following {
     /// The longest a site's `Retry-After` is waited
     /// ([`goodfetch_frontier::longest_wait`]); `None` waits for none.
     pub retry_after_max: Option<Duration>,
+    /// Whether a `304 Not Modified` answering this chain's conditional revisit
+    /// request ends [`Stop::NotModified`] instead of `response_not_ok` (ADR 0139).
+    pub conditional_revisit: bool,
 }
 
 impl Following {
@@ -95,6 +98,7 @@ impl Following {
             refresh_max_delay: settings.get(&FETCH_REFRESH_MAX_DELAY),
             handled,
             retry_after_max: goodfetch_frontier::longest_wait(settings),
+            conditional_revisit: false,
         }
     }
 }
@@ -126,6 +130,13 @@ pub enum Stop {
         /// Whether the hop is on the crawl request's own domain key, whose
         /// file it then is, as opposed to a healthy domain's redirect.
         on_own_domain: bool,
+    },
+    /// A `304 Not Modified` answered a Continuous crawl revisit's conditional
+    /// request (ADR 0139): zero parses, carries the response's headers for
+    /// validator and caching-hint updates.
+    NotModified {
+        /// The 304 response's headers (lowercase names).
+        headers: Vec<(String, String)>,
     },
 }
 
@@ -478,6 +489,13 @@ async fn next_hop<R: Reading>(
     following: &Following,
     (owner, reading): (&TaskStarter, &Arc<R>),
 ) -> Result<Step<R::Read>, Stop> {
+    // A 304 answering a Continuous crawl revisit's conditional request ends
+    // `unchanged` immediately with zero HTML decode or parse (ADR 0118, ADR 0139).
+    if following.conditional_revisit && fetched.status == 304 {
+        return Err(Stop::NotModified {
+            headers: fetched.headers.clone(),
+        });
+    }
     // A response its Label does not take is the chain's end, unread.
     if following.handled.contains(&fetched.status) || fetched.unaccepted.is_some() {
         return Ok(Step::End(None));

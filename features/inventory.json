@@ -11140,6 +11140,26 @@
       ]
     },
     {
+      "id": "setting:revisit.change_check",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:revisit.on_unchanged",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:revisit.policy",
       "kind": "setting",
       "area": 3,

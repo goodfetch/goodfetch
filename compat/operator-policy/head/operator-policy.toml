@@ -413,6 +413,8 @@ max_size = 4
 
 [settings.revisit]
 policy = { kind = "never" }
+change_check = "conditional+signature"
+on_unchanged = "skip"
 
 [settings.fetch]
 tier = "auto"
@@ -902,6 +904,8 @@ max_size = 4
 
 [lock.revisit]
 policy = { kind = "never" }
+change_check = "conditional+signature"
+on_unchanged = "skip"
 
 [lock.fetch]
 tier = "auto"

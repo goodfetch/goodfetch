@@ -145,7 +145,12 @@ impl PageDriver {
         context: browser::BrowserContextID,
         popup: target::TargetID,
     ) -> Result<Self, goodfetch_engine::CallError> {
-        prepare(&browser, &session).await?;
+        let emulation = if browser.launched {
+            browser.state.emulations.of(&context)
+        } else {
+            crate::emulation::SessionEmulation::borrowed()
+        };
+        prepare(&browser, &session, &emulation).await?;
         Ok(Self {
             page_reader: super::PageReader::new(&browser.connection, &session),
             browser,

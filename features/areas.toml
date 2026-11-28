@@ -981,6 +981,13 @@ number = 6
 kind = "setting"
 prefix = "site_preferences.purpose"
 
+# Whether a program's own navigation reads robots.txt for Provenance
+# (spec #580, #2448; ADR 0086).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "site_preferences.read_robots_txt_for_navigation"
+
 # The HTTP tier's hedged requests and coalescing (RT-20, #238).
 [[area]]
 number = 3
@@ -1001,6 +1008,11 @@ prefix = "paid_fetch."
 number = 5
 kind = "setting"
 prefix = "browser."
+
+[[area]]
+number = 5
+kind = "setting"
+prefix = "network.throttle"
 
 # Live hiding (#715): ADR 0083 names ADR 0047's `live_hiding`
 # `live_view.hiding`.
@@ -1504,6 +1516,12 @@ number = 11
 kind = "setting"
 prefix = "notifications."
 
+# The Daemon's HTTP listener (ADR 0027; issue 1400).
+[[area]]
+number = 11
+kind = "setting"
+prefix = "http_listener."
+
 # The Error code an SDK's `json()` raises itself for a body that is not
 # the JSON asked for (ADR 0085; issue 2803).
 [[area]]
@@ -1566,6 +1584,11 @@ prefix = "schedule."
 number = 10
 kind = "error"
 prefix = "schedule_"
+
+[[area]]
+number = 10
+kind = "setting"
+prefix = "schedule."
 
 # Area 12 (spec #592).
 # Foxhound's Datasets screen (#1211, spec #593): `dataset.list` and
@@ -1731,6 +1754,13 @@ prefix = "catalog-run.start"
 number = 11
 kind = "format"
 prefix = "recipe-manifest"
+
+# The published Operation catalog format attached to every GitHub Release
+# (issue 1662).
+[[area]]
+number = 1
+kind = "format"
+prefix = "published-catalog"
 
 [[area]]
 number = 11
@@ -1991,3 +2021,32 @@ prefix = "skill."
 number = 11
 kind = "error"
 prefix = "skill_"
+
+# Sample Plugin kinds (area 1) and the real Plugin kinds (area 7, spec #596).
+[[area]]
+number = 1
+kind = "plugin-kind"
+prefix = "sample_"
+
+[[area]]
+number = 7
+kind = "plugin-kind"
+prefix = "extract"
+
+# Area 6, Collection (spec #582): every built-in Sink.
+[[area]]
+number = 6
+kind = "sink"
+prefix = ""
+
+# Area 11, the Client surfaces (specs #608 and #611): every Framework adapter
+# and every Integration action or trigger.
+[[area]]
+number = 11
+kind = "adapter"
+prefix = ""
+
+[[area]]
+number = 11
+kind = "integration"
+prefix = ""

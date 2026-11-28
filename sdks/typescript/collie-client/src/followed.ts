@@ -6,6 +6,11 @@
 // read in time coalesce. The value whose `last` is true ends it. A
 // sequence's credit is one read: the program's own pace sets when the next
 // is sent.
+//
+// A paged read, such as `run.rejected_records`, is read the same way, one
+// page a read, each page handing its items in order; its credits count
+// items, so a next page is asked for only while the program has credit left,
+// though one page may hand more items than the credit left.
 import type { Stream } from "./client-connection.ts";
 import type { ChannelOpenOptions } from "./rpc.ts";
 
@@ -19,8 +24,21 @@ export interface FollowedReads<Value> {
   readonly last: (value: Value) => boolean;
 }
 
-/** The method a followed read hands each value under, to a sequence's `itemOf`. */
+/** How a paged read is read: a followed read whose values are pages of items. */
+export interface PagedReads<Page, Item> extends FollowedReads<Page> {
+  /** The page's items, handed in order. */
+  readonly items: (page: Page) => readonly Item[];
+}
+
+/** The method a followed or paged read hands each item under, to a sequence's `itemOf`. */
 export const FOLLOWED_VALUE = "$/followed";
+
+/** A followed or paged read opened as a sequence's stream. */
+export interface Followed<Item> {
+  readonly stream: Stream;
+  /** Hands the next item read, in order. */
+  readonly take: () => Item | undefined;
+}
 
 /**
  * Opens `reads` as a sequence's stream: each value it reads reaches
@@ -29,8 +47,20 @@ export const FOLLOWED_VALUE = "$/followed";
 export function followed<Value>(
   reads: FollowedReads<Value>,
   options: ChannelOpenOptions,
-): { readonly stream: Stream; readonly take: () => Value | undefined } {
-  const values: Value[] = [];
+): Followed<Value> {
+  return paged({ ...reads, items: (value) => [value] }, options);
+}
+
+/**
+ * Opens `reads` as a sequence's stream: each item of each page it reads
+ * reaches `options.notified` as `FOLLOWED_VALUE`, and `take()` hands it, in
+ * order. A page is read only while the sequence has credit left.
+ */
+export function paged<Page, Item>(
+  reads: PagedReads<Page, Item>,
+  options: ChannelOpenOptions,
+): Followed<Item> {
+  const items: Item[] = [];
   let credits = 0;
   let granted: (() => void) | undefined;
   const signal = options.signal;
@@ -38,7 +68,7 @@ export function followed<Value>(
   const result = (async (): Promise<unknown> => {
     let after: number | undefined;
     for (;;) {
-      if (credits === 0) {
+      if (credits <= 0) {
         signal?.throwIfAborted();
         // Woken by a grant, which leaves credits, or by the abort.
         await new Promise<void>((resolve) => {
@@ -47,12 +77,15 @@ export function followed<Value>(
         granted = undefined;
       }
       signal?.throwIfAborted();
-      credits -= 1;
-      const value = await reads.read(after, signal);
-      values.push(value);
-      options.notified?.(FOLLOWED_VALUE, undefined);
-      if (reads.last(value)) return {};
-      after = reads.position(value);
+      const page = await reads.read(after, signal);
+      const read = reads.items(page);
+      credits -= read.length;
+      for (const item of read) {
+        items.push(item);
+        options.notified?.(FOLLOWED_VALUE, undefined);
+      }
+      if (reads.last(page)) return {};
+      after = reads.position(page);
     }
   })();
   return {
@@ -63,6 +96,6 @@ export function followed<Value>(
         if (credits > 0) granted?.();
       },
     },
-    take: () => values.shift(),
+    take: () => items.shift(),
   };
 }

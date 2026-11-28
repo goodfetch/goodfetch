@@ -9,6 +9,8 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+# Cron expression parsing and DST evaluation (ADR 0036; #864).
+croner.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-protocol.workspace = true
 # A Schedule's IANA time zone, checked against the zone database (ADR 0073).
@@ -17,6 +19,7 @@ rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 # A generated Schedule ID: `s` and a lowercase ULID (ADR 0059).
 ulid.workspace = true
 goodfetch-workspace-hack.workspace = true
@@ -27,6 +30,7 @@ proptest.workspace = true
 proptest-state-machine.workspace = true
 rstest.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
+goodfetch-dev-workspace-hack.workspace = true
 
 [lints]
 workspace = true

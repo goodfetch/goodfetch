@@ -29,6 +29,7 @@ mod fetch_tiers;
 mod formats;
 mod guard;
 mod hostile_input;
+mod http_listener;
 mod input;
 mod launch;
 mod navigation;
@@ -42,6 +43,7 @@ mod proxies;
 mod proxy_limits;
 mod read;
 mod reset;
+mod response_cache;
 mod robots_txt;
 mod routes;
 mod run_start;
@@ -49,6 +51,7 @@ mod run_trace;
 mod schedules;
 mod service_workers;
 mod sessions;
+mod stealth;
 mod two_copies;
 mod waits;
 
@@ -134,12 +137,14 @@ pub(crate) enum Case {
     Structured(formats::structured::Case),
     /// A `content.extractor` case (#788).
     Extractor(formats::extractor::Case),
-    HeadlessIdentity,
-    BackgroundTimer,
     /// A guard case.
     Guard(guard::Case),
     /// An unguarded input case (`page.keyboard`, `page.mouse`, `page.touchscreen`).
     Input(input::Case),
+    /// A launch case (#696).
+    Launch(launch::Case),
+    /// A stealth case (spec #599).
+    Stealth(stealth::Case),
     /// A Clean-up case.
     CleanUp(clean_up::Case),
     /// A Consent prompt case.
@@ -178,6 +183,10 @@ pub(crate) enum Case {
     Wait(waits::Case),
     /// A robots.txt reading case.
     RobotsTxt(robots_txt::Case),
+    /// A page's Response cache case.
+    ResponseCache(response_cache::Case),
+    /// A Daemon HTTP JSON-RPC listener case (`POST /v1/rpc`, #1400).
+    HttpListener(http_listener::Case),
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
@@ -461,9 +470,10 @@ pub(crate) fn user_configuration(settings: &str) -> String {
 /// consent pages' two hosts (ADR 0048), the `body-limits` family's host
 /// whose robots.txt is past the size limit, the `access-policy` family's
 /// host whose robots.txt answers late, and the `bombs` family's own
-/// host, whose zstd frame asks for a window past 8 MB (ADR 0067); and the
-/// delivery cases' plain host, which an engine would otherwise look up.
-const NAMED_HOSTS: [&str; 14] = [
+/// host, whose zstd frame asks for a window past 8 MB (ADR 0067), the
+/// consistency probe's two hosts (ADR 0074); and the delivery cases' plain
+/// host, which an engine would otherwise look up.
+const NAMED_HOSTS: [&str; 16] = [
     delivery::PLAIN_HOST,
     "fetch-edge.test",
     fetch_edge::HTTP2_HOST,
@@ -478,6 +488,8 @@ const NAMED_HOSTS: [&str; 14] = [
     robots_txt::PAST_THE_SIZE_HOST,
     robots_txt::SLOW_ROBOTS_HOST,
     hostile_input::BOMBS_HOST,
+    stealth::HOST,
+    stealth::FRAME_HOST,
 ];
 
 /// The host name of an `http` URL.
@@ -604,37 +616,43 @@ impl Case {
             "markdown-and-html-default-to-the-main-content-and-an-unknown-option-is-invalid-params" => {
                 Self::FormatsDefaultsAndUnknownOptions
             }
-            "a-headless-page-shows-the-site-its-windows-identity" => Self::HeadlessIdentity,
-            "a-page-behind-another-keeps-its-timer-and-its-focus" => Self::BackgroundTimer,
-            _ => {
-                return fetch_edge::Case::from_id(id)
-                    .map(Self::FetchEdge)
-                    .or_else(|| guard::Case::from_id(id).map(Self::Guard))
-                    .or_else(|| input::Case::from_id(id).map(Self::Input))
-                    .or_else(|| routes::Case::from_id(id).map(Self::Route))
-                    .or_else(|| sessions::Case::from_id(id).map(Self::Session))
-                    .or_else(|| clean_up::Case::from_id(id).map(Self::CleanUp))
-                    .or_else(|| events::Case::from_id(id).map(Self::Events))
-                    .or_else(|| consent::Case::from_id(id).map(Self::Consent))
-                    .or_else(|| reset::Case::from_id(id).map(Self::Reset))
-                    .or_else(|| run_start::Case::from_id(id).map(Self::RunStart))
-                    .or_else(|| two_copies::Case::from_id(id).map(Self::TwoCopies))
-                    .or_else(|| schedules::Case::from_id(id).map(Self::Schedule))
-                    .or_else(|| service_workers::Case::from_id(id).map(Self::ServiceWorker))
-                    .or_else(|| prerender::Case::from_id(id).map(Self::Prerender))
-                    .or_else(|| page_request::Case::from_id(id).map(Self::PageRequest))
-                    .or_else(|| fetch_tiers::Case::from_id(id).map(Self::FetchTier))
-                    .or_else(|| dialogs::Case::from_id(id).map(Self::Dialog))
-                    .or_else(|| popups::Case::from_id(id).map(Self::Popup))
-                    .or_else(|| page_functions::Case::from_id(id).map(Self::PageFunction))
-                    .or_else(|| read::Case::from_id(id).map(Self::Read))
-                    .or_else(|| waits::Case::from_id(id).map(Self::Wait))
-                    .or_else(|| robots_txt::Case::from_id(id).map(Self::RobotsTxt))
-                    .or_else(|| formats::references::Case::from_id(id).map(Self::References))
-                    .or_else(|| formats::structured::Case::from_id(id).map(Self::Structured))
-                    .or_else(|| formats::extractor::Case::from_id(id).map(Self::Extractor));
-            }
+            _ => return Self::of_module(id),
         })
+    }
+
+    /// The case a suite's case ID names among those a module of its own
+    /// holds.
+    fn of_module(id: &str) -> Option<Self> {
+        fetch_edge::Case::from_id(id)
+            .map(Self::FetchEdge)
+            .or_else(|| guard::Case::from_id(id).map(Self::Guard))
+            .or_else(|| input::Case::from_id(id).map(Self::Input))
+            .or_else(|| routes::Case::from_id(id).map(Self::Route))
+            .or_else(|| sessions::Case::from_id(id).map(Self::Session))
+            .or_else(|| clean_up::Case::from_id(id).map(Self::CleanUp))
+            .or_else(|| events::Case::from_id(id).map(Self::Events))
+            .or_else(|| consent::Case::from_id(id).map(Self::Consent))
+            .or_else(|| reset::Case::from_id(id).map(Self::Reset))
+            .or_else(|| run_start::Case::from_id(id).map(Self::RunStart))
+            .or_else(|| two_copies::Case::from_id(id).map(Self::TwoCopies))
+            .or_else(|| schedules::Case::from_id(id).map(Self::Schedule))
+            .or_else(|| service_workers::Case::from_id(id).map(Self::ServiceWorker))
+            .or_else(|| prerender::Case::from_id(id).map(Self::Prerender))
+            .or_else(|| page_request::Case::from_id(id).map(Self::PageRequest))
+            .or_else(|| fetch_tiers::Case::from_id(id).map(Self::FetchTier))
+            .or_else(|| dialogs::Case::from_id(id).map(Self::Dialog))
+            .or_else(|| popups::Case::from_id(id).map(Self::Popup))
+            .or_else(|| page_functions::Case::from_id(id).map(Self::PageFunction))
+            .or_else(|| read::Case::from_id(id).map(Self::Read))
+            .or_else(|| waits::Case::from_id(id).map(Self::Wait))
+            .or_else(|| robots_txt::Case::from_id(id).map(Self::RobotsTxt))
+            .or_else(|| response_cache::Case::from_id(id).map(Self::ResponseCache))
+            .or_else(|| formats::references::Case::from_id(id).map(Self::References))
+            .or_else(|| formats::structured::Case::from_id(id).map(Self::Structured))
+            .or_else(|| formats::extractor::Case::from_id(id).map(Self::Extractor))
+            .or_else(|| http_listener::Case::from_id(id).map(Self::HttpListener))
+            .or_else(|| launch::Case::from_id(id).map(Self::Launch))
+            .or_else(|| stealth::Case::from_id(id).map(Self::Stealth))
     }
 
     /// Runs the case on the open Connection to `target`, whose `hello` the
@@ -694,6 +712,7 @@ impl Case {
             Self::Read(case) => case.run(connection, site, checks),
             Self::Wait(case) => case.run(connection, site, checks),
             Self::RobotsTxt(case) => case.run(connection, target, site, checks),
+            Self::ResponseCache(case) => case.run(connection, site, checks),
             Self::MarkdownMatchesTheOracle => {
                 formats::markdown_matches_the_oracle(connection, site, None, checks)
             }
@@ -730,10 +749,10 @@ impl Case {
             }
             Self::References(case) => case.run(connection, site, checks),
             Self::Structured(case) => case.run(connection, site, checks),
-            Self::HeadlessIdentity => launch::headless_identity(connection, site, checks),
-            Self::BackgroundTimer => launch::background_timer(connection, site, checks),
             Self::Guard(case) => case.run(connection, site, checks),
             Self::Input(case) => case.run(connection, target, site, checks),
+            Self::Launch(case) => case.run(connection, site, checks),
+            Self::Stealth(case) => case.run(connection, site, checks),
             Self::Route(case) => case.run(connection, site, checks),
             Self::Session(case) => case.run(connection, target, site, checks),
             Self::CleanUp(case) => case.run(connection, target, site, checks),
@@ -756,6 +775,7 @@ impl Case {
                 site,
                 checks,
             ),
+            Self::HttpListener(case) => case.run(connection, target, checks),
         }
     }
 }

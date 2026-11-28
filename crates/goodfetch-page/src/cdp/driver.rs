@@ -35,6 +35,7 @@
 
 mod carry;
 pub(crate) mod cdp_response;
+mod emulation;
 mod ending;
 mod gestures;
 mod hidden_pages;
@@ -54,7 +55,9 @@ use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::Duration;
 
-use goodfetch_cdp::generated::{browser, emulation, network, page, target};
+use goodfetch_cdp::generated::{
+    browser, emulation as cdp_emulation, network, page, storage, target,
+};
 use goodfetch_cdp::{
     Command, Connection, Failure, SessionId as TargetSession, Subscription, SubscriptionEnd,
 };
@@ -78,20 +81,22 @@ use tokio_util::sync::CancellationToken;
 
 pub(crate) use self::carry::{Carried, Origins, Watcher};
 pub(crate) use self::ending::{ENDING_KNOWN_WITHIN, Lost};
+pub(crate) use self::gestures::GestureWatch;
 use self::hidden_pages::HiddenPages;
 pub(crate) use self::navigation::{Arrived, browser_id, hop_id};
 use self::page_reader::PageReader;
 use self::permit_waits::PermitWaits;
 pub(crate) use self::popups::{OnPopup, PopupHandler};
 pub(crate) use self::service_workers::{OnWorker, ServiceWorkers};
-pub(crate) use self::targets::pointer_click;
+pub(crate) use self::targets::{mouse_event, pointer_click};
 use super::borrowed::{self, CdpUrl};
 use super::failures::call_error;
-use super::launch::{Launcher, launch};
+use super::launch::{Launcher, Window, launch};
 use super::{FrameId, TargetId};
 use crate::browser_run::BrowserRun;
 use crate::egress_relay::EgressRelay;
 use crate::egress_relay::authority::Authority;
+use crate::emulation::SessionEmulation;
 use crate::errors::Call;
 use crate::page_value::{self, PageValue};
 use crate::proxy::{ProxyPermit, SessionProxy};
@@ -187,6 +192,9 @@ pub(crate) struct Browser {
     executable: String,
     /// The identity a headless browser's pages show; `None` with a window.
     identity: Option<Identity>,
+    /// What it reports as its product, such as
+    /// `HeadlessChrome/131.0.6778.85`, once it answered.
+    product: Option<Arc<str>>,
     /// Its process's ID.
     process: Option<u32>,
     /// Cancelled once the engine closes it, so its exit is not a loss.
@@ -244,6 +252,8 @@ struct BrowserState {
     service_workers: service_workers::ServiceWorkerChoices,
     /// What each browser context does with the popups its pages open.
     popups: popups::Popups,
+    /// Each browser context's Session emulation settings, for popups.
+    emulations: self::emulation::ContextEmulations,
     /// Its hidden pages still open, by their browser context.
     hidden: HiddenPages,
     /// Cancelled once a task of its owner panicked: the engine treats the
@@ -262,6 +272,7 @@ impl Browser {
             exit: watch::channel(None).1,
             executable: "played".to_owned(),
             identity: None,
+            product: None,
             process: None,
             closing: CancellationToken::new(),
             launched: true,
@@ -452,6 +463,129 @@ impl Browser {
             executable: self.executable.clone(),
         }
     }
+
+    /// Sends `Emulation.setUserAgentOverride` carrying the headless window
+    /// identity (when present) and `browser.locale` as `acceptLanguage`. On
+    /// headful Chromium and `chrome-headless-shell` (`identity: None`), sends
+    /// an empty `userAgent` (leaving Chromium's UA intact) whenever `locale`
+    /// is set or `force_all` restores after a Lent page's attach ends.
+    async fn apply_identity_locale(
+        &self,
+        session: &TargetSession,
+        emulation: &SessionEmulation,
+        call: &Call,
+        force_all: bool,
+    ) -> Result<(), CallError> {
+        if let Some(identity) = &self.identity {
+            return self
+                .send(
+                    Some(session),
+                    &identity.command(emulation.locale.as_deref()),
+                    call,
+                )
+                .await
+                .map(drop);
+        }
+        if !emulation.is_borrowed() && (force_all || emulation.locale.is_some()) {
+            return self
+                .send(
+                    Some(session),
+                    &cdp_emulation::SetUserAgentOverrideParams {
+                        user_agent: String::new(),
+                        accept_language: emulation.locale.clone(),
+                        platform: None,
+                        user_agent_metadata: None,
+                    },
+                    call,
+                )
+                .await
+                .map(drop);
+        }
+        Ok(())
+    }
+
+    /// Sends the planned emulation commands for `emulation` on page target
+    /// `session`. Sends zero commands at default headless settings when
+    /// `force_all` is `false`.
+    async fn apply_emulation(
+        &self,
+        session: &TargetSession,
+        emulation: &SessionEmulation,
+        call: &Call,
+        force_all: bool,
+    ) -> Result<(), CallError> {
+        for command in self::emulation::page_commands(emulation, force_all) {
+            match command {
+                self::emulation::PageCommand::SetDeviceMetricsOverride(params) => {
+                    self.send(Some(session), &*params, call).await?;
+                }
+                self::emulation::PageCommand::ClearDeviceMetricsOverride(params) => {
+                    self.send(Some(session), &params, call).await?;
+                }
+                self::emulation::PageCommand::SetTouchEmulationEnabled(params) => {
+                    self.send(Some(session), &params, call).await?;
+                }
+                self::emulation::PageCommand::SetEmulatedMedia(params) => {
+                    self.send(Some(session), &params, call).await?;
+                }
+                self::emulation::PageCommand::SetScriptExecutionDisabled(params) => {
+                    self.send(Some(session), &params, call).await?;
+                }
+                self::emulation::PageCommand::SetLocaleOverride(params) => {
+                    self.send(Some(session), &params, call).await?;
+                }
+                self::emulation::PageCommand::SetTimezoneOverride(params) => {
+                    self.send(Some(session), &params, call).await?;
+                }
+                self::emulation::PageCommand::SetGeolocationOverride(params) => {
+                    self.send(Some(session), &params, call).await?;
+                }
+                self::emulation::PageCommand::ClearGeolocationOverride(params) => {
+                    self.send(Some(session), &params, call).await?;
+                }
+                self::emulation::PageCommand::EmulateNetworkConditions(params) => {
+                    self.send(Some(session), &params, call).await?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Grants `emulation.permissions` on `context` (`Browser.grantPermissions`).
+    /// Sends zero commands when the Session is borrowed or declares none.
+    async fn grant_permissions(
+        &self,
+        context: &browser::BrowserContextID,
+        emulation: &SessionEmulation,
+        call: &Call,
+    ) -> Result<(), CallError> {
+        if let Some(params) = self::emulation::grant_permissions_command(context, emulation) {
+            self.send(None, &params, call).await?;
+        }
+        Ok(())
+    }
+
+    /// Resets any permission overrides an attached library may have changed
+    /// on `context`, then re-grants `emulation.permissions`.
+    async fn reset_and_grant_permissions(
+        &self,
+        context: &browser::BrowserContextID,
+        emulation: &SessionEmulation,
+        call: &Call,
+    ) -> Result<(), CallError> {
+        if emulation.is_borrowed() {
+            return Ok(());
+        }
+        self.send(
+            None,
+            &browser::ResetPermissionsParams {
+                browser_context_id: Some(context.clone()),
+            },
+            call,
+        )
+        .await?;
+        self.grant_permissions(context, emulation, call).await
+    }
 }
 
 /// The primitive each browser behind a Session fills (ADR 0129): its CDP
@@ -625,11 +759,12 @@ impl Connect for BorrowedBrowser {
                 let tasks = self.run.identity.starting_on(&self.owner);
                 let connection = borrowed::connect((&self.run, &tasks), &self.cdp_url).await?;
                 let address = self.cdp_url.address();
-                let browser = Browser {
+                let mut browser = Browser {
                     connection,
                     exit: self.exit.clone(),
                     executable: address,
                     identity: None,
+                    product: None,
                     process: None,
                     closing: self.owner.child_token(),
                     launched: false,
@@ -641,9 +776,10 @@ impl Connect for BorrowedBrowser {
                     work: self.run.identity.metrics().counted_work().clone(),
                 };
                 // The first answer says a browser speaks CDP there.
-                browser
+                let version = browser
                     .send(None, &browser::GetVersionParams {}, &browser.launching())
                     .await?;
+                browser.product = Some(Arc::from(version.product));
                 service_workers::start(&browser, &tasks).await?;
                 Ok(browser)
             })
@@ -657,14 +793,15 @@ impl Connect for BorrowedBrowser {
 }
 
 /// A browser the engine launches for a Run, numbered in the Run's browser
-/// pool, on the first Session that needs it; it closes when the Run stops
-/// or the pool closes it.
+/// pool, on the first Session that needs it, showing its pages as its
+/// window says; it closes when the Run stops or the pool closes it.
 pub(crate) struct LocalBrowser {
     run: Arc<BrowserRun>,
     launcher: Launcher,
     home: Home,
     pins: Pins,
     number: u64,
+    window: Window,
     /// The browser's owner, beside its Run's Sessions (ADR 0146): it
     /// supervises the browser's process, reads its own events and holds
     /// every task started for it, so its stop closes the browser and ends
@@ -693,7 +830,7 @@ impl LocalBrowser {
         (run, launcher): (Arc<BrowserRun>, Launcher),
         home: Home,
         pins: Pins,
-        number: u64,
+        (number, window): (u64, Window),
         authority: Option<Arc<Authority>>,
         (gpc, profile): (bool, Option<crate::profile_directory::ProfileDirectory>),
     ) -> Self {
@@ -704,6 +841,7 @@ impl LocalBrowser {
             home,
             pins,
             number,
+            window,
             owner,
             state: Arc::default(),
             launched: OnceCell::new(),
@@ -800,6 +938,7 @@ impl Connect for LocalBrowser {
                     (&self.launcher, &self.home, &self.pins),
                     (
                         self.number,
+                        self.window,
                         self.authority.as_deref().map(Authority::spki_sha256),
                         self.gpc,
                         self.profile.as_ref(),
@@ -814,6 +953,7 @@ impl Connect for LocalBrowser {
                     exit: launched.exit,
                     executable: launched.executable.display().to_string(),
                     identity: None,
+                    product: None,
                     process: launched.process,
                     closing: attempt,
                     launched: true,
@@ -846,6 +986,7 @@ impl Connect for LocalBrowser {
                     &version.product,
                 )
                 .await;
+                browser.product = Some(Arc::from(version.product));
                 service_workers::start(&browser, &tasks).await?;
                 coming_up.up();
                 Ok(browser)
@@ -894,6 +1035,7 @@ pub(crate) struct SessionEgress {
 pub(crate) struct SessionDriver<B> {
     browser: B,
     egress: SessionEgress,
+    emulation: SessionEmulation,
     context: OnceCell<browser::BrowserContextID>,
     /// The pages it opened in a Borrowed browser's default context, which
     /// its close closes.
@@ -913,11 +1055,12 @@ impl SessionDriver<Behind> {
 
 impl<B: Connect> SessionDriver<B> {
     /// The driver of a Session of `browser` whose requests leave through
-    /// `egress`.
-    pub(crate) fn new(browser: B, egress: SessionEgress) -> Self {
+    /// `egress` and whose pages run under `emulation`.
+    pub(crate) fn new(browser: B, egress: SessionEgress, emulation: SessionEmulation) -> Self {
         Self {
             browser,
             egress,
+            emulation,
             context: OnceCell::new(),
             opened: Mutex::new(Vec::new()),
         }
@@ -941,7 +1084,7 @@ impl<B: Connect> SessionDriver<B> {
                     let contexts = browser
                         .send(None, &target::GetBrowserContextsParams {}, &opening)
                         .await?;
-                    return contexts.default_browser_context_id.ok_or_else(|| {
+                    let default = contexts.default_browser_context_id.ok_or_else(|| {
                         CallError::new(
                             &goodfetch_protocol::page::BROWSER_LAUNCH_FAILED,
                             "the Borrowed browser names no default browser context",
@@ -950,7 +1093,12 @@ impl<B: Connect> SessionDriver<B> {
                                 exit: None,
                             },
                         )
-                    });
+                    })?;
+                    browser
+                        .state
+                        .emulations
+                        .remember(&default, SessionEmulation::borrowed());
+                    return Ok(default);
                 }
                 // Through its egress relay, every connection, loopback's
                 // included; else through its proxy, if it has one.
@@ -965,7 +1113,7 @@ impl<B: Connect> SessionDriver<B> {
                         }
                         (None, None) => (None, None),
                     };
-                browser
+                let created = browser
                     .send(
                         None,
                         &target::CreateBrowserContextParams {
@@ -975,14 +1123,56 @@ impl<B: Connect> SessionDriver<B> {
                         },
                         &opening,
                     )
+                    .await?;
+                browser.work.count(Row::ContextsCreated);
+                if let Err(error) = browser
+                    .grant_permissions(&created.browser_context_id, &self.emulation, &opening)
                     .await
-                    .map(|created| {
-                        browser.work.count(Row::ContextsCreated);
-                        created.browser_context_id
-                    })
+                {
+                    let _ = browser
+                        .try_send(
+                            None,
+                            &target::DisposeBrowserContextParams {
+                                browser_context_id: created.browser_context_id,
+                            },
+                        )
+                        .await;
+                    return Err(error);
+                }
+                browser
+                    .state
+                    .emulations
+                    .remember(&created.browser_context_id, self.emulation.clone());
+                Ok(created.browser_context_id)
             })
             .await
             .cloned()
+    }
+
+    /// Re-applies this Session's device emulation, network throttling and
+    /// headless identity to `page` after a Lent page's attach ends
+    /// (ADRs 0083 and 0089; spec #578, ticket #3289).
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "called by the Lent page attach driver once A05-55 wires it"
+        )
+    )]
+    pub(crate) async fn reapply_after_attach(&self, page: &PageDriver) -> Result<(), CallError> {
+        if self.emulation.is_borrowed() {
+            return Ok(());
+        }
+        let call = page.browser.opening();
+        page.browser
+            .reset_and_grant_permissions(&page.context, &self.emulation, &call)
+            .await?;
+        page.browser
+            .apply_identity_locale(&page.session, &self.emulation, &call, true)
+            .await?;
+        page.browser
+            .apply_emulation(&page.session, &self.emulation, &call, true)
+            .await
     }
 
     /// Closes the Session's browser context, and with it every page in it,
@@ -998,7 +1188,7 @@ impl<B: Connect> SessionDriver<B> {
         let Ok(browser) = self.browser.connect().await else {
             return;
         };
-        // Its service workers' choice goes with it, and what that holds.
+        // Its service workers' choice and emulation go with it.
         browser.state.service_workers.forget(context);
         if self.browser.borrowed() {
             for target_id in std::mem::take(&mut *self.opened.lock().await) {
@@ -1011,6 +1201,7 @@ impl<B: Connect> SessionDriver<B> {
             }
             return;
         }
+        browser.state.emulations.forget(context);
         // Closed, each one's target detaches, and its commands in flight
         // fail at once.
         for target_id in browser.state.hidden.take(context) {
@@ -1061,6 +1252,12 @@ impl<B: Connect> SessionDriver<B> {
                     browser_context_id: (!self.browser.borrowed()).then(|| context.clone()),
                     left: None,
                     top: None,
+                    // Never pass `width`/`height` here: Chromium refuses them
+                    // (-32602) on the second tab in an existing browser
+                    // context unless `new_window` is true. Default headless
+                    // sizing comes from `--window-size=1280,720` at launch,
+                    // and non-default viewports use
+                    // `Emulation.setDeviceMetricsOverride`.
                     width: None,
                     height: None,
                     window_state: None,
@@ -1083,7 +1280,9 @@ impl<B: Connect> SessionDriver<B> {
         }
         let prepared = async {
             let session = browser.attach_own(&created.target_id, &opening).await?;
-            prepare(&browser, &session).await.map(|()| session)
+            prepare(&browser, &session, &self.emulation)
+                .await
+                .map(|()| session)
         };
         // A target the page never became is closed, so no tab is left
         // outside the Session's pages and the governor's count.
@@ -1127,20 +1326,22 @@ impl<B: Connect> SessionDriver<B> {
 /// engine, before it runs anything of its own: it reports itself focused,
 /// shows its browser's identity, reports its frames' lifecycle and its
 /// network, and holds the guard's world's marker.
-async fn prepare(browser: &Browser, session: &TargetSession) -> Result<(), CallError> {
+async fn prepare(
+    browser: &Browser,
+    session: &TargetSession,
+    emulation: &SessionEmulation,
+) -> Result<(), CallError> {
     let opening = browser.opening();
     browser
         .send(
             Some(session),
-            &emulation::SetFocusEmulationEnabledParams { enabled: true },
+            &cdp_emulation::SetFocusEmulationEnabledParams { enabled: true },
             &opening,
         )
         .await?;
-    if let Some(identity) = &browser.identity {
-        browser
-            .send(Some(session), &identity.command(), &opening)
-            .await?;
-    }
+    browser
+        .apply_identity_locale(session, emulation, &opening, false)
+        .await?;
     browser
         .send(Some(session), &page::EnableParams::default(), &opening)
         .await?;
@@ -1153,6 +1354,9 @@ async fn prepare(browser: &Browser, session: &TargetSession) -> Result<(), CallE
         .await?;
     browser
         .send(Some(session), &network::EnableParams::default(), &opening)
+        .await?;
+    browser
+        .apply_emulation(session, emulation, &opening, false)
         .await?;
     browser
         .send(
@@ -1282,6 +1486,12 @@ impl PageDriver {
     /// Whether `target` is the page's target.
     pub(crate) fn is_target(&self, target: &TargetId) -> bool {
         self.frame == target.0
+    }
+
+    /// What its browser reports as its product, such as
+    /// `HeadlessChrome/131.0.6778.85`.
+    pub(crate) fn browser_product(&self) -> Option<&str> {
+        self.browser.product.as_deref()
     }
 
     /// Its Session's proxy, if it has one.
@@ -1634,6 +1844,21 @@ impl PageDriver {
     /// request may be gone.
     pub(crate) async fn command<C: Command>(&self, params: &C) -> Result<C::Returns, Failure> {
         self.browser.try_send(Some(&self.session), params).await
+    }
+
+    /// The cookies of the page's browser context, as the browser holds them
+    /// now, asked of the browser: a shared or service worker's target
+    /// answers no `Network.getCookies`.
+    pub(crate) async fn context_cookies(&self) -> Result<Vec<network::Cookie>, Failure> {
+        self.browser
+            .try_send(
+                None,
+                &storage::GetCookiesParams {
+                    browser_context_id: Some(self.context.clone()),
+                },
+            )
+            .await
+            .map(|found| found.cookies)
     }
 
     /// The Error code `failure` raises from `call`, naming how the browser

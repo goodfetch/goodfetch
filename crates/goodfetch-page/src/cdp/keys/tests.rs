@@ -238,6 +238,36 @@ fn a_combinations_keys_are_its_modifiers_then_its_key() {
     assert_eq!(names, ["Control", "Shift", "a"]);
 }
 
+#[rstest]
+#[case::select_all("ControlOrMeta+a", Some("selectAll"))]
+#[case::copy("ControlOrMeta+c", Some("copy"))]
+#[case::paste("ControlOrMeta+v", Some("paste"))]
+#[case::cut("ControlOrMeta+x", Some("cut"))]
+#[case::plain_letter("a", None)]
+fn primary_editing_shortcuts_carry_blink_editing_commands(
+    #[case] combination: &str,
+    #[case] expected: Option<&str>,
+) {
+    let pressed = events(combination).unwrap().0;
+    let letter = pressed
+        .iter()
+        .find(|event| {
+            matches!(
+                event.r#type,
+                DispatchKeyEventType::RawKeyDown | DispatchKeyEventType::KeyDown
+            ) && event
+                .code
+                .as_deref()
+                .is_some_and(|code| code.starts_with("Key"))
+        })
+        .unwrap();
+
+    assert_eq!(
+        letter.commands.clone(),
+        expected.map(|command| vec![command.to_owned()])
+    );
+}
+
 proptest! {
     /// Whatever modifiers a combination holds, every key pressed is
     /// released, the modifiers after the key in the reverse order, and no

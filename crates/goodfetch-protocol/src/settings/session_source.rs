@@ -165,6 +165,24 @@ impl SessionSource {
         }
     }
 
+    /// Whether a `session.source` `kind` carries another browser's identity
+    /// (an imported login or a Profile directory used in place), fixing
+    /// `browser.locale` and `browser.timezone_id` (ADRs 0021, 0056 and 0083).
+    #[must_use]
+    pub fn kind_carries_an_identity(kind: &str) -> bool {
+        matches!(
+            kind,
+            "state_file" | "cookie_header" | "installed_browser" | "profile_directory"
+        )
+    }
+
+    /// Whether this source carries another browser's identity: an import,
+    /// or a Profile directory used in place.
+    #[must_use]
+    pub fn carries_an_identity(&self) -> bool {
+        Self::kind_carries_an_identity(self.kind())
+    }
+
     /// The registrable domains its kind lists in `domains`, as written;
     /// none for a kind without them or a source that leaves them out.
     pub fn domains(&self) -> &[String] {

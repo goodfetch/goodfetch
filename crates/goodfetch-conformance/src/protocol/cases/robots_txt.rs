@@ -1,10 +1,12 @@
 //! The page suite's robots.txt reading cases (ADRs 0086 and 0098, spec
-//! #580, ticket #789): a Collie program's own navigation reads the site's
-//! robots.txt and records in Provenance whether each page was allowed,
-//! naming the group and the rule that disallowed it, and never gates,
-//! counts or delays the navigation. Each Run reads an origin's robots.txt
-//! once, into a copy of its own: the Goodfetch home holds no copy of the
-//! file outside the Run's folder, where Foxhound's shared copy would be.
+//! #580, tickets #789 and #2448): with
+//! `site_preferences.read_robots_txt_for_navigation` on, a Collie program's
+//! own navigation reads the site's robots.txt and records in Provenance
+//! whether each page was allowed, naming the group and the rule that
+//! disallowed it, and never gates, counts or delays the navigation. Each
+//! Run reads an origin's robots.txt once, into a copy of its own: the
+//! Goodfetch home holds no copy of the file outside the Run's folder, where
+//! Foxhound's shared copy would be. With nothing set, nothing is read.
 //!
 //! The site is the `access-policy` family's first task's host, whose robots.txt
 //! disallows `/private/` to every crawler in its `*` group and asks for a
@@ -62,6 +64,7 @@ pub(crate) enum Case {
     EveryDocumentIsRecorded,
     PageRequestIsRecorded,
     NotReadIsNotKept,
+    NothingSetReadsNothing,
 }
 
 impl Case {
@@ -87,6 +90,9 @@ impl Case {
             "a-reading-a-closed-session-cut-short-is-not-read-and-the-next-document-reads-the-file" => {
                 Self::NotReadIsNotKept
             }
+            "with-nothing-set-a-goto-and-a-page-request-read-no-robots-txt-and-record-none" => {
+                Self::NothingSetReadsNothing
+            }
             _ => return None,
         })
     }
@@ -107,8 +113,96 @@ impl Case {
             Self::EveryDocumentIsRecorded => every_document(connection, target, site, checks),
             Self::PageRequestIsRecorded => page_request(connection, target, site, checks),
             Self::NotReadIsNotKept => not_read(connection, target, site, checks),
+            Self::NothingSetReadsNothing => nothing_set(connection, target, site, checks),
         }
     }
+}
+
+/// A Run's settings with `site_preferences.read_robots_txt_for_navigation`
+/// on, under which a program's own navigation reads robots.txt: every case
+/// but [`nothing_set`] runs with it.
+fn reading_on() -> Value {
+    json!({ "site_preferences": { "read_robots_txt_for_navigation": true } })
+}
+
+/// With nothing set, a Run's `goto` to a page robots.txt disallows and to
+/// one it allows, and its `page.request` of another, all answer, and none
+/// reads the site's robots.txt: the site receives no request for it from
+/// that Run and its Provenance holds no reading. A second Run with
+/// `site_preferences.read_robots_txt_for_navigation` on, started after the
+/// first's calls answered and while it is still open, then reads the file
+/// once, so a reading the first had started would have reached the site
+/// by then.
+fn nothing_set(
+    connection: &mut Connection,
+    target: &EngineTarget,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let (unset, set) = (
+        "conformance-robots-txt-nothing-set",
+        "conformance-robots-txt-nothing-set-then-on",
+    );
+    let (disallowed, allowed, requested) = (
+        site.named_url(HOST, DISALLOWED),
+        site.named_url(HOST, ALLOWED),
+        site.named_url(HOST, REQUESTED),
+    );
+    let before = robots_txt_requests(site);
+    start_run(connection, site, unset, &json!({}), checks)?;
+    let Some(page) = new_page(connection, unset, checks)? else {
+        return finish_run(connection, unset);
+    };
+    let page_id = json!(page.page_id);
+    for url in [&disallowed, &allowed] {
+        let answer = call(connection, PAGE_GOTO.name, &page_id, &json!({ "url": url }))?;
+        answered(&answer, &format!("`goto` to {url}"), url, 200, checks);
+    }
+    let answer = call(
+        connection,
+        PAGE_REQUEST.name,
+        &page_id,
+        &json!({ "url": requested }),
+    )?;
+    checks.check(
+        "the `page.request` answers its response",
+        answer["result"]["url"] == json!(requested),
+    );
+    start_run(connection, site, set, &reading_on(), checks)?;
+    if let Some(later) = new_page(connection, set, checks)? {
+        let answer = call(
+            connection,
+            PAGE_GOTO.name,
+            &json!(later.page_id),
+            &json!({ "url": allowed }),
+        )?;
+        answered(
+            &answer,
+            &format!("the second Run's `goto` to {allowed}"),
+            &allowed,
+            200,
+            checks,
+        );
+        let read = readings(target, set, 1, checks);
+        checks.check(
+            "the second Run, with the setting on, records its reading",
+            read.len() == 1,
+        );
+    }
+    finish_run(connection, set)?;
+    finish_run(connection, unset)?;
+    checks.check(
+        "the site receives one robots.txt request, the second Run's, and none from the Run with nothing set",
+        robots_txt_requests(site) - before == 1,
+    );
+    let recorded = checks.run_trace(run_trace::provenance(target, unset));
+    checks.check(
+        "the Run with nothing set records no robots.txt reading in Provenance",
+        !recorded
+            .iter()
+            .any(|entry| entry["action"] == json!(ACTION)),
+    );
+    Ok(())
 }
 
 /// A `goto` to the page robots.txt disallows loads with its `200`, and to
@@ -125,7 +219,7 @@ fn disallowed(
         site.named_url(HOST, DISALLOWED),
         site.named_url(HOST, ALLOWED),
     );
-    start_run(connection, site, run_id, &json!({}), checks)?;
+    start_run(connection, site, run_id, &reading_on(), checks)?;
     let Some(page) = new_page(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
     };
@@ -187,7 +281,8 @@ fn past_the_size(
     let url = site.named_url(PAST_THE_SIZE_HOST, "/page");
     // 1 MiB, so the read reaches the limit within a few chunks however
     // loaded the machine.
-    let settings = json!({ "network": { "max_body_size": 1_048_576 } });
+    let mut settings = reading_on();
+    settings["network"] = json!({ "max_body_size": 1_048_576 });
     start_run(connection, site, run_id, &settings, checks)?;
     let Some(page) = new_page(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
@@ -226,7 +321,7 @@ fn two_tabs(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Re
         site.named_url(HOST, ALLOWED),
         site.named_url(HOST, DISALLOWED),
     );
-    start_run(connection, site, run_id, &json!({}), checks)?;
+    start_run(connection, site, run_id, &reading_on(), checks)?;
     let first = new_page(connection, run_id, checks)?;
     let second = new_page(connection, run_id, checks)?;
     let (Some(first), Some(second)) = (first, second) else {
@@ -286,7 +381,7 @@ fn own_copy(
     ];
     for (number, run_id) in run_ids.iter().enumerate() {
         let before = robots_txt_requests(site);
-        start_run(connection, site, run_id, &json!({}), checks)?;
+        start_run(connection, site, run_id, &reading_on(), checks)?;
         let Some(page) = new_page(connection, run_id, checks)? else {
             return finish_run(connection, run_id);
         };
@@ -340,7 +435,7 @@ fn every_document(
         site.named_url(HOST, CLICKED),
         site.named_url(HOST, SCRIPTED),
     );
-    start_run(connection, site, run_id, &json!({}), checks)?;
+    start_run(connection, site, run_id, &reading_on(), checks)?;
     let Some(page) = new_page(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
     };
@@ -419,7 +514,7 @@ fn page_request(
 ) -> Result<(), Gone> {
     let run_id = "conformance-robots-txt-page-request";
     let requested = site.named_url(HOST, REQUESTED);
-    start_run(connection, site, run_id, &json!({}), checks)?;
+    start_run(connection, site, run_id, &reading_on(), checks)?;
     let Some(page) = new_page(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
     };
@@ -463,7 +558,7 @@ fn not_read(
 ) -> Result<(), Gone> {
     let run_id = "conformance-robots-txt-not-read";
     let allowed = site.named_url(SLOW_ROBOTS_HOST, ALLOWED);
-    start_run(connection, site, run_id, &json!({}), checks)?;
+    start_run(connection, site, run_id, &reading_on(), checks)?;
     let Some(first) = page_in_new_session(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
     };

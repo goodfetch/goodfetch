@@ -495,6 +495,10 @@
           },
           {
             "commands": [],
+            "name": "preview"
+          },
+          {
+            "commands": [],
             "name": "info"
           },
           {
@@ -1040,6 +1044,10 @@
           {
             "commands": [],
             "name": "get"
+          },
+          {
+            "commands": [],
+            "name": "preview"
           },
           {
             "commands": [],

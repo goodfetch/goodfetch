@@ -24,12 +24,13 @@ use std::time::{Duration, SystemTime};
 use bytes::Bytes;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::formats::Compatibility;
+use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::storage::StorageLevel;
 use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;
 
-use super::{Bounds, CacheRequest, Hit, Lookup, Partition, ResponseCache, ResponseHead};
+use super::{Bounds, CacheRequest, Hit, Keeper, Lookup, Partition, ResponseCache, ResponseHead};
 use crate::governor::{Filesystem, Governor, StorageSample};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
@@ -405,6 +406,111 @@ async fn a_response_varying_on_cookie_is_keyed_on_it() {
         hit(cache.lookup(&ada(), &request, at(1)).await).body,
         body()
     );
+}
+
+/// Ada's partition, kept by `keeper`.
+fn kept_by(keeper: Keeper) -> Partition {
+    Partition {
+        keeper: Some(keeper),
+        ..ada()
+    }
+}
+
+/// Ada's partition in the Session `session` of the Run `run`, which has
+/// no Saved identity.
+fn in_session(run: &str, session: &str) -> Partition {
+    kept_by(Keeper::Session {
+        run_id: RunId::parse(run).unwrap(),
+        session_id: SessionId(session.to_owned()),
+    })
+}
+
+/// Ada's partition under the Saved identity `name`.
+fn as_identity(name: &str) -> Partition {
+    kept_by(Keeper::SavedIdentity(name.to_owned()))
+}
+
+/// What a lookup of `request` a second after the start serves to
+/// `partition`: the body of a fresh hit, or none.
+async fn served_to(
+    cache: &ResponseCache,
+    partition: &Partition,
+    request: &CacheRequest,
+) -> Option<Bytes> {
+    match cache.lookup(partition, request, at(1)).await {
+        Lookup::Fresh(hit) => Some(hit.body),
+        _ => None,
+    }
+}
+
+/// A logged-in page, fetched with a cookie, is kept in its Session's own
+/// partition, or its Saved identity's, and served to that keeper alone:
+/// never to another Session, another Run's, an anonymous one or another
+/// identity. A page that carries nothing of a person's, fetched by the
+/// same Session, is public and served to all of them.
+/// Covers: story:6-39
+#[tokio::test]
+async fn a_logged_in_page_is_served_to_its_own_keeper_only() {
+    let env = TestEnv::new();
+    let cache = cache(&env);
+    let account = get("/account", &[("cookie", "sid=1")]);
+    let public = get("/page", &[]);
+    for (partition, request, body) in [
+        (in_session("r1", "s1"), &account, "session"),
+        (as_identity("work"), &account, "identity"),
+        (in_session("r1", "s1"), &public, "public"),
+    ] {
+        assert!(
+            cache
+                .store(
+                    &partition,
+                    request,
+                    &minute(),
+                    Bytes::from(body),
+                    None,
+                    start()
+                )
+                .await
+        );
+    }
+    let askers = [
+        in_session("r1", "s1"),
+        in_session("r1", "s2"),
+        in_session("r2", "s1"),
+        ada(),
+        as_identity("work"),
+        as_identity("home"),
+    ];
+
+    let mut answers = Vec::new();
+    for asker in &askers {
+        answers.push((
+            served_to(&cache, asker, &account).await,
+            served_to(&cache, asker, &public).await,
+        ));
+    }
+
+    let page = |body: &'static str| Some(Bytes::from(body));
+    assert_eq!(
+        answers,
+        [
+            (page("session"), page("public")),
+            (None, page("public")),
+            (None, page("public")),
+            (None, page("public")),
+            (page("identity"), page("public")),
+            (None, page("public")),
+        ]
+    );
+    let connection = Connection::open(folder(&env).join("index.sqlite")).unwrap();
+    let partitions: Vec<String> = connection
+        .prepare("SELECT partition FROM entries ORDER BY partition")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(partitions, ["public", "session:r1:s1", "work"]);
 }
 
 /// One body shared by two entries is stored once, under its SHA-256; an

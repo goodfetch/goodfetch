@@ -33,6 +33,7 @@ rstest.workspace = true
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 tokio = { workspace = true, features = ["rt", "time", "net"] }
 tokio-rustls = { workspace = true, features = ["ring"] }
+goodfetch-dev-workspace-hack.workspace = true
 
 # Its tests start the Proving ground through the test tool manifest, so a
 # change to it runs them (TESTING.md, Commands).

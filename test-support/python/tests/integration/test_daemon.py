@@ -8,6 +8,8 @@ needs Foxhound, and stops at teardown.
 import json
 import socket
 import sys
+import urllib.error
+import urllib.request
 from typing import TYPE_CHECKING
 
 import pytest
@@ -116,3 +118,99 @@ def test_daemon_without_with_daemon_fails_the_fixture(
 
     assert outcome.results == {"test_reaches": "error"}, outcome.output
     assert "DaemonNotRequested" in outcome.output
+
+
+def _post_http_rpc(
+    base_url: str, token: str | None, product: Product
+) -> tuple[int, object]:
+    """Sends `daemon.status` to `POST /v1/rpc` and returns `(status, json_body)`."""
+    payload = json.dumps(
+        {"jsonrpc": "2.0", "id": 1, "method": "daemon.status", "params": {}}
+    ).encode()
+    headers = {
+        "Content-Type": "application/json",
+        "Goodfetch-Protocol": PROTOCOL_VERSION,
+        "Goodfetch-Product": product.value,
+        "Goodfetch-Form": "catalog",
+    }
+    if token is not None:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(
+        f"{base_url}/v1/rpc", data=payload, headers=headers, method="POST"
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return response.status, json.loads(response.read().decode())
+    except urllib.error.HTTPError as error:
+        return error.code, None
+
+
+@pytest.mark.parametrize("with_http_listener", [True])
+def test_daemon_with_http_listener_answers_with_http_token(
+    daemon: Daemon,
+    with_http_listener: bool,
+) -> None:
+    """With `with_http_listener`, `daemon.http` answers with `daemon.http_token`."""
+    assert with_http_listener is True
+    assert daemon.http is not None
+    assert daemon.http.startswith("http://127.0.0.1:")
+    assert daemon.http_token is not None
+
+    status, body = _post_http_rpc(daemon.http, daemon.http_token, Product.COLLIE)
+
+    assert status == 200
+    assert isinstance(body, dict)
+    assert body["result"]["product"] == "collie", body
+
+
+@pytest.mark.parametrize("with_http_listener", [True])
+def test_daemon_with_http_listener_refuses_missing_token(
+    daemon: Daemon,
+    with_http_listener: bool,
+) -> None:
+    """A request without an Authorization header is refused with 401."""
+    assert with_http_listener is True
+    assert daemon.http is not None
+
+    status, _ = _post_http_rpc(daemon.http, None, Product.COLLIE)
+
+    assert status == 401
+
+
+@pytest.mark.parametrize("with_http_listener", [True])
+def test_daemon_with_http_listener_refuses_socket_token(
+    daemon: Daemon,
+    with_http_listener: bool,
+) -> None:
+    """A request carrying the socket token instead of `http_token` is refused."""
+    assert with_http_listener is True
+    assert daemon.http is not None
+
+    status, _ = _post_http_rpc(daemon.http, daemon.token, Product.COLLIE)
+
+    assert status == 401
+
+
+HTTP_LISTENER_WITHOUT_DAEMON_TEST = """
+import pytest
+from goodfetch_test_support import TestEnv
+
+
+@pytest.fixture
+def with_http_listener() -> bool:
+    return True
+
+
+def test_reaches(test_env: TestEnv) -> None:
+    assert test_env.daemon is not None
+"""
+
+
+def test_http_listener_without_with_daemon_fails_the_fixture(
+    sample_run: "SampleRun",
+) -> None:
+    """Overriding `with_http_listener` without `with_daemon` fails setup."""
+    outcome = sample_run.run(HTTP_LISTENER_WITHOUT_DAEMON_TEST)
+
+    assert outcome.results == {"test_reaches": "error"}, outcome.output
+    assert "TestEnvError" in outcome.output

@@ -4,7 +4,8 @@
 //! Browser data folder of the Run's own, its background traffic off by the table
 //! `pinned_download` owns (ADR 0043); headless only when `browser.headless`
 //! says so, the site seeing one identity either way (the driver's user agent, ADR
-//! 0092); every page keeps its timers behind another tab or window (ADR
+//! 0092), and `navigator.webdriver` false in every frame (story 8-1);
+//! every page keeps its timers behind another tab or window (ADR
 //! 0085's question); the back/forward cache is off, so going back or
 //! forward always loads its document again (ADR 0121, with no setting); a
 //! page whose load failed stays on its error page, never loaded again by
@@ -375,6 +376,11 @@ const NO_AUTO_RELOAD: &str = "--disable-auto-reload";
 /// `waitForURL`, the Page check and the navigation gate (ADR 0121, #730).
 const PRERENDER_OFF: [&str; 2] = ["Prerender2", "Prerender2FallbackPrefetchSpecRules"];
 
+/// Blink's automation flag off: a browser driven over its debugging pipe
+/// otherwise answers `navigator.webdriver` true in every frame, the first
+/// thing a bot check reads (story 8-1, ADR 0035's `standard` row).
+const NO_AUTOMATION_FLAG: &str = "--disable-blink-features=AutomationControlled";
+
 /// Chromium's sandbox switched off, which only a launch whose
 /// `security.browser_sandbox` is off passes (ADRs 0017 and 0049): it also
 /// removes the renderers' seccomp-bpf layer.
@@ -501,6 +507,7 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
     }
     if launch.headless {
         arguments.push("--headless".to_owned());
+        arguments.push("--window-size=1280,720".to_owned());
     }
     let mut disabled_features: Vec<String> = Vec::new();
     for argument in chromium_background_traffic_off() {
@@ -532,6 +539,7 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
         }
     }
     push_unique(&mut arguments, NO_AUTO_RELOAD);
+    push_unique(&mut arguments, NO_AUTOMATION_FLAG);
     for feature in PRERENDER_OFF {
         push_unique(&mut disabled_features, feature);
     }
@@ -588,6 +596,36 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
         environment: ENVIRONMENT,
         warnings,
     }
+}
+
+/// The engine's Chromium launch arguments for the Chromium build gate's WPT
+/// runs (ADR 0074; ticket #395): generated directly from [`arguments`] with
+/// default engine settings, stripping only the per-process transport,
+/// user-data directory and initial URL flags that `wptrunner`/`chromedriver`
+/// supplies itself.
+pub(crate) fn wpt_base_arguments() -> Vec<String> {
+    let resolve = HostMapping::default();
+    let built = arguments(&Launch {
+        data_folder: Path::new(""),
+        headless: false,
+        headless_shell: false,
+        resolve: &resolve,
+        shared_memory: None,
+        proxy_script: None,
+        sandbox: true,
+        relay_authority: None,
+        gpc: GlobalPrivacyControl::Off,
+        profile_mode: ProfileMode::Fresh,
+    });
+    built
+        .command_line
+        .into_iter()
+        .filter(|arg| {
+            arg != "--remote-debugging-pipe"
+                && !arg.starts_with("--user-data-dir=")
+                && arg != "about:blank"
+        })
+        .collect()
 }
 
 /// The size of `/dev/shm` in bytes, read from its `size=` option in

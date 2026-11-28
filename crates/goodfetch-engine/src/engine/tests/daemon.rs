@@ -89,6 +89,7 @@ pub(super) fn options(pick: bool, handovers: &Handovers) -> DaemonOptions {
         websocket: None,
         live_view: None,
         accounts: None,
+        http_listener: None,
     }
 }
 

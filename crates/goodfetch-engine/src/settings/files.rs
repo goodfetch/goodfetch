@@ -31,6 +31,7 @@ use goodfetch_protocol::formats::{
     Compatibility, Format, OPERATOR_POLICY, Rule, USER_CONFIGURATION,
 };
 use goodfetch_protocol::home::{OPERATOR_POLICY_FILE, USER_CONFIGURATION_FILE};
+use goodfetch_protocol::http_listener;
 use goodfetch_protocol::settings::{PROJECT_CONFIGURATION_FILE, SettingsFile, SettingsLayer};
 use serde_json::{Map, Number, Value};
 use sha2::{Digest as _, Sha256};
@@ -278,12 +279,18 @@ impl MachineLayers {
 }
 
 /// The defaults of the Product version `version`: where its foreground
-/// Daemon listens, a port of its own major's (ADR 0049).
+/// Daemon and its HTTP listener listen, each on a port of its own major's
+/// (ADRs 0027, 0030 and 0049).
 fn version_defaults(version: &ProductVersion) -> HostDefaults {
-    HostDefaults::default().with(
-        &daemon::ADDRESS,
-        Value::String(daemon::default_address(version).to_string()),
-    )
+    HostDefaults::default()
+        .with(
+            &daemon::ADDRESS,
+            Value::String(daemon::default_address(version).to_string()),
+        )
+        .with(
+            &http_listener::PORT,
+            serde_json::json!(http_listener::default_port(version)),
+        )
 }
 
 /// The project configuration file in `folder` or the nearest folder above

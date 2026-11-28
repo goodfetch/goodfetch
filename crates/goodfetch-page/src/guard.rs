@@ -3,7 +3,10 @@
 //! gesture that landed elsewhere, until its window, `timeout.action`,
 //! passes. The conditions are uniqueness, visibility, enabled, stable and
 //! receiving the event for a pointer action; visible and enabled for a text
-//! action; and editable too for `fill`. A click or a key press that starts
+//! action; and editable too for `fill`. A scroll collection's scroll
+//! (`locator.scroll_collect`, #807) is a gesture of its own: its check
+//! scrolls the last of the locator's matches to the top of the view once it
+//! is visible, with no uniqueness to wait for. A click or a key press that starts
 //! a navigation of the page answers once that navigation's document
 //! committed, or once it ended without one (ADR 0085), within
 //! `timeout.navigation`, the page's turn, and the pointer with it, let go
@@ -22,6 +25,7 @@
 //! gesture's turn.
 
 mod check;
+mod human;
 mod target;
 #[cfg(test)]
 mod tests;
@@ -47,6 +51,7 @@ use crate::cdp::driver::PageDriver;
 use crate::cdp::{CdpPage, ExecutionContextId, KeyPress, TargetSession, keys};
 use crate::errors::Unanswered;
 use crate::hiding::Hidden;
+use crate::human_input::{PageHumanInput, Point, Viewport};
 use crate::page_owner::PageOwner;
 use crate::page_reads::Turn;
 use crate::placeholders::BoundSecret;
@@ -77,6 +82,19 @@ pub(crate) enum Action {
     FillSecret(BoundSecret),
     /// Sends this key press to it.
     Press(KeyPress),
+    /// Presses and holds its centre with the left button for this duration.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "wired for Challenge solvers in #1090; human::press_and_hold is exercised in guard::tests"
+        )
+    )]
+    PressAndHold(Duration),
+    /// Scrolls the last of its matches into view, as a scroll collection
+    /// steps through a list: its matches need not be unique, only the last
+    /// one visible.
+    Scroll,
 }
 
 impl Action {
@@ -94,19 +112,26 @@ impl Action {
     /// The kind the check takes: which conditions apply.
     fn kind(&self) -> &'static str {
         match self {
-            Self::Click => "pointer",
+            Self::Click | Self::PressAndHold(_) => "pointer",
             Self::Fill(_) | Self::FillSecret(_) => "fill",
             Self::Press(_) => "text",
+            Self::Scroll => "scroll",
         }
     }
 
     /// The row its attempt's commands count on: `C3.commands` of its kind
-    /// (ADR 0140).
-    const fn commands(&self) -> Row {
+    /// (ADR 0140), with human-like gestures (`Click`, `Fill`, `PressAndHold`)
+    /// counted on their own action kind while direct `Press` and `Scroll`
+    /// keep their standard rows.
+    const fn commands(&self, human_input: bool) -> Row {
+        if human_input && !matches!(self, Self::Scroll | Self::Press(_)) {
+            return Row::ActionHumanInputCommands;
+        }
         match self {
-            Self::Click => Row::ActionClickCommands,
+            Self::Click | Self::PressAndHold(_) => Row::ActionClickCommands,
             Self::Fill(_) | Self::FillSecret(_) => Row::ActionFillCommands,
             Self::Press(_) => Row::ActionPressCommands,
+            Self::Scroll => Row::ActionScrollCollectCommands,
         }
     }
 }
@@ -150,6 +175,9 @@ pub(crate) struct Request<'a> {
     /// The page's send window, which the action's first input marks before
     /// it goes out (ADR 0106).
     pub(crate) sent: SentMark<'a>,
+    /// The page's human-like input model when the Session is `stealth` with
+    /// `stealth.human_input` on; `None` for direct input.
+    pub(crate) human_input: Option<PageHumanInput>,
 }
 
 /// ADR 0106's send window of one page's commands: its Run, and the lease
@@ -176,7 +204,7 @@ impl SentMark<'_> {
 }
 
 /// Where a gesture landed.
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 enum Landed {
     Landed,
@@ -205,11 +233,14 @@ pub(crate) struct Acted {
 ///
 /// # Cancel safety
 ///
-/// Dropping the future sends no further input, and leaves no key and no
-/// button down: a gesture's input is one burst, sent whole or not at all. An
-/// interception listener
-/// armed for a gesture never sent removes itself at the next check, or
-/// after 10 s.
+/// Dropping the future stops sending further input. Direct clicks, direct
+/// presses and the press-and-release burst of a human-like click are sent
+/// as one atomic CDP burst, leaving no key and no button down; multi-step
+/// human-like moves, wheel scrolling or typing stop after the last
+/// acknowledged step (leaving any typed prefix in the field), and dropping
+/// `PressAndHold` between `pointer_down` and `pointer_up` leaves the button
+/// down until the caller or page resets it. An interception listener armed
+/// for a gesture never sent removes itself at the next check, or after 10 s.
 pub(crate) async fn act(
     page: &PageDriver,
     request: Request<'_>,
@@ -249,7 +280,7 @@ async fn attempt(
 ) -> Result<Acted, CallError> {
     // Every command the attempt sends counts on its kind's row: its checks,
     // its input, its disarm and its wait for a navigation it started alike.
-    let page = &page.counting(request.action.commands());
+    let page = &page.counting(request.action.commands(request.human_input.is_some()));
     let started = clock.now();
     let end = started + request.window.left();
     let mut turn = Turn::granted(
@@ -259,6 +290,12 @@ async fn attempt(
         request.owner.turn().await?,
     );
     let mut last = Seen::waiting(Step::Attached, "the action waited its turn on the page");
+    let mut human_scrolled = false;
+    // A scroll is made by the check that finds its target ready, so the
+    // window is marked before the first check may make it.
+    if matches!(request.action, Action::Scroll) {
+        request.sent.mark(request.operation).await?;
+    }
     loop {
         // The pointer is the turn's from the check that arms the listener
         // to the disarm, and lent between two checks to the Consent prompt
@@ -266,18 +303,16 @@ async fn attempt(
         turn.lend_pointer().await;
         let remaining = end.saturating_duration_since(clock.now());
         if remaining.is_zero() {
-            let elapsed = clock.now() - started + request.window.spent;
-            let asked = Asked {
-                selector: request.selector,
-                form: request.form,
-                limit: request.window.limit,
-            };
-            return Err(at_deadline(asked, last, elapsed));
+            return Err(deadline_error(&request, last, clock.now() - started));
         }
+        let human_scroll = request.human_input.is_some()
+            && !human_scrolled
+            && !matches!(request.action, Action::Scroll);
         let argument = check::argument(
             Target::Selector(request.selector),
             request.action.kind(),
             remaining.min(SLICE),
+            human_scroll,
         );
         let seen = match turn.check(CHECK, argument).await {
             Ok(value) => Seen::read(&value).map_err(|error| unreadable(&value, &error))?,
@@ -285,135 +320,235 @@ async fn attempt(
             Err(Unanswered::Failed(error)) => return Err(error),
         };
         match seen {
-            Seen::Armed { x, y } => match &request.action {
-                Action::Click => {
+            Seen::Scroll {
+                dx,
+                dy,
+                width,
+                height,
+            } => {
+                human_scrolled = true;
+                if let Some(input) = &request.human_input {
                     request.sent.mark(request.operation).await?;
-                    let mut watch = page.watch_gesture();
-                    // The disarm is the round trip into the renderer after
-                    // the input that a key press makes with `settled`.
-                    // Boxed, as the wait below: the action's future stays small.
-                    let clicked = click(page, &mut turn, (x, y));
-                    let landed = Box::pin(watch.during(clicked)).await?;
-                    match landed {
-                        Landed::Landed => {
-                            drop(turn);
-                            Box::pin(page.settle_gesture(watch)).await;
-                            return Ok(Acted::default());
-                        }
-                        Landed::Intercepted { observed } => {
-                            last = Seen::waiting(Step::ReceivesEvents, observed);
-                        }
+                    let viewport = Viewport { width, height };
+                    human::scroll(page, &turn, input, (dx, dy), viewport, (clock, end)).await?;
+                }
+            }
+            Seen::Armed {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                let target = Point { x, y };
+                let viewport = Viewport { width, height };
+                match perform_pointer(page, &mut turn, &request, (target, viewport), (clock, end))
+                    .await?
+                {
+                    PointerOutcome::Landed(watch) => {
+                        drop(turn);
+                        Box::pin(page.settle_gesture(*watch)).await;
+                        return Ok(Acted::default());
+                    }
+                    PointerOutcome::Intercepted(observed) => {
+                        last = Seen::waiting(Step::ReceivesEvents, observed);
                     }
                 }
-                Action::Fill(_) | Action::FillSecret(_) | Action::Press(_) => {
-                    return Err(mismatched(&seen));
-                }
-            },
+            }
             Seen::Focused {
                 set_value,
                 password,
                 ref frame_url,
             } => {
-                if let Action::Press(events) = &request.action {
-                    return perform_press(page, &request, turn, events).await;
-                }
-                if let Some(acted) =
-                    perform_focused(page, &request, &mut turn, (set_value, password), frame_url)
-                        .await?
+                match perform_focused(
+                    page,
+                    &mut turn,
+                    &request,
+                    (set_value, password),
+                    frame_url,
+                    (clock, end),
+                )
+                .await?
                 {
-                    return Ok(acted);
+                    FocusedOutcome::Done(acted) => return Ok(acted),
+                    FocusedOutcome::Retry => {}
+                    FocusedOutcome::Settle(watch) => {
+                        drop(turn);
+                        Box::pin(page.settle_gesture(*watch)).await;
+                        return Ok(Acted::default());
+                    }
                 }
             }
-            Seen::Ready { .. } => return Err(mismatched(&seen)),
+            // The check scrolled the last match into view itself: the
+            // scroll is the gesture, and no input follows it.
+            Seen::Scrolled if matches!(request.action, Action::Scroll) => {
+                return Ok(Acted::default());
+            }
+            Seen::Ready { .. } | Seen::Scrolled => return Err(mismatched(&seen)),
             Seen::Invalid { message } => return Err(unparsed(request.selector, &message)),
             Seen::Waiting {
                 step: Step::Visible,
                 ..
             } => {
-                match request
-                    .hiding
-                    .lift(&mut turn, request.selector, request.operation)
-                    .await
-                {
-                    Ok(_) | Err(Unanswered::WorldGone) => last = seen,
-                    Err(Unanswered::Failed(error)) => return Err(error),
-                }
+                lift_hiding(&request, &mut turn).await?;
+                last = seen;
             }
             waiting @ Seen::Waiting { .. } => last = waiting,
         }
     }
 }
 
-/// Completes a focused text action (`Fill`, `FillSecret`, or `Press`),
-/// returning `None` only when a picked control needs another check.
+/// Builds the deadline-exceeded error for `request` once its window expires.
+fn deadline_error(request: &Request<'_>, last: Seen, spent: Duration) -> CallError {
+    let asked = Asked {
+        selector: request.selector,
+        form: request.form,
+        limit: request.window.limit.clone(),
+    };
+    at_deadline(asked, last, spent + request.window.spent)
+}
+
+/// Lifts a live hiding rule hiding `request`'s target, ignoring a gone world.
+async fn lift_hiding(request: &Request<'_>, turn: &mut Turn) -> Result<(), CallError> {
+    match request
+        .hiding
+        .lift(turn, request.selector, request.operation)
+        .await
+    {
+        Ok(_) | Err(Unanswered::WorldGone) => Ok(()),
+        Err(Unanswered::Failed(error)) => Err(error),
+    }
+}
+
+/// What a focused keyboard/fill action produced before settling any navigation.
+enum FocusedOutcome {
+    Done(Acted),
+    Retry,
+    Settle(Box<crate::cdp::driver::GestureWatch>),
+}
+
+/// Runs a ready `Fill`, `FillSecret`, or `Press` action on a focused field.
 async fn perform_focused(
     page: &PageDriver,
-    request: &Request<'_>,
     turn: &mut Turn,
+    request: &Request<'_>,
     (set_value, password): (bool, bool),
     frame_url: &str,
-) -> Result<Option<Acted>, CallError> {
+    timing: (&Clock, tokio::time::Instant),
+) -> Result<FocusedOutcome, CallError> {
     match &request.action {
-        Action::Fill(value) => perform_fill(page, request, turn, value, set_value, password).await,
+        Action::Fill(value) => {
+            perform_fill(page, turn, request, value, (set_value, password), timing).await
+        }
         Action::FillSecret(bound) => {
             bound.admit(page, frame_url)?;
             let value = bound.resolve(frame_url).await?;
             perform_fill(
                 page,
-                request,
                 turn,
+                request,
                 value.expose_secret(),
-                set_value,
-                password,
+                (set_value, password),
+                timing,
             )
             .await
         }
-        Action::Press(_) | Action::Click => Err(CallError::protocol(
-            ProtocolFailure::InternalError,
-            "the guard focused a non-fill action",
-        )),
+        Action::Press(events) => {
+            request.sent.mark(request.operation).await?;
+            let mut watch = page.watch_gesture();
+            Box::pin(watch.during(async {
+                CdpPage::of(page)
+                    .press_keys(events, turn.gesture_call())
+                    .await?;
+                settled(turn).await
+            }))
+            .await?;
+            Ok(FocusedOutcome::Settle(Box::new(watch)))
+        }
+        Action::Click | Action::PressAndHold(_) | Action::Scroll => Err(mismatched(&"focused")),
     }
 }
 
-/// Completes a focused fill; returns `None` when setting a picked control's
+/// Completes a focused fill; returns `Retry` when setting a picked control's
 /// value needs another check.
 async fn perform_fill(
     page: &PageDriver,
-    request: &Request<'_>,
     turn: &mut Turn,
+    request: &Request<'_>,
     value: &str,
-    set_value: bool,
-    password: bool,
-) -> Result<Option<Acted>, CallError> {
+    (set_value, password): (bool, bool),
+    timing: (&Clock, tokio::time::Instant),
+) -> Result<FocusedOutcome, CallError> {
     request.sent.mark(request.operation).await?;
     if set_value {
-        return Ok(set_picked(turn, value).await?.then(Acted::default));
+        if set_picked(turn, value).await? {
+            return Ok(FocusedOutcome::Done(Acted::default()));
+        }
+        return Ok(FocusedOutcome::Retry);
     }
-    fill(page, turn, value).await?;
-    Ok(Some(Acted {
+    match &request.human_input {
+        Some(input) if !value.is_empty() => {
+            human::fill(page, turn, input, value, timing).await?;
+        }
+        _ => fill(page, turn, value).await?,
+    }
+    Ok(FocusedOutcome::Done(Acted {
         password_filled: password,
     }))
 }
 
-/// Completes a focused key press and lets go of `turn` while its gesture settles.
-async fn perform_press(
+/// What a pointer action produced before settling any navigation it started.
+enum PointerOutcome {
+    Landed(Box<crate::cdp::driver::GestureWatch>),
+    Intercepted(String),
+}
+
+/// Runs a ready pointer action (`Click` or `PressAndHold`) inside a
+/// navigation watch. Returns `Landed(watch)` so the caller drops `turn`
+/// before settling the navigation (ADR 0085), or `Intercepted(observed)` so
+/// the guard retries.
+async fn perform_pointer(
     page: &PageDriver,
+    turn: &mut Turn,
     request: &Request<'_>,
-    mut turn: Turn,
-    events: &KeyPress,
-) -> Result<Acted, CallError> {
-    request.sent.mark(request.operation).await?;
-    let mut watch = page.watch_gesture();
-    Box::pin(watch.during(async {
-        CdpPage::of(page)
-            .press_keys(events, turn.gesture_call())
-            .await?;
-        settled(&mut turn).await
-    }))
-    .await?;
-    drop(turn);
-    Box::pin(page.settle_gesture(watch)).await;
-    Ok(Acted::default())
+    (target, viewport): (Point, Viewport),
+    timing: (&Clock, tokio::time::Instant),
+) -> Result<PointerOutcome, CallError> {
+    match &request.action {
+        Action::Click => {
+            request.sent.mark(request.operation).await?;
+            let mut watch = page.watch_gesture();
+            let landed = if let Some(input) = &request.human_input {
+                let clicked = human::click(page, turn, input, (target, viewport), timing);
+                Box::pin(watch.during(clicked)).await?
+            } else {
+                let clicked = click(page, turn, (target.x, target.y));
+                Box::pin(watch.during(clicked)).await?
+            };
+            Ok(match landed {
+                Landed::Landed => PointerOutcome::Landed(Box::new(watch)),
+                Landed::Intercepted { observed } => PointerOutcome::Intercepted(observed),
+            })
+        }
+        Action::PressAndHold(hold) => {
+            request.sent.mark(request.operation).await?;
+            let mut watch = page.watch_gesture();
+            let action = human::press_and_hold(
+                page,
+                turn,
+                request.human_input.as_ref(),
+                (target, viewport, *hold),
+                timing,
+            );
+            let landed = Box::pin(watch.during(action)).await?;
+            Ok(match landed {
+                Landed::Landed => PointerOutcome::Landed(Box::new(watch)),
+                Landed::Intercepted { observed } => PointerOutcome::Intercepted(observed),
+            })
+        }
+        Action::Fill(_) | Action::FillSecret(_) | Action::Press(_) | Action::Scroll => {
+            Err(mismatched(&"armed"))
+        }
+    }
 }
 
 /// An element another engine script handed the guard, by its handle in the
@@ -452,7 +587,7 @@ pub(crate) async fn check_element(
     element: &Element<'_>,
     slice: Duration,
 ) -> Readiness {
-    let argument = check::argument(Target::Handle(element.handle), "pointer", slice);
+    let argument = check::argument(Target::Handle(element.handle), "pointer", slice, false);
     page.work().count(Row::ActionScriptSends);
     let Ok(value) = page
         .counting(Row::ActionCheckCommands)
@@ -462,7 +597,7 @@ pub(crate) async fn check_element(
         return Readiness::Gone;
     };
     match Seen::read(&value) {
-        Ok(Seen::Armed { x, y }) => Readiness::Ready { x, y },
+        Ok(Seen::Armed { x, y, .. }) => Readiness::Ready { x, y },
         Ok(Seen::Waiting { .. }) => Readiness::Waiting,
         _ => Readiness::Gone,
     }
@@ -702,7 +837,9 @@ pub(crate) async fn wait(
                     )),
                 };
             }
-            Seen::Armed { .. } | Seen::Focused { .. } => return Err(mismatched(&value)),
+            Seen::Armed { .. } | Seen::Scroll { .. } | Seen::Focused { .. } | Seen::Scrolled => {
+                return Err(mismatched(&value));
+            }
             Seen::Invalid { message } => return Err(unparsed(wait.selector, &message)),
             waiting @ Seen::Waiting { .. } => last = waiting,
         }
@@ -734,7 +871,12 @@ fn at_deadline(asked: Asked<'_>, last: Seen, elapsed: Duration) -> CallError {
             observed,
             matches,
         } => (step, observed, matches),
-        Seen::Armed { .. } | Seen::Focused { .. } | Seen::Ready { .. } | Seen::Invalid { .. } => (
+        Seen::Armed { .. }
+        | Seen::Scroll { .. }
+        | Seen::Focused { .. }
+        | Seen::Scrolled
+        | Seen::Ready { .. }
+        | Seen::Invalid { .. } => (
             Step::ReceivesEvents,
             "the target was ready".to_owned(),
             Vec::new(),

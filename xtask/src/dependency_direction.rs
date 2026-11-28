@@ -36,9 +36,11 @@
 //! only `goodfetch-protocol` and `xtask` name the protocol's `foxhound`
 //! module in their source (ADR 0099, [`crate::foxhound_module`]).
 //!
-//! `goodfetch-workspace-hack`, which every member takes (ADR 0094), holds no
-//! code, and `goodfetch-runtime` builds a runtime and nothing else, so no
-//! other rule counts either as a Goodfetch crate.
+//! `goodfetch-workspace-hack` (build side, in `[dependencies]`) and
+//! `goodfetch-dev-workspace-hack` (code side, in `[dev-dependencies]` only,
+//! never in `goodfetch-protocol`), which every non-excluded member takes
+//! (ADR 0094), hold no code, and `goodfetch-runtime` builds a runtime and
+//! nothing else, so no other rule counts any of them as a Goodfetch crate.
 //!
 //! The workspace-wide direction of ADR 0087 is cargo-deny's (`deny.toml`).
 
@@ -72,6 +74,7 @@ const TEST_ADAPTERS: [&str; 5] = [
 const CONFORMANCE: &str = "goodfetch-conformance";
 const PROTOCOL: &str = "goodfetch-protocol";
 const WORKSPACE_HACK: &str = "goodfetch-workspace-hack";
+const DEV_WORKSPACE_HACK: &str = "goodfetch-dev-workspace-hack";
 const RUNTIME: &str = "goodfetch-runtime";
 const XTASK: &str = "xtask";
 /// The Proving ground's manifest, from the workspace's root (ADR 0032).
@@ -82,13 +85,7 @@ pub(crate) fn check(cargo: &OsStr, root: &Path) -> Result<Vec<Finding>> {
     let root = root
         .canonicalize()
         .with_context(|| format!("resolving {}", root.display()))?;
-    let is_member = |dependency: &Dependency| {
-        dependency.name != WORKSPACE_HACK
-            && dependency.name != RUNTIME
-            && packages
-                .iter()
-                .any(|package| package.name == dependency.name)
-    };
+    let is_member = |dependency: &Dependency| is_counted_member(dependency, &packages);
     let mut findings = Vec::new();
     for package in &packages {
         let members = || package.dependencies.iter().filter(|d| is_member(d));
@@ -277,7 +274,9 @@ fn takes_none(package: &Package, member: Option<&Dependency>, findings: &mut Vec
 }
 
 /// `goodfetch-test-support`, which `goodfetch-test-client` alone takes as
-/// a normal dependency, and the test adapters, which no crate does.
+/// a normal dependency, the test adapters, which no crate does, and
+/// `goodfetch-dev-workspace-hack`, which stays in `[dev-dependencies]` and
+/// out of `goodfetch-protocol` (ADR 0094).
 fn takes_test_crates_as_dev_only(package: &Package, findings: &mut Vec<Finding>) {
     if package.name != TEST_SUPPORT
         && package.name != TEST_CLIENT
@@ -300,6 +299,27 @@ fn takes_test_crates_as_dev_only(package: &Package, findings: &mut Vec<Finding>)
             ));
         }
     }
+    if takes_outside_dev(package, DEV_WORKSPACE_HACK) {
+        findings.push(Finding::new(
+            "dev-workspace-hack-not-dev-only",
+            &package.name,
+            format!("it takes `{DEV_WORKSPACE_HACK}` outside `[dev-dependencies]` (ADR 0094)"),
+        ));
+    }
+    if package.name == PROTOCOL
+        && package
+            .dependencies
+            .iter()
+            .any(|dependency| dependency.name == DEV_WORKSPACE_HACK)
+    {
+        findings.push(Finding::new(
+            "protocol-takes-dev-workspace-hack",
+            &package.name,
+            format!(
+                "it takes `{DEV_WORKSPACE_HACK}`, which must stay out of `{PROTOCOL}` for the Kennel (ADRs 0094 and 0141)"
+            ),
+        ));
+    }
 }
 
 /// Whether `package` takes the workspace crate `name` as a normal or build
@@ -313,4 +333,15 @@ fn takes_outside_dev(package: &Package, name: &str) -> bool {
 
 fn is_proving_ground(package: &Package, root: &Path) -> bool {
     package.manifest_path == root.join(PROVING_GROUND_MANIFEST)
+}
+
+/// Whether `dependency` names a workspace member counted by dependency-direction
+/// rules: neither workspace-hack crate nor `goodfetch-runtime` counts.
+fn is_counted_member(dependency: &Dependency, packages: &[Package]) -> bool {
+    !matches!(
+        dependency.name.as_str(),
+        WORKSPACE_HACK | DEV_WORKSPACE_HACK | RUNTIME
+    ) && packages
+        .iter()
+        .any(|package| package.name == dependency.name)
 }

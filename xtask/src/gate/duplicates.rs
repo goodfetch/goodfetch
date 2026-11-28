@@ -30,7 +30,7 @@ use crate::check::{self, Finding};
 /// Reads every record in `records`, and the hosted runs' in `hosted` that
 /// `ci/hosted-records.sh` downloaded, and reports each unit run twice on one
 /// tree; a record that cannot be read is an error, never a pass.
-pub(crate) fn check(records: &Path, hosted: Option<&Path>) -> Result<ExitCode> {
+pub(crate) fn check(records: &Path, hosted: Option<&Path>, key: &runs::Key) -> Result<ExitCode> {
     let mut read = match hosted {
         Some(folder) => earlier::every_hosted(folder)
             .with_context(|| format!("reading the hosted records in {}", folder.display()))?,
@@ -38,7 +38,7 @@ pub(crate) fn check(records: &Path, hosted: Option<&Path>) -> Result<ExitCode> {
     };
     for head in runs::heads(records)? {
         read.push(
-            runs::read(records, &head)
+            runs::read(records, &head, key)
                 .with_context(|| format!("reading the gate's record of {}", short(&head)))?,
         );
     }

@@ -126,7 +126,15 @@ export type TestSupportErrorCode =
   /** `docs/release-age-exclusions.toml` cannot be read, or lacks a manager's `file` or `text` (ADRs 0030 and 0069). */
   | "exclusions_invalid"
   /** The install harness could not start its registry, or pack or publish a package to it (ADR 0069). */
-  | "publish_failed";
+  | "publish_failed"
+  /** `ci/integrations/images.toml` cannot be read, or has an unpinned or missing Integration image (ADR 0070). */
+  | "integration_images_invalid"
+  /** Neither `docker` nor `podman` answers on this host (ADR 0070). */
+  | "container_engine_missing"
+  /** A pinned Integration image is not pulled locally; run `ci/integrations/fetch.sh` before the deny (ADR 0070). */
+  | "container_image_missing"
+  /** An Integration harness container (n8n or Activepieces) failed to start or execute (ADR 0070). */
+  | "integration_harness_failed";
 
 /** An error of test support, matched on its `code`. */
 export class TestSupportError extends Error {

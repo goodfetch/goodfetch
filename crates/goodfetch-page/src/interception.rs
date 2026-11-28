@@ -5,7 +5,9 @@
 //! Playwright's routing will (A05-45). The steps, each at its place in
 //! [`pipeline`]:
 //!
-//! Steps 3 to 8, for what the last route sends on, are [`steps`]'s.
+//! Steps 3 to 8, for what the last route sends on, are [`steps`]'s, but
+//! for the Response cache (5) and the navigation gate (6), which
+//! [`pipeline`] asks once [`steps`] built the request it sends on.
 //!
 //! 1. A crawl request's own document fetch has its Hooks applied already
 //!    (ADR 0104); nothing here runs a Hook. Its method and body, when it
@@ -105,6 +107,7 @@ use goodfetch_engine::egress::{self, Navigator, Policy, RequestKind};
 use goodfetch_engine::governor::RunGovernor;
 use goodfetch_engine::net_error::NetError;
 use goodfetch_engine::request_signing::RequestSigner;
+use goodfetch_engine::response_cache::Caching;
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_state::RunState;
 use goodfetch_engine::run_trace::{RequestLog, RunTrace};
@@ -135,6 +138,7 @@ use self::navigations::{NavigatingPage, Pending, PendingNavigation};
 use self::pipeline::{PageContext, Sender};
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
+use crate::blocks::{BlockClassifier, NoBlocks};
 use crate::cdp::driver::{OnWorker, PageDriver, ServiceWorkers};
 use crate::cdp::{
     CdpPage, ContinueRequest, Fulfill, Header, InitScriptId, PausedId, RequestHeaders,
@@ -227,7 +231,19 @@ pub(crate) struct Interception {
     shared: Arc<Shared>,
 }
 
-#[derive(Default)]
+impl Interception {
+    /// An interception whose Response cache pipeline classifies documents with
+    /// `blocks` so blocked pages never enter the cache (ADR 0046, #871).
+    pub(crate) fn with_blocks(blocks: Arc<dyn BlockClassifier>) -> Self {
+        Self {
+            shared: Arc::new(Shared {
+                blocks,
+                ..Shared::default()
+            }),
+        }
+    }
+}
+
 struct Shared {
     answers: Answers,
     /// The Clean-up rules step 4 matches, loaded once for every Session.
@@ -242,6 +258,22 @@ struct Shared {
     served: Mutex<BTreeMap<RunId, ServedCosmetic>>,
     /// The host cache each live Run's pages share, held until it ends.
     hosts: HostCaches,
+    /// The Product's Block classifier, which keeps blocked pages out of the
+    /// Response cache (ADR 0046).
+    blocks: Arc<dyn BlockClassifier>,
+}
+
+impl Default for Shared {
+    fn default() -> Self {
+        Self {
+            answers: Answers::default(),
+            clean_up: CleanUp::default(),
+            learned: Mutex::default(),
+            served: Mutex::default(),
+            hosts: HostCaches::default(),
+            blocks: Arc::new(NoBlocks),
+        }
+    }
 }
 
 /// The cosmetic rules of one live Run's served documents, made once.
@@ -252,6 +284,11 @@ struct ServedCosmetic {
 }
 
 impl Shared {
+    /// The Product's Block classifier, shared by every page and worker.
+    fn blocks(&self) -> Arc<dyn BlockClassifier> {
+        Arc::clone(&self.blocks)
+    }
+
     /// The domains `run` learned blocking off for, which its pages share.
     fn learned(&self, run: &RunId) -> Arc<Learned> {
         let mut learned = lock(&self.learned);
@@ -341,6 +378,9 @@ pub(crate) struct SessionInterception {
     /// Where a Session route's handler that failed on a service worker's
     /// request leaves its failure, for the next call on any of its pages.
     failure: LeftFailure,
+    /// What its requests are answered from before they leave, and kept in
+    /// after, when its Run's cache or recording is on (ADR 0046).
+    caching: Option<Arc<Caching>>,
 }
 
 impl SessionInterception {
@@ -369,7 +409,21 @@ impl SessionInterception {
             send_gpc_header,
             own_settings,
             failure: LeftFailure::default(),
+            caching: None,
         }
+    }
+
+    /// The same, its requests answered from `caching` before they leave and
+    /// kept in it after, when it is some (ADR 0046).
+    pub(crate) fn with_caching(self, caching: Option<Arc<Caching>>) -> Self {
+        Self { caching, ..self }
+    }
+
+    /// What its requests are answered from and kept in, when its Run's
+    /// cache or recording is on: what it kept in its own partition is
+    /// forgotten as it ends.
+    pub(crate) fn caching(&self) -> Option<&Arc<Caching>> {
+        self.caching.as_ref()
     }
 
     /// Whether one of its pages started a main-frame navigation, whoever
@@ -438,6 +492,11 @@ pub(super) struct PageState {
     /// What it does with each document its main frame receives, when a
     /// program opened it; none for a service worker's own.
     on_document: Option<Arc<dyn OnDocument>>,
+    /// Its Session's [`SessionInterception::caching`].
+    caching: Option<Arc<Caching>>,
+    /// Its Product's Block classifier, which keeps blocked responses out of
+    /// the Response cache (ADR 0046).
+    blocks: Arc<dyn BlockClassifier>,
 }
 
 /// Per-page state for `filter_lists.page_scriptlets: true`.
@@ -873,6 +932,8 @@ impl Interception {
                 send_gpc_header: session.send_gpc_header,
             },
             on_document,
+            caching: session.caching.clone(),
+            blocks: self.shared.blocks(),
         });
         (state, session.lookups.clone())
     }
@@ -1023,6 +1084,8 @@ impl Interception {
                             send_gpc_header: session.send_gpc_header,
                         },
                         on_document: None,
+                        caching: session.caching.clone(),
+                        blocks: shared.blocks(),
                     });
                     let context = Arc::new(
                         PageContext::new(

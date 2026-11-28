@@ -1841,18 +1841,34 @@ fn a_gate_run_while_another_holds_the_heads_record_fails_before_any_step() {
     );
 }
 
-/// A gate run that narrows what runs or swaps the executables under test
-/// fails before any step, so it records nothing a normal run would reuse
-/// (the re-review's N1).
+/// A gate run that narrows what runs, swaps the executables under test or
+/// lets a failing assertion pass fails before any step, so it records
+/// nothing a normal run would reuse (ADR 0135; issue 1726): the test
+/// selection, engine and order seed, pytest's added options and plugins,
+/// every insta, Vitest and Playwright test-runner setting, and nextest
+/// settings outside output and parallelism.
 #[rstest]
 #[case::selection("GOODFETCH_TEST_SELECTION")]
 #[case::engine("GOODFETCH_TEST_ENGINE")]
 #[case::order_seed("GOODFETCH_ORDER_SEED")]
+#[case::pytest_options("PYTEST_ADDOPTS")]
+#[case::pytest_plugins("PYTEST_PLUGINS")]
+#[case::pytest_autoload("PYTEST_DISABLE_PLUGIN_AUTOLOAD")]
+#[case::insta_force_pass("INSTA_FORCE_PASS")]
+#[case::insta_glob_filter("INSTA_GLOB_FILTER")]
+#[case::insta_update("INSTA_UPDATE")]
+#[case::vitest("VITEST_MODE")]
+#[case::playwright("PWTEST_SHARD")]
+#[case::playwright_test("PW_TEST_REPORTER")]
+#[case::nextest_retries("NEXTEST_RETRIES")]
+#[case::nextest_flaky("NEXTEST_FLAKY_RESULT")]
+#[case::nextest_profile("NEXTEST_PROFILE")]
+#[case::nextest_no_tests("NEXTEST_NO_TESTS")]
 fn a_whole_workspace_gate_run_that_narrows_what_runs_is_refused(#[case] variable: &str) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
 
-    let run = pre_merge_with_env(&workspace, &stand_in, &["all"], &[(variable, "set")]);
+    let run = pre_merge_with_env(&workspace, &stand_in, &["all"], &[(variable, "1")]);
 
     assert_eq!(run.code, Some(2), "{}", run.stderr);
     assert!(run.stderr.contains(variable), "{}", run.stderr);
@@ -1862,6 +1878,31 @@ fn a_whole_workspace_gate_run_that_narrows_what_runs_is_refused(#[case] variable
         run.calls,
         run.gate
     );
+}
+
+/// Nextest's output and parallelism settings and host-only settings such as
+/// where Playwright's browsers live do not narrow what a gate run tests and
+/// are not refused (ADR 0135; issue 1726).
+#[rstest]
+#[case::playwright_browsers("PLAYWRIGHT_BROWSERS_PATH", "/opt/browsers")]
+#[case::nextest_threads("NEXTEST_TEST_THREADS", "4")]
+#[case::nextest_double_spawn("NEXTEST_DOUBLE_SPAWN", "0")]
+#[case::nextest_status_level("NEXTEST_STATUS_LEVEL", "pass")]
+#[case::nextest_final_status_level("NEXTEST_FINAL_STATUS_LEVEL", "flaky")]
+#[case::nextest_failure_output("NEXTEST_FAILURE_OUTPUT", "immediate")]
+#[case::nextest_success_output("NEXTEST_SUCCESS_OUTPUT", "never")]
+#[case::nextest_hide_progress("NEXTEST_HIDE_PROGRESS_BAR", "1")]
+#[case::nextest_show_progress("NEXTEST_SHOW_PROGRESS", "bar")]
+fn a_whole_workspace_gate_run_allows_output_parallelism_and_host_settings(
+    #[case] variable: &str,
+    #[case] value: &str,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+
+    let run = pre_merge_with_env(&workspace, &stand_in, &["all"], &[(variable, value)]);
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
 }
 
 /// Every gate run reruns the Vitest, Playwright and pytest tests of the

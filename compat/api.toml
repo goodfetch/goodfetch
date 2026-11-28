@@ -181,6 +181,10 @@ entry = "typescript @goodfetch/collie-client/generated AuditKind"
 reason = "An Audit kind joins the catalog, `fingerprint_method_chosen` (issue 913): the type stays open, and a switch over every kind needs its case."
 
 [[announced]]
+entry = "typescript @goodfetch/collie-client/generated RunWarningCode"
+reason = "A Run warning code joins the catalog, `stealth_runtime_allowed`, which a `stealth` Session's report carries once `stealth.allow_runtime` lets its pages turn on the browser's `Runtime` domain (spec 599, issue 913): the type stays open, and a switch over every code needs its case."
+
+[[announced]]
 entry = "typescript @goodfetch/collie-client/generated RunSettings"
 reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to a reference and its registrable domains (issue 654)."
 
@@ -395,3 +399,19 @@ reason = "A Run report's durations are each language's duration type (ADR 0080, 
 [[announced]]
 entry = "typescript @goodfetch/collie-client/generated RunWarningCode"
 reason = "The `gpc_forced` warning code joins the open list of Run warning codes (ADR 0048, issue 758): the type's closed members gain it; a program that reads any warning code still reads it."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/runtime SequenceOptions"
+reason = "A Product's sequence may make each item asynchronously, such as a Record its Dataset's schema parses (issue 1487): `SequenceOptions.itemOf` may answer a promise of the item; a program that answers the item itself still compiles."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound DatasetRecord"
+reason = "`CrawlRun.records()` reads each Record as its Dataset's own output type (issue 1487, ADR 0103): `DatasetRecord` is generic in its value's type, `DatasetRecord<O>`, keeping the wire Record's members, and its `value` is read-only; the default `O` is the wire's JSON object, so a program that names `DatasetRecord` alone reads the same members."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated Surface"
+reason = "The Daemon's HTTP JSON-RPC listener joins the `Surface` union as `http_listener` (ADR 0027, issue 1400): a switch over every surface gains that member."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated/types Surface"
+reason = "The Daemon's HTTP JSON-RPC listener joins the `Surface` union as `http_listener` (ADR 0027, issue 1400): a switch over every surface gains that member."

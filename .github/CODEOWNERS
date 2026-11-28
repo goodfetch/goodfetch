@@ -1,0 +1,4 @@
+# Changes to the Plugin index require the owner's approval before merge
+# (ADR 0033; issue 1534), so every listing, delisting, or revocation is a
+# reviewed commit.
+/plugin-index/ @Jbmanllr

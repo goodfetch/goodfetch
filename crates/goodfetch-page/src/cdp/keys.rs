@@ -131,7 +131,8 @@ pub(crate) fn down(key: &Key, held: &mut Vec<String>) -> DispatchKeyEventParams 
     } else {
         DispatchKeyEventType::RawKeyDown
     };
-    let mut event = event(kind, key, bits, text);
+    let commands = editing_command(bits, key).map(|command| vec![command.to_owned()]);
+    let mut event = event(kind, key, bits, text, commands);
     event.auto_repeat = repeat.then_some(true);
     event
 }
@@ -140,7 +141,13 @@ pub(crate) fn down(key: &Key, held: &mut Vec<String>) -> DispatchKeyEventParams 
 /// modifier's bit is cleared from its own release on.
 pub(crate) fn up(key: &Key, held: &mut Vec<String>) -> DispatchKeyEventParams {
     held.retain(|name| *name != key.name);
-    event(DispatchKeyEventType::KeyUp, key, modifiers(held), None)
+    event(
+        DispatchKeyEventType::KeyUp,
+        key,
+        modifiers(held),
+        None,
+        None,
+    )
 }
 
 /// `ControlOrMeta`'s key: Meta on macOS, Control elsewhere.
@@ -149,6 +156,28 @@ const fn control_or_meta() -> &'static str {
         "Meta"
     } else {
         "Control"
+    }
+}
+
+/// Blink editing command for a primary-modifier shortcut (`Control` on
+/// Linux/Windows, `Meta` on macOS) so `ControlOrMeta+a/c/v/x` invoke the
+/// browser's native selection and clipboard actions reliably in headless
+/// Chromium (ticket #3290).
+fn editing_command(modifiers: i64, pressed: &Key) -> Option<&'static str> {
+    let primary = if cfg!(target_os = "macos") {
+        bit("Meta")
+    } else {
+        bit("Control")
+    };
+    if modifiers != primary {
+        return None;
+    }
+    match pressed.code.as_str() {
+        "KeyA" => Some("selectAll"),
+        "KeyC" => Some("copy"),
+        "KeyV" => Some("paste"),
+        "KeyX" => Some("cut"),
+        _ => None,
     }
 }
 
@@ -216,6 +245,7 @@ fn event(
     key: &Key,
     modifiers: i64,
     text: Option<String>,
+    commands: Option<Vec<String>>,
 ) -> DispatchKeyEventParams {
     DispatchKeyEventParams {
         r#type: kind,
@@ -232,7 +262,7 @@ fn event(
         is_keypad: None,
         is_system_key: None,
         location: None,
-        commands: None,
+        commands,
     }
 }
 

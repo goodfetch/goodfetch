@@ -35,7 +35,7 @@ use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::page::dialog::{DIALOG_ACCEPT, DIALOG_DISMISS, PAGE_ON_DIALOG};
 use goodfetch_protocol::page::events::{PAGE_ON, PAGE_WAIT_FOR_REQUEST_FINISHED, RESPONSE_BODY};
 use goodfetch_protocol::page::functions::{
-    LOCATOR_EVALUATE_ALL, PAGE_ADD_INIT_SCRIPT, PAGE_EVALUATE,
+    LOCATOR_EVALUATE_ALL, LOCATOR_SCROLL_COLLECT, PAGE_ADD_INIT_SCRIPT, PAGE_EVALUATE,
 };
 use goodfetch_protocol::page::read::PAGE_READ;
 use goodfetch_protocol::page::request::PAGE_REQUEST;
@@ -55,7 +55,7 @@ use goodfetch_protocol::page::{
 };
 
 /// The row of each call the catalog's page entries hold.
-const ROWS: [(&Operation, Row); 42] = [
+const ROWS: [(&Operation, Row); 43] = [
     (&PAGE_FORMATS, Row::Read),
     (&PAGE_READ, Row::Read),
     (&LOCATOR_WAIT_FOR, Row::StateWait),
@@ -79,6 +79,7 @@ const ROWS: [(&Operation, Row); 42] = [
     (&LOCATOR_EVALUATE_ALL, Row::Script),
     (&LOCATOR_WAIT_FOR_FUNCTION, Row::Script),
     (&PAGE_ADD_INIT_SCRIPT, Row::Script),
+    (&LOCATOR_SCROLL_COLLECT, Row::Layout),
     (&LOCATOR_CLICK, Row::Gesture),
     (&LOCATOR_FILL, Row::Gesture),
     (&LOCATOR_PRESS, Row::Gesture),
@@ -106,7 +107,7 @@ const ROWS: [(&Operation, Row); 42] = [
     not(test),
     expect(
         dead_code,
-        reason = "no call of the catalog's page entries is a question or reads layout yet; their calls join with Collie's tickets (#1091)"
+        reason = "no call of the catalog's page entries is a question yet; its calls join with Collie's tickets (#1091)"
     )
 )]
 pub(crate) enum Row {

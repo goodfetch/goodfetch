@@ -72,10 +72,11 @@ use crate::cdp::driver::{
     Behind, BorrowedBrowser, Carried, LocalBrowser, Lost, Origins, PageDriver, SessionDriver,
     SessionEgress, Visibility,
 };
-use crate::cdp::launch::Launcher;
+use crate::cdp::launch::{Launcher, Window};
 use crate::egress_relay::application_settings::ApplicationSettings;
 use crate::egress_relay::authority::Authority;
 use crate::egress_relay::{Local, RelayTls};
+use crate::emulation::SessionEmulation;
 use crate::errors::browser_panicked;
 pub(crate) use rules::Placement;
 use rules::{Limits, Opens, Seats, Stage, Use};
@@ -211,6 +212,8 @@ struct Pooled {
     browser: Arc<LocalBrowser>,
     /// Whether it is a Session's own process.
     own: bool,
+    /// How it shows its pages.
+    window: Window,
     /// The seats in it, by their number.
     seated: BTreeMap<u64, Weak<SeatShared>>,
     /// How many pages it opened.
@@ -549,16 +552,23 @@ impl Pool {
     }
 
     /// A seat for a Session whose requests leave through `egress`, its
-    /// proxy and its egress relay, in every browser it is seated in, placed
-    /// under `placement` on its first use. Its place actor and its pages'
-    /// readers are tasks of `tasks`, its Session's owner.
+    /// proxy and its egress relay, and whose pages run under `emulation` in
+    /// every browser it is seated in, placed under `placement` on its first
+    /// use, in browsers that show its pages as `window` says. Its place actor
+    /// and its pages' readers are tasks of `tasks`, its Session's owner.
     pub(crate) fn seat(
         &self,
-        placement: BrowserPlacement,
+        placement: (BrowserPlacement, Window),
         egress: SessionEgress,
+        emulation: SessionEmulation,
         tasks: TaskStarter,
     ) -> Seat {
-        self.seat_of((placement, egress), None, Carried::default(), tasks)
+        self.seat_of(
+            (placement, egress, emulation),
+            None,
+            Carried::default(),
+            tasks,
+        )
     }
 
     /// A seat for a Session reopened from run state, carrying `carried`
@@ -566,12 +576,13 @@ impl Pool {
     /// (ADRs 0092, 0102).
     pub(crate) fn seat_with_carried(
         &self,
-        placement: BrowserPlacement,
+        placement: (BrowserPlacement, Window),
         egress: SessionEgress,
+        emulation: SessionEmulation,
         carried: Carried,
         tasks: TaskStarter,
     ) -> Seat {
-        self.seat_of((placement, egress), None, carried, tasks)
+        self.seat_of((placement, egress, emulation), None, carried, tasks)
     }
 
     /// A seat for a Session on the Borrowed browser at `cdp_url`, which
@@ -587,8 +598,14 @@ impl Pool {
         lock(&self.shared.browsers)
             .borrowed
             .push(Arc::clone(&browser));
+        // A Borrowed browser shows its pages as it was started: the window
+        // is never asked for.
         self.seat_of(
-            (BrowserPlacement::Shared, egress),
+            (
+                (BrowserPlacement::Shared, Window::Headless),
+                egress,
+                SessionEmulation::borrowed(),
+            ),
             Some(browser),
             Carried::default(),
             tasks,
@@ -597,7 +614,11 @@ impl Pool {
 
     fn seat_of(
         &self,
-        (placement, egress): (BrowserPlacement, SessionEgress),
+        ((placement, window), egress, emulation): (
+            (BrowserPlacement, Window),
+            SessionEgress,
+            SessionEmulation,
+        ),
         borrowed: Option<Arc<BorrowedBrowser>>,
         carried: Carried,
         tasks: TaskStarter,
@@ -614,7 +635,9 @@ impl Pool {
             pool: self.clone(),
             number,
             placement,
+            window,
             egress,
+            emulation,
             borrowed,
             origins,
             place,
@@ -645,10 +668,11 @@ impl Pool {
                         // even before its follower took it out of service.
                         retiring: pooled.stage != Stage::Serving || pooled.browser.is_lost(),
                         own: pooled.own,
+                        window: pooled.window,
                     },
                 )
             }),
-            seat.placement.rule(),
+            (seat.placement.rule(), seat.window),
             &self.shared.limits,
         );
         let number = found.unwrap_or_else(|| {
@@ -661,11 +685,12 @@ impl Pool {
                         (Arc::clone(&self.shared.run), self.shared.launcher.clone()),
                         self.shared.home.clone(),
                         self.shared.pins.clone(),
-                        number,
+                        (number, seat.window),
                         self.shared.authority.clone(),
                         (seat.placement.gpc(), seat.placement.profile().cloned()),
                     )),
                     own: seat.placement.rule() == Placement::OwnProcess,
+                    window: seat.window,
                     seated: BTreeMap::new(),
                     served: 0,
                     open: BTreeMap::new(),
@@ -1084,9 +1109,14 @@ struct SeatShared {
     pool: Pool,
     number: u64,
     placement: BrowserPlacement,
+    /// How the browsers it is seated in show its pages.
+    window: Window,
     /// The Session's one proxy and its egress relay, which it keeps in
     /// every browser (SA-22).
     egress: SessionEgress,
+    /// The Session's device emulation and network throttling, kept across
+    /// browser recycles (ADR 0083).
+    emulation: SessionEmulation,
     /// The Borrowed browser it is seated in for good, outside the pool.
     borrowed: Option<Arc<BorrowedBrowser>>,
     origins: Origins,
@@ -1466,6 +1496,7 @@ impl SeatShared {
             let driver = Arc::new(SessionDriver::new(
                 Behind::Borrowed(Arc::clone(borrowed)),
                 SessionEgress::default(),
+                SessionEmulation::borrowed(),
             ));
             driver.open().await?;
             place.at = Some((BORROWED, Arc::clone(&driver)));
@@ -1476,6 +1507,7 @@ impl SeatShared {
         let driver = Arc::new(SessionDriver::new(
             Behind::Launched(browser),
             self.egress.clone(),
+            self.emulation.clone(),
         ));
         let opened = match driver.open().await {
             Ok(()) => driver.restore(&place.carried).await,

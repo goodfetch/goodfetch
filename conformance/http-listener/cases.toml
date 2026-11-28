@@ -1,0 +1,44 @@
+# The Daemon's HTTP JSON-RPC listener (`POST /v1/rpc`, spec #608 / #1400,
+# ADRs 0027, 0030, 0049, 0067, 0099 and 0132): a plain HTTP Client starts an
+# outliving Run with `hello`'s fields in headers and `Authorization: Bearer`;
+# refusals answer with HTTP 4xx carrying the JSON-RPC error (`400` for a
+# refused `hello`, `401` for a missing, wrong or query-string token, `403` for
+# a foreign `Host` or `Origin`); malformed or over-long trace headers are
+# dropped and never refused. Runs against a Daemon configured with
+# `http_listener.enabled = true` and `http_listener.port = 0`.
+
+product = "collie"
+
+[suite]
+name = "http-listener"
+version = "1"
+
+[[capability]]
+name = "http_listener.rpc"
+
+[[capability.case]]
+id = "post-rpc-carries-hello-headers-and-starts-an-outliving-run"
+covers = ["story:11-258", "story:11-259"]
+
+[[capability.case]]
+id = "post-rpc-refuses-bad-hello-headers-with-400-and-json-rpc-error"
+covers = ["story:11-259", "error:protocol_version_unsupported", "error:not_in_product"]
+
+[[capability.case]]
+id = "post-rpc-refuses-missing-wrong-or-query-token-with-401"
+covers = ["story:11-261"]
+
+[[capability.case]]
+id = "post-rpc-refuses-foreign-host-or-origin-with-403"
+covers = ["story:11-261"]
+
+[[capability.case]]
+id = "post-rpc-drops-malformed-or-over-long-trace-headers-without-refusing"
+covers = ["story:11-259"]
+
+[[capability]]
+name = "http_listener.events"
+
+[[capability.case]]
+id = "get-events-streams-sse-and-resumes-from-last-event-id-and-after"
+covers = ["story:11-260"]

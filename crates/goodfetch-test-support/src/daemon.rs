@@ -12,7 +12,7 @@
 //! Runs and its children before it exits, and kills it only when that
 //! fails or outlasts the deadline; either way it is reaped.
 
-use std::io;
+use std::io::{self, BufRead as _, BufReader, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::time::Duration;
@@ -40,6 +40,16 @@ pub struct DaemonDescription {
     pub socket: String,
     /// The per-launch token a Client's `hello` carries.
     pub token: String,
+    /// The HTTP JSON-RPC listener's base URL (`http://127.0.0.1:<port>`),
+    /// present only when started with `--http-listener` (ADRs 0027 and 0070).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String")]
+    pub http: Option<String>,
+    /// The Bearer token the HTTP listener takes in `Authorization: Bearer …`,
+    /// present only when started with `--http-listener` (ADRs 0027 and 0070).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String")]
+    pub http_token: Option<String>,
 }
 
 /// The Daemon of one test's Goodfetch home. Its process joins the test's
@@ -64,6 +74,14 @@ impl Daemon {
         Self::start_program(env, tools.path(product.tool())?, DAEMON_DEADLINE)
     }
 
+    /// Starts the Daemon of `product`'s executable from the test tool
+    /// manifest with its HTTP JSON-RPC listener enabled on loopback port 0
+    /// (ADRs 0027 and 0070).
+    pub fn start_with_http_listener(env: &TestEnv, product: Product) -> Result<Self, DaemonError> {
+        let tools = tools()?;
+        Self::start_program_with_http_listener(env, tools.path(product.tool())?, DAEMON_DEADLINE)
+    }
+
     /// Starts `program`, a Product's executable, as the Daemon of the
     /// test's home, waiting at most `deadline` for its runtime file.
     pub fn start_program(
@@ -71,12 +89,52 @@ impl Daemon {
         program: &Path,
         deadline: Duration,
     ) -> Result<Self, DaemonError> {
+        Self::start_inner(env, program, deadline, false)
+    }
+
+    /// Starts `program` as the Daemon of the test's home with its HTTP
+    /// JSON-RPC listener enabled on loopback port 0, describing `daemon.http`
+    /// and `daemon.http_token` (ADRs 0027 and 0070).
+    pub fn start_program_with_http_listener(
+        env: &TestEnv,
+        program: &Path,
+        deadline: Duration,
+    ) -> Result<Self, DaemonError> {
+        Self::start_inner(env, program, deadline, true)
+    }
+
+    fn start_inner(
+        env: &TestEnv,
+        program: &Path,
+        deadline: Duration,
+        http_listener: bool,
+    ) -> Result<Self, DaemonError> {
+        if http_listener {
+            env.append_user_configuration("http_listener.enabled = true\nhttp_listener.port = 0\n");
+        }
         let mut command = env.process_command(program);
         command.args(["daemon", "launched", "--keep-alive"]);
         let process = env.spawn(&mut command).map_err(DaemonError::Start)?;
         // On any failure the process is stopped, so the test's teardown
         // finds none alive.
-        match Self::read(env, &process, deadline) {
+        let started = Self::read(env, &process, deadline).and_then(
+            |(runtime_file, mut description, endpoint, version)| {
+                if http_listener {
+                    let (http, http_token) = discover_http_listener(
+                        env,
+                        program,
+                        &endpoint,
+                        &description.token,
+                        &version,
+                        deadline,
+                    )?;
+                    description.http = Some(http);
+                    description.http_token = Some(http_token);
+                }
+                Ok((runtime_file, description, endpoint))
+            },
+        );
+        match started {
             Ok((runtime_file, description, endpoint)) => Ok(Self {
                 process,
                 stop_command: stop_command(env, program),
@@ -95,7 +153,7 @@ impl Daemon {
         env: &TestEnv,
         process: &Process,
         deadline: Duration,
-    ) -> Result<(PathBuf, DaemonDescription, DaemonEndpoint), DaemonError> {
+    ) -> Result<(PathBuf, DaemonDescription, DaemonEndpoint, String), DaemonError> {
         let mut child = process.child();
         let line = match first_line_within(&mut child, deadline) {
             Ok(line) => line,
@@ -119,8 +177,10 @@ impl Daemon {
         let description = DaemonDescription {
             socket: published.endpoint.to_string(),
             token: published.token,
+            http: None,
+            http_token: None,
         };
-        Ok((path, description, published.endpoint))
+        Ok((path, description, published.endpoint, published.version))
     }
 
     /// What a Client reads of it, and what `goodfetch-test-env` describes.
@@ -206,6 +266,140 @@ fn kill(process: &Process) {
     let _ = child.wait();
 }
 
+/// Discovers the running Daemon's bound HTTP listener base URL (via
+/// `daemon.status` over its socket) and its Bearer token (via
+/// `<program> daemon http-listener-token --json`).
+fn discover_http_listener(
+    env: &TestEnv,
+    program: &Path,
+    endpoint: &DaemonEndpoint,
+    socket_token: &str,
+    product_version: &str,
+    deadline: Duration,
+) -> Result<(String, String), DaemonError> {
+    let address = query_http_listener_address(endpoint, socket_token, product_version, deadline)?;
+    let token = query_http_listener_token(env, program)?;
+    Ok((format!("http://{address}"), token))
+}
+
+#[expect(
+    clippy::disallowed_types,
+    reason = "test support connects to the started Daemon's socket to read its bound HTTP listener address (ADRs 0060 and 0062)"
+)]
+fn connect_daemon(
+    endpoint: &DaemonEndpoint,
+    deadline: Duration,
+) -> io::Result<(Box<dyn io::Write>, Box<dyn io::Read>)> {
+    match endpoint {
+        #[cfg(unix)]
+        DaemonEndpoint::Unix(path) => {
+            let stream = std::os::unix::net::UnixStream::connect(path)?;
+            stream.set_read_timeout(Some(deadline))?;
+            Ok((Box::new(stream.try_clone()?), Box::new(stream)))
+        }
+        #[cfg(not(unix))]
+        DaemonEndpoint::Unix(_) => Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "a Daemon listens on loopback TCP here",
+        )),
+        DaemonEndpoint::Tcp(address) => {
+            let stream = std::net::TcpStream::connect(address)?;
+            stream.set_read_timeout(Some(deadline))?;
+            Ok((Box::new(stream.try_clone()?), Box::new(stream)))
+        }
+    }
+}
+
+fn query_http_listener_address(
+    endpoint: &DaemonEndpoint,
+    socket_token: &str,
+    product_version: &str,
+    deadline: Duration,
+) -> Result<String, DaemonError> {
+    let (mut writer, reader) = connect_daemon(endpoint, deadline).map_err(|error| {
+        DaemonError::HttpListener(format!("connecting to Daemon socket: {error}"))
+    })?;
+    let mut reader = BufReader::new(reader);
+    let hello = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 0,
+        "method": "hello",
+        "params": {
+            "protocol_version": "0.1",
+            "surface": "cli",
+            "token": socket_token,
+            "needs": "collie",
+            "product_version": product_version,
+        },
+    });
+    writeln!(writer, "{hello}")
+        .and_then(|()| writer.flush())
+        .map_err(|error| DaemonError::HttpListener(format!("sending hello: {error}")))?;
+    let mut hello_line = String::new();
+    reader
+        .read_line(&mut hello_line)
+        .map_err(|error| DaemonError::HttpListener(format!("reading hello response: {error}")))?;
+    let hello_response: serde_json::Value = serde_json::from_str(&hello_line)
+        .map_err(|error| DaemonError::HttpListener(format!("parsing hello response: {error}")))?;
+    if hello_response.get("result").is_none() {
+        return Err(DaemonError::HttpListener(format!(
+            "Daemon refused hello: {hello_response}"
+        )));
+    }
+    let status = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "daemon.status",
+        "params": {},
+    });
+    writeln!(writer, "{status}")
+        .and_then(|()| writer.flush())
+        .map_err(|error| DaemonError::HttpListener(format!("sending daemon.status: {error}")))?;
+    let mut status_line = String::new();
+    reader
+        .read_line(&mut status_line)
+        .map_err(|error| DaemonError::HttpListener(format!("reading daemon.status: {error}")))?;
+    let status_response: serde_json::Value = serde_json::from_str(&status_line)
+        .map_err(|error| DaemonError::HttpListener(format!("parsing daemon.status: {error}")))?;
+    status_response["result"]["http_listener"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            DaemonError::HttpListener(format!(
+                "daemon.status reported no http_listener address: {status_response}"
+            ))
+        })
+}
+
+fn query_http_listener_token(env: &TestEnv, program: &Path) -> Result<String, DaemonError> {
+    let mut command = env.process_command(program);
+    command
+        .args(["daemon", "http-listener-token", "--json"])
+        .stdin(Stdio::null());
+    let output = command.output().map_err(|error| {
+        DaemonError::HttpListener(format!("running `daemon http-listener-token`: {error}"))
+    })?;
+    if !output.status.success() {
+        return Err(DaemonError::HttpListener(format!(
+            "`daemon http-listener-token` exited with {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        )));
+    }
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|error| {
+        DaemonError::HttpListener(format!("parsing `daemon http-listener-token`: {error}"))
+    })?;
+    parsed["token"]
+        .as_str()
+        .filter(|token| !token.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            DaemonError::HttpListener(format!(
+                "`daemon http-listener-token` printed no token: {parsed}"
+            ))
+        })
+}
+
 /// Why a Daemon did not start, or did not stop cleanly.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -257,4 +451,7 @@ pub enum DaemonError {
     /// The Daemon left its runtime file in the home once stopped.
     #[error("the Daemon left its runtime file {} once stopped", .0.display())]
     RuntimeFileLeft(PathBuf),
+    /// The Daemon's HTTP listener address or token could not be discovered.
+    #[error("the Daemon's HTTP listener could not be described: {0}")]
+    HttpListener(String),
 }

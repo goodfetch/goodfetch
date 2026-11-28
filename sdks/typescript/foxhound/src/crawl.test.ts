@@ -40,7 +40,7 @@ describe("a Crawl", () => {
         expect(protocolCounts(played.messages).replies).toBe(2);
       });
       const report = await run.finish();
-      const records: DatasetRecord[] = [];
+      const records: DatasetRecord<unknown>[] = [];
       for await (const record of run.records(products)) records.push(record);
       await foxhound.close();
 
@@ -268,6 +268,135 @@ describe("a Crawl", () => {
   );
 
   test(
+    "reads Records past `after`, from the Record numbered after it",
+    { tags: ["story:11-1060"] },
+    async () => {
+      const played = playScript("run/foxhound-crawl-records-parsed.json");
+      const foxhound = await connectOver(played.transport);
+      const run = await foxhound.startCrawl(crawl, {
+        seeds: [seed("https://shop.test/a", listing)],
+        runId: "nightly",
+      });
+      const reading = run.records(products, { after: 1 });
+
+      const first = await reading.next();
+      await reading.return();
+      await foxhound.close();
+
+      expect(first.value?.number).toBe(2);
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
+    "reads each Record as its Dataset's own type, a top-level field its schema does not declare kept and one it renames left renamed",
+    { tags: ["story:11-1070"] },
+    async () => {
+      const played = playScript("run/foxhound-crawl-records-parsed.json");
+      const foxhound = await connectOver(played.transport);
+      const run = await foxhound.startCrawl(crawl, {
+        seeds: [seed("https://shop.test/a", listing)],
+        runId: "nightly",
+      });
+      // A reader's own declaration of the Dataset, whose schema parses each
+      // price and reads `name` as `title`.
+      const typed = new Crawl().dataset("products", {
+        schema: z
+          .object({ id: z.string(), name: z.string(), price: z.string().transform(Number) })
+          .transform(({ name, ...rest }) => ({ ...rest, title: name })),
+        key: ["id"],
+      });
+      const reading = run.records(typed, { after: 1 });
+
+      const first = await reading.next();
+      await reading.return();
+      await foxhound.close();
+
+      expect(first.value?.value).toEqual({
+        id: "P-0002",
+        title: "Red kettle",
+        price: 23.45,
+        colour: "red",
+      });
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
+    "ends a typed read with record_invalid naming the number of the first Record its schema refuses",
+    { tags: ["story:11-1070", "error:record_invalid"] },
+    async () => {
+      const played = playScript("run/foxhound-crawl-records-parsed.json");
+      const foxhound = await connectOver(played.transport);
+      const run = await foxhound.startCrawl(crawl, {
+        seeds: [seed("https://shop.test/a", listing)],
+        runId: "nightly",
+      });
+      const typed = new Crawl().dataset("products", {
+        schema: z.object({ id: z.string(), name: z.string(), price: z.string() }),
+        key: ["id"],
+      });
+      const reading = run.records(typed, { after: 1 });
+
+      await reading.next();
+      const refused = await reading.next().then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      await foxhound.close();
+
+      expect(refused).toBeInstanceOf(RecordInvalidError);
+      expect(refused).toMatchObject({
+        typedDetails: {
+          dataset: "products",
+          number: 3,
+          records: [{ position: 0, issues: [{ path: "/price", message: expect.any(String) }] }],
+        },
+      });
+      expect(await reading.next()).toEqual({ done: true, value: undefined });
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
+    "reads a Dataset's rejected Records page after page past `after`, each as JSON with its reason, Hook, request ID and URL",
+    { tags: ["story:11-1061"] },
+    async () => {
+      const played = playScript("run/foxhound-crawl-rejected-records.json");
+      const foxhound = await connectOver(played.transport);
+      const run = await foxhound.startCrawl(crawl, {
+        seeds: [seed("https://shop.test/a", listing)],
+        runId: "nightly",
+      });
+
+      const rejected = [];
+      for await (const entry of run.rejectedRecords(products, { after: 1 })) rejected.push(entry);
+      await foxhound.close();
+
+      expect(rejected).toEqual([
+        {
+          number: 2,
+          data: { id: "P-0002", price: 23.45 },
+          reason: 'the Dataset products refuses the Record: /price: 23.45 is not of type "string"',
+          issues: [{ path: "/price", message: '23.45 is not of type "string"' }],
+          requestId: "2",
+          url: "https://shop.test/products/P-0002",
+        },
+        {
+          number: 3,
+          data: { id: "P-0003", name: "Sample kettle", price: "0.00" },
+          reason: "a free sample",
+          issues: [],
+          hook: "no-samples",
+          requestId: "3",
+          url: "https://shop.test/products/P-0003",
+        },
+      ]);
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
     "keeps serving a Run started again by its Run ID when the first value of it is closed twice",
     { tags: ["story:11-1025"] },
     async () => {
@@ -375,7 +504,7 @@ describe("a Crawl", () => {
         expect(protocolCounts(played.messages).replies).toBe(1);
       });
       await run.finish();
-      const records: DatasetRecord[] = [];
+      const records: DatasetRecord<unknown>[] = [];
       for await (const record of run.records(kettles)) records.push(record);
       await foxhound.close();
 

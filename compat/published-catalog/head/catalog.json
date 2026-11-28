@@ -1,0 +1,96 @@
+{
+  "format_version": "0.1",
+  "protocol_version": "0.1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "catalog": {
+    "error_codes": [
+      {
+        "group": "unavailable",
+        "name": "navigation_failed",
+        "product": "collie"
+      }
+    ],
+    "operations": [
+      {
+        "name": "page.goto",
+        "params": {
+          "$ref": "#/$defs/GotoParams"
+        },
+        "product": "collie",
+        "result": {
+          "$ref": "#/$defs/Navigated"
+        }
+      },
+      {
+        "name": "crawl.start",
+        "params": {
+          "$ref": "#/$defs/CrawlStartParams"
+        },
+        "product": "foxhound",
+        "result": {
+          "$ref": "#/$defs/RunStarted"
+        }
+      }
+    ]
+  },
+  "connection": {
+    "hello": {
+      "params": {
+        "$ref": "#/$defs/HelloParams"
+      },
+      "result": {
+        "$ref": "#/$defs/HelloResult"
+      }
+    }
+  },
+  "$defs": {
+    "CrawlStartParams": {
+      "properties": {
+        "seeds": {
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "GotoParams": {
+      "properties": {
+        "url": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "HelloParams": {
+      "properties": {
+        "protocol_version": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "HelloResult": {
+      "properties": {
+        "protocol_version": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Navigated": {
+      "properties": {
+        "status": {
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "RunStarted": {
+      "properties": {
+        "run_id": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  }
+}

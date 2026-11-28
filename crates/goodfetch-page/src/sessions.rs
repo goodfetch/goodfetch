@@ -65,6 +65,7 @@ use goodfetch_engine::governor::{PageHold, Permit};
 use goodfetch_engine::lease::LeaseCheck;
 use goodfetch_engine::local_addresses::Unavailable;
 use goodfetch_engine::request_signing::{KeyError, RequestSigner};
+use goodfetch_engine::response_cache::Caching;
 use goodfetch_engine::run::{secret_error, settings_error};
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_key::Sealed;
@@ -72,11 +73,12 @@ use goodfetch_engine::run_state::{RunStateError, RunStateTables, SecretColumn, r
 use goodfetch_engine::runs::{self, RunError, RunKeyError};
 use goodfetch_engine::secrets::Purpose;
 use goodfetch_engine::settings::{
-    RunSettings, SettingsError, Values, check_session_source, setting,
+    RunSettings, SettingsError, Values, check_session_source, get_or_default, setting,
 };
 use goodfetch_engine::tasks::{TaskOwner, TaskStarter};
-use goodfetch_engine::{CallContext, CallError, RunIndex, RunOfCall};
+use goodfetch_engine::{CALLER, CallContext, CallError, RunIndex, RunOfCall};
 use goodfetch_extractor::BuiltIn;
+use goodfetch_identity_profile::IdentitySeed;
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::{Authority, SettingScope};
 use goodfetch_protocol::connection::{CLOSED, CancelledBy, ClosedValue};
@@ -87,7 +89,7 @@ use goodfetch_protocol::page::access_mode::{IDENTIFIED_SIGNATURE_AGENT, IDENTIFI
 use goodfetch_protocol::page::proxy::PROXY_PROVIDER;
 use goodfetch_protocol::page::session::{NewSessionParams, SessionOpened};
 use goodfetch_protocol::page::{
-    CONTENT_EXTRACTOR, CONTENT_EXTRACTORS, PageId, PageOpened, SessionId,
+    BROWSER_HEADLESS, CONTENT_EXTRACTOR, CONTENT_EXTRACTORS, PageId, PageOpened, SessionId,
 };
 use goodfetch_protocol::run::{Lifecycle, RUN_ENDED, RUN_NOT_FOUND, RunDetails, RunId};
 use goodfetch_protocol::setting_scopes;
@@ -113,17 +115,19 @@ use crate::browser_run::BrowserRun;
 use crate::cdp::CREATE_TARGET;
 use crate::cdp::borrowed::{CdpUrl, resolve_of};
 use crate::cdp::driver::{Carried, PageDriver, SessionEgress, Visibility, counted_as_opening};
-use crate::cdp::launch::Launcher;
+use crate::cdp::launch::{Launcher, Window};
 use crate::cdp::live_view::WatchedTabs;
 use crate::consent::Consent;
 use crate::consent::gpc::GpcPlan;
 use crate::dialogs::Dialogs;
 use crate::document_request::{DocumentRequest, Unread};
 use crate::egress_relay::{self, EgressRelay};
+use crate::emulation::{self, SessionEmulation};
 pub(crate) use crate::errors::page_closed;
 use crate::errors::{cancelled, invalid_transition};
 use crate::fingerprint_method::FingerprintPlan;
 use crate::hiding::SessionHiding;
+use crate::human_input;
 use crate::interception::{HeldBrowser, Interception, Lookups, RunPowers, SessionInterception};
 use crate::page_events;
 use crate::page_functions::Injections;
@@ -223,6 +227,8 @@ struct RunSessions {
     /// The position of each Session a crawl's Session pool opened, by the
     /// pool's own ID for it, set once it opened.
     pooled: BTreeMap<SessionId, Arc<OnceCell<u32>>>,
+    /// Cursory's human-like input shapes loaded once per Run (ADR 0035, 0140).
+    human_input: Arc<OnceCell<human_input::Plan>>,
 }
 
 /// One Session this engine holds: opening, open, or crashed.
@@ -265,6 +271,9 @@ struct Session {
     /// How its pages mask their browser's fingerprint, when it is
     /// `stealth` (ADR 0035).
     fingerprint: Option<FingerprintPlan>,
+    /// How its pages shape the engine's own gestures when `stealth.human_input`
+    /// is on (ADR 0035).
+    human_input: Option<human_input::Plan>,
     /// The live hiding its pages share: the clicks' lifted rules and its
     /// pages under live hiding.
     hiding: Arc<SessionHiding>,
@@ -362,6 +371,9 @@ pub(crate) struct OpenPage {
     pub(crate) page_check: Arc<Checking>,
     /// Its Session's marks of main-world injections in Provenance.
     pub(crate) injections: Injections,
+    /// Its human-like input state when its Session is `stealth` with
+    /// `stealth.human_input` on (ADR 0035).
+    pub(crate) human_input: Option<human_input::PageHumanInput>,
     /// Its admission of the governor's `browser_page` kind, given back once
     /// the page leaves and no call holds it.
     _admission: Arc<Permit>,
@@ -633,15 +645,18 @@ impl Sessions {
                 .map_err(|error| settings_error(&error, context))?;
         }
         let settings = extractor_installed(settings, &run, context).await?;
-        let identity = access_mode_opens(&settings, &run.identity, named.as_ref(), context).await?;
-        let fingerprint = FingerprintPlan::of(&identity);
+        let (identity, emulation) =
+            session_plans(&settings, &run.identity, named.as_ref(), context)?;
+        let seed = IdentitySeed(run.entropy.fork().await.next_u64());
+        let fingerprint = fingerprint_of(&run, &settings, &identity, seed, context).await?;
         let (opened, gpc) = opening_source_and_gpc(&settings, &run, named, context).await?;
         let borrowed = opened.borrowed();
         let carried = opened.carried();
         no_local_address_on(&run, source_of(borrowed))?;
         let signing = open_signing(&run, identity.signing.as_ref(), context).await?;
         self.reach(&run, context).await?;
-        let (position, pool) = taken(&mut *self.state.lock().await, &run)?;
+        let (position, pool, human_cell) = taken(&mut *self.state.lock().await, &run)?;
+        let human_input = human_input_of(&human_cell, &run, &identity, context).await;
         let owner = run.identity.owner().child();
         let proxy = open_proxy((&run, &owner), &settings, context, position).await?;
         no_proxy_under(borrowed, proxy.as_deref())?;
@@ -666,8 +681,9 @@ impl Sessions {
                 &runs.pool,
                 borrowed,
                 carried,
-                placement(fingerprint.as_ref(), gpc, opened.profile()),
+                placement(&run, fingerprint.as_ref(), gpc, opened.profile()),
                 egress(proxy.as_ref(), relay.as_ref(), http_credentials.as_ref()),
+                emulation,
                 TaskStarter::clone(&owner),
             );
             let session = session_id(run.identity.id(), position);
@@ -703,6 +719,7 @@ impl Sessions {
                 held_frames: borrowed.map(|_| session_pages::HeldFrames::default()),
                 injections: Injections::default(),
                 fingerprint,
+                human_input,
                 hiding: Arc::default(),
                 interception,
                 page_listeners: session_pages::PageListeners::default(),
@@ -717,7 +734,7 @@ impl Sessions {
         self.seat_and_record(
             (&run, &open),
             (&session, &life),
-            (position, &settings, &opened, gpc),
+            (SessionRow::opened(position, seed), &settings, &opened, gpc),
             context,
         )
         .await
@@ -730,7 +747,7 @@ impl Sessions {
         &self,
         (run, open): (&Arc<BrowserRun>, &Arc<Session>),
         (session, life): (&SessionId, &SessionLife),
-        (position, settings, opened, gpc): (u32, &Values, &OpenedSource, GpcPlan),
+        (row, settings, opened, gpc): (SessionRow, &Values, &OpenedSource, GpcPlan),
         context: &CallContext,
     ) -> Result<SessionOpened, CallError> {
         if let Err(error) = open.seat.open().await {
@@ -745,12 +762,8 @@ impl Sessions {
             // A `close()` while it opened abandoned the open (S3).
             _ => return Err(cancelled(CancelledBy::Program, ClosedValue::Session)),
         }
-        self.record(run, position, false, settings, opened, context)
-            .await?;
-        mark_egress(open, session).await;
-        if let Some(fingerprint) = &open.fingerprint {
-            fingerprint.chosen(run, session).await;
-        }
+        self.record(run, row, settings, opened, context).await?;
+        mark_opened_session(run, open, session).await;
         warn_gpc(run, session, gpc).await;
         Ok(SessionOpened {
             session_id: session.clone(),
@@ -766,14 +779,23 @@ impl Sessions {
         context: &CallContext,
     ) -> Result<PageOpened, CallError> {
         let run = live(run_id, context).await?;
+        let _ = page_settings(settings, &run, context)?;
         let named = named_source(&run, None, context);
-        let identity =
-            access_mode_opens(&Values::default(), &run.identity, named.as_ref(), context).await?;
+        let (identity, emulation) =
+            session_plans(&Values::default(), &run.identity, named.as_ref(), context)?;
         let opened = opening_source(&run, named, context).await?;
         self.reach(&run, context).await?;
         let default = Arc::clone(&reached(&mut *self.state.lock().await, &run.identity)?.default);
         let position = *default
-            .get_or_try_init(|| self.open_held(&run, &opened, &identity, Opener::Default, context))
+            .get_or_try_init(|| {
+                self.open_held(
+                    &run,
+                    &opened,
+                    (&identity, &emulation),
+                    Opener::Default,
+                    context,
+                )
+            })
             .await?;
         if reached(&mut *self.state.lock().await, &run.identity)?
             .closed
@@ -803,7 +825,7 @@ impl Sessions {
         &self,
         run: &Arc<BrowserRun>,
         source: &OpenedSource,
-        identity: &SessionIdentityPlan,
+        (identity, emulation): (&SessionIdentityPlan, &SessionEmulation),
         opener: Opener,
         context: &CallContext,
     ) -> Result<u32, CallError> {
@@ -811,14 +833,16 @@ impl Sessions {
         let carried = source.carried();
         no_local_address_on(run, source_of(borrowed))?;
         let signing = open_signing(run, identity.signing.as_ref(), context).await?;
-        let fingerprint = FingerprintPlan::of(identity);
+        let seed = IdentitySeed(run.entropy.fork().await.next_u64());
+        let fingerprint = fingerprint_of(run, &Values::default(), identity, seed, context).await?;
         let gpc = GpcPlan::of(
             &Values::default(),
             run.identity.settings().map(RunSettings::resolved),
             None,
             borrowed.is_some(),
         );
-        let (position, pool) = taken(&mut *self.state.lock().await, run)?;
+        let (position, pool, human_cell) = taken(&mut *self.state.lock().await, run)?;
+        let human_input = human_input_of(&human_cell, run, identity, context).await;
         let owner = run.identity.owner().child();
         let proxy = open_proxy((run, &owner), &Values::default(), context, position).await?;
         no_proxy_under(borrowed, proxy.as_deref())?;
@@ -844,13 +868,20 @@ impl Sessions {
             &pool,
             borrowed,
             carried,
-            placement(fingerprint.as_ref(), gpc, source.profile()),
+            placement(run, fingerprint.as_ref(), gpc, source.profile()),
             egress(proxy.as_ref(), relay.as_ref(), http_credentials.as_ref()),
+            emulation.clone(),
             TaskStarter::clone(&owner),
         );
         if let Opener::Default = opener {
-            self.record(run, position, true, &Values::default(), source, context)
-                .await?;
+            self.record(
+                run,
+                SessionRow::the_default(position, seed),
+                &Values::default(),
+                source,
+                context,
+            )
+            .await?;
         }
         let attributes = match (opener, borrowed.is_some()) {
             (Opener::Default, false) => FRESH,
@@ -887,6 +918,7 @@ impl Sessions {
             held_frames: borrowed.map(|_| session_pages::HeldFrames::default()),
             injections: Injections::default(),
             fingerprint,
+            human_input,
             hiding: Arc::default(),
             interception,
             page_listeners: session_pages::PageListeners::default(),
@@ -904,6 +936,9 @@ impl Sessions {
             fingerprint.chosen(run, &session).await;
         }
         warn_gpc(run, &session, gpc).await;
+        if let Some(human_input) = &held.human_input {
+            human_input.chosen(run, &session).await;
+        }
         Ok(position)
     }
 
@@ -1054,8 +1089,8 @@ impl Sessions {
     ) -> Result<SessionId, CallError> {
         let run = live(run_id, context).await?;
         let named = named_source(&run, pooled.source.clone(), context);
-        let identity =
-            access_mode_opens(&Values::default(), &run.identity, named.as_ref(), context).await?;
+        let (identity, emulation) =
+            session_plans(&Values::default(), &run.identity, named.as_ref(), context)?;
         let source = opening_source(&run, named, context).await?;
         self.reach(&run, context).await?;
         let cell = Arc::clone(
@@ -1068,7 +1103,9 @@ impl Sessions {
             address_ordinal: pooled.address_ordinal,
         };
         let position = *cell
-            .get_or_try_init(|| self.open_held(&run, &source, &identity, opener, context))
+            .get_or_try_init(|| {
+                self.open_held(&run, &source, (&identity, &emulation), opener, context)
+            })
             .await?;
         Ok(session_id(run.identity.id(), position))
     }
@@ -1220,6 +1257,7 @@ impl Sessions {
         }
         if crashed {
             open.owner.stop().await;
+            forget_cached(open, session).await;
             return Ok(Ok(()));
         }
         open.life.apply(SessionEvent::ChildrenClosed, None)?;
@@ -1227,6 +1265,7 @@ impl Sessions {
         // Its owner stops last, waiting for every task it and its pages
         // started (ADR 0146).
         open.owner.stop().await;
+        forget_cached(open, session).await;
         Ok(ended)
     }
 
@@ -1457,6 +1496,7 @@ impl Sessions {
             default: Arc::new(OnceCell::new()),
             closed: BTreeSet::new(),
             pooled: BTreeMap::new(),
+            human_input: Arc::new(OnceCell::new()),
         };
         let mut reopened = Vec::new();
         for entry in recorded {
@@ -1471,8 +1511,9 @@ impl Sessions {
             let settings = recorded_settings(&entry.settings, run, context)?;
             reopened.push(
                 reopened_session(
-                    (run, &pool),
+                    (run, &pool, &runs.human_input),
                     entry.position,
+                    entry.seed,
                     settings,
                     entry.source,
                     entry.state,
@@ -1566,15 +1607,17 @@ impl Sessions {
         });
     }
 
-    /// Records the Session at `position` of `run`, with its own `settings`,
-    /// the identity seed it draws from the Run's `Entropy` and the
+    /// Records the Session `row` of `run`, with its own `settings` and the
     /// `cdp_url` of the Borrowed browser it is on, `borrowed`, if it is, in
     /// its run state.
     async fn record(
         &self,
         run: &Arc<BrowserRun>,
-        position: u32,
-        is_default: bool,
+        SessionRow {
+            position,
+            is_default,
+            seed,
+        }: SessionRow,
         settings: &Values,
         opened: &OpenedSource,
         context: &CallContext,
@@ -1620,7 +1663,7 @@ impl Sessions {
                 .collect(),
         )
         .to_string();
-        let seed = i64::from_le_bytes(run.entropy.fork().await.next_u64().to_le_bytes());
+        let seed = i64::from_le_bytes(seed.0.to_le_bytes());
         run.state
             .write(move |connection| {
                 connection
@@ -1960,15 +2003,46 @@ async fn opened_state(
     Carried::from_bytes(&bytes).map_err(|error| unavailable(run, &error, context))
 }
 
+/// What the run state records of a Session as it opens: its position,
+/// whether it is the default Session, and the seed its Identity profile is
+/// drawn from.
+#[derive(Clone, Copy, Debug)]
+struct SessionRow {
+    position: u32,
+    is_default: bool,
+    seed: IdentitySeed,
+}
+
+impl SessionRow {
+    /// A Session a client opens, at `position`.
+    const fn opened(position: u32, seed: IdentitySeed) -> Self {
+        Self {
+            position,
+            is_default: false,
+            seed,
+        }
+    }
+
+    /// The Run's default Session, at `position`.
+    const fn the_default(position: u32, seed: IdentitySeed) -> Self {
+        Self {
+            position,
+            is_default: true,
+            seed,
+        }
+    }
+}
+
 /// A Session as the run state records it: its position, whether it is the
-/// default Session, whether it closed, its own settings, for one on a
-/// Borrowed browser its sealed source, and for a fresh Session its sealed
-/// cookies and `localStorage`.
+/// default Session, whether it closed, its own settings, its identity seed,
+/// for one on a Borrowed browser its sealed source, and for a fresh Session
+/// its sealed cookies and `localStorage`.
 struct RecordedSession {
     position: u32,
     is_default: bool,
     closed: bool,
     settings: String,
+    seed: IdentitySeed,
     source: Option<Sealed>,
     state: Option<Sealed>,
 }
@@ -1985,7 +2059,7 @@ async fn recorded_sessions(
     run.state
         .read(|connection| {
             let mut statement = connection.prepare(
-                "SELECT position, is_default, closed, settings, source, state FROM page_sessions ORDER BY position",
+                "SELECT position, is_default, closed, settings, identity_seed, source, state FROM page_sessions ORDER BY position",
             )?;
             let rows = statement.query_map([], |row| {
                 Ok(RecordedSession {
@@ -1993,8 +2067,9 @@ async fn recorded_sessions(
                     is_default: row.get(1)?,
                     closed: row.get(2)?,
                     settings: row.get(3)?,
-                    source: row.get(4)?,
-                    state: row.get(5)?,
+                    seed: IdentitySeed(u64::from_le_bytes(row.get::<_, i64>(4)?.to_le_bytes())),
+                    source: row.get(5)?,
+                    state: row.get(6)?,
                 })
             })?;
             rows.collect::<rusqlite::Result<Vec<_>>>()
@@ -2018,14 +2093,16 @@ fn recorded_settings(
 }
 
 /// The open Session at `position` that the run state of `run` records,
-/// reopened on `pool` with its own `settings`, on the Borrowed browser its
-/// sealed `source` names if it has one, or with its sealed `state` (cookies
-/// and `localStorage`) carried into its next browser context, under an owner
-/// of its own, a child of the Run's. A proxy or signing key it cannot reopen
-/// is kept as its `reopen_failed`, which each page it is asked for raises.
+/// reopened on `pool` with its own `settings` and the Identity profile its
+/// `seed` draws, on the Borrowed browser its sealed `source` names if it
+/// has one, or with its sealed `state` (cookies and `localStorage`) carried
+/// into its next browser context, under an owner of its own, a child of the
+/// Run's. A proxy or signing key it cannot reopen is kept as its
+/// `reopen_failed`, which each page it is asked for raises.
 async fn reopened_session(
-    (run, pool): (&Arc<BrowserRun>, &Pool),
+    (run, pool, human_cell): (&Arc<BrowserRun>, &Pool, &OnceCell<human_input::Plan>),
     position: u32,
+    seed: IdentitySeed,
     settings: Values,
     source: Option<Sealed>,
     state: Option<Sealed>,
@@ -2050,11 +2127,25 @@ async fn reopened_session(
         context,
     )
     .await;
-    let ((signing, fingerprint, identified), reopen_failed) =
-        match reopened_identity(run, &settings, borrowed.is_some(), context).await {
-            Ok(identity) => (identity, reopen_failed),
-            Err(error) => ((None, None, false), reopen_failed.or(Some(error))),
-        };
+    let (reopened, reopen_failed) = match reopened_identity(
+        (run, human_cell),
+        &settings,
+        borrowed.is_some(),
+        seed,
+        context,
+    )
+    .await
+    {
+        Ok(identity) => (identity, reopen_failed),
+        Err(error) => (ReopenedIdentity::default(), reopen_failed.or(Some(error))),
+    };
+    let ReopenedIdentity {
+        signing,
+        fingerprint,
+        human_input,
+        emulation,
+        identified,
+    } = reopened;
     let session = session_id(run.identity.id(), position);
     let gpc = GpcPlan::of(
         &settings,
@@ -2078,8 +2169,9 @@ async fn reopened_session(
         ),
         None => (
             pool.seat_with_carried(
-                placement(fingerprint.as_ref(), gpc, None),
+                placement(run, fingerprint.as_ref(), gpc, None),
                 egress(proxy.as_ref(), relay.as_ref(), http_credentials.as_ref()),
+                emulation,
                 carried,
                 TaskStarter::clone(&owner),
             ),
@@ -2114,6 +2206,7 @@ async fn reopened_session(
             .map(|_| session_pages::HeldFrames::default()),
         injections: Injections::default(),
         fingerprint,
+        human_input,
         hiding: Arc::default(),
         interception,
         page_listeners: session_pages::PageListeners::default(),
@@ -2171,30 +2264,86 @@ struct NamedSource {
 /// The Access mode a Session of the Run `identity` names opens in, as its
 /// `own` settings, over the Run's, ask for from the source `named` (ADR
 /// 0021): the [`access_mode`](crate::access_mode) module's refusal when it
-/// does not open, names a `stealth` identity its browser family's
-/// population does not hold, or asks for an effect this engine does not
-/// build yet (ADR 0083). The population is read on one of the Run's
-/// blocking threads.
-async fn access_mode_opens(
+/// does not open or asks for an effect this engine does not build yet
+/// (ADR 0083). Its `stealth` identity is drawn, and checked against its
+/// browser family's population, by [`fingerprint_of`].
+fn access_mode_opens(
     own: &Values,
     identity: &RunIdentity,
     named: Option<&NamedSource>,
     context: &CallContext,
 ) -> Result<SessionIdentityPlan, CallError> {
     let source = named.map(|named| &named.source);
+    let settings = SessionSettings::new(own, identity.settings().map(RunSettings::resolved));
+    access_mode::resolve(&settings, source, BrowserFamily::of(source))
+        .and_then(|plan| plan.built(&settings))
+        .map_err(|refusal| refusal.call_error(context))
+}
+
+/// The Access mode and device emulation plans a Session of the Run
+/// `identity` opens with, from `own` over the Run's settings and `named`
+/// (ADR 0083; spec #578, ticket #3289).
+fn session_plans(
+    own: &Values,
+    identity: &RunIdentity,
+    named: Option<&NamedSource>,
+    context: &CallContext,
+) -> Result<(SessionIdentityPlan, SessionEmulation), CallError> {
+    let access = access_mode_opens(own, identity, named, context)?;
+    let emulation = emulation_opens(own, identity, named, context)?;
+    Ok((access, emulation))
+}
+
+/// The device emulation and network throttling a Session of the Run
+/// `identity` opens with, from `own` over the Run's settings and `named`
+/// (ADR 0083; spec #578, ticket #3289).
+fn emulation_opens(
+    own: &Values,
+    identity: &RunIdentity,
+    named: Option<&NamedSource>,
+    context: &CallContext,
+) -> Result<SessionEmulation, CallError> {
+    let source = named.map(|named| &named.source);
+    let source_layer = named.map(|named| named.layer);
     let family = BrowserFamily::of(source);
     let settings = SessionSettings::new(own, identity.settings().map(RunSettings::resolved));
-    let plan = access_mode::resolve(&settings, source, family)
-        .map_err(|refusal| refusal.call_error(context))?;
-    if let Some(narrowing) = plan.narrowing(family) {
-        identity
-            .owner()
-            .blocking(move || narrowing.drawn())
-            .await
-            .map_err(|error| Refusal::outside_population(&settings, &error).call_error(context))?;
-    }
-    plan.built(&settings)
+    emulation::resolve(&settings, source, source_layer, family)
         .map_err(|refusal| refusal.call_error(context))
+}
+
+/// The Fingerprint method a Session of `run`, opening as `plan` says with
+/// its `own` settings, masks its pages with, if it does: with the Identity
+/// profile `seed` draws from its narrowing of its browser family's
+/// population on the machine's operating system (#913), none when it
+/// generates none. The population is read on one of the Run's blocking
+/// threads.
+///
+/// # Errors
+///
+/// `identity_outside_population` naming the `stealth.identity.*` key, in
+/// the layer that set it, whose values the population draws no browser
+/// from.
+async fn fingerprint_of(
+    run: &Arc<BrowserRun>,
+    own: &Values,
+    plan: &SessionIdentityPlan,
+    seed: IdentitySeed,
+    context: &CallContext,
+) -> Result<Option<FingerprintPlan>, CallError> {
+    let identity = match plan.narrowing() {
+        Some(narrowing) => run
+            .identity
+            .owner()
+            .blocking(move || narrowing.identity(seed))
+            .await
+            .map_err(|error| {
+                let settings =
+                    SessionSettings::new(own, run.identity.settings().map(RunSettings::resolved));
+                Refusal::outside_population(&settings, &error).call_error(context)
+            })?,
+        None => None,
+    };
+    Ok(FingerprintPlan::of(plan, identity))
 }
 
 /// The signer of a Session of `run` that opens `identified` with the
@@ -2582,60 +2731,133 @@ async fn reopened_egress(
     }
 }
 
-/// The signer and the Fingerprint method of a Session of `run` reopened
-/// from run state with its own `settings`, as a Session opens with them:
-/// its key resolved again, once for the reopened Session, as
-/// [`open_signing`] makes it. One on a Borrowed browser, when `borrowed`,
-/// neither signs nor masks (ADR 0021).
+/// Records egress, Fingerprint method and human-like input choices for an
+/// opened Session.
+async fn mark_opened_session(run: &BrowserRun, open: &Session, session: &SessionId) {
+    mark_egress(open, session).await;
+    if let Some(fingerprint) = &open.fingerprint {
+        fingerprint.chosen(run, session).await;
+    }
+    if let Some(human_input) = &open.human_input {
+        human_input.chosen(run, session).await;
+    }
+}
+
+/// The human-like input plan of a `stealth` Session whose
+/// `stealth.human_input` is on, loaded once per Run from the Browser cache
+/// or falling back to the ghost-cursor port (ADRs 0035, 0140).
+async fn human_input_of(
+    cell: &OnceCell<human_input::Plan>,
+    run: &Arc<BrowserRun>,
+    plan: &SessionIdentityPlan,
+    context: &CallContext,
+) -> Option<human_input::Plan> {
+    if !plan
+        .profile
+        .as_ref()
+        .is_some_and(|profile| profile.human_input)
+    {
+        return None;
+    }
+    let loaded = cell
+        .get_or_init(|| async {
+            let pinned_by = PinnedBy {
+                product: context.identity().product,
+                product_version: context.identity().product_version.clone(),
+            };
+            human_input::Plan::open(context.engine().home(), &run.identity, &pinned_by).await
+        })
+        .await;
+    Some(loaded.clone())
+}
+
+/// The signer, Fingerprint method and human-like input plan of a Session of
+/// `run` reopened from run state with its own `settings`, as a Session opens
+/// with them: its key resolved again, once for the reopened Session, as
+/// [`open_signing`] makes it, and its Identity profile drawn again from
+/// its recorded `seed`, the one it opened with. One on a Borrowed browser,
+/// when `borrowed`, neither signs nor masks (ADR 0021).
 ///
 /// # Errors
 ///
-/// As [`access_mode_opens`] and [`open_signing`] say: the Session then
-/// raises it from each page it is asked for.
+/// As [`session_plans`], [`open_signing`] and [`fingerprint_of`] say:
+/// the Session then raises it from each page it is asked for.
+#[derive(Default)]
+struct ReopenedIdentity {
+    signing: Option<Arc<RequestSigner>>,
+    fingerprint: Option<FingerprintPlan>,
+    human_input: Option<human_input::Plan>,
+    emulation: SessionEmulation,
+    identified: bool,
+}
+
 async fn reopened_identity(
-    run: &Arc<BrowserRun>,
+    (run, human_cell): (&Arc<BrowserRun>, &OnceCell<human_input::Plan>),
     settings: &Values,
     borrowed: bool,
+    seed: IdentitySeed,
     context: &CallContext,
-) -> Result<(Option<Arc<RequestSigner>>, Option<FingerprintPlan>, bool), CallError> {
+) -> Result<ReopenedIdentity, CallError> {
     if borrowed {
-        return Ok((None, None, false));
+        return Ok(ReopenedIdentity {
+            emulation: SessionEmulation::borrowed(),
+            ..ReopenedIdentity::default()
+        });
     }
-    let identity = access_mode_opens(settings, &run.identity, None, context).await?;
+    let (identity, emulation) = session_plans(settings, &run.identity, None, context)?;
     let identified = identity.mode == crate::access_mode::AccessMode::Identified;
     let signing = open_signing(run, identity.signing.as_ref(), context).await?;
-    Ok((signing, FingerprintPlan::of(&identity), identified))
+    let fingerprint = fingerprint_of(run, settings, &identity, seed, context).await?;
+    let human_input = human_input_of(human_cell, run, &identity, context).await;
+    Ok(ReopenedIdentity {
+        signing,
+        fingerprint,
+        human_input,
+        emulation,
+        identified,
+    })
 }
 
 /// Takes a seat in `pool`: a Borrowed seat when `borrowed` names a browser,
-/// else a pooled seat under `placement` and `egress`.
+/// else a pooled seat under `placement`, `egress`, and `emulation`.
 fn open_seat(
     pool: &Pool,
     borrowed: Option<&CdpUrl>,
     carried: Option<&Carried>,
-    placement: BrowserPlacement,
+    placement: (BrowserPlacement, Window),
     egress: SessionEgress,
+    emulation: SessionEmulation,
     tasks: TaskStarter,
 ) -> Seat {
     match borrowed {
         Some(cdp_url) => pool.borrowed_seat(cdp_url.clone(), egress, tasks),
         None => match carried.filter(|carried| !carried.is_empty()) {
-            Some(carried) => pool.seat_with_carried(placement, egress, carried.clone(), tasks),
-            None => pool.seat(placement, egress, tasks),
+            Some(carried) => {
+                pool.seat_with_carried(placement, egress, emulation, carried.clone(), tasks)
+            }
+            None => pool.seat(placement, egress, emulation, tasks),
         },
     }
 }
 
-/// Where a Session whose pages mask their fingerprint as `fingerprint`
+/// Where a Session of `run` whose pages mask their fingerprint as `fingerprint`
 /// says, and whose Global Privacy Control plan is `gpc`, is placed in its
-/// Run's browser pool (ADRs 0048 and 0129): a dedicated GPC browser is
-/// never shared with another Session.
+/// Run's browser pool (ADRs 0048 and 0129), and the window its browser shows
+/// them in: a dedicated GPC or profile browser is never shared with another Session.
 fn placement(
+    run: &BrowserRun,
     fingerprint: Option<&FingerprintPlan>,
     gpc: GpcPlan,
     profile: Option<&crate::profile_directory::ProfileDirectory>,
-) -> BrowserPlacement {
-    if let Some(profile) = profile {
+) -> (BrowserPlacement, Window) {
+    let window = match fingerprint {
+        Some(fingerprint) => fingerprint.window(),
+        None => Window::of(get_or_default(
+            run.identity.settings().map(RunSettings::resolved),
+            &BROWSER_HEADLESS,
+        )),
+    };
+    let browser_placement = if let Some(profile) = profile {
         BrowserPlacement::OwnProcess {
             gpc: gpc.own_browser_gpc(),
             profile: Some(profile.clone()),
@@ -2652,7 +2874,8 @@ fn placement(
         }
     } else {
         BrowserPlacement::Shared
-    }
+    };
+    (browser_placement, window)
 }
 
 /// Resolves `named` into a Borrowed browser URL (if any) and the Session's
@@ -2712,14 +2935,38 @@ fn session_interception(
             browser,
         )
     });
-    Arc::new(SessionInterception::new(
-        session.clone(),
-        lookups,
-        signing,
-        send_gpc_header,
-        identified,
-        own_settings,
-    ))
+    // Its requests are answered from its Run's sources, as the HTTP tier's
+    // are, so an entry either stored serves the other where the key
+    // matches (ADR 0046).
+    let caching = run.identity.settings().and_then(|settings| {
+        Caching::of(
+            run.engine.response_source(settings.resolved()),
+            CALLER,
+            run.identity.id().clone(),
+            run.identity.clock(),
+        )
+        .map(|caching| caching.of_session(session))
+    });
+    Arc::new(
+        SessionInterception::new(
+            session.clone(),
+            lookups,
+            signing,
+            send_gpc_header,
+            identified,
+            own_settings,
+        )
+        .with_caching(caching),
+    )
+}
+
+/// Forgets what `open`, the Session `session` that ended, kept in its own
+/// partition of its Run's cache, once no task of its own stores more
+/// (ADR 0046).
+async fn forget_cached(open: &Session, session: &SessionId) {
+    if let Some(caching) = open.interception.caching() {
+        caching.forget(session).await;
+    }
 }
 
 /// The browser interception alone holds for a Session: a Borrowed one at
@@ -2931,10 +3178,13 @@ async fn live(run_id: &RunId, context: &CallContext) -> Result<Arc<BrowserRun>, 
 /// for its own (#882, #891), as its Run's resume draws them again. A
 /// failed open leaves its position unused. Answers it with the Run's
 /// browser pool; `run_not_found` once the Run stopped.
-fn taken(state: &mut State, run: &Arc<BrowserRun>) -> Result<(u32, Pool), CallError> {
+fn taken(
+    state: &mut State,
+    run: &Arc<BrowserRun>,
+) -> Result<(u32, Pool, Arc<OnceCell<human_input::Plan>>), CallError> {
     let runs = reached(state, &run.identity)?;
     runs.last += 1;
-    Ok((runs.last, runs.pool.clone()))
+    Ok((runs.last, runs.pool.clone(), Arc::clone(&runs.human_input)))
 }
 
 /// The position of the Run's local-address rotation that the program's

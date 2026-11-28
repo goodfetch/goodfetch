@@ -190,6 +190,27 @@ fn every_launch_turns_the_back_forward_cache_off() {
     );
 }
 
+/// A page's `navigator.webdriver` reads false in every frame, headless or
+/// not: Blink's automation flag is off on every launch.
+///
+/// Covers: story:8-1
+#[test]
+fn every_launch_hides_navigator_webdriver() {
+    assert_eq!(
+        (
+            has(
+                &arguments(&launch(true, None)),
+                "--disable-blink-features=AutomationControlled"
+            ),
+            has(
+                &arguments(&launch(false, None)),
+                "--disable-blink-features=AutomationControlled"
+            ),
+        ),
+        (true, true)
+    );
+}
+
 /// A page left on a network error page stays there: Chromium loads one
 /// again on its own a second later unless told not to, or unless it runs
 /// with `--enable-automation`, which the engine never passes (fix-queue 83).

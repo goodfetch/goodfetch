@@ -550,6 +550,7 @@ fn invalid(name: &str, records: Vec<InvalidRecord>, message: String) -> CallErro
         &RecordInvalidDetails {
             dataset: name.to_owned(),
             records,
+            number: None,
         },
     )
 }

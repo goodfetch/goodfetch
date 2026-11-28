@@ -247,10 +247,11 @@ async fn stopped_open(params: Value, context: CallContext) -> Result<Value, Call
             .is_some_and(|runs| runs.last > 0)
     };
     let opened = {
+        let emulation = super::SessionEmulation::default();
         let mut open = std::pin::pin!(sessions.open_held(
             &browser,
             &super::OpenedSource::Fresh,
-            &STANDARD,
+            (&STANDARD, &emulation),
             Opener::Default,
             &context
         ));
@@ -299,7 +300,7 @@ async fn session_ended(params: Value, context: CallContext) -> Result<Value, Cal
         .open_held(
             &browser,
             &super::OpenedSource::Fresh,
-            &STANDARD,
+            (&STANDARD, &super::SessionEmulation::default()),
             opener,
             &context,
         )
@@ -331,7 +332,7 @@ async fn session_panicked(params: Value, context: CallContext) -> Result<Value, 
         .open_held(
             &browser,
             &super::OpenedSource::Fresh,
-            &STANDARD,
+            (&STANDARD, &super::SessionEmulation::default()),
             Opener::Default,
             &context,
         )
@@ -464,7 +465,7 @@ async fn browser_panicked(params: Value, context: CallContext) -> Result<Value, 
         .open_held(
             &browser,
             &super::OpenedSource::Fresh,
-            &STANDARD,
+            (&STANDARD, &super::SessionEmulation::default()),
             Opener::Default,
             &context,
         )
@@ -547,7 +548,7 @@ async fn request_replaced(params: Value, context: CallContext) -> Result<Value, 
         .open_held(
             &browser,
             &super::OpenedSource::Fresh,
-            &STANDARD,
+            (&STANDARD, &super::SessionEmulation::default()),
             Opener::Default,
             &context,
         )

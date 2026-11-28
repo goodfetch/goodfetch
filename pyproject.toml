@@ -104,7 +104,7 @@ addopts = [
 junit_logging = "out-err"
 junit_log_passing_tests = false
 # pytest-timeout: killed at 5 min above the Quick suite; `just test quick`
-# passes `--timeout=10`.
+# passes `--timeout=60`.
 timeout = "300"
 # Replaces pytest's default list, so hidden folders (other worktrees under
 # `.claude/`) and fixture folders (samples xtask runs on purpose) are named.
@@ -133,6 +133,7 @@ ignore = ["D206", "D300"]
 "sdks/python/collie-client/src/goodfetch_collie_client/raw_call.py" = ["ASYNC109"]
 "sdks/python/collie-client/src/goodfetch_collie_client/schedules.py" = ["ASYNC109"]
 "sdks/python/collie/src/goodfetch_collie/collie.py" = ["ASYNC109"]
+"sdks/python/foxhound/src/goodfetch_foxhound/crawl_run.py" = ["ASYNC109"]
 "sdks/python/foxhound/src/goodfetch_foxhound/foxhound.py" = ["ASYNC109"]
 "sdks/python/foxhound/tests/types/crawl_types.py" = ["F821"]
 # A starter's `pyproject.toml` is a template: `init` fills its `{{version}}`,

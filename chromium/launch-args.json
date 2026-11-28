@@ -1,0 +1,98 @@
+{
+  "generated_by": "xtask codegen",
+  "identity_profile": {
+    "hardware_concurrency": 4,
+    "languages": [
+      "en-US",
+      "en"
+    ],
+    "platform": "Win32",
+    "screen": {
+      "avail_height": 716,
+      "avail_width": 1348,
+      "height": 758,
+      "width": 1348
+    },
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36"
+  },
+  "identity_seed": 1,
+  "methods": {
+    "js_injection": {
+      "args": [
+        "--disable-background-networking",
+        "--disable-component-update",
+        "--disable-breakpad",
+        "--disable-sync",
+        "--disable-client-side-phishing-detection",
+        "--metrics-recording-only",
+        "--disable-field-trial-config",
+        "--gaia-url=https://gaia.invalid",
+        "--component-updater=url-source=https://components.invalid",
+        "--disable-background-timer-throttling",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-back-forward-cache",
+        "--disable-component-extensions-with-background-pages",
+        "--no-default-browser-check",
+        "--disable-default-apps",
+        "--disable-extensions",
+        "--allow-pre-commit-input",
+        "--disable-hang-monitor",
+        "--disable-ipc-flooding-protection",
+        "--disable-popup-blocking",
+        "--disable-prompt-on-repost",
+        "--disable-renderer-backgrounding",
+        "--no-first-run",
+        "--password-store=basic",
+        "--use-mock-keychain",
+        "--no-service-autorun",
+        "--export-tagged-pdf",
+        "--disable-search-engine-choice-screen",
+        "--disable-infobars",
+        "--disable-auto-reload",
+        "--disable-blink-features=AutomationControlled",
+        "--disable-features=OptimizationHints,NetworkTimeServiceQuerying,Translate,MediaRouter,AimEnabled,PreconnectToSearch,AvoidUnnecessaryBeforeUnloadCheckSync,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,PaintHolding,BlockOriginHeaderModificationOnRedirect,AvoidCorsURLLoaderRestartOnRedirect,AutoDeElevate,Prerender2,Prerender2FallbackPrefetchSpecRules",
+        "--webrtc-ip-handling-policy=disable_non_proxied_udp",
+        "--host-resolver-rules=MAP *.invalid ~NOTFOUND"
+      ],
+      "init_script": "(() => {\n  const define = (target, name, value) => Object.defineProperty(target, name, { get: () => value, configurable: true });\n  define(Navigator.prototype, \"userAgent\", \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36\");\n  define(Navigator.prototype, \"platform\", \"Win32\");\n  define(Screen.prototype, \"width\", 1348);\n  define(Screen.prototype, \"height\", 758);\n  define(Screen.prototype, \"availWidth\", 1348);\n  define(Screen.prototype, \"availHeight\", 716);\n  define(Navigator.prototype, \"hardwareConcurrency\", 4);\n  define(Navigator.prototype, \"language\", \"en-US\");\n  define(Navigator.prototype, \"languages\", Object.freeze([\"en-US\",\"en\"]));\n})();"
+    },
+    "none": {
+      "args": [
+        "--disable-background-networking",
+        "--disable-component-update",
+        "--disable-breakpad",
+        "--disable-sync",
+        "--disable-client-side-phishing-detection",
+        "--metrics-recording-only",
+        "--disable-field-trial-config",
+        "--gaia-url=https://gaia.invalid",
+        "--component-updater=url-source=https://components.invalid",
+        "--disable-background-timer-throttling",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-back-forward-cache",
+        "--disable-component-extensions-with-background-pages",
+        "--no-default-browser-check",
+        "--disable-default-apps",
+        "--disable-extensions",
+        "--allow-pre-commit-input",
+        "--disable-hang-monitor",
+        "--disable-ipc-flooding-protection",
+        "--disable-popup-blocking",
+        "--disable-prompt-on-repost",
+        "--disable-renderer-backgrounding",
+        "--no-first-run",
+        "--password-store=basic",
+        "--use-mock-keychain",
+        "--no-service-autorun",
+        "--export-tagged-pdf",
+        "--disable-search-engine-choice-screen",
+        "--disable-infobars",
+        "--disable-auto-reload",
+        "--disable-blink-features=AutomationControlled",
+        "--disable-features=OptimizationHints,NetworkTimeServiceQuerying,Translate,MediaRouter,AimEnabled,PreconnectToSearch,AvoidUnnecessaryBeforeUnloadCheckSync,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,PaintHolding,BlockOriginHeaderModificationOnRedirect,AvoidCorsURLLoaderRestartOnRedirect,AutoDeElevate,Prerender2,Prerender2FallbackPrefetchSpecRules",
+        "--webrtc-ip-handling-policy=disable_non_proxied_udp",
+        "--host-resolver-rules=MAP *.invalid ~NOTFOUND"
+      ]
+    }
+  }
+}

@@ -19,7 +19,16 @@ import base64
 import inspect
 import weakref
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast, final, overload
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Generic,
+    Protocol,
+    TypeVar,
+    cast,
+    final,
+    overload,
+)
 
 from goodfetch_collie_client.generated.models import KeyValueStoreAttempt
 from goodfetch_collie_client.generated.models import Locator as LocatorId
@@ -57,6 +66,9 @@ from goodfetch_foxhound.generated.models import (
     RequestSeed,
     SitemapSeed,
 )
+from goodfetch_foxhound.generated.models import (
+    DatasetRecord as WireDatasetRecord,
+)
 from goodfetch_foxhound.generated.operations import (
     DEPRECATED_OPERATIONS,
     EXPERIMENTAL_OPERATIONS,
@@ -78,11 +90,14 @@ if TYPE_CHECKING:
         KeyValueStore,
     )
     from goodfetch_collie_client.schema import JSONSchema
+    from goodfetch_collie_client.sequence import AsyncSequence
+    from goodfetch_collie_client.sequence import Sequence as ReadSequence
 
     from goodfetch_foxhound.generated.models import (
         Enqueued,
         EnqueuedLinks,
         MatchedLink,
+        RejectedRecord,
     )
     from goodfetch_foxhound.generated.operations import (
         AsyncFoxhoundOperations,
@@ -99,6 +114,7 @@ __all__ = [
     "CrawlContext",
     "CrawlRequest",
     "Dataset",
+    "DatasetRecord",
     "Label",
     "seed",
     "sitemap",
@@ -147,6 +163,20 @@ class Dataset(Generic[R]):
     def name(self) -> str:
         """The name the Dataset was declared with, unique in its crawl."""
         return self._name
+
+
+class DatasetRecord(WireDatasetRecord, Generic[R]):
+    """A committed Record of a Dataset read back (ADR 0103).
+
+    Its number, when and by which crawl request it was committed, and its
+    value, of its Dataset's own type `R`: a Dataset declared with a model
+    reads each value parsed by it, each field the model does not declare
+    kept in its `model_extra`, a nested model's included (G3); one without
+    a schema, or with a hand-written one, reads the JSON as it was pushed.
+    """
+
+    value: R
+    """The Record, of its Dataset's own type."""
 
 
 @final
@@ -383,6 +413,46 @@ class _Push:
         )
 
 
+class AsyncCommittedReads(Protocol):
+    """What an `AsyncAttemptRun` reads its Run's committed Records through.
+
+    Each read is bounded to what had committed when it was sent, so it ends
+    on a live Run whose attempt the handler holds (ADR 0103).
+    """
+
+    def records(
+        self, dataset: Dataset[R], after: int | None
+    ) -> AsyncSequence[DatasetRecord[R]]:
+        """The Records of `dataset` committed when it is sent, past `after`."""
+        ...
+
+    def rejected_records(
+        self, dataset: Dataset[Any], after: int | None
+    ) -> AsyncSequence[RejectedRecord]:
+        """The rejected Records of `dataset` committed when it is sent, past `after`."""
+        ...
+
+
+class CommittedReads(Protocol):
+    """What an `AttemptRun` reads its Run's committed Records through.
+
+    Each read is bounded as `AsyncCommittedReads` says, and read from a
+    handler's thread.
+    """
+
+    def records(
+        self, dataset: Dataset[R], after: int | None
+    ) -> ReadSequence[DatasetRecord[R]]:
+        """The Records of `dataset` committed when it is sent, past `after`."""
+        ...
+
+    def rejected_records(
+        self, dataset: Dataset[Any], after: int | None
+    ) -> ReadSequence[RejectedRecord]:
+        """The rejected Records of `dataset` committed when it is sent, past `after`."""
+        ...
+
+
 @final
 class AsyncAttemptRun:
     """A crawl's Run bound to one attempt of an `AsyncCrawl` handler: `ctx.run`.
@@ -400,9 +470,15 @@ class AsyncAttemptRun:
     attempt. A program never constructs one.
     """
 
-    def __init__(self, run_id: str, key_value_store: AsyncKeyValueStore) -> None:
-        """Takes the Run's ID and its Key-value store bound to the attempt."""
+    def __init__(
+        self,
+        run_id: str,
+        key_value_store: AsyncKeyValueStore,
+        reads: AsyncCommittedReads,
+    ) -> None:
+        """Takes the Run's ID, its attempt-bound Key-value store and its reads."""
         self._id = run_id
+        self._reads = reads
         self.key_value_store = key_value_store
         """The Run's Key-value store, its writes staged with the attempt.
 
@@ -415,6 +491,48 @@ class AsyncAttemptRun:
     def id(self) -> str:
         """The Run's ID, read without a round trip."""
         return self._id
+
+    def records(
+        self, dataset: Dataset[R], *, after: int | None = None
+    ) -> AsyncSequence[DatasetRecord[R]]:
+        """The Records of `dataset` committed when it is called, read with `async for`.
+
+        Reads, in number order, what had committed in the attempt's Run,
+        from the first Record or past `after`, the number a reader last
+        handled, and ends once it has read them: unlike the program's own
+        Run value's `records`, it never waits for a Record to come, since the
+        Run does not end while the attempt holds it, and the attempt's own
+        Records commit only once its handler returns (ADR 0103). Each
+        Record's `value` is the Dataset's own type; a Record its model
+        refuses ends the read with `RecordInvalidError` naming its `number`,
+        once the Records before it are read. A Dataset the crawl does not
+        declare fails with `dataset_unknown`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Leaving an `async with` block, `aclose()` or releasing it cancel the
+        read at once.
+        """
+        return self._reads.records(dataset, after)
+
+    def rejected_records(
+        self, dataset: Dataset[Any], *, after: int | None = None
+    ) -> AsyncSequence[RejectedRecord]:
+        """The rejected Records of `dataset` committed when it is called.
+
+        Reads, with `async for`, the entries of the Dataset's rejection
+        table that had committed, from the first or past `after`, the number
+        a reader last handled, and ends once it has read them, without
+        waiting for the next commit (ADRs 0103, 0104). Each entry's `data` is
+        the Record's JSON as it was pushed, never parsed. A Dataset the crawl
+        does not declare fails with `dataset_unknown`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Leaving an `async with` block, `aclose()` or releasing it cancel the
+        read at once.
+        """
+        return self._reads.rejected_records(dataset, after)
 
 
 @final
@@ -426,9 +544,12 @@ class AttemptRun:
     says. A program never constructs one.
     """
 
-    def __init__(self, run_id: str, key_value_store: KeyValueStore) -> None:
-        """Takes the Run's ID and its Key-value store bound to the attempt."""
+    def __init__(
+        self, run_id: str, key_value_store: KeyValueStore, reads: CommittedReads
+    ) -> None:
+        """Takes the Run's ID, its attempt-bound Key-value store and its reads."""
         self._id = run_id
+        self._reads = reads
         self.key_value_store = key_value_store
         """The Run's Key-value store, its writes staged with the attempt.
 
@@ -441,6 +562,39 @@ class AttemptRun:
     def id(self) -> str:
         """The Run's ID, read without a round trip."""
         return self._id
+
+    def records(
+        self, dataset: Dataset[R], *, after: int | None = None
+    ) -> ReadSequence[DatasetRecord[R]]:
+        """The Records of `dataset` committed when it is called, read with `for`.
+
+        Reads, in number order, what had committed in the attempt's Run,
+        from the first Record or past `after`, and ends once it has read
+        them, as `AsyncAttemptRun.records` says. A Record the Dataset's model
+        refuses ends the read with `RecordInvalidError` naming its `number`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Leaving a `with` block, `close()` or releasing it cancel the read at
+        once.
+        """
+        return self._reads.records(dataset, after)
+
+    def rejected_records(
+        self, dataset: Dataset[Any], *, after: int | None = None
+    ) -> ReadSequence[RejectedRecord]:
+        """The rejected Records of `dataset` committed when it is called.
+
+        Reads, with `for`, the entries of the Dataset's rejection table that
+        had committed, from the first or past `after`, and ends once it has
+        read them, as `AsyncAttemptRun.rejected_records` says.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Leaving a `with` block, `close()` or releasing it cancel the read at
+        once.
+        """
+        return self._reads.rejected_records(dataset, after)
 
 
 @final
@@ -1276,7 +1430,7 @@ def crawl_declaration(
 @overload
 def seed(
     url: str,
-    label: Label[None],
+    label: Label[None] | str,
     *,
     method: str | None = None,
     body: bytes | None = None,
@@ -1310,7 +1464,7 @@ def seed(
 ) -> RequestSeed: ...
 def seed(
     url: str,
-    label: Label[Any],
+    label: Label[Any] | str,
     payload: object = None,
     *,
     method: str | None = None,
@@ -1321,7 +1475,9 @@ def seed(
 ) -> RequestSeed:
     """A seed request of a crawl: `url`, handled under `label` (ADR 0093).
 
-    A Label with a Payload takes one, after it (ADR 0082). `method` is
+    A code-free crawl's seed names its Label by name, a string, since the
+    program holds no `Label` of it. A Label with a Payload takes one, after
+    it (ADR 0082). `method` is
     `GET` when left out, `body` is sent with it, a higher `priority` is
     fetched first, `forefront` puts it ahead of the requests of its
     priority, and `key` names it in place of its method, URL and body, so
@@ -1335,8 +1491,8 @@ def seed(
     """
     fields: dict[str, object] = {
         "url": url,
-        "label": label.name,
-        **_payload_field(label, payload),
+        "label": label if isinstance(label, str) else label.name,
+        **({} if isinstance(label, str) else _payload_field(label, payload)),
         **_request_options(method, body, priority, forefront, key),
     }
     return RequestSeed.model_validate(fields)
@@ -1544,3 +1700,39 @@ def payload_of(crawl: AsyncCrawl | Crawl, label: str, payload: JSONValue) -> obj
     declared = _crawls[crawl].labels.get(label)
     codec = None if declared is None else _payload_codecs.get(declared.label)
     return None if codec is None else codec.decode(payload)
+
+
+def read_record(dataset: Dataset[R], record: DatasetRecord[Any]) -> DatasetRecord[R]:
+    """`record`, a committed Record of `dataset`, read as the Dataset's own type.
+
+    Its model's own parse gives its value, and a Record it refuses fails
+    naming its number, since reading on would hide a drift of the model
+    (ADRs 0082, 0103). Without a model the value stays the JSON it is.
+
+    Raises:
+        RecordInvalidError: The Dataset's model refuses the Record.
+        SchemaValidatorFailedError: A validator of the model raised
+            something other than a rejection.
+    """
+    codec = _record_codecs.get(dataset)
+    if codec is None:
+        return cast("DatasetRecord[R]", record)
+    try:
+        value: R = codec.decode(record.value, keep_unknown=True)
+    except SchemaRejectedError as rejected:
+        issues = [(issue.path, issue.message) for issue in rejected.issues]
+        named = ", ".join(
+            f"{path or 'its root'}: {message}" for path, message in issues
+        )
+        raise RecordInvalidError(
+            f"the Dataset {dataset.name}'s Record {record.number} does not parse: "
+            + named,
+            fix="Read the Dataset with the schema its Records were pushed under, "
+            "or resume past this Record with `after` set to its number.",
+            details={
+                "dataset": dataset.name,
+                "records": [_invalid(0, issues).model_dump(mode="json")],
+                "number": record.number,
+            },
+        ) from None
+    return cast("DatasetRecord[R]", record.model_copy(update={"value": value}))

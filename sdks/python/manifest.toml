@@ -624,6 +624,14 @@ words = ["get"]
 form = "round_trip"
 
 [[member]]
+package = "goodfetch_collie_client.schedules"
+receiver = "AsyncSchedules"
+member = "preview"
+entry = "schedule.preview"
+words = ["preview"]
+form = "round_trip"
+
+[[member]]
 package = "goodfetch_collie"
 receiver = "(module)"
 member = "Schedules"
@@ -655,6 +663,14 @@ receiver = "Schedules"
 member = "get"
 entry = "schedule.get"
 words = ["get"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.schedules"
+receiver = "Schedules"
+member = "preview"
+entry = "schedule.preview"
+words = ["preview"]
 form = "round_trip"
 
 [[member]]
@@ -1957,6 +1973,15 @@ form = "read"
 [[member]]
 package = "goodfetch_foxhound"
 receiver = "(module)"
+member = "DatasetRecord"
+entry = "none"
+reason = "A committed Record as a Run's `records` reads it: the wire's Record with its value of the Dataset's own type, parsed by its model with each undeclared field kept in its `model_extra` (ADR 0103, G3)."
+words = ["dataset", "record"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
 member = "CrawlContext"
 entry = "none"
 reason = "What a plain-function handler is given for one attempt of a request of its Label (ADR 0093)."
@@ -2008,6 +2033,24 @@ entry = "none"
 reason = "The Run's Key-value store bound to the attempt, whose methods serve the `key_value_store` operations, with no round trip."
 words = ["key", "value", "store"]
 form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AttemptRun"
+member = "records"
+entry = "none"
+reason = "Reads the Records `dataset.page` answers as committed, page after page, then ends: the Run cannot end while the handler holds its request (ADR 0103)."
+words = ["records"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AttemptRun"
+member = "rejected_records"
+entry = "none"
+reason = "Reads `run.rejected_records` through the last entry `dataset.list` counts, then ends: the Run cannot end while the handler holds its request (ADR 0103)."
+words = ["rejected", "records"]
+form = "opener"
 
 [[member]]
 package = "goodfetch_foxhound"
@@ -2101,6 +2144,24 @@ form = "read"
 
 [[member]]
 package = "goodfetch_foxhound"
+receiver = "AsyncAttemptRun"
+member = "records"
+entry = "none"
+reason = "`AttemptRun.records` in the async API."
+words = ["records"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncAttemptRun"
+member = "rejected_records"
+entry = "none"
+reason = "`AttemptRun.rejected_records` in the async API."
+words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
 receiver = "AsyncCrawlContext"
 member = "page"
 entry = "none"
@@ -2172,6 +2233,46 @@ form = "opener"
 
 [[member]]
 package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRun"
+member = "rejected_records"
+entry = "run.rejected_records"
+words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRun"
+member = "finish"
+entry = "run.finish"
+words = ["finish"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRun"
+member = "stop"
+entry = "run.stop"
+words = ["stop"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRun"
+member = "report"
+entry = "run.report"
+words = ["report"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRun"
+member = "progress"
+entry = "run.progress"
+words = ["progress"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
 receiver = "(module)"
 member = "CrawlRun"
 entry = "none"
@@ -2181,11 +2282,61 @@ form = "type"
 
 [[member]]
 package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "CodeFreeCrawl"
+entry = "none"
+reason = "A crawl `Foxhound.start_crawl` starts with no handler: a `CrawlDeclaration` or a `CrawlExtraction` (ADR 0093)."
+only = "Rust's `start_crawl` takes a `CrawlTarget`, which a `Crawl`, a `CrawlDeclaration` or a `CrawlExtraction` converts into."
+words = ["code", "free", "crawl"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
 receiver = "CrawlRun"
 member = "records"
 entry = "run.records"
 words = ["records"]
 form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRun"
+member = "rejected_records"
+entry = "run.rejected_records"
+words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRun"
+member = "finish"
+entry = "run.finish"
+words = ["finish"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRun"
+member = "stop"
+entry = "run.stop"
+words = ["stop"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRun"
+member = "report"
+entry = "run.report"
+words = ["report"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRun"
+member = "progress"
+entry = "run.progress"
+words = ["progress"]
+form = "round_trip"
 
 [[member]]
 package = "goodfetch_foxhound"
@@ -3248,10 +3399,6 @@ reason = "Issue 1494 adds `seeds`, `add_seed` and `add_seeds` to a running crawl
 [[unreached]]
 entries = ["run.outcomes", "run.failed_requests", "run.retry_failed"]
 reason = "Issue 1495 adds `outcomes`, `failed_requests` and `retry_failed`."
-
-[[unreached]]
-entries = ["run.rejected_records"]
-reason = "Issue 1489 adds `rejected_records` to a Run read through `open_crawl_run`."
 
 [[logger]]
 package = "goodfetch-collie-client"

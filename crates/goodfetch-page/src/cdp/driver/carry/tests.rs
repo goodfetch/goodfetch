@@ -67,7 +67,11 @@ fn a_capture_waits_for_a_watcher_behind_the_browsers_answer() {
         let origins = Origins::default();
         let watcher =
             PageReader::new(&browser.connection, &session).reading(Some(origins.clone().watcher()));
-        let session_driver = SessionDriver::new(Played(browser.clone()), SessionEgress::default());
+        let session_driver = SessionDriver::new(
+            Played(browser.clone()),
+            SessionEgress::default(),
+            crate::emulation::SessionEmulation::default(),
+        );
         session_driver
             .context
             .set("context".to_owned())

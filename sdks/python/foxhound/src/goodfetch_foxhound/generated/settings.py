@@ -18,6 +18,34 @@ class ConnectionAdmissionSettings(TypedDict):
     """
 
 
+class BrowserGeolocation(TypedDict):
+    """Coordinates emulated for `browser.geolocation` (spec #578, Playwright's
+    shape).
+    """
+
+    accuracy: NotRequired[float | None]
+    """Non-negative accuracy in meters; `0` when left out."""
+
+    latitude: float
+    """Latitude in degrees, from -90 to 90."""
+
+    longitude: float
+    """Longitude in degrees, from -180 to 180."""
+
+
+class BrowserViewport(TypedDict):
+    """A page's viewport size in CSS pixels (spec #578, SA-23): both dimensions
+    at least 1. Default is 1280×720, Playwright's; `null` clears it for the
+    window's own size in a headful browser.
+    """
+
+    height: int
+    """Height in CSS pixels, at least 1."""
+
+    width: int
+    """Width in CSS pixels, at least 1."""
+
+
 class ConnectionBrowserSettings(TypedDict):
     """The `browser` settings of `FoxhoundSettings`."""
 
@@ -39,6 +67,30 @@ class ConnectionBrowserSettings(TypedDict):
     `browser.cdp_command_log`.
     """
 
+    color_scheme: NotRequired[Literal["light", "dark", "no-preference"]]
+    """The `prefers-color-scheme` media feature emulated for every page of the Session: `light` (the default, Playwright's), `dark`, or `no-preference`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+
+    `browser.color_scheme`.
+    """
+
+    device_scale_factor: NotRequired[float]
+    """The device pixel ratio (`window.devicePixelRatio`) for every page of the Session: `1` by default. Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.
+
+    `browser.device_scale_factor`.
+    """
+
+    geolocation: NotRequired[BrowserGeolocation | None]
+    """The geographic coordinates emulated for every page of the Session; `null` by default. Pages observe the coordinates when `geolocation` is granted in `browser.permissions`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+
+    `browser.geolocation`.
+    """
+
+    has_touch: NotRequired[bool]
+    """Whether the Session's pages emulate a touch screen (`navigator.maxTouchPoints` and touch events): `false` by default (Playwright's `hasTouch`). Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+
+    `browser.has_touch`.
+    """
+
     headless: NotRequired[bool]
     """Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.
 
@@ -51,10 +103,46 @@ class ConnectionBrowserSettings(TypedDict):
     `browser.headless_shell`.
     """
 
+    is_mobile: NotRequired[bool]
+    """Whether the Session's pages emulate a mobile viewport (`meta viewport` tag and mobile layout): `false` by default (Playwright's `isMobile`). Chromium only: `true` outside Chromium raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+
+    `browser.is_mobile`.
+    """
+
+    java_script_enabled: NotRequired[bool]
+    """Whether page scripts run in the Session's pages: `true` by default. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+
+    `browser.java_script_enabled`.
+    """
+
+    locale: NotRequired[str | None]
+    """The BCP 47 locale tag emulated for every page of the Session, such as `fr-FR`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens.
+
+    `browser.locale`.
+    """
+
+    permissions: NotRequired[list[Literal["geolocation", "midi", "midi-sysex", "notifications", "camera", "microphone", "background-sync", "ambient-light-sensor", "accelerometer", "gyroscope", "magnetometer", "clipboard-read", "clipboard-write", "payment-handler", "storage-access", "local-fonts", "screen-wake-lock", "idle-detection", "periodic-background-sync", "window-management", "local-network-access"]]]
+    """Browser permissions (Playwright's names) granted to every page of the Session; `[]` by default. Clipboard permissions (`clipboard-read`, `clipboard-write`) are refused with `setting_not_applicable` on a headful Session (`browser.headless: false`) so the engine does not touch the person's desktop clipboard. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+
+    `browser.permissions`.
+    """
+
     service_workers: NotRequired[Literal["allow", "block"]]
     """Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.
 
     `browser.service_workers`.
+    """
+
+    timezone_id: NotRequired[str | None]
+    """The IANA time zone identifier emulated for every page of the Session, such as `Europe/Paris`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens.
+
+    `browser.timezone_id`.
+    """
+
+    viewport: NotRequired[BrowserViewport | None]
+    """The viewport size in CSS pixels for every page of the Session: `{ width: 1280, height: 720 }` by default, Playwright's. `null` uses the window's own size and applies only to a headful browser (`browser.headless: false`). Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.
+
+    `browser.viewport`.
     """
 
 
@@ -72,7 +160,7 @@ class ConnectionCacheSettings(TypedDict):
     """The `cache` settings of `FoxhoundSettings`."""
 
     mode: NotRequired[Literal["off", "revalidate", "replay"]]
-    """What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response to a request sent with no cookie or credential, which sets no cookie and is not `private`, whatever its method, status or freshness, and serves it again with no request and no revalidation. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).
+    """What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response, whatever its method, status or freshness, and serves it again with no request and no revalidation. A response sent with or setting a cookie or a credential, or marked `private`, is kept in the partition of the Session that fetched it, which no other Session reads, until that Session ends; one fetched outside a Session is not stored. Every tier shares the cache: a browser page's requests are served through its interception, and a request a site's service worker answers never reaches it. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).
 
     `cache.mode`.
     """
@@ -838,6 +926,24 @@ class ConnectionLiveViewSettings(TypedDict):
     """
 
 
+class NetworkThrottle(TypedDict):
+    """Chromium network throttling conditions for `network.throttle` (ADR 0083;
+    spec #578).
+    """
+
+    download_bytes_per_second: NotRequired[int | None]
+    """Maximum download throughput in bytes per second; unthrottled when left out."""
+
+    latency: NotRequired[int]
+    """Minimum additional round-trip latency in milliseconds; `0` by default."""
+
+    offline: NotRequired[bool]
+    """Whether the browser appears offline; `false` by default."""
+
+    upload_bytes_per_second: NotRequired[int | None]
+    """Maximum upload throughput in bytes per second; unthrottled when left out."""
+
+
 class ConnectionNetworkSettings(TypedDict):
     """The `network` settings of `FoxhoundSettings`."""
 
@@ -863,6 +969,12 @@ class ConnectionNetworkSettings(TypedDict):
     """Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.
 
     `network.resolve`.
+    """
+
+    throttle: NotRequired[NetworkThrottle | None]
+    """Emulated network conditions (`offline`, `latency` in milliseconds, optional `download_bytes_per_second` and `upload_bytes_per_second`) applied to every page of the Session; `null` by default. Chromium only: set outside Chromium it raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+
+    `network.throttle`.
     """
 
 
@@ -1146,6 +1258,76 @@ class ConnectionSampleSettings(TypedDict):
 
     Deprecated. Since 0.1, removed no earlier than 1.0: A sample setting, which the real catalog replaces.
     """
+
+
+class ConnectionScheduleAutoPauseSettings(TypedDict):
+    """The `schedule.auto_pause` settings of `FoxhoundSettings`."""
+
+    failures: NotRequired[int]
+    """How many consecutive failed, rejected or failed-to-start occurrences auto-pause a Schedule: `3` by default, `0` for never.
+
+    `schedule.auto_pause.failures`.
+    """
+
+
+class ConnectionScheduleRetentionSettings(TypedDict):
+    """The `schedule.retention` settings of `FoxhoundSettings`."""
+
+    changed_watches: NotRequired[int]
+    """How many recent Watch runs that detected a change a Schedule keeps: `10` by default.
+
+    `schedule.retention.changed_watches`.
+    """
+
+    history: NotRequired[timedelta]
+    """How long a Schedule's occurrence history is kept before retention drops older records, in milliseconds: 90 days by default.
+
+    `schedule.retention.history`.
+    """
+
+    runs: NotRequired[int]
+    """How many recent target runs a Schedule keeps before retention discards older ones: `10` by default.
+
+    `schedule.retention.runs`.
+    """
+
+    watch_runs: NotRequired[int]
+    """How many recent Watch runs a Schedule keeps before retention discards older ones: `10` by default.
+
+    `schedule.retention.watch_runs`.
+    """
+
+
+class ConnectionScheduleSettings(TypedDict):
+    """The `schedule` settings of `FoxhoundSettings`."""
+
+    auto_pause: NotRequired[ConnectionScheduleAutoPauseSettings]
+
+    catch_up: NotRequired[int | Literal["until_next"]]
+    """How far back a Schedule catches up its latest missed occurrence after downtime or sleep: `until_next` (default, until the occurrence after it is due), a duration in whole milliseconds, or `0` for never.
+
+    `schedule.catch_up`.
+    """
+
+    jitter: NotRequired[timedelta]
+    """Upper bound in milliseconds of the fixed random delay drawn once at Schedule creation and added to every occurrence; `0` by default.
+
+    `schedule.jitter`.
+    """
+
+    overlap: NotRequired[Literal["skip", "queue_one", "allow", "replace"]]
+    """How a Schedule handles an occurrence due while its previous run is still live: `skip` (default), `queue_one`, `allow` or `replace`.
+
+    `schedule.overlap`.
+    """
+
+    pause_timeout: NotRequired[int | Literal["next_occurrence"] | None]
+    """A scheduled run's Human pause timeout: `next_occurrence` by default (24 hours for an after-a-run trigger), a duration of at least 1 millisecond, or `null` for none; `0` is refused.
+
+    `schedule.pause_timeout`.
+    """
+
+    retention: NotRequired[ConnectionScheduleRetentionSettings]
 
 
 class SecretsPlaceholdersEntry1(TypedDict):
@@ -1652,6 +1834,12 @@ class ConnectionSitePreferencesSettings(TypedDict):
     `site_preferences.purpose`.
     """
 
+    read_robots_txt_for_navigation: NotRequired[bool]
+    """Whether a page a program opened reads its origin's robots.txt for Provenance: on, each document its main frame receives and each `page.request` it sends reads the origin's robots.txt once per Run, beside the navigation, and Provenance records whether the page was allowed, never gating it. Off by default: nothing is fetched and no Provenance entry is written. A crawl's own requests and a handler's navigations read and obey robots.txt either way, under Foxhound's `site_preferences.respect_robots_txt`.
+
+    `site_preferences.read_robots_txt_for_navigation`.
+    """
+
     respect_robots_txt: NotRequired[bool]
     """Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder.
 
@@ -1695,6 +1883,12 @@ class ConnectionStealthIdentitySettings(TypedDict):
 
 class ConnectionStealthSettings(TypedDict):
     """The `stealth` settings of `FoxhoundSettings`."""
+
+    allow_runtime: NotRequired[bool]
+    """Whether a `stealth` Session's pages may turn on the browser's `Runtime` domain, which a detector sees: `false` by default, so `page.on` for `console` or `page_error` answers `capability_unavailable`. On, they listen, the Run report carries the warning `stealth_runtime_allowed` and Provenance marks the Session. A `standard` Session listens either way. A Label refuses it with `setting_not_applicable`.
+
+    `stealth.allow_runtime`.
+    """
 
     chromium_build: NotRequired[Literal["goodfetch", "fingerprint_chromium", "clearcote"]]
     """The Chromium build a `stealth` Session runs: `goodfetch` (the default), `fingerprint_chromium` or `clearcote`, the last two only where `stealth.allowed_builds` allows their digest. A Label refuses it with `setting_not_applicable`.
@@ -1942,6 +2136,8 @@ class FoxhoundSettings(TypedDict):
 
     sample: NotRequired[ConnectionSampleSettings]
 
+    schedule: NotRequired[ConnectionScheduleSettings]
+
     secrets: NotRequired[ConnectionSecretsSettings]
 
     security: NotRequired[ConnectionSecuritySettings]
@@ -1996,6 +2192,30 @@ class RunBrowserSettings(TypedDict):
     `browser.cdp_command_log`.
     """
 
+    color_scheme: NotRequired[Literal["light", "dark", "no-preference"]]
+    """The `prefers-color-scheme` media feature emulated for every page of the Session: `light` (the default, Playwright's), `dark`, or `no-preference`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+
+    `browser.color_scheme`.
+    """
+
+    device_scale_factor: NotRequired[float]
+    """The device pixel ratio (`window.devicePixelRatio`) for every page of the Session: `1` by default. Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.
+
+    `browser.device_scale_factor`.
+    """
+
+    geolocation: NotRequired[BrowserGeolocation | None]
+    """The geographic coordinates emulated for every page of the Session; `null` by default. Pages observe the coordinates when `geolocation` is granted in `browser.permissions`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+
+    `browser.geolocation`.
+    """
+
+    has_touch: NotRequired[bool]
+    """Whether the Session's pages emulate a touch screen (`navigator.maxTouchPoints` and touch events): `false` by default (Playwright's `hasTouch`). Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+
+    `browser.has_touch`.
+    """
+
     headless: NotRequired[bool]
     """Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.
 
@@ -2008,10 +2228,46 @@ class RunBrowserSettings(TypedDict):
     `browser.headless_shell`.
     """
 
+    is_mobile: NotRequired[bool]
+    """Whether the Session's pages emulate a mobile viewport (`meta viewport` tag and mobile layout): `false` by default (Playwright's `isMobile`). Chromium only: `true` outside Chromium raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+
+    `browser.is_mobile`.
+    """
+
+    java_script_enabled: NotRequired[bool]
+    """Whether page scripts run in the Session's pages: `true` by default. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+
+    `browser.java_script_enabled`.
+    """
+
+    locale: NotRequired[str | None]
+    """The BCP 47 locale tag emulated for every page of the Session, such as `fr-FR`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens.
+
+    `browser.locale`.
+    """
+
+    permissions: NotRequired[list[Literal["geolocation", "midi", "midi-sysex", "notifications", "camera", "microphone", "background-sync", "ambient-light-sensor", "accelerometer", "gyroscope", "magnetometer", "clipboard-read", "clipboard-write", "payment-handler", "storage-access", "local-fonts", "screen-wake-lock", "idle-detection", "periodic-background-sync", "window-management", "local-network-access"]]]
+    """Browser permissions (Playwright's names) granted to every page of the Session; `[]` by default. Clipboard permissions (`clipboard-read`, `clipboard-write`) are refused with `setting_not_applicable` on a headful Session (`browser.headless: false`) so the engine does not touch the person's desktop clipboard. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+
+    `browser.permissions`.
+    """
+
     service_workers: NotRequired[Literal["allow", "block"]]
     """Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.
 
     `browser.service_workers`.
+    """
+
+    timezone_id: NotRequired[str | None]
+    """The IANA time zone identifier emulated for every page of the Session, such as `Europe/Paris`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens.
+
+    `browser.timezone_id`.
+    """
+
+    viewport: NotRequired[BrowserViewport | None]
+    """The viewport size in CSS pixels for every page of the Session: `{ width: 1280, height: 720 }` by default, Playwright's. `null` uses the window's own size and applies only to a headful browser (`browser.headless: false`). Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.
+
+    `browser.viewport`.
     """
 
 
@@ -2029,7 +2285,7 @@ class RunCacheSettings(TypedDict):
     """The `cache` settings of `CrawlSettings`."""
 
     mode: NotRequired[Literal["off", "revalidate", "replay"]]
-    """What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response to a request sent with no cookie or credential, which sets no cookie and is not `private`, whatever its method, status or freshness, and serves it again with no request and no revalidation. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).
+    """What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response, whatever its method, status or freshness, and serves it again with no request and no revalidation. A response sent with or setting a cookie or a credential, or marked `private`, is kept in the partition of the Session that fetched it, which no other Session reads, until that Session ends; one fetched outside a Session is not stored. Every tier shares the cache: a browser page's requests are served through its interception, and a request a site's service worker answers never reaches it. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).
 
     `cache.mode`.
     """
@@ -2780,6 +3036,12 @@ class RunNetworkSettings(TypedDict):
     `network.resolve`.
     """
 
+    throttle: NotRequired[NetworkThrottle | None]
+    """Emulated network conditions (`offline`, `latency` in milliseconds, optional `download_bytes_per_second` and `upload_bytes_per_second`) applied to every page of the Session; `null` by default. Chromium only: set outside Chromium it raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+
+    `network.throttle`.
+    """
+
 
 class RunPaidFetchSettings(TypedDict):
     """The `paid_fetch` settings of `CrawlSettings`."""
@@ -3063,6 +3325,76 @@ class RunSampleSettings(TypedDict):
     """
 
 
+class RunScheduleAutoPauseSettings(TypedDict):
+    """The `schedule.auto_pause` settings of `CrawlSettings`."""
+
+    failures: NotRequired[int]
+    """How many consecutive failed, rejected or failed-to-start occurrences auto-pause a Schedule: `3` by default, `0` for never.
+
+    `schedule.auto_pause.failures`.
+    """
+
+
+class RunScheduleRetentionSettings(TypedDict):
+    """The `schedule.retention` settings of `CrawlSettings`."""
+
+    changed_watches: NotRequired[int]
+    """How many recent Watch runs that detected a change a Schedule keeps: `10` by default.
+
+    `schedule.retention.changed_watches`.
+    """
+
+    history: NotRequired[timedelta]
+    """How long a Schedule's occurrence history is kept before retention drops older records, in milliseconds: 90 days by default.
+
+    `schedule.retention.history`.
+    """
+
+    runs: NotRequired[int]
+    """How many recent target runs a Schedule keeps before retention discards older ones: `10` by default.
+
+    `schedule.retention.runs`.
+    """
+
+    watch_runs: NotRequired[int]
+    """How many recent Watch runs a Schedule keeps before retention discards older ones: `10` by default.
+
+    `schedule.retention.watch_runs`.
+    """
+
+
+class RunScheduleSettings(TypedDict):
+    """The `schedule` settings of `CrawlSettings`."""
+
+    auto_pause: NotRequired[RunScheduleAutoPauseSettings]
+
+    catch_up: NotRequired[int | Literal["until_next"]]
+    """How far back a Schedule catches up its latest missed occurrence after downtime or sleep: `until_next` (default, until the occurrence after it is due), a duration in whole milliseconds, or `0` for never.
+
+    `schedule.catch_up`.
+    """
+
+    jitter: NotRequired[timedelta]
+    """Upper bound in milliseconds of the fixed random delay drawn once at Schedule creation and added to every occurrence; `0` by default.
+
+    `schedule.jitter`.
+    """
+
+    overlap: NotRequired[Literal["skip", "queue_one", "allow", "replace"]]
+    """How a Schedule handles an occurrence due while its previous run is still live: `skip` (default), `queue_one`, `allow` or `replace`.
+
+    `schedule.overlap`.
+    """
+
+    pause_timeout: NotRequired[int | Literal["next_occurrence"] | None]
+    """A scheduled run's Human pause timeout: `next_occurrence` by default (24 hours for an after-a-run trigger), a duration of at least 1 millisecond, or `null` for none; `0` is refused.
+
+    `schedule.pause_timeout`.
+    """
+
+    retention: NotRequired[RunScheduleRetentionSettings]
+
+
 class RunSecretsSettings(TypedDict):
     """The `secrets` settings of `CrawlSettings`."""
 
@@ -3210,6 +3542,12 @@ class RunSitePreferencesSettings(TypedDict):
     `site_preferences.purpose`.
     """
 
+    read_robots_txt_for_navigation: NotRequired[bool]
+    """Whether a page a program opened reads its origin's robots.txt for Provenance: on, each document its main frame receives and each `page.request` it sends reads the origin's robots.txt once per Run, beside the navigation, and Provenance records whether the page was allowed, never gating it. Off by default: nothing is fetched and no Provenance entry is written. A crawl's own requests and a handler's navigations read and obey robots.txt either way, under Foxhound's `site_preferences.respect_robots_txt`.
+
+    `site_preferences.read_robots_txt_for_navigation`.
+    """
+
     respect_robots_txt: NotRequired[bool]
     """Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder.
 
@@ -3253,6 +3591,12 @@ class RunStealthIdentitySettings(TypedDict):
 
 class RunStealthSettings(TypedDict):
     """The `stealth` settings of `CrawlSettings`."""
+
+    allow_runtime: NotRequired[bool]
+    """Whether a `stealth` Session's pages may turn on the browser's `Runtime` domain, which a detector sees: `false` by default, so `page.on` for `console` or `page_error` answers `capability_unavailable`. On, they listen, the Run report carries the warning `stealth_runtime_allowed` and Provenance marks the Session. A `standard` Session listens either way. A Label refuses it with `setting_not_applicable`.
+
+    `stealth.allow_runtime`.
+    """
 
     chromium_build: NotRequired[Literal["goodfetch", "fingerprint_chromium", "clearcote"]]
     """The Chromium build a `stealth` Session runs: `goodfetch` (the default), `fingerprint_chromium` or `clearcote`, the last two only where `stealth.allowed_builds` allows their digest. A Label refuses it with `setting_not_applicable`.
@@ -3481,6 +3825,8 @@ class CrawlSettings(TypedDict):
     run_state: NotRequired[RunRunStateSettings]
 
     sample: NotRequired[RunSampleSettings]
+
+    schedule: NotRequired[RunScheduleSettings]
 
     secrets: NotRequired[RunSecretsSettings]
 

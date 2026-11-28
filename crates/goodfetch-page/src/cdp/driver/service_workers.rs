@@ -13,7 +13,9 @@
 //! Chromium fetches a worker's script outside every target's interception,
 //! so that fetch is failed by the browser's own interception, which pauses
 //! only the kind of request a worker's script is and knows it by the
-//! `Service-Worker: script` header and the worker it loads.
+//! `Service-Worker: script` header and the worker it loads. The same
+//! interception has a let-through fetch send the user agent and client
+//! hints its context shows, which reach no request the browser sends itself.
 //!
 //! A site's shared worker, which belongs to no page either, is attached the
 //! same way and handed to its context's Session, whose interception holds
@@ -23,6 +25,9 @@
 //! Any other worker (a browser extension's, or one of a context no Session
 //! named) is let run untouched, but for a headless browser's identity,
 //! which every worker takes before it runs, as every page does (`identity`).
+//! A worker of a context whose Session's Fingerprint method shows other
+//! values than the machine's then takes those a worker reads (`masking`),
+//! still before it runs.
 #![expect(
     clippy::disallowed_types,
     reason = "each context's choice is set once and read by the browser's one event reader, each lock held for one map operation, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
@@ -33,14 +38,15 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use goodfetch_cdp::generated::{browser, fetch, network, runtime, target};
-use goodfetch_cdp::{RawEvent, SessionId as TargetSession, Subscription, SubscriptionEnd};
+use goodfetch_cdp::generated::{browser, emulation, fetch, network, runtime, target};
+use goodfetch_cdp::{Failure, RawEvent, SessionId as TargetSession, Subscription, SubscriptionEnd};
 use goodfetch_engine::CallError;
 use goodfetch_engine::run_identity::RunIdentity;
 use tokio::sync::{OnceCell, watch};
 use tokio_util::sync::CancellationToken;
 
 use super::{Browser, PageDriver};
+use crate::cdp::{CdpPage, Emulated};
 
 /// The target type of a service worker.
 const SERVICE_WORKER: &str = "service_worker";
@@ -79,10 +85,13 @@ pub(super) struct ServiceWorkerChoices {
     contexts: Mutex<BTreeMap<browser::BrowserContextID, ServiceWorkers>>,
     /// What each context's Session does with its shared workers.
     shared: Mutex<BTreeMap<browser::BrowserContextID, OnWorker>>,
+    /// The values each context's service and shared workers show in place
+    /// of the machine's, when its Session's Fingerprint method has any.
+    masks: Mutex<BTreeMap<browser::BrowserContextID, Emulated>>,
     /// Each attached worker's token, by its session, cancelled once it goes.
     attached: Mutex<BTreeMap<TargetSession, CancellationToken>>,
     /// The browser's own interception of workers' scripts, once a context
-    /// blocks its workers.
+    /// blocks its workers or shows another user agent than the browser's.
     scripts: OnceCell<()>,
 }
 
@@ -102,12 +111,19 @@ impl ServiceWorkerChoices {
         lock(&self.shared).get(context?).cloned()
     }
 
+    /// The values the workers of the context `context` show, if its
+    /// Session's Fingerprint method has any.
+    fn mask_of(&self, context: Option<&browser::BrowserContextID>) -> Option<Emulated> {
+        lock(&self.masks).get(context?).cloned()
+    }
+
     /// Lets go of the choices of the context `context`, which closed, with
     /// what they hold of its Session's Run.
     pub(super) fn forget(&self, context: &browser::BrowserContextID) {
         let forgotten = lock(&self.contexts).remove(context);
         let shared = lock(&self.shared).remove(context);
-        drop((forgotten, shared));
+        let masks = lock(&self.masks).remove(context);
+        drop((forgotten, shared, masks));
     }
 }
 
@@ -154,8 +170,10 @@ impl PageDriver {
 
     /// Chooses, once for the page's browser context, what becomes of the
     /// service workers of its sites (ADR 0121); a later choice for the same
-    /// context changes nothing. `block` turns on the browser's own
-    /// interception of workers' scripts first.
+    /// context changes nothing. `block`, or a context that shows another
+    /// user agent than the browser's own, turns on the browser's own
+    /// interception of workers' scripts first, so their fetch can fail or
+    /// send the context's.
     ///
     /// # Errors
     ///
@@ -163,32 +181,14 @@ impl PageDriver {
     /// interception.
     pub(crate) async fn service_workers(&self, choice: ServiceWorkers) -> Result<(), CallError> {
         let browser = &self.browser;
-        if matches!(choice, ServiceWorkers::Block) {
-            browser
+        if matches!(choice, ServiceWorkers::Block)
+            || browser
                 .state
                 .service_workers
-                .scripts
-                .get_or_try_init(|| async {
-                    browser
-                        .send(
-                            None,
-                            &fetch::EnableParams {
-                                patterns: Some(vec![fetch::RequestPattern {
-                                    url_pattern: Some("*".to_owned()),
-                                    // The kind the browser gives a worker's
-                                    // script, so no page's document, script
-                                    // or call pauses here.
-                                    resource_type: Some(network::ResourceType::Other),
-                                    request_stage: Some(fetch::RequestStage::Request),
-                                }]),
-                                handle_auth_requests: None,
-                            },
-                            &browser.opening(),
-                        )
-                        .await
-                        .map(drop)
-                })
-                .await?;
+                .shown(browser.identity.as_ref(), Some(&self.context))
+                .is_some()
+        {
+            browser.enable_worker_scripts(&browser.opening()).await?;
         }
         lock(&browser.state.service_workers.contexts)
             .entry(self.context.clone())
@@ -204,16 +204,62 @@ impl PageDriver {
             .entry(self.context.clone())
             .or_insert(handler);
     }
+
+    /// Has, once for the page's browser context, each of its service and
+    /// shared workers show those of `values` a worker reads before it runs;
+    /// later values for the same context change nothing.
+    pub(crate) fn emulate_in_context_workers(&self, values: Emulated) {
+        lock(&self.browser.state.service_workers.masks)
+            .entry(self.context.clone())
+            .or_insert(values);
+    }
+}
+
+impl Browser {
+    /// Turns on, once per browser, the browser's own interception of workers'
+    /// scripts (`Other` requests at request stage), so a worker's script fetch
+    /// can fail when blocked or send its context's identity instead of the
+    /// headless browser's own.
+    async fn enable_worker_scripts(&self, call: &crate::errors::Call) -> Result<(), CallError> {
+        self.state
+            .service_workers
+            .scripts
+            .get_or_try_init(|| async {
+                self.send(
+                    None,
+                    &fetch::EnableParams {
+                        patterns: Some(vec![fetch::RequestPattern {
+                            url_pattern: Some("*".to_owned()),
+                            // The kind the browser gives a worker's
+                            // script, so no page's document, script
+                            // or call pauses here.
+                            resource_type: Some(network::ResourceType::Other),
+                            request_stage: Some(fetch::RequestStage::Request),
+                        }]),
+                        handle_auth_requests: None,
+                    },
+                    call,
+                )
+                .await
+                .map(drop)
+            })
+            .await?;
+        Ok(())
+    }
 }
 
 /// Starts following `browser`'s service workers and new pages on `tasks`,
 /// its owner's (ADR 0146): its browser events are read from now, then the
 /// browser attaches the engine to each worker and each page before it runs
-/// (`popups`), each such task one of its owner's.
+/// (`popups`), each such task one of its owner's. A headless browser (whose
+/// pages show a non-headless window identity) also turns on worker-script
+/// interception here at launch, once per browser rather than on its first
+/// page's opening (C7, ADR 0140).
 ///
 /// # Errors
 ///
-/// The code of opening a page when the browser refuses to attach.
+/// The code of opening a page when the browser refuses to attach or
+/// intercept worker scripts.
 pub(super) async fn start(browser: &Browser, tasks: &RunIdentity) -> Result<(), CallError> {
     let events = browser.connection.subscribe(None);
     tasks.spawn(follow(events, browser.clone(), tasks.clone()));
@@ -247,7 +293,11 @@ pub(super) async fn start(browser: &Browser, tasks: &RunIdentity) -> Result<(), 
             &browser.launching(),
         )
         .await
-        .map(drop)
+        .map(drop)?;
+    if browser.identity.is_some() {
+        browser.enable_worker_scripts(&browser.launching()).await?;
+    }
+    Ok(())
 }
 
 /// Reads the browser's own events until its connection ends: each worker
@@ -375,6 +425,16 @@ async fn hold_then_run(
     {
         tracing::debug!(%failure, "a service worker went before it took its browser's identity");
     }
+    let context = info.browser_context_id;
+    if let Some(mask) = browser.state.service_workers.mask_of(context.as_ref())
+        && let Some(context) = context
+    {
+        let driver =
+            PageDriver::service_worker(browser.clone(), session.clone(), context, info.target_id);
+        if let Err(error) = CdpPage::of(&driver).emulate_worker_opening(&mask).await {
+            tracing::debug!(%error, "a worker went before it took its Session's Fingerprint method's values");
+        }
+    }
     if attached.waiting_for_debugger
         && let Err(failure) = browser
             .try_send(Some(&session), &runtime::RunIfWaitingForDebuggerParams {})
@@ -386,12 +446,36 @@ async fn hold_then_run(
 
 /// A request the browser's own interception paused: the fetch of a
 /// worker's script in a context that blocks its workers fails, as a network
-/// failure does; any other goes on.
+/// failure does; any other goes on, a worker's script fetch with the user
+/// agent and client hints its context shows (`shown`).
 async fn script_fetch(browser: Browser, paused: fetch::RequestPausedEvent) {
     let script = paused.request.headers.iter().any(|(name, value)| {
         name.eq_ignore_ascii_case(SCRIPT_HEADER) && value.as_str() == Some("script")
     });
-    let blocked = script && blocks(&browser, &paused.frame_id).await;
+    let worker = if script {
+        Some(context_of(&browser, &paused.frame_id).await)
+    } else {
+        None
+    };
+    // A worker the browser cannot name a context for is held as blocking,
+    // so a failed lookup lets no worker run (ADR 0014: the policy fails
+    // closed).
+    let blocked = match &worker {
+        None => false,
+        Some(Err(_)) => true,
+        Some(Ok(context)) => matches!(
+            browser.state.service_workers.of(context.as_ref()),
+            Some(ServiceWorkers::Block)
+        ),
+    };
+    let headers = match worker {
+        Some(Ok(context)) => browser
+            .state
+            .service_workers
+            .shown(browser.identity.as_ref(), context.as_ref())
+            .map(|identity| with_identity(&paused.request.headers, &identity)),
+        None | Some(Err(_)) => None,
+    };
     let answered = if blocked {
         browser
             .try_send(
@@ -412,7 +496,7 @@ async fn script_fetch(browser: Browser, paused: fetch::RequestPausedEvent) {
                     url: None,
                     method: None,
                     post_data: None,
-                    headers: None,
+                    headers,
                     intercept_response: None,
                 },
             )
@@ -424,12 +508,13 @@ async fn script_fetch(browser: Browser, paused: fetch::RequestPausedEvent) {
     }
 }
 
-/// Whether the worker whose target is `worker`, which a script fetch names
-/// as its frame, is of a context that blocks its workers; one the browser
-/// cannot name a context for is held as blocking, so a failed lookup lets
-/// no worker run (ADR 0014: the policy fails closed).
-async fn blocks(browser: &Browser, worker: &str) -> bool {
-    let Ok(found) = browser
+/// The browser context of the worker whose target is `worker`, which a
+/// script fetch names as its frame, as the browser names it.
+async fn context_of(
+    browser: &Browser,
+    worker: &str,
+) -> Result<Option<browser::BrowserContextID>, Failure> {
+    browser
         .try_send(
             None,
             &target::GetTargetInfoParams {
@@ -437,21 +522,118 @@ async fn blocks(browser: &Browser, worker: &str) -> bool {
             },
         )
         .await
-    else {
-        return true;
+        .map(|found| found.target_info.browser_context_id)
+}
+
+impl ServiceWorkerChoices {
+    /// The user agent and client hints a worker of the context `context` shows:
+    /// its Session's Fingerprint method's, or else its headless browser's
+    /// identity; none with a window and no such method, where the browser's
+    /// own are already right.
+    fn shown(
+        &self,
+        identity: Option<&super::identity::Identity>,
+        context: Option<&browser::BrowserContextID>,
+    ) -> Option<Shown> {
+        let masked = self.mask_of(context).and_then(|mask| mask.user_agent);
+        match masked {
+            Some(agent) => Some(Shown {
+                hints: agent
+                    .client_hints
+                    .as_ref()
+                    .map(crate::cdp::masking::metadata),
+                user_agent: agent.user_agent,
+                accept_language: agent.accept_language,
+            }),
+            None => identity.map(|identity| Shown {
+                user_agent: identity.user_agent().to_owned(),
+                accept_language: None,
+                hints: Some(identity.hints().clone()),
+            }),
+        }
+    }
+}
+
+/// The identity a worker's script fetch sends in place of the browser's
+/// own.
+struct Shown {
+    /// The `User-Agent` header.
+    user_agent: String,
+    /// The `Accept-Language` header; none keeps the browser's.
+    accept_language: Option<String>,
+    /// The client hints; none for a user agent shown without them.
+    hints: Option<emulation::UserAgentMetadata>,
+}
+
+/// `headers`, those of the fetch of a worker's script, with the identity
+/// `shown` in place of the browser's own: Chromium fetches the script
+/// outside every override a worker takes, and adds its own `User-Agent` and
+/// `Accept-Language` after its interception unless they are set. A client
+/// hint `shown` has no value for is left out, so no request carries one
+/// the worker does not show.
+fn with_identity(headers: &network::Headers, shown: &Shown) -> Vec<fetch::HeaderEntry> {
+    let entry = |name: &str, value: String| fetch::HeaderEntry {
+        name: name.to_owned(),
+        value,
     };
-    matches!(
-        browser
-            .state
-            .service_workers
-            .of(found.target_info.browser_context_id.as_ref()),
-        Some(ServiceWorkers::Block)
-    )
+    let mut sent: Vec<_> = headers
+        .iter()
+        .filter_map(|(name, value)| {
+            let lower = name.to_ascii_lowercase();
+            let value = match lower.as_str() {
+                "user-agent" => None,
+                "accept-language" if shown.accept_language.is_some() => None,
+                hint_name if hint_name.starts_with("sec-ch-ua") => shown
+                    .hints
+                    .as_ref()
+                    .and_then(|hints| hint(hint_name, hints)),
+                _ => value.as_str().map(str::to_owned),
+            };
+            value.map(|value| entry(name, value))
+        })
+        .collect();
+    sent.push(entry("User-Agent", shown.user_agent.clone()));
+    if let Some(languages) = &shown.accept_language {
+        sent.push(entry("Accept-Language", languages.clone()));
+    }
+    sent
+}
+
+/// The value of the client hint header `name`, in lower case, that
+/// `hints` show, as Chromium spells it; none for a hint they have no value
+/// for.
+fn hint(name: &str, hints: &emulation::UserAgentMetadata) -> Option<String> {
+    let quoted = |value: &str| format!("\"{value}\"");
+    let flag = |on: bool| if on { "?1" } else { "?0" }.to_owned();
+    let brands = |list: &[emulation::UserAgentBrandVersion]| {
+        list.iter()
+            .map(|brand| format!("\"{}\";v=\"{}\"", brand.brand, brand.version))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    match name {
+        "sec-ch-ua" => hints.brands.as_deref().map(brands),
+        "sec-ch-ua-full-version-list" => hints.full_version_list.as_deref().map(brands),
+        "sec-ch-ua-mobile" => Some(flag(hints.mobile)),
+        "sec-ch-ua-platform" => Some(quoted(&hints.platform)),
+        "sec-ch-ua-platform-version" => Some(quoted(&hints.platform_version)),
+        "sec-ch-ua-arch" => Some(quoted(&hints.architecture)),
+        "sec-ch-ua-model" => Some(quoted(&hints.model)),
+        "sec-ch-ua-full-version" => hints.full_version.as_deref().map(quoted),
+        "sec-ch-ua-bitness" => hints.bitness.as_deref().map(quoted),
+        "sec-ch-ua-wow64" => hints.wow64.map(flag),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ServiceWorkerChoices, ServiceWorkers, browser, lock};
+    use serde_json::json;
+
+    use super::{
+        ServiceWorkerChoices, ServiceWorkers, Shown, browser, emulation, fetch, lock, network,
+        with_identity,
+    };
 
     /// A context's choice goes once the context closes, with what it holds
     /// of its Session's Run, and another context's stays.
@@ -474,6 +656,117 @@ mod tests {
                 choices.of(Some(&open)).is_some()
             ),
             (false, true)
+        );
+    }
+
+    /// The hints a Session shows: Edge 156 on Windows.
+    fn hints() -> emulation::UserAgentMetadata {
+        let brands = |version: &str| {
+            Some(vec![
+                emulation::UserAgentBrandVersion {
+                    brand: "Microsoft Edge".to_owned(),
+                    version: version.to_owned(),
+                },
+                emulation::UserAgentBrandVersion {
+                    brand: "Chromium".to_owned(),
+                    version: version.to_owned(),
+                },
+            ])
+        };
+        emulation::UserAgentMetadata {
+            brands: brands("156"),
+            full_version_list: brands("156.0.1.2"),
+            full_version: Some("156.0.1.2".to_owned()),
+            platform: "Windows".to_owned(),
+            platform_version: "15.0.0".to_owned(),
+            architecture: "x86".to_owned(),
+            model: String::new(),
+            mobile: false,
+            bitness: Some("64".to_owned()),
+            wow64: Some(false),
+            form_factors: None,
+        }
+    }
+
+    /// A headless build's script fetch, as the browser paused it.
+    fn headless_fetch() -> network::Headers {
+        serde_json::from_value(json!({
+            "Service-Worker": "script",
+            "Accept-Language": "en-US,en;q=0.9",
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) HeadlessChrome/156.0.0.0",
+            "sec-ch-ua": "\"HeadlessChrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Linux\"",
+            "sec-ch-ua-full-version-list": "\"HeadlessChrome\";v=\"156.0.0.0\"",
+            "sec-ch-ua-arch": "\"arm\"",
+            "sec-ch-ua-form-factors": "\"Desktop\"",
+        }))
+        .expect("headers as the browser reports them")
+    }
+
+    /// The headers sent, by name.
+    fn sent(headers: &[fetch::HeaderEntry]) -> Vec<(&str, &str)> {
+        let mut sent: Vec<_> = headers
+            .iter()
+            .map(|header| (header.name.as_str(), header.value.as_str()))
+            .collect();
+        sent.sort_unstable();
+        sent
+    }
+
+    /// The fetch of a worker's script sends the user agent, languages and
+    /// client hints its Session shows, in place of the browser's own, and
+    /// no hint it cannot show.
+    #[test]
+    fn a_script_fetch_sends_the_identity_its_session_shows() {
+        let shown = Shown {
+            user_agent: "Mozilla/5.0 (Windows NT 10.0) Edg/156".to_owned(),
+            accept_language: Some("fr-FR,fr;q=0.9".to_owned()),
+            hints: Some(hints()),
+        };
+
+        let headers = with_identity(&headless_fetch(), &shown);
+
+        assert_eq!(
+            sent(&headers),
+            [
+                ("Accept-Language", "fr-FR,fr;q=0.9"),
+                ("Service-Worker", "script"),
+                ("User-Agent", "Mozilla/5.0 (Windows NT 10.0) Edg/156"),
+                (
+                    "sec-ch-ua",
+                    "\"Microsoft Edge\";v=\"156\", \"Chromium\";v=\"156\""
+                ),
+                ("sec-ch-ua-arch", "\"x86\""),
+                (
+                    "sec-ch-ua-full-version-list",
+                    "\"Microsoft Edge\";v=\"156.0.1.2\", \"Chromium\";v=\"156.0.1.2\""
+                ),
+                ("sec-ch-ua-mobile", "?0"),
+                ("sec-ch-ua-platform", "\"Windows\""),
+            ]
+        );
+    }
+
+    /// A user agent shown without client hints sends none, and one shown
+    /// without languages keeps the browser's.
+    #[test]
+    fn a_user_agent_without_hints_sends_no_hint() {
+        let shown = Shown {
+            user_agent: "Mozilla/5.0 (Windows NT 10.0) Firefox/140".to_owned(),
+            accept_language: None,
+            hints: None,
+        };
+
+        let headers = with_identity(&headless_fetch(), &shown);
+
+        assert_eq!(
+            sent(&headers),
+            [
+                ("Accept-Language", "en-US,en;q=0.9"),
+                ("Service-Worker", "script"),
+                ("User-Agent", "Mozilla/5.0 (Windows NT 10.0) Firefox/140"),
+            ]
         );
     }
 }

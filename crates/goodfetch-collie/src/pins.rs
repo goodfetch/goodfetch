@@ -57,7 +57,7 @@ pub fn pinned_artifacts() -> Vec<PinnedArtifact> {
             (protocol.clone(), payload)
         })
         .collect();
-    chrome["platforms"]
+    let mut artifacts: Vec<PinnedArtifact> = chrome["platforms"]
         .as_object()
         .into_iter()
         .flatten()
@@ -92,7 +92,9 @@ pub fn pinned_artifacts() -> Vec<PinnedArtifact> {
                 })
                 .collect::<Vec<_>>()
         })
-        .collect()
+        .collect();
+    artifacts.push(goodfetch_page::cursory_pin());
+    artifacts
 }
 
 /// The ids of every artifact this version pins, which an executable or

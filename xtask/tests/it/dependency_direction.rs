@@ -471,3 +471,88 @@ fn crate_that_may_name_the_foxhound_module_passes(#[case] file: &str) {
     assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
     assert_eq!(outcome.code, 0);
 }
+
+/// `goodfetch-dev-workspace-hack` unifies dev/test code-side features (ADR
+/// 0094): every non-protocol member may take it in `[dev-dependencies]`,
+/// including `goodfetch-runtime`, which takes no other Goodfetch crate.
+#[test]
+fn dev_workspace_hack_in_dev_dependencies_of_runtime_passes() {
+    let workspace = Workspace::from_fixture("dependency-direction");
+    workspace.write(
+        "crates/goodfetch-dev-workspace-hack/Cargo.toml",
+        b"[package]\nname = \"goodfetch-dev-workspace-hack\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n",
+    );
+    workspace.write(
+        "crates/goodfetch-dev-workspace-hack/src/lib.rs",
+        b"//! Fixture dev workspace-hack.\n",
+    );
+    workspace.write(
+        "crates/goodfetch-runtime/Cargo.toml",
+        b"[package]\nname = \"goodfetch-runtime\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\ngoodfetch-workspace-hack = { path = \"../goodfetch-workspace-hack\" }\n\n[dev-dependencies]\ngoodfetch-dev-workspace-hack = { path = \"../goodfetch-dev-workspace-hack\" }\n",
+    );
+
+    let outcome = workspace.xtask(&["dependency-direction"]);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0);
+}
+
+#[test]
+fn dev_workspace_hack_outside_dev_dependencies_fails() {
+    let workspace = Workspace::from_fixture("dependency-direction");
+    workspace.write(
+        "crates/goodfetch-dev-workspace-hack/Cargo.toml",
+        b"[package]\nname = \"goodfetch-dev-workspace-hack\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n",
+    );
+    workspace.write(
+        "crates/goodfetch-dev-workspace-hack/src/lib.rs",
+        b"//! Fixture dev workspace-hack.\n",
+    );
+    workspace.write(
+        "crates/goodfetch-engine/Cargo.toml",
+        b"[package]\nname = \"goodfetch-engine\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\ngoodfetch-workspace-hack = { path = \"../goodfetch-workspace-hack\" }\ngoodfetch-dev-workspace-hack = { path = \"../goodfetch-dev-workspace-hack\" }\ngoodfetch-protocol = { path = \"../goodfetch-protocol\" }\n",
+    );
+
+    let outcome = workspace.xtask(&["dependency-direction"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "dev-workspace-hack-not-dev-only",
+            "goodfetch-engine"
+        )],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn protocol_taking_dev_workspace_hack_fails() {
+    let workspace = Workspace::from_fixture("dependency-direction");
+    workspace.write(
+        "crates/goodfetch-dev-workspace-hack/Cargo.toml",
+        b"[package]\nname = \"goodfetch-dev-workspace-hack\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n",
+    );
+    workspace.write(
+        "crates/goodfetch-dev-workspace-hack/src/lib.rs",
+        b"//! Fixture dev workspace-hack.\n",
+    );
+    workspace.write(
+        "crates/goodfetch-protocol/Cargo.toml",
+        b"[package]\nname = \"goodfetch-protocol\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\ngoodfetch-workspace-hack = { path = \"../goodfetch-workspace-hack\" }\n\n[dev-dependencies]\ngoodfetch-dev-workspace-hack = { path = \"../goodfetch-dev-workspace-hack\" }\n",
+    );
+
+    let outcome = workspace.xtask(&["dependency-direction"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "protocol-takes-dev-workspace-hack",
+            "goodfetch-protocol"
+        )],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}

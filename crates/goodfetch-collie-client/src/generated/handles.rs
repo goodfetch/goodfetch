@@ -1504,6 +1504,38 @@ impl Locator {
         )
     }
 
+    /// Reads a virtualized or infinite list whole: at each step a page function, called with each element the locator matches and its one JSON argument, in the isolated world unless `world` says otherwise, answers the element's `{ key, value }` or `null` to skip it, and each new key's value is kept in first-seen order, a duplicate key keeping its first. Then the last match is scrolled into view, a gesture through the guard, and the step waits up to `step_wait` for an element with a new key. It ends `end_of_list` after `idle_steps` steps in a row without one, or `max_rows` once it kept that many rows, and answers the rows, how it ended and the rows the list declares through `aria-rowcount` or its items' `aria-setsize` (`unknown` for `-1`, `null` for none). Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded` whose `observed` gives the rows kept and the last key; a guard refusal stops it with the guard's code, and an exception thrown in the page raises `page_function_failed`. No other read scrolls.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn scroll_collect(
+        &self,
+        function: impl Into<String>,
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::functions::ScrollCollected>,
+        ::goodfetch_protocol::page::functions::LocatorScrollCollectParams,
+    > {
+        crate::markers::warn("locator.scroll_collect", true, None);
+        self.host
+            .call(
+                "locator.scroll_collect",
+                ::goodfetch_protocol::page::functions::LocatorScrollCollectParams {
+                    locator: self.host.id().clone(),
+                    function: function.into(),
+                    arg: None,
+                    world: None,
+                    max_rows: None,
+                    idle_steps: None,
+                    step_wait: None,
+                    timeout: None,
+                },
+            )
+            .wire_timeout("timeout.wait")
+    }
+
     /// Waits until the element the locator matches is in the state: attached or visible, one element; detached, none; hidden, none or one not visible. The locator is resolved again at each check, so a re-render that replaces its element changes nothing. Past its `timeout`, `timeout.wait` when the call gives none, several matches raise `target_not_unique` listing them, and anything else `deadline_exceeded` naming the state.
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
@@ -1725,6 +1757,32 @@ impl<T> crate::Call<T, ::goodfetch_protocol::page::functions::LocatorEvaluateAll
         self.edit(move |params| params.arg = Some(arg))
     }
     /// Where it runs; the main world when absent.
+    pub fn world(self, world: ::goodfetch_protocol::page::functions::World) -> Self {
+        self.edit(move |params| params.world = Some(world))
+    }
+}
+
+impl<T> crate::Call<T, ::goodfetch_protocol::page::functions::LocatorScrollCollectParams> {
+    /// Its one argument, JSON; absent for none.
+    pub fn arg(self, arg: ::serde_json::Value) -> Self {
+        self.edit(move |params| params.arg = Some(arg))
+    }
+    /// The steps in a row without a new key at which it ends
+    /// `end_of_list`, at least 1; 3 when absent.
+    pub fn idle_steps(self, idle_steps: u64) -> Self {
+        self.edit(move |params| params.idle_steps = Some(idle_steps))
+    }
+    /// The rows at which the collection ends `max_rows`, at least 1;
+    /// 10,000 when absent.
+    pub fn max_rows(self, max_rows: u64) -> Self {
+        self.edit(move |params| params.max_rows = Some(max_rows))
+    }
+    /// How long a step waits for an element with a new key after its
+    /// scroll, in milliseconds, at least 1; 2,000 when absent.
+    pub fn step_wait(self, step_wait: u64) -> Self {
+        self.edit(move |params| params.step_wait = Some(step_wait))
+    }
+    /// Where it runs; the isolated world when absent.
     pub fn world(self, world: ::goodfetch_protocol::page::functions::World) -> Self {
         self.edit(move |params| params.world = Some(world))
     }

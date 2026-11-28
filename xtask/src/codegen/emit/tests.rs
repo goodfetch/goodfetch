@@ -54,6 +54,7 @@ fn file_formats() -> serde_json::Value {
         stored_format("installed-executables", "json", "frozen_major", "InstalledExecutables"),
         stored_format("usage-ledger", "sqlite", "frozen_major", "Limit"),
         stored_format("politeness-file", "sqlite", "frozen_major", "PermitRow"),
+        stored_format("politeness-store", "json", "frozen_major", "PolitenessStoreLayout"),
         stored_format("audit-log", "sqlite", "frozen_major", "AuditEntry"),
         stored_format("known-certificates", "sqlite", "frozen_major", "CertificatePin"),
         stored_format("response-cache", "sqlite", "run_without", "ResponseCacheEntry"),

@@ -18509,6 +18509,53 @@
       ],
       "type": "object"
     },
+    "PolitenessStoreLayout": {
+      "additionalProperties": false,
+      "description": "The Politeness store's frozen-major key and script layout, recorded in\nthe Compatibility corpus under the Usage-ledger family (ADRs 0053 and\n0066).",
+      "properties": {
+        "key_template": {
+          "arrived_in": "0.1",
+          "description": "The key naming pattern (`<namespace>:politeness:<major>:{<key>}:<part>`).",
+          "type": "string"
+        },
+        "layout_major": {
+          "arrived_in": "0.1",
+          "description": "The frozen layout major carried in every key and channel name.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "parts": {
+          "arrived_in": "0.1",
+          "description": "Every part of a Politeness key's state in the store.",
+          "items": {
+            "$ref": "#/$defs/StoreKeyPart"
+          },
+          "type": "array"
+        },
+        "scripts": {
+          "arrived_in": "0.1",
+          "description": "Every Lua script the engine loads once on connect.",
+          "items": {
+            "$ref": "#/$defs/StoreScriptLayout"
+          },
+          "type": "array"
+        },
+        "version": {
+          "$ref": "#/$defs/ProtocolVersion",
+          "arrived_in": "0.1",
+          "description": "The format version (`0.1`)."
+        }
+      },
+      "required": [
+        "version",
+        "layout_major",
+        "key_template",
+        "parts",
+        "scripts"
+      ],
+      "type": "object"
+    },
     "Position": {
       "description": "An event's position among every event of one engine, which only goes up; for a `page.on` call's own events, among that call's, from 1.",
       "minimum": 0,
@@ -27508,6 +27555,63 @@
         }
       ]
     },
+    "StoreKeyPart": {
+      "additionalProperties": false,
+      "description": "One part of a Politeness key's state under `<namespace>:politeness:<major>:{<key>}:<part>`.",
+      "properties": {
+        "kind": {
+          "arrived_in": "0.1",
+          "description": "The Redis/Valkey type or pub/sub channel kind (`zset`, `string`, `hash`, `pubsub`).",
+          "type": "string"
+        },
+        "part": {
+          "arrived_in": "0.1",
+          "description": "The suffix after `{<key>}:`.",
+          "type": "string"
+        },
+        "purpose": {
+          "arrived_in": "0.1",
+          "description": "What the part holds.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "part",
+        "kind",
+        "purpose"
+      ],
+      "type": "object"
+    },
+    "StoreScriptLayout": {
+      "additionalProperties": false,
+      "description": "One Lua script loaded once on connect and invoked by `EVALSHA`.",
+      "properties": {
+        "key_parts": {
+          "arrived_in": "0.1",
+          "description": "The key parts it touches, all sharing one `{<key>}` hash tag.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The script's stable name.",
+          "type": "string"
+        },
+        "uses_server_time": {
+          "arrived_in": "0.1",
+          "description": "Whether the script reads server `TIME` rather than an engine timestamp.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "key_parts",
+        "uses_server_time"
+      ],
+      "type": "object"
+    },
     "StoredAccount": {
       "description": "The Account, as its `account` row holds it.",
       "properties": {
@@ -29954,6 +30058,16 @@
         "$ref": "#/$defs/PermitRow"
       },
       "storage": "sqlite",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
+      "name": "politeness-store",
+      "rule": "frozen_major",
+      "schema": {
+        "$ref": "#/$defs/PolitenessStoreLayout"
+      },
+      "storage": "json",
       "version": "0.1"
     },
     {

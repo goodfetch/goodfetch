@@ -532,6 +532,11 @@ prefix = "politeness-file"
 
 [[area]]
 number = 3
+kind = "format"
+prefix = "politeness-store"
+
+[[area]]
+number = 3
 kind = "command"
 prefix = "daemon."
 

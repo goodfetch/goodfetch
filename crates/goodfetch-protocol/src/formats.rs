@@ -23,6 +23,7 @@ use crate::jsonrpc::Message;
 use crate::notifications::{NOTIFICATION_PAYLOAD_VERSION, NotificationPayload};
 use crate::plugin::{MANIFEST_VERSION, PLUGIN_PROTOCOL_VERSION, PluginManifest};
 use crate::politeness::PermitRow;
+use crate::politeness::store::{POLITENESS_STORE_LAYOUT_VERSION, PolitenessStoreLayout};
 use crate::published_catalog::{PUBLISHED_CATALOG_VERSION, PublishedCatalog};
 use crate::recipe::{RECIPE_MANIFEST_VERSION, RecipeManifest};
 use crate::response_cache::ResponseCacheEntry;
@@ -379,6 +380,19 @@ pub const POLITENESS_FILE: Format = Format {
     schema: schema_of::<PermitRow>,
 };
 
+/// The Politeness store's Valkey/Redis key and script layout (ADRs 0053 and
+/// 0066): engines of every major and of both Products share one namespace,
+/// so its major never changes and newer minors only add keys, parts or
+/// scripts, like the Usage ledger's family.
+pub const POLITENESS_STORE: Format = Format {
+    name: "politeness-store",
+    version: POLITENESS_STORE_LAYOUT_VERSION,
+    storage: Storage::Json,
+    rule: Rule::FrozenMajor,
+    hello_from: &[],
+    schema: schema_of::<PolitenessStoreLayout>,
+};
+
 /// The per-user Audit log in Goodfetch home (ADRs 0016 and 0098), outside
 /// the per-major folders: its append-only, hash-chained entries, and beside
 /// it the head file that names the last one. Engines of every major and of
@@ -539,6 +553,7 @@ pub const FORMATS: &[&Format] = &[
     &INSTALLED_EXECUTABLES,
     &USAGE_LEDGER,
     &POLITENESS_FILE,
+    &POLITENESS_STORE,
     &AUDIT_LOG,
     &KNOWN_CERTIFICATES,
     &RESPONSE_CACHE,

@@ -1,0 +1,126 @@
+{
+  "version": "0.1",
+  "layout_major": 0,
+  "key_template": "<namespace>:politeness:<major>:{<key>}:<part>",
+  "parts": [
+    {
+      "part": "permits",
+      "kind": "zset",
+      "purpose": "Active Permit lease tokens scored by expiry in server milliseconds."
+    },
+    {
+      "part": "pace",
+      "kind": "string",
+      "purpose": "GCRA theoretical arrival time in server milliseconds."
+    },
+    {
+      "part": "delegation",
+      "kind": "string",
+      "purpose": "Engine ID holding the key's Delegation, with PX expiry."
+    },
+    {
+      "part": "state",
+      "kind": "hash",
+      "purpose": "Per-contribution shared key state JSON values (domain limits, proxy/provider limits, robots.txt)."
+    },
+    {
+      "part": "wakes",
+      "kind": "pubsub",
+      "purpose": "Wake notifications for returned Permits and Delegation recalls."
+    }
+  ],
+  "scripts": [
+    {
+      "name": "take",
+      "key_parts": [
+        "permits"
+      ],
+      "uses_server_time": true
+    },
+    {
+      "name": "renew",
+      "key_parts": [
+        "permits"
+      ],
+      "uses_server_time": true
+    },
+    {
+      "name": "give_back",
+      "key_parts": [
+        "permits",
+        "wakes"
+      ],
+      "uses_server_time": false
+    },
+    {
+      "name": "pace",
+      "key_parts": [
+        "pace"
+      ],
+      "uses_server_time": true
+    },
+    {
+      "name": "delegate",
+      "key_parts": [
+        "delegation",
+        "permits",
+        "state"
+      ],
+      "uses_server_time": true
+    },
+    {
+      "name": "renew_delegation",
+      "key_parts": [
+        "delegation"
+      ],
+      "uses_server_time": true
+    },
+    {
+      "name": "release_delegation",
+      "key_parts": [
+        "delegation",
+        "permits",
+        "state",
+        "wakes"
+      ],
+      "uses_server_time": true
+    },
+    {
+      "name": "peek_shared",
+      "key_parts": [
+        "delegation",
+        "permits",
+        "state",
+        "wakes"
+      ],
+      "uses_server_time": true
+    },
+    {
+      "name": "take_shared",
+      "key_parts": [
+        "delegation",
+        "permits",
+        "pace",
+        "state",
+        "wakes"
+      ],
+      "uses_server_time": true
+    },
+    {
+      "name": "give_back_shared",
+      "key_parts": [
+        "permits",
+        "state",
+        "wakes"
+      ],
+      "uses_server_time": true
+    },
+    {
+      "name": "save_state",
+      "key_parts": [
+        "state"
+      ],
+      "uses_server_time": false
+    }
+  ]
+}

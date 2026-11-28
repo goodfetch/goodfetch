@@ -368,6 +368,64 @@ fn none() -> Value {
     Value::Null
 }
 
+/// The Politeness store's key and script layout format version (ADRs 0053
+/// and 0066): its major is frozen across product majors, like the Usage
+/// ledger's family, and newer minors only add keys, parts or scripts.
+pub const POLITENESS_STORE_LAYOUT_VERSION: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
+
+/// One part of a Politeness key's state under `<namespace>:politeness:<major>:{<key>}:<part>`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StoreKeyPart {
+    /// The suffix after `{<key>}:`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub part: String,
+    /// The Redis/Valkey type or pub/sub channel kind (`zset`, `string`, `hash`, `pubsub`).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub kind: String,
+    /// What the part holds.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub purpose: String,
+}
+
+/// One Lua script loaded once on connect and invoked by `EVALSHA`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StoreScriptLayout {
+    /// The script's stable name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+    /// The key parts it touches, all sharing one `{<key>}` hash tag.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub key_parts: Vec<String>,
+    /// Whether the script reads server `TIME` rather than an engine timestamp.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub uses_server_time: bool,
+}
+
+/// The Politeness store's frozen-major key and script layout, recorded in
+/// the Compatibility corpus under the Usage-ledger family (ADRs 0053 and
+/// 0066).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PolitenessStoreLayout {
+    /// The format version (`0.1`).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub version: ProtocolVersion,
+    /// The frozen layout major carried in every key and channel name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub layout_major: u32,
+    /// The key naming pattern (`<namespace>:politeness:<major>:{<key>}:<part>`).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub key_template: String,
+    /// Every part of a Politeness key's state in the store.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub parts: Vec<StoreKeyPart>,
+    /// Every Lua script the engine loads once on connect.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub scripts: Vec<StoreScriptLayout>,
+}
+
 /// `politeness.store` (ADR 0053).
 pub const POLITENESS_STORE: Setting = Setting {
     name: "politeness.store",
@@ -378,7 +436,7 @@ pub const POLITENESS_STORE: Setting = Setting {
     authority: Authority::Machine,
     weakens: None,
     fixed_for_run: false,
-    unbuilt: Some("politeness_store"),
+    unbuilt: None,
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };

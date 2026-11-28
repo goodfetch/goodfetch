@@ -59,7 +59,7 @@ const WRITE_LIMITS: &str = "INSERT INTO proxy_limits (key, ceiling, ceiling_chan
 
 /// One proxy key's shared state, as plain values the Politeness file
 /// loads and saves whole.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Limits {
     /// The most requests in flight the proxy's refusals left it.
     ceiling: Option<u64>,
@@ -123,6 +123,37 @@ impl KeyState for Limits {
     fn save_to(&self, tables: &mut MemoryTables, key: &str, (): &()) {
         tables.get_mut::<Proxies>().0.insert(key.to_owned(), *self);
     }
+
+    const STORE_PART: Option<&'static str> = Some("proxy_limits");
+
+    fn store_key(key: &str) -> Option<&str> {
+        Some(key)
+    }
+
+    fn encode_store(&self) -> Option<Vec<u8>> {
+        serde_json::to_vec(self).ok()
+    }
+
+    fn load_store(bytes: Option<&[u8]>, (): ()) -> Option<Self> {
+        Some(
+            bytes
+                .and_then(|bytes| serde_json::from_slice(bytes).ok())
+                .unwrap_or_default(),
+        )
+    }
+
+    fn encode_store_from(tables: &MemoryTables, key: &str) -> Option<Vec<u8>> {
+        tables
+            .get::<Proxies>()
+            .and_then(|proxies| proxies.0.get(key))
+            .and_then(|limits| serde_json::to_vec(limits).ok())
+    }
+
+    fn decode_store_into(tables: &mut MemoryTables, key: &str, bytes: &[u8]) {
+        if let Ok(limits) = serde_json::from_slice::<Self>(bytes) {
+            tables.get_mut::<Proxies>().0.insert(key.to_owned(), limits);
+        }
+    }
 }
 
 /// The proxy keys' states a Run's own Politeness keeps in memory, by key.
@@ -169,6 +200,21 @@ fn duration_milliseconds(duration: Duration) -> i64 {
 
 impl PermitRule for ProxyRule {
     type State = Limits;
+
+    fn concurrency(&self) -> Option<u64> {
+        self.concurrency
+    }
+
+    fn effective_cap(&self, limits: &Limits) -> Option<u64> {
+        match (self.concurrency, limits.ceiling) {
+            (Some(own), Some(ceiling)) => Some(own.min(ceiling)),
+            (own, ceiling) => own.or(ceiling),
+        }
+    }
+
+    fn store_pace(&self) -> Option<(Duration, u32)> {
+        self.interval.map(|interval| (interval, 0))
+    }
 
     fn reads(&self, _: Step) {}
 

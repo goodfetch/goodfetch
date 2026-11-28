@@ -3921,6 +3921,17 @@
       ]
     },
     {
+      "id": "format:politeness-store",
+      "kind": "format",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "format:protocol",
       "kind": "format",
       "area": 3,

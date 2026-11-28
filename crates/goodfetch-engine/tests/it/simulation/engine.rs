@@ -418,6 +418,7 @@ async fn serve_daemon(host: Host, world: World) -> turmoil::Result {
         websocket: None,
         accounts: None,
         live_view: None,
+        http_listener: None,
     };
 
     let engine = daemon_engine();

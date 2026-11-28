@@ -1775,6 +1775,8 @@ impl Runs {
             tables: setup.politeness_tables.clone(),
             holder_gone,
             engine: format!("{:016x}", setup.entropy.next_u64()),
+            clock: setup.engine.clock(),
+            secrets: setup.secrets.clone(),
             owner: owner.part("Politeness store"),
         }));
         let for_one_run = owner.child_for(OwnerKind::Run);

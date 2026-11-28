@@ -8,14 +8,21 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
+use goodfetch_protocol::politeness::store::{POLITENESS_STORE, PolitenessStoreConfiguration};
 use goodfetch_protocol::politeness::{POLITENESS_DELEGATION, POLITENESS_SHARING};
+use goodfetch_protocol::secrets::TIMEOUT_SECRET;
 use tokio::sync::{OnceCell, watch};
 
+use super::store::PolitenessStore;
 use super::{
     Holder, HolderGone, OwnPoliteness, Politeness, PolitenessError, PolitenessOptions,
     PolitenessTables,
 };
+use crate::clock::Clock;
+use crate::mask::Redaction;
+use crate::secrets::{Purpose, Secrets};
 use crate::settings::Resolved;
 use crate::tasks::TaskOwner;
 
@@ -25,22 +32,26 @@ use crate::tasks::TaskOwner;
 pub type OnStorageFailures =
     Box<dyn Fn(watch::Receiver<Option<String>>, Option<&Path>) + Send + Sync>;
 
-/// The per-user Politeness file the engine's Runs share, opened the first
-/// time one shares it (ADR 0053), as one engine of the user.
+/// The per-user Politeness file and optional Politeness store the engine's
+/// Runs share, opened the first time one shares them (ADR 0053), as one
+/// engine of the user.
 pub struct SharedPoliteness {
     file: OnceCell<Politeness>,
+    store: tokio::sync::Mutex<Option<(PolitenessStoreConfiguration, Politeness)>>,
     path: PathBuf,
     options: PolitenessOptions,
     tables: Vec<PolitenessTables>,
     holder_gone: HolderGone,
     engine: String,
+    clock: Clock,
+    secrets: Secrets,
     /// The engine's Politeness store, whose tasks serve each Politeness in
     /// memory: not a Run's, since a Run keeps its Politeness while it ends,
     /// and its owner waits for its tasks, a file's actor among them.
     owner: TaskOwner,
 }
 
-/// What the file the engine's Runs share opens from.
+/// What the file and optional store the engine's Runs share open from.
 pub struct SharedPolitenessParts {
     /// The file.
     pub path: PathBuf,
@@ -52,6 +63,10 @@ pub struct SharedPolitenessParts {
     pub holder_gone: HolderGone,
     /// The engine's name in it.
     pub engine: String,
+    /// The engine's clock (ADR 0059), for store heartbeat and Delegation expiry.
+    pub clock: Clock,
+    /// The engine's Secrets driver, which resolves `politeness.store.password`.
+    pub secrets: Secrets,
     /// The engine's Politeness store.
     pub owner: TaskOwner,
 }
@@ -61,11 +76,14 @@ impl SharedPoliteness {
     pub fn new(parts: SharedPolitenessParts) -> Self {
         Self {
             file: OnceCell::new(),
+            store: tokio::sync::Mutex::new(None),
             path: parts.path,
             options: parts.options,
             tables: parts.tables,
             holder_gone: parts.holder_gone,
             engine: parts.engine,
+            clock: parts.clock,
+            secrets: parts.secrets,
             owner: parts.owner,
         }
     }
@@ -85,6 +103,55 @@ impl SharedPoliteness {
             })
             .await
             .cloned()
+    }
+
+    /// The Politeness store `configuration` names, connected once and reused
+    /// across every `shared` Run of this engine (ADR 0053).
+    async fn store(
+        &self,
+        configuration: &PolitenessStoreConfiguration,
+        settings: &Resolved,
+    ) -> Result<Politeness, PolitenessError> {
+        let mut cached = self.store.lock().await;
+        if let Some((existing, politeness)) = cached.as_ref()
+            && existing == configuration
+        {
+            return Ok(politeness.clone());
+        }
+        let password = match &configuration.password {
+            Some(reference) => {
+                let timeout = settings.get::<Duration>(&TIMEOUT_SECRET);
+                let resolver = self.secrets.for_run_under(settings, timeout, Redaction::On);
+                let layer = settings.effective(&POLITENESS_STORE).map(|e| e.layer);
+                let purpose = Purpose {
+                    placeholder: POLITENESS_STORE.name,
+                    domain: None,
+                    domains: &[],
+                    layer,
+                    run_id: None,
+                };
+                Some(
+                    resolver
+                        .resolve(reference, &purpose)
+                        .await
+                        .map_err(|error| PolitenessError::Store(error.to_string()))?,
+                )
+            }
+            None => None,
+        };
+        let connected = PolitenessStore::connect(configuration, password.as_ref())
+            .await
+            .map_err(|error| PolitenessError::Store(error.to_string()))?;
+        let politeness = Politeness::open_store(
+            connected,
+            &self.options,
+            self.engine.clone(),
+            self.clock,
+            &self.owner,
+        )
+        .await?;
+        *cached = Some((configuration.clone(), politeness.clone()));
+        Ok(politeness)
     }
 }
 
@@ -166,7 +233,14 @@ impl RunPoliteness {
     ///
     /// Dropping the future loses only the answer.
     pub async fn open(&self, settings: &Resolved) -> Result<(Politeness, Holder), PolitenessError> {
-        let own = settings.get::<&str>(&POLITENESS_SHARING) == "run";
+        let sharing = settings.get::<&str>(&POLITENESS_SHARING);
+        let own = sharing == "run";
+        let store_value = settings.value(&POLITENESS_STORE);
+        let store_config = if sharing == "shared" && !store_value.is_null() {
+            Some(PolitenessStoreConfiguration::read(store_value).map_err(PolitenessError::Store)?)
+        } else {
+            None
+        };
         let this = &*self.0;
         let politeness = this
             .opened
@@ -181,6 +255,9 @@ impl RunPoliteness {
                         return Ok(politeness);
                     }
                     return Politeness::in_memory(&this.shared.options, &this.shared.owner);
+                }
+                if let Some(config) = &store_config {
+                    return this.shared.store(config, settings).await;
                 }
                 let file = this.shared.file().await?;
                 (this.on_storage_failures)(file.storage_failures(), this.shared.path.parent());

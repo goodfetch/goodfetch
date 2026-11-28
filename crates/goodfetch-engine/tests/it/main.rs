@@ -64,7 +64,7 @@ mod message_scenario;
 mod name_server;
 mod nothing_leaves;
 mod operator_endpoints;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod politeness_store;
 mod resolver_cache;
 // The Simulation's scenarios (ADR 0060), built only under `--cfg

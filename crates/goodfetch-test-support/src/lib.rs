@@ -130,7 +130,7 @@ mod unicode;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod user_namespaces;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod valkey;
 mod variables;
 mod webhook_signatures;
@@ -314,8 +314,10 @@ pub use unicode::{UnicodeField, UnicodeRecord, unicode_record};
 pub use user_namespaces::{
     apparmor_restricts_user_namespaces, under_apparmor_restriction, under_default_seccomp,
 };
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub use valkey::Valkey;
+#[cfg(target_os = "linux")]
+pub use valkey::ValkeyCluster;
 pub use variables::{
     CALLGRIND_AT_ONCE_VARIABLE, CASE_LOGS_VARIABLE, CHROME_FOR_TESTING_DOWNLOADS_VARIABLE,
     CLAUDE_CODE_DOWNLOADS_VARIABLE, CallgrindAtOnceError, DNS_NAMESPACE_VARIABLE, ENGINE_VARIABLE,

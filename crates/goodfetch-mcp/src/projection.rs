@@ -14,15 +14,120 @@ use std::sync::Arc;
 use goodfetch_protocol::catalog::{ErrorGroup, Operation, OperationClass};
 use goodfetch_protocol::cli::CommandError;
 use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure};
-use rmcp::model::{CallToolResult, ContentBlock, JsonObject, Tool, ToolAnnotations};
+use rmcp::model::{
+    CallToolResult, ContentBlock, JsonObject, ListToolsResult, Tool, ToolAnnotations,
+};
 use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value};
+use thiserror::Error;
 
 /// Maximum length of an MCP tool name (ADR 0099, spec #608).
 pub const MAX_TOOL_NAME_CHARS: usize = 39;
 
 /// Maximum length of an MCP tool description (ADR 0065, spec #608).
 pub const MAX_DESCRIPTION_CHARS: usize = 2048;
+
+/// Why a catalog operation cannot be projected onto the MCP surface (ADRs 0065,
+/// 0070, 0099; issues 1360 and 1014).
+#[derive(Clone, Debug, PartialEq, Eq, Error)]
+pub enum ProjectionViolation {
+    /// The projected tool name is empty, longer than [`MAX_TOOL_NAME_CHARS`],
+    /// or contains characters outside `[a-z0-9_]`.
+    #[error(
+        "MCP tool name `{tool_name}` (from `{operation}`) must be 1..={MAX_TOOL_NAME_CHARS} chars in [a-z0-9_]"
+    )]
+    InvalidToolName {
+        /// Canonical catalog operation name.
+        operation: String,
+        /// Projected MCP tool name.
+        tool_name: String,
+    },
+    /// The catalog description is empty.
+    #[error("MCP tool description for `{operation}` must not be empty")]
+    EmptyDescription {
+        /// Canonical catalog operation name.
+        operation: String,
+    },
+    /// The projected description exceeds [`MAX_DESCRIPTION_CHARS`].
+    #[error(
+        "MCP tool description for `{operation}` is {chars} chars (max {MAX_DESCRIPTION_CHARS})"
+    )]
+    DescriptionTooLong {
+        /// Canonical catalog operation name.
+        operation: String,
+        /// Character count of the projected description.
+        chars: usize,
+    },
+    /// Live view grant entries are refused on the MCP surface (issue 1014).
+    #[error("Live view grant operation `{operation}` is not allowed on the MCP surface")]
+    LiveViewGrantNotAllowed {
+        /// Canonical catalog operation name.
+        operation: String,
+    },
+}
+
+/// Whether `canonical_name` is a Live view grant entry refused on the MCP
+/// surface (issue 1014, ADR 0070).
+#[must_use]
+pub fn is_live_view_grant(canonical_name: &str) -> bool {
+    canonical_name.starts_with("live_view.")
+}
+
+/// Validates that `operation` obeys every MCP projection rule: tool name in
+/// `[a-z0-9_]` of at most [`MAX_TOOL_NAME_CHARS`] characters, non-empty
+/// description of at most [`MAX_DESCRIPTION_CHARS`] characters, and never a
+/// Live view grant entry (ADRs 0065, 0070, 0099; issues 1360 and 1014).
+///
+/// # Errors
+///
+/// Returns a [`ProjectionViolation`] naming the rule `operation` breaks.
+pub fn validate_operation(operation: &Operation) -> Result<(), ProjectionViolation> {
+    if is_live_view_grant(operation.name) {
+        return Err(ProjectionViolation::LiveViewGrantNotAllowed {
+            operation: operation.name.to_owned(),
+        });
+    }
+    let name = tool_name(operation.name);
+    if !is_valid_tool_name(&name) {
+        return Err(ProjectionViolation::InvalidToolName {
+            operation: operation.name.to_owned(),
+            tool_name: name,
+        });
+    }
+    let description = description_for(operation);
+    let chars = description.chars().count();
+    if chars == 0 {
+        return Err(ProjectionViolation::EmptyDescription {
+            operation: operation.name.to_owned(),
+        });
+    }
+    if chars > MAX_DESCRIPTION_CHARS {
+        return Err(ProjectionViolation::DescriptionTooLong {
+            operation: operation.name.to_owned(),
+            chars,
+        });
+    }
+    Ok(())
+}
+
+/// Compact JSON wire byte count of a `tools/list` response for `tools`
+/// (ADR 0065, ADR 0071, issue 1360).
+#[must_use]
+pub fn tools_list_wire_bytes(tools: &[Tool]) -> usize {
+    let payload = ListToolsResult::with_all_items(tools.to_vec());
+    serde_json::to_vec(&payload)
+        .expect("invariant: ListToolsResult serializes")
+        .len()
+}
+
+/// Compact JSON wire byte count of a `tools/call` [`CallToolResult`]
+/// (ADR 0065, ADR 0071, issue 1360).
+#[must_use]
+pub fn tool_result_wire_bytes(result: &CallToolResult) -> usize {
+    serde_json::to_vec(result)
+        .expect("invariant: CallToolResult serializes")
+        .len()
+}
 
 /// Parameter omitted from `run_start` and `recipe_start` input schemas on MCP
 /// surfaces because accepting a plugin change is a granting operation
@@ -147,9 +252,9 @@ pub fn description_for(operation: &Operation) -> String {
                 }
                 None => format!("Deprecated: removed in {major}"),
             };
-            format!("{prefix}. {}", operation.description)
+            format!("{prefix}. {}", operation.description.trim())
         }
-        None => operation.description.to_owned(),
+        None => operation.description.trim().to_owned(),
     }
 }
 

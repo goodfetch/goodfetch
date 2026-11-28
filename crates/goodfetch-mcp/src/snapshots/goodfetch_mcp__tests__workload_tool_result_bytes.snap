@@ -1,0 +1,36 @@
+---
+source: crates/goodfetch-mcp/src/tests.rs
+expression: "serde_json::to_string_pretty(&Value::Object(workload_sizes)).unwrap()"
+---
+{
+  "aria_snapshot_ai_first": {
+    "content_blocks": 1,
+    "is_error": false,
+    "wire_bytes": 398
+  },
+  "aria_snapshot_ai_second": {
+    "content_blocks": 1,
+    "is_error": false,
+    "wire_bytes": 380
+  },
+  "code_mode_run": {
+    "content_blocks": 1,
+    "is_error": false,
+    "wire_bytes": 312
+  },
+  "page_goto": {
+    "content_blocks": 1,
+    "is_error": false,
+    "wire_bytes": 270
+  },
+  "run_start": {
+    "content_blocks": 1,
+    "is_error": false,
+    "wire_bytes": 274
+  },
+  "success_check_evaluate": {
+    "content_blocks": 1,
+    "is_error": false,
+    "wire_bytes": 262
+  }
+}

@@ -136,12 +136,36 @@ where
     F: FnOnce(tokio::io::DuplexStream) -> Fut + Send + 'static,
     Fut: std::future::Future<Output = ()> + Send + 'static,
 {
+    start_in_memory_with_profile(
+        Product::Collie,
+        ResolvedProfile::for_product(Product::Collie, ProfileName::Browser),
+        live_view_base_url,
+        engine_fn,
+    )
+    .await
+}
+
+/// Spawns an in-memory MCP server with a chosen [`Product`] and [`ResolvedProfile`].
+async fn start_in_memory_with_profile<F, Fut>(
+    product: Product,
+    profile: ResolvedProfile,
+    live_view_base_url: Option<String>,
+    engine_fn: F,
+) -> (
+    rmcp::service::RunningService<RoleClient, RecordingClient>,
+    RecordingClient,
+    TaskTracker,
+)
+where
+    F: FnOnce(tokio::io::DuplexStream) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
     let tasks = TaskTracker::new();
     let (mcp_engine_side, fake_engine_side) = tokio::io::duplex(64 * 1024);
     tasks.spawn(engine_fn(fake_engine_side));
 
     let config = EngineLinkConfig {
-        product: Product::Collie,
+        product,
         product_version: ProductVersion::parse("0.1.0").unwrap(),
         token: None,
         live_view_base_url,
@@ -152,9 +176,9 @@ where
 
     let server = McpServer::new(
         ServerOptions {
-            product: Product::Collie,
+            product,
             version: "0.1.0".to_owned(),
-            profile: ResolvedProfile::for_product(Product::Collie, ProfileName::Browser),
+            profile,
         },
         link,
     );
@@ -174,6 +198,15 @@ where
         .expect("rmcp client initialized");
 
     (client, recorder, tasks)
+}
+
+async fn hello_only_engine(stream: tokio::io::DuplexStream) {
+    let (read, mut write) = tokio::io::split(stream);
+    let mut lines = BufReader::new(read).lines();
+    if let Message::Request(request) = read_message(&mut lines).await {
+        write_line(&mut write, &hello_ok(&request.id)).await;
+    }
+    let _ = lines.next_line().await;
 }
 
 /// Covers: story:11-222, story:11-229
@@ -679,5 +712,358 @@ fn first_profile_tools_list_is_a_snapshot() {
     insta::assert_snapshot!(
         "browser_profile_tools_list",
         serde_json::to_string_pretty(&summary).unwrap()
+    );
+}
+
+fn empty_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({
+        "type": "object",
+        "properties": {}
+    })
+}
+
+fn fixture_operation(
+    name: &'static str,
+    description: &'static str,
+    class: goodfetch_protocol::catalog::OperationClass,
+    deprecated: Option<goodfetch_protocol::catalog::Deprecation>,
+) -> goodfetch_protocol::catalog::Operation {
+    use goodfetch_protocol::catalog::{
+        Operation, OperationKind, ProtocolVersion, Reach, Stability,
+    };
+    Operation {
+        name,
+        description,
+        class,
+        kind: OperationKind::RoundTrip,
+        reach: Reach::AllSurfaces,
+        params: empty_schema,
+        result: empty_schema,
+        events: &[],
+        cancellable: false,
+        input: None,
+        bound: None,
+        stability: Stability::Stable,
+        deprecated,
+        arrived_in: ProtocolVersion { major: 0, minor: 1 },
+    }
+}
+
+/// Covers: story:11-183, story:11-226
+#[test]
+fn projection_rejects_invalid_names_long_descriptions_and_live_view_grants() {
+    use goodfetch_protocol::catalog::{OperationClass, Product};
+    use goodfetch_protocol::entries::operations_of;
+
+    use crate::profiles::is_mcp_eligible;
+    use crate::projection::{
+        MAX_DESCRIPTION_CHARS, ProjectionViolation, description_for, validate_operation,
+    };
+
+    for product in [Product::Collie, Product::Foxhound] {
+        for op in operations_of(product).filter(|op| is_mcp_eligible(op)) {
+            assert_eq!(
+                validate_operation(op),
+                Ok(()),
+                "eligible operation `{}` failed MCP projection validation",
+                op.name
+            );
+            if op.deprecated.is_none() {
+                assert_eq!(
+                    description_for(op),
+                    op.description.trim(),
+                    "MCP description must equal the catalog/SDK docstring text for `{}`",
+                    op.name
+                );
+            }
+        }
+    }
+
+    let too_long_name = fixture_operation(
+        "very_long_namespace.very_long_member_name_exceeding_39",
+        "Valid description.",
+        OperationClass::Read,
+        None,
+    );
+    assert!(matches!(
+        validate_operation(&too_long_name),
+        Err(ProjectionViolation::InvalidToolName { .. })
+    ));
+
+    let bad_chars_name = fixture_operation(
+        "page.Bad-Name",
+        "Valid description.",
+        OperationClass::Read,
+        None,
+    );
+    assert!(matches!(
+        validate_operation(&bad_chars_name),
+        Err(ProjectionViolation::InvalidToolName { .. })
+    ));
+
+    let long_desc: &'static str = Box::leak("a".repeat(MAX_DESCRIPTION_CHARS + 1).into_boxed_str());
+    let too_long_desc = fixture_operation("page.verbose", long_desc, OperationClass::Read, None);
+    assert_eq!(
+        validate_operation(&too_long_desc),
+        Err(ProjectionViolation::DescriptionTooLong {
+            operation: "page.verbose".to_owned(),
+            chars: MAX_DESCRIPTION_CHARS + 1,
+        })
+    );
+
+    // Issue #1014: Live view grant entries are refused on the MCP surface.
+    let live_view_grant = fixture_operation(
+        "live_view.grant",
+        "Grants a Live view channel.",
+        OperationClass::IdempotentWrite,
+        None,
+    );
+    assert_eq!(
+        validate_operation(&live_view_grant),
+        Err(ProjectionViolation::LiveViewGrantNotAllowed {
+            operation: "live_view.grant".to_owned(),
+        })
+    );
+    assert!(
+        !is_mcp_eligible(&live_view_grant),
+        "live_view.grant must be excluded from every MCP profile"
+    );
+}
+
+/// Covers: story:11-226, story:11-232
+#[test]
+fn annotations_follow_operation_class_and_open_world_rule() {
+    use goodfetch_protocol::catalog::{OperationClass, Product};
+    use goodfetch_protocol::entries::operations_of;
+
+    use crate::profiles::is_mcp_eligible;
+    use crate::projection::{annotations_for, is_open_world};
+
+    for product in [Product::Collie, Product::Foxhound] {
+        for op in operations_of(product).filter(|op| is_mcp_eligible(op)) {
+            let ann = annotations_for(op);
+            let expected_open_world = is_open_world(op);
+            assert_eq!(
+                ann.open_world_hint,
+                Some(expected_open_world),
+                "{}",
+                op.name
+            );
+            match op.class {
+                OperationClass::Read => {
+                    assert_eq!(ann.read_only_hint, Some(true), "{}", op.name);
+                    assert_eq!(ann.destructive_hint, None, "{}", op.name);
+                    assert_eq!(ann.idempotent_hint, None, "{}", op.name);
+                }
+                OperationClass::IdempotentWrite => {
+                    assert_eq!(ann.read_only_hint, Some(false), "{}", op.name);
+                    assert_eq!(ann.destructive_hint, Some(false), "{}", op.name);
+                    assert_eq!(ann.idempotent_hint, Some(true), "{}", op.name);
+                }
+                OperationClass::Effect => {
+                    assert_eq!(ann.read_only_hint, Some(false), "{}", op.name);
+                    assert_eq!(ann.destructive_hint, Some(true), "{}", op.name);
+                    assert_eq!(ann.idempotent_hint, Some(false), "{}", op.name);
+                }
+            }
+        }
+    }
+
+    // Verify wire delivery over in-memory rmcp client for all 3 classes + openWorldHint.
+    test_runtime().block_on(async {
+        let (client, _recorder, tasks) = start_in_memory(None, hello_only_engine).await;
+
+        let list = client.list_tools(None).await.expect("list_tools");
+        let by_name = |name: &str| {
+            list.tools
+                .iter()
+                .find(|t| t.name == name)
+                .unwrap_or_else(|| panic!("tool `{name}` missing from browser profile"))
+        };
+
+        let page_goto = by_name("page_goto")
+            .annotations
+            .as_ref()
+            .expect("page_goto annotations");
+        assert_eq!(page_goto.read_only_hint, Some(false));
+        assert_eq!(page_goto.destructive_hint, Some(true));
+        assert_eq!(page_goto.idempotent_hint, Some(false));
+        assert_eq!(page_goto.open_world_hint, Some(true));
+
+        let run_start = by_name("run_start")
+            .annotations
+            .as_ref()
+            .expect("run_start annotations");
+        assert_eq!(run_start.read_only_hint, Some(false));
+        assert_eq!(run_start.destructive_hint, Some(false));
+        assert_eq!(run_start.idempotent_hint, Some(true));
+        assert_eq!(run_start.open_world_hint, Some(false));
+
+        let page_read = by_name("page_read")
+            .annotations
+            .as_ref()
+            .expect("page_read annotations");
+        assert_eq!(page_read.read_only_hint, Some(true));
+        assert_eq!(page_read.open_world_hint, Some(false));
+
+        let _ = client.cancel().await;
+        tasks.close();
+        tasks.wait().await;
+    });
+}
+
+/// Covers: story:11-226
+#[test]
+fn deprecated_fixture_entry_sets_prefix_and_schema_flag() {
+    use goodfetch_protocol::catalog::{Deprecation, Operation, OperationClass, ProtocolVersion};
+
+    static DEPRECATED_OP: Operation = Operation {
+        name: "page.open_legacy",
+        description: "Navigates a page to a URL.",
+        class: OperationClass::Effect,
+        kind: goodfetch_protocol::catalog::OperationKind::RoundTrip,
+        reach: goodfetch_protocol::catalog::Reach::AllSurfaces,
+        params: empty_schema,
+        result: empty_schema,
+        events: &[],
+        cancellable: true,
+        input: None,
+        bound: None,
+        stability: goodfetch_protocol::catalog::Stability::Stable,
+        deprecated: Some(Deprecation {
+            since: ProtocolVersion { major: 1, minor: 0 },
+            replacement: Some("page.goto"),
+            earliest_removal: ProtocolVersion { major: 2, minor: 0 },
+            note: "Use page.goto instead.",
+        }),
+        arrived_in: ProtocolVersion { major: 0, minor: 1 },
+    };
+
+    test_runtime().block_on(async {
+        let profile = ResolvedProfile::from_operations("fixture".to_owned(), vec![&DEPRECATED_OP]);
+        let (client, _recorder, tasks) =
+            start_in_memory_with_profile(Product::Collie, profile, None, hello_only_engine).await;
+
+        let list = client.list_tools(None).await.expect("list_tools");
+        assert_eq!(list.tools.len(), 1);
+        let tool = &list.tools[0];
+        assert_eq!(tool.name, "page_open_legacy");
+        let desc = tool.description.as_deref().expect("description");
+        assert!(
+            desc.starts_with("Deprecated: use `page_goto`, removed in 2"),
+            "unexpected deprecated description: {desc}"
+        );
+        assert_eq!(
+            tool.input_schema.get("deprecated"),
+            Some(&json!(true)),
+            "deprecated fixture inputSchema must set deprecated: true"
+        );
+
+        let _ = client.cancel().await;
+        tasks.close();
+        tasks.wait().await;
+    });
+}
+
+/// Covers: story:11-185, story:11-232
+#[test]
+fn per_profile_tools_list_bytes_and_named_workload_results_are_snapshots() {
+    use crate::projection::{success_tool_result, tool_result_wire_bytes, tools_list_wire_bytes};
+
+    let mut profile_sizes = Map::new();
+    for (product_label, product) in [("collie", Product::Collie), ("foxhound", Product::Foxhound)] {
+        let mut per_profile = Map::new();
+        for profile_name in ProfileName::ALL {
+            let resolved = ResolvedProfile::for_product(product, profile_name);
+            let tools: Vec<_> = resolved.tools.iter().map(|p| p.tool.clone()).collect();
+            let bytes = tools_list_wire_bytes(&tools);
+            per_profile.insert(
+                profile_name.as_str().to_owned(),
+                json!({
+                    "tool_count": tools.len(),
+                    "tools_list_bytes": bytes,
+                }),
+            );
+        }
+        profile_sizes.insert(product_label.to_owned(), Value::Object(per_profile));
+    }
+
+    insta::assert_snapshot!(
+        "profile_tools_list_bytes",
+        serde_json::to_string_pretty(&Value::Object(profile_sizes)).unwrap()
+    );
+
+    // Named workloads from issue #1360: run_start, page_goto, ariaSnapshot in
+    // `ai` mode (first and second), success_check_evaluate, code_mode_run.
+    let workloads: [(&str, Value); 6] = [
+        (
+            "run_start",
+            json!({
+                "run_id": "run_01J00000000000000000000001",
+                "status": "running",
+                "product": "collie"
+            }),
+        ),
+        (
+            "page_goto",
+            json!({
+                "url": "https://shop.test/products/1",
+                "status": 200,
+                "title": "Product 1 — Shop"
+            }),
+        ),
+        (
+            "aria_snapshot_ai_first",
+            json!({
+                "mode": "ai",
+                "generation": 1,
+                "incremental": false,
+                "tree": "- main:\n  - heading \"Product 1\" [ref=e1]\n  - button \"Add to cart\" [ref=e2]"
+            }),
+        ),
+        (
+            "aria_snapshot_ai_second",
+            json!({
+                "mode": "ai",
+                "generation": 2,
+                "incremental": true,
+                "diff": "@@ e2 @@\n- button \"Add to cart\" [ref=e2]\n+ button \"Added\" [ref=e2]"
+            }),
+        ),
+        (
+            "success_check_evaluate",
+            json!({
+                "passed": true,
+                "checks": [
+                    { "name": "cart_count", "passed": true, "observed": 1 }
+                ]
+            }),
+        ),
+        (
+            "code_mode_run",
+            json!({
+                "ok": true,
+                "value": { "title": "Product 1 — Shop", "price": 1999 },
+                "logs": ["navigated to /products/1"]
+            }),
+        ),
+    ];
+
+    let mut workload_sizes = Map::new();
+    for (name, payload) in workloads {
+        let result = success_tool_result(payload);
+        workload_sizes.insert(
+            name.to_owned(),
+            json!({
+                "wire_bytes": tool_result_wire_bytes(&result),
+                "is_error": result.is_error,
+                "content_blocks": result.content.len(),
+            }),
+        );
+    }
+
+    insta::assert_snapshot!(
+        "workload_tool_result_bytes",
+        serde_json::to_string_pretty(&Value::Object(workload_sizes)).unwrap()
     );
 }

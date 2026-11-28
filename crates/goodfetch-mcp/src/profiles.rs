@@ -127,7 +127,10 @@ pub fn is_mcp_eligible(operation: &Operation) -> bool {
     if operation.reach != Reach::AllSurfaces {
         return false;
     }
-    if SDK_ONLY.contains(&operation.name) || KEPT_OFF_OPERATIONS.contains(&operation.name) {
+    if SDK_ONLY.contains(&operation.name)
+        || KEPT_OFF_OPERATIONS.contains(&operation.name)
+        || crate::projection::is_live_view_grant(operation.name)
+    {
         return false;
     }
     matches!(

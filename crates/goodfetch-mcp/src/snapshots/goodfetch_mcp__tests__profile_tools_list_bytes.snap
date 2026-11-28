@@ -1,0 +1,50 @@
+---
+source: crates/goodfetch-mcp/src/tests.rs
+expression: "serde_json::to_string_pretty(&Value::Object(profile_sizes)).unwrap()"
+---
+{
+  "collie": {
+    "agent": {
+      "tool_count": 19,
+      "tools_list_bytes": 54737
+    },
+    "browser": {
+      "tool_count": 19,
+      "tools_list_bytes": 54737
+    },
+    "code": {
+      "tool_count": 0,
+      "tools_list_bytes": 36
+    },
+    "full": {
+      "tool_count": 59,
+      "tools_list_bytes": 150229
+    },
+    "run": {
+      "tool_count": 23,
+      "tools_list_bytes": 73415
+    }
+  },
+  "foxhound": {
+    "agent": {
+      "tool_count": 19,
+      "tools_list_bytes": 54737
+    },
+    "browser": {
+      "tool_count": 19,
+      "tools_list_bytes": 54737
+    },
+    "code": {
+      "tool_count": 0,
+      "tools_list_bytes": 36
+    },
+    "full": {
+      "tool_count": 73,
+      "tools_list_bytes": 227761
+    },
+    "run": {
+      "tool_count": 23,
+      "tools_list_bytes": 73415
+    }
+  }
+}

@@ -154,6 +154,34 @@
         }
       ]
     },
+    "AddCookiesParams": {
+      "additionalProperties": false,
+      "description": "What `session.add_cookies` takes: the Session and the cookies to add.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "cookies": {
+          "arrived_in": "0.1",
+          "description": "The cookies to set. On a domain-bound Session, any cookie outside the\nsource's `domains` fails the whole call with `domain_not_allowed`\nwithout writing any cookie.",
+          "items": {
+            "$ref": "#/$defs/NewCookie"
+          },
+          "type": "array"
+        },
+        "session_id": {
+          "$ref": "#/$defs/SessionId",
+          "arrived_in": "0.1",
+          "description": "The Session to add cookies to."
+        }
+      },
+      "required": [
+        "session_id",
+        "cookies"
+      ],
+      "type": "object"
+    },
     "AddInitScriptParams": {
       "additionalProperties": false,
       "description": "What `page.add_init_script` takes: the page, and the script's source and\nargument.",
@@ -2417,6 +2445,49 @@
       ],
       "open": true
     },
+    "ClearCookiesParams": {
+      "additionalProperties": false,
+      "description": "What `session.clear_cookies` takes: the Session and optional exact-match\nfilters (`name`, `domain`, `path`).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "Clear only cookies for this domain. On a domain-bound Session, a domain\noutside the source's `domains` fails with `domain_not_allowed`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Clear only cookies with this exact name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "Clear only cookies with this exact path.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "session_id": {
+          "$ref": "#/$defs/SessionId",
+          "arrived_in": "0.1",
+          "description": "The Session whose cookies to clear."
+        }
+      },
+      "required": [
+        "session_id"
+      ],
+      "type": "object"
+    },
     "ClickParams": {
       "additionalProperties": false,
       "description": "What `locator.click` takes: the locator whose element it clicks.",
@@ -2729,6 +2800,90 @@
         "social"
       ],
       "type": "object"
+    },
+    "Cookie": {
+      "additionalProperties": false,
+      "description": "One cookie of a Session, carrying Playwright's fields with an RFC 3339\nUTC expiry (`null` for a session cookie; ADR 0092).",
+      "properties": {
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The domain it is sent to, with a leading `.` for its subdomains too.",
+          "type": "string"
+        },
+        "expires": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "default": null,
+          "description": "When it expires, in RFC 3339 UTC; `null` for a session cookie."
+        },
+        "http_only": {
+          "arrived_in": "0.1",
+          "description": "Whether scripts cannot read it.",
+          "type": "boolean"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name.",
+          "type": "string"
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The path it is sent under.",
+          "type": "string"
+        },
+        "same_site": {
+          "$ref": "#/$defs/CookieSameSite",
+          "arrived_in": "0.1",
+          "description": "Its `SameSite` attribute (`strict`, `lax`, or `none`)."
+        },
+        "secure": {
+          "arrived_in": "0.1",
+          "description": "Whether it is sent over HTTPS only.",
+          "type": "boolean"
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "Its value.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value",
+        "domain",
+        "path",
+        "http_only",
+        "secure",
+        "same_site"
+      ],
+      "type": "object"
+    },
+    "CookieSameSite": {
+      "description": "A cookie's `SameSite` attribute (`strict`, `lax`, or `none`).",
+      "oneOf": [
+        {
+          "const": "strict",
+          "description": "Sent only on requests of its own site.",
+          "type": "string"
+        },
+        {
+          "const": "lax",
+          "description": "Also sent on top-level navigations from another site.",
+          "type": "string"
+        },
+        {
+          "const": "none",
+          "description": "Sent on every request, which needs `secure`.",
+          "type": "string"
+        }
+      ]
     },
     "Count": {
       "additionalProperties": false,
@@ -11639,6 +11794,91 @@
       ],
       "type": "object"
     },
+    "NewCookie": {
+      "additionalProperties": false,
+      "description": "One cookie to add to a Session via `session.add_cookies` (ADR 0092).\n\nProvide either `url`, or both `domain` and `path`, matching Playwright's\n`addCookies`.",
+      "properties": {
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The domain it is sent to; requires `path` and cannot be combined with\n`url`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expires": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When it expires, in RFC 3339 UTC; omitted or `null` for a session\ncookie."
+        },
+        "http_only": {
+          "arrived_in": "0.1",
+          "description": "Whether scripts cannot read it; defaults to `false`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name.",
+          "type": "string"
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The path it is sent under; requires `domain` and cannot be combined\nwith `url`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "same_site": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CookieSameSite"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its `SameSite` attribute; defaults to the browser's default (`lax`)."
+        },
+        "secure": {
+          "arrived_in": "0.1",
+          "description": "Whether it is sent over HTTPS only; defaults to `true` for `https:`\nURLs and `false` otherwise.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL to derive domain, path and `secure` from; mutually exclusive\nwith `domain` and `path`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "Its value.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "type": "object"
+    },
     "NewPageParams": {
       "additionalProperties": false,
       "description": "What `run.new_page` takes: the Run whose default Session opens the page,\nand the page's own settings.",
@@ -13386,6 +13626,92 @@
         "url"
       ],
       "type": "object"
+    },
+    "PageStorageParams": {
+      "additionalProperties": false,
+      "description": "What `page.local_storage` and `page.session_storage` take: the page and\nthe `WebStorage` action to perform on its current origin.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "action": {
+          "$ref": "#/$defs/WebStorageAction",
+          "arrived_in": "0.1",
+          "description": "The `WebStorage` action to perform."
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page whose current origin's storage to access."
+        }
+      },
+      "required": [
+        "page_id",
+        "action"
+      ],
+      "type": "object"
+    },
+    "PageStorageResult": {
+      "description": "What `page.local_storage` and `page.session_storage` answer.",
+      "oneOf": [
+        {
+          "description": "All key-value pairs of the page's current origin (for `items`).",
+          "properties": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "arrived_in": "0.1",
+              "description": "The stored items, ordered by key.",
+              "type": "object"
+            },
+            "kind": {
+              "const": "items",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "items"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The value of one key, or `null` when absent (for `get_item`).",
+          "properties": {
+            "kind": {
+              "const": "item",
+              "type": "string"
+            },
+            "value": {
+              "arrived_in": "0.1",
+              "description": "The stored value, or `null` when the key is absent.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Confirmation that `set_item`, `remove_item`, or `clear` completed.",
+          "properties": {
+            "kind": {
+              "const": "updated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "PageValueDirection": {
       "description": "Which way a value outside JSON was going.",
@@ -20593,6 +20919,57 @@
       "description": "What `session.close` answers once the Session is closed.",
       "type": "object"
     },
+    "SessionCookiesChanged": {
+      "description": "What `session.add_cookies` and `session.clear_cookies` answer once applied.",
+      "type": "object"
+    },
+    "SessionCookiesParams": {
+      "additionalProperties": false,
+      "description": "What `session.cookies` takes: the Session and an optional list of URLs to\nfilter cookies by.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "session_id": {
+          "$ref": "#/$defs/SessionId",
+          "arrived_in": "0.1",
+          "description": "The Session whose cookies to read."
+        },
+        "urls": {
+          "arrived_in": "0.1",
+          "description": "When present, return only cookies that would be sent to at least one of\nthese URLs. On a domain-bound Session, any URL outside the source's\n`domains` fails with `domain_not_allowed`.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "session_id"
+      ],
+      "type": "object"
+    },
+    "SessionCookiesResult": {
+      "description": "What `session.cookies` answers: the matching cookies.",
+      "properties": {
+        "cookies": {
+          "arrived_in": "0.1",
+          "description": "The matching cookies, bounded to the Session source's `domains` when\nbound.",
+          "items": {
+            "$ref": "#/$defs/Cookie"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "cookies"
+      ],
+      "type": "object"
+    },
     "SessionEventName": {
       "description": "A Session's event a program listens to.",
       "oneOf": [
@@ -24229,6 +24606,105 @@
         "binary"
       ],
       "type": "object"
+    },
+    "WebStorageAction": {
+      "description": "One `WebStorage` action on `page.local_storage` or `page.session_storage`\n(ADR 0092): `items`, `get_item`, `set_item`, `remove_item`, or `clear`.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Reads all key-value pairs of the page's current origin.",
+          "properties": {
+            "kind": {
+              "const": "items",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Reads one key of the page's current origin.",
+          "properties": {
+            "key": {
+              "arrived_in": "0.1",
+              "description": "The storage key to read.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "get_item",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "key"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Sets one key-value pair on the page's current origin.",
+          "properties": {
+            "key": {
+              "arrived_in": "0.1",
+              "description": "The storage key to set.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "set_item",
+              "type": "string"
+            },
+            "value": {
+              "arrived_in": "0.1",
+              "description": "The string value to store.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "key",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Removes one key from the page's current origin.",
+          "properties": {
+            "key": {
+              "arrived_in": "0.1",
+              "description": "The storage key to remove.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "remove_item",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "key"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Clears all keys of the page's current origin.",
+          "properties": {
+            "kind": {
+              "const": "clear",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "WebhookInvalidDetails": {
       "description": "What `webhook_invalid` details.",
@@ -29184,6 +29660,25 @@
     },
     {
       "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Reads or mutates `window.localStorage` (`items`, `get_item`, `set_item`, `remove_item`, `clear`) on the page's current origin. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.local_storage",
+      "params": {
+        "$ref": "#/$defs/PageStorageParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/PageStorageResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "cancellable": true,
       "class": "effect",
       "deprecated": null,
@@ -29481,6 +29976,25 @@
       "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/RouteEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Reads or mutates `window.sessionStorage` (`items`, `get_item`, `set_item`, `remove_item`, `clear`) on the page's current origin (per-page tab storage). Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.session_storage",
+      "params": {
+        "$ref": "#/$defs/PageStorageParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/PageStorageResult"
       },
       "stability": "experimental"
     },
@@ -30457,6 +30971,44 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Adds cookies to a Session's browser context, affecting subsequent navigations and `page.request` calls. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "session.add_cookies",
+      "params": {
+        "$ref": "#/$defs/AddCookiesParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/SessionCookiesChanged"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Clears cookies from a Session's browser context, optionally filtered by `name`, `domain`, or `path`. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "session.clear_cookies",
+      "params": {
+        "$ref": "#/$defs/ClearCookiesParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/SessionCookiesChanged"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
       "description": "Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing.",
@@ -30470,6 +31022,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SessionClosed"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads a Session's cookies carrying Playwright's fields with RFC 3339 UTC expiries (`null` for session cookies). Offered in the SDKs only so cookies never reach a model, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "session.cookies",
+      "params": {
+        "$ref": "#/$defs/SessionCookiesParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/SessionCookiesResult"
       },
       "stability": "experimental"
     },

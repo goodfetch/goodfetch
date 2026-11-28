@@ -13,7 +13,7 @@ from typing_extensions import deprecated
 from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 from goodfetch_collie_client.markers import warn_deprecated, warn_deprecated_settings, warn_experimental
 
-from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, BorrowEnded, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CdpEndpointCloseParams, CdpEndpointClosed, CdpEndpointOpened, CdpSessionAnswer, CdpSessionCloseParams, CdpSessionClosed, CdpSessionOnEnded, CdpSessionOnParams, CdpSessionOpened, CdpSessionSendParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, HumanPauseResult, IdentityDeleteParams, IdentityDeleted, IdentityExportParams, IdentityExported, IdentityImportParams, IdentityList, IdentityListParams, IdentitySaved, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, KeyboardInsertTextParams, KeyboardKeyParams, KeyboardPressParams, KeyboardTypeParams, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, MouseButtonParams, MouseClickParams, MouseDblclickParams, MouseMoveParams, MouseWheelParams, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageLendParams, PageNewCdpSessionParams, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PagePauseParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunBorrowParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SaveIdentityParams, SavedIdentityInfo, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScrollCollected, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TouchscreenTapParams, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
+from .models import Acted, AddCookiesParams, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, BorrowEnded, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CdpEndpointCloseParams, CdpEndpointClosed, CdpEndpointOpened, CdpSessionAnswer, CdpSessionCloseParams, CdpSessionClosed, CdpSessionOnEnded, CdpSessionOnParams, CdpSessionOpened, CdpSessionSendParams, CertsListParams, CertsListed, Checkpoint, ClearCookiesParams, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, HumanPauseResult, IdentityDeleteParams, IdentityDeleted, IdentityExportParams, IdentityExported, IdentityImportParams, IdentityList, IdentityListParams, IdentitySaved, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, KeyboardInsertTextParams, KeyboardKeyParams, KeyboardPressParams, KeyboardTypeParams, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, MouseButtonParams, MouseClickParams, MouseDblclickParams, MouseMoveParams, MouseWheelParams, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageLendParams, PageNewCdpSessionParams, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PagePauseParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PageStorageParams, PageStorageResult, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunBorrowParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SaveIdentityParams, SavedIdentityInfo, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScrollCollected, SessionClosed, SessionCookiesChanged, SessionCookiesParams, SessionCookiesResult, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TouchscreenTapParams, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
 from .settings import DEPRECATED_SETTINGS
 
 
@@ -462,6 +462,14 @@ class AsyncCollieOperations:
         warn_experimental("page.lend")
         return result_of(CdpEndpointOpened, await self._caller.call("page.lend", params))
 
+    async def page_local_storage(self, params: PageStorageParams) -> PageStorageResult:
+        """Reads or mutates `window.localStorage` (`items`, `get_item`, `set_item`, `remove_item`, `clear`) on the page's current origin. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.local_storage")
+        return result_of(PageStorageResult, await self._caller.call("page.local_storage", params))
+
     async def page_mouse_click(self, params: MouseClickParams) -> Acted:
         """Moves the mouse to a point of the page's viewport and clicks there: the button goes down and up `click_count` times. Marked unguarded in Provenance: no element is checked (ADR 0085).
 
@@ -573,6 +581,14 @@ class AsyncCollieOperations:
         """
         warn_experimental("page.route")
         return result_of(RouteEnded, await self._caller.call("page.route", params))
+
+    async def page_session_storage(self, params: PageStorageParams) -> PageStorageResult:
+        """Reads or mutates `window.sessionStorage` (`items`, `get_item`, `set_item`, `remove_item`, `clear`) on the page's current origin (per-page tab storage). Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.session_storage")
+        return result_of(PageStorageResult, await self._caller.call("page.session_storage", params))
 
     async def page_touchscreen_tap(self, params: TouchscreenTapParams) -> Acted:
         """Taps a point of the page's viewport with one finger: a touch starts there and ends. Marked unguarded in Provenance: no element is checked (ADR 0085).
@@ -887,6 +903,22 @@ class AsyncCollieOperations:
         warn_experimental("schedule.preview")
         return result_of(SchedulePreview, await self._caller.call("schedule.preview", params))
 
+    async def session_add_cookies(self, params: AddCookiesParams) -> SessionCookiesChanged:
+        """Adds cookies to a Session's browser context, affecting subsequent navigations and `page.request` calls. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("session.add_cookies")
+        return result_of(SessionCookiesChanged, await self._caller.call("session.add_cookies", params))
+
+    async def session_clear_cookies(self, params: ClearCookiesParams) -> SessionCookiesChanged:
+        """Clears cookies from a Session's browser context, optionally filtered by `name`, `domain`, or `path`. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("session.clear_cookies")
+        return result_of(SessionCookiesChanged, await self._caller.call("session.clear_cookies", params))
+
     async def session_close(self, params: SessionParams) -> SessionClosed:
         """Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing.
 
@@ -894,6 +926,14 @@ class AsyncCollieOperations:
         """
         warn_experimental("session.close")
         return result_of(SessionClosed, await self._caller.call("session.close", params))
+
+    async def session_cookies(self, params: SessionCookiesParams) -> SessionCookiesResult:
+        """Reads a Session's cookies carrying Playwright's fields with RFC 3339 UTC expiries (`null` for session cookies). Offered in the SDKs only so cookies never reach a model, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("session.cookies")
+        return result_of(SessionCookiesResult, await self._caller.call("session.cookies", params))
 
     async def session_new_page(self, params: NewSessionPageParams) -> PageOpened:
         """Opens a page in the Session, with its cookies and storage, and its own settings. Once the Session is closed, it raises `closed`.
@@ -1414,6 +1454,14 @@ class CollieOperations:
         warn_experimental("page.lend")
         return result_of(CdpEndpointOpened, self._caller.call("page.lend", params))
 
+    def page_local_storage(self, params: PageStorageParams) -> PageStorageResult:
+        """Reads or mutates `window.localStorage` (`items`, `get_item`, `set_item`, `remove_item`, `clear`) on the page's current origin. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.local_storage")
+        return result_of(PageStorageResult, self._caller.call("page.local_storage", params))
+
     def page_mouse_click(self, params: MouseClickParams) -> Acted:
         """Moves the mouse to a point of the page's viewport and clicks there: the button goes down and up `click_count` times. Marked unguarded in Provenance: no element is checked (ADR 0085).
 
@@ -1525,6 +1573,14 @@ class CollieOperations:
         """
         warn_experimental("page.route")
         return result_of(RouteEnded, self._caller.call("page.route", params))
+
+    def page_session_storage(self, params: PageStorageParams) -> PageStorageResult:
+        """Reads or mutates `window.sessionStorage` (`items`, `get_item`, `set_item`, `remove_item`, `clear`) on the page's current origin (per-page tab storage). Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.session_storage")
+        return result_of(PageStorageResult, self._caller.call("page.session_storage", params))
 
     def page_touchscreen_tap(self, params: TouchscreenTapParams) -> Acted:
         """Taps a point of the page's viewport with one finger: a touch starts there and ends. Marked unguarded in Provenance: no element is checked (ADR 0085).
@@ -1839,6 +1895,22 @@ class CollieOperations:
         warn_experimental("schedule.preview")
         return result_of(SchedulePreview, self._caller.call("schedule.preview", params))
 
+    def session_add_cookies(self, params: AddCookiesParams) -> SessionCookiesChanged:
+        """Adds cookies to a Session's browser context, affecting subsequent navigations and `page.request` calls. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("session.add_cookies")
+        return result_of(SessionCookiesChanged, self._caller.call("session.add_cookies", params))
+
+    def session_clear_cookies(self, params: ClearCookiesParams) -> SessionCookiesChanged:
+        """Clears cookies from a Session's browser context, optionally filtered by `name`, `domain`, or `path`. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("session.clear_cookies")
+        return result_of(SessionCookiesChanged, self._caller.call("session.clear_cookies", params))
+
     def session_close(self, params: SessionParams) -> SessionClosed:
         """Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing.
 
@@ -1846,6 +1918,14 @@ class CollieOperations:
         """
         warn_experimental("session.close")
         return result_of(SessionClosed, self._caller.call("session.close", params))
+
+    def session_cookies(self, params: SessionCookiesParams) -> SessionCookiesResult:
+        """Reads a Session's cookies carrying Playwright's fields with RFC 3339 UTC expiries (`null` for session cookies). Offered in the SDKs only so cookies never reach a model, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("session.cookies")
+        return result_of(SessionCookiesResult, self._caller.call("session.cookies", params))
 
     def session_new_page(self, params: NewSessionPageParams) -> PageOpened:
         """Opens a page in the Session, with its cookies and storage, and its own settings. Once the Session is closed, it raises `closed`.
@@ -1973,6 +2053,7 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "page.keyboard.type",
     "page.keyboard.up",
     "page.lend",
+    "page.local_storage",
     "page.mouse.click",
     "page.mouse.dblclick",
     "page.mouse.down",
@@ -1987,6 +2068,7 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "page.reload",
     "page.request",
     "page.route",
+    "page.session_storage",
     "page.touchscreen.tap",
     "page.wait_for_function",
     "page.wait_for_load_state",
@@ -2026,7 +2108,10 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "schedule.info",
     "schedule.list",
     "schedule.preview",
+    "session.add_cookies",
+    "session.clear_cookies",
     "session.close",
+    "session.cookies",
     "session.new_page",
     "session.on",
     "session.pages",
@@ -2102,6 +2187,7 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "page.keyboard.type": "effect",
     "page.keyboard.up": "effect",
     "page.lend": "effect",
+    "page.local_storage": "effect",
     "page.mouse.click": "effect",
     "page.mouse.dblclick": "effect",
     "page.mouse.down": "effect",
@@ -2116,6 +2202,7 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "page.reload": "effect",
     "page.request": "effect",
     "page.route": "idempotent_write",
+    "page.session_storage": "effect",
     "page.touchscreen.tap": "effect",
     "page.wait_for_function": "effect",
     "page.wait_for_load_state": "read",
@@ -2155,7 +2242,10 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "schedule.info": "read",
     "schedule.list": "read",
     "schedule.preview": "read",
+    "session.add_cookies": "effect",
+    "session.clear_cookies": "idempotent_write",
     "session.close": "idempotent_write",
+    "session.cookies": "read",
     "session.new_page": "effect",
     "session.on": "read",
     "session.pages": "read",

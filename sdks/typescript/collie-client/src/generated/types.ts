@@ -71,6 +71,27 @@ export type Surface =
   | "worker"
   | "http_listener";
 /**
+ * A point in time in UTC, as RFC 3339.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PointInTime".
+ */
+export type PointInTime = Date;
+/**
+ * A cookie's `SameSite` attribute (`strict`, `lax`, or `none`).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CookieSameSite".
+ */
+export type CookieSameSite = "strict" | "lax" | "none";
+/**
+ * A Session of a Run, named by the engine when it opens it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SessionId".
+ */
+export type SessionId = string;
+/**
  * A page of a Run, named by the engine when it opens it.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -98,13 +119,6 @@ export type AllowanceSource = "cgroup" | "job_object" | "setting" | "physical";
  * via the `definition` "PeriodLength".
  */
 export type PeriodLength = "day" | "week" | "month";
-/**
- * A point in time in UTC, as RFC 3339.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "PointInTime".
- */
-export type PointInTime = Date;
 /**
  * Who set a Limit, which decides whether it allows paying (ADR 0045).
  *
@@ -1470,13 +1484,6 @@ export type NeedsYouChange =
  */
 export type NeedsYouRemoval = "resolved" | "dismissed";
 /**
- * A Session of a Run, named by the engine when it opens it.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "SessionId".
- */
-export type SessionId = string;
-/**
  * Whether a Run's own checks prove what it committed (ADR 0029).
  *
  * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
@@ -1647,6 +1654,71 @@ export type SecretHeader =
        * The user ID, which holds no colon.
        */
       username: string;
+    };
+/**
+ * One `WebStorage` action on `page.local_storage` or `page.session_storage`
+ * (ADR 0092): `items`, `get_item`, `set_item`, `remove_item`, or `clear`.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WebStorageAction".
+ */
+export type WebStorageAction =
+  | {
+      kind: "items";
+    }
+  | {
+      /**
+       * The storage key to read.
+       */
+      key: string;
+      kind: "get_item";
+    }
+  | {
+      /**
+       * The storage key to set.
+       */
+      key: string;
+      kind: "set_item";
+      /**
+       * The string value to store.
+       */
+      value: string;
+    }
+  | {
+      /**
+       * The storage key to remove.
+       */
+      key: string;
+      kind: "remove_item";
+    }
+  | {
+      kind: "clear";
+    };
+/**
+ * What `page.local_storage` and `page.session_storage` answer.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageStorageResult".
+ */
+export type PageStorageResult =
+  | {
+      /**
+       * The stored items, ordered by key.
+       */
+      items: {
+        [k: string]: string;
+      };
+      kind: "items";
+    }
+  | {
+      kind: "item";
+      /**
+       * The stored value, or `null` when the key is absent.
+       */
+      value?: string | null;
+    }
+  | {
+      kind: "updated";
     };
 /**
  * Which way a value outside JSON was going.
@@ -2160,6 +2232,76 @@ export interface CollieTypes {
  * via the `definition` "Acted".
  */
 export interface Acted {}
+/**
+ * What `session.add_cookies` takes: the Session and the cookies to add.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "AddCookiesParams".
+ */
+export interface AddCookiesParams {
+  /**
+   * The cookies to set. On a domain-bound Session, any cookie outside the
+   * source's `domains` fails the whole call with `domain_not_allowed`
+   * without writing any cookie.
+   */
+  cookies: NewCookie[];
+  /**
+   * The Session to add cookies to.
+   */
+  sessionId: SessionId;
+}
+/**
+ * One cookie to add to a Session via `session.add_cookies` (ADR 0092).
+ *
+ * Provide either `url`, or both `domain` and `path`, matching Playwright's
+ * `addCookies`.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NewCookie".
+ */
+export interface NewCookie {
+  /**
+   * The domain it is sent to; requires `path` and cannot be combined with
+   * `url`.
+   */
+  domain?: string | null;
+  /**
+   * When it expires, in RFC 3339 UTC; omitted or `null` for a session
+   * cookie.
+   */
+  expires?: PointInTime | null;
+  /**
+   * Whether scripts cannot read it; defaults to `false`.
+   */
+  httpOnly?: boolean | null;
+  /**
+   * Its name.
+   */
+  name: string;
+  /**
+   * The path it is sent under; requires `domain` and cannot be combined
+   * with `url`.
+   */
+  path?: string | null;
+  /**
+   * Its `SameSite` attribute; defaults to the browser's default (`lax`).
+   */
+  sameSite?: CookieSameSite | null;
+  /**
+   * Whether it is sent over HTTPS only; defaults to `true` for `https:`
+   * URLs and `false` otherwise.
+   */
+  secure?: boolean | null;
+  /**
+   * The URL to derive domain, path and `secure` from; mutually exclusive
+   * with `domain` and `path`.
+   */
+  url?: string | null;
+  /**
+   * Its value.
+   */
+  value: string;
+}
 /**
  * What `page.add_init_script` takes: the page, and the script's source and
  * argument.
@@ -3489,6 +3631,32 @@ export interface Chunk {
   offset: number;
 }
 /**
+ * What `session.clear_cookies` takes: the Session and optional exact-match
+ * filters (`name`, `domain`, `path`).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ClearCookiesParams".
+ */
+export interface ClearCookiesParams {
+  /**
+   * Clear only cookies for this domain. On a domain-bound Session, a domain
+   * outside the source's `domains` fails with `domain_not_allowed`.
+   */
+  domain?: string | null;
+  /**
+   * Clear only cookies with this exact name.
+   */
+  name?: string | null;
+  /**
+   * Clear only cookies with this exact path.
+   */
+  path?: string | null;
+  /**
+   * The Session whose cookies to clear.
+   */
+  sessionId: SessionId;
+}
+/**
  * What `locator.click` takes: the locator whose element it clicks.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -3776,6 +3944,47 @@ export interface SocialProfile {
   text: string;
   /**
    * The profile's URL, resolved against the document's base URL.
+   */
+  value: string;
+}
+/**
+ * One cookie of a Session, carrying Playwright's fields with an RFC 3339
+ * UTC expiry (`null` for a session cookie; ADR 0092).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Cookie".
+ */
+export interface Cookie {
+  /**
+   * The domain it is sent to, with a leading `.` for its subdomains too.
+   */
+  domain: string;
+  /**
+   * When it expires, in RFC 3339 UTC; `null` for a session cookie.
+   */
+  expires?: PointInTime | null;
+  /**
+   * Whether scripts cannot read it.
+   */
+  httpOnly: boolean;
+  /**
+   * Its name.
+   */
+  name: string;
+  /**
+   * The path it is sent under.
+   */
+  path: string;
+  /**
+   * Its `SameSite` attribute (`strict`, `lax`, or `none`).
+   */
+  sameSite: CookieSameSite;
+  /**
+   * Whether it is sent over HTTPS only.
+   */
+  secure: boolean;
+  /**
+   * Its value.
    */
   value: string;
 }
@@ -8433,6 +8642,23 @@ export interface PageRouteParams {
   url: UrlMatcher;
 }
 /**
+ * What `page.local_storage` and `page.session_storage` take: the page and
+ * the `WebStorage` action to perform on its current origin.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageStorageParams".
+ */
+export interface PageStorageParams {
+  /**
+   * The `WebStorage` action to perform.
+   */
+  action: WebStorageAction;
+  /**
+   * The page whose current origin's storage to access.
+   */
+  pageId: PageId;
+}
+/**
  * What `page_value_invalid` details.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -11211,6 +11437,45 @@ export interface SessionBoundToMachineDetails {}
  * via the `definition` "SessionClosed".
  */
 export interface SessionClosed {}
+/**
+ * What `session.add_cookies` and `session.clear_cookies` answer once applied.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SessionCookiesChanged".
+ */
+export interface SessionCookiesChanged {}
+/**
+ * What `session.cookies` takes: the Session and an optional list of URLs to
+ * filter cookies by.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SessionCookiesParams".
+ */
+export interface SessionCookiesParams {
+  /**
+   * The Session whose cookies to read.
+   */
+  sessionId: SessionId;
+  /**
+   * When present, return only cookies that would be sent to at least one of
+   * these URLs. On a domain-bound Session, any URL outside the source's
+   * `domains` fails with `domain_not_allowed`.
+   */
+  urls?: string[] | null;
+}
+/**
+ * What `session.cookies` answers: the matching cookies.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SessionCookiesResult".
+ */
+export interface SessionCookiesResult {
+  /**
+   * The matching cookies, bounded to the Session source's `domains` when
+   * bound.
+   */
+  cookies: Cookie[];
+}
 /**
  * What `session_export_open_failed` details.
  *

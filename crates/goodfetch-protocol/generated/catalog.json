@@ -4883,6 +4883,25 @@
     },
     {
       "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Reads or mutates `window.localStorage` (`items`, `get_item`, `set_item`, `remove_item`, `clear`) on the page's current origin. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.local_storage",
+      "params": {
+        "$ref": "#/$defs/PageStorageParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/PageStorageResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "cancellable": true,
       "class": "effect",
       "deprecated": null,
@@ -5180,6 +5199,25 @@
       "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/RouteEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Reads or mutates `window.sessionStorage` (`items`, `get_item`, `set_item`, `remove_item`, `clear`) on the page's current origin (per-page tab storage). Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.session_storage",
+      "params": {
+        "$ref": "#/$defs/PageStorageParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/PageStorageResult"
       },
       "stability": "experimental"
     },
@@ -6156,6 +6194,44 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Adds cookies to a Session's browser context, affecting subsequent navigations and `page.request` calls. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "session.add_cookies",
+      "params": {
+        "$ref": "#/$defs/AddCookiesParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/SessionCookiesChanged"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Clears cookies from a Session's browser context, optionally filtered by `name`, `domain`, or `path`. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "session.clear_cookies",
+      "params": {
+        "$ref": "#/$defs/ClearCookiesParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/SessionCookiesChanged"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
       "description": "Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing.",
@@ -6169,6 +6245,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SessionClosed"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads a Session's cookies carrying Playwright's fields with RFC 3339 UTC expiries (`null` for session cookies). Offered in the SDKs only so cookies never reach a model, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "session.cookies",
+      "params": {
+        "$ref": "#/$defs/SessionCookiesParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/SessionCookiesResult"
       },
       "stability": "experimental"
     },

@@ -226,6 +226,26 @@ export class Session extends Handle implements AsyncDisposable {
   }
 
   /**
+   * Adds cookies to a Session's browser context, affecting subsequent navigations and `page.request` calls. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+   *
+   * @experimental
+   */
+  async addCookies(cookies: types.AddCookiesParams["cookies"]): Promise<types.SessionCookiesChanged> {
+    warnExperimental("session.add_cookies");
+    return this.#host.call("session.add_cookies", { sessionId: this.#host.id, cookies }, {});
+  }
+
+  /**
+   * Clears cookies from a Session's browser context, optionally filtered by `name`, `domain`, or `path`. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+   *
+   * @experimental
+   */
+  async clearCookies(options: { readonly domain?: types.ClearCookiesParams["domain"] | undefined; readonly name?: types.ClearCookiesParams["name"] | undefined; readonly path?: types.ClearCookiesParams["path"] | undefined } = {}): Promise<types.SessionCookiesChanged> {
+    warnExperimental("session.clear_cookies");
+    return this.#host.call("session.clear_cookies", defined({ sessionId: this.#host.id, domain: options.domain, name: options.name, path: options.path }), {});
+  }
+
+  /**
    * Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing.
    *
    * @experimental
@@ -233,6 +253,16 @@ export class Session extends Handle implements AsyncDisposable {
   async close(): Promise<void> {
     warnExperimental("session.close");
     await this.#host.close("session.close", { sessionId: this.#host.id });
+  }
+
+  /**
+   * Reads a Session's cookies carrying Playwright's fields with RFC 3339 UTC expiries (`null` for session cookies). Offered in the SDKs only so cookies never reach a model, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+   *
+   * @experimental
+   */
+  async cookies(options: { readonly urls?: types.SessionCookiesParams["urls"] | undefined } = {}): Promise<types.SessionCookiesResult["cookies"]> {
+    warnExperimental("session.cookies");
+    return (await this.#host.call("session.cookies", defined({ sessionId: this.#host.id, urls: options.urls }), {})).cookies;
   }
 
   /**
@@ -672,6 +702,16 @@ export class Page extends Handle implements AsyncDisposable {
   }
 
   /**
+   * Reads or mutates `window.localStorage` (`items`, `get_item`, `set_item`, `remove_item`, `clear`) on the page's current origin. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+   *
+   * @experimental
+   */
+  async localStorage(action: types.PageStorageParams["action"]): Promise<types.PageStorageResult> {
+    warnExperimental("page.local_storage");
+    return this.#host.call("page.local_storage", { pageId: this.#host.id, action }, {});
+  }
+
+  /**
    * Opens a raw CDP session on the page over the program's own connection, reaching only its page's target (ADR 0085). Marks results unguarded, records the attach in the Audit log, stops Secret typing while open, holds the page for the browser pool, and binds to a handler's lease check. Raises `capability_unavailable` on Firefox and WebKit.
    *
    * @experimental
@@ -721,6 +761,16 @@ export class Page extends Handle implements AsyncDisposable {
   async request(url: types.PageRequestParams["url"], options: { readonly headers?: types.PageRequestParams["headers"] | undefined; readonly jsonSecrets?: types.PageRequestParams["jsonSecrets"] | undefined; readonly maxRedirects?: types.PageRequestParams["maxRedirects"] | undefined; readonly method?: types.PageRequestParams["method"] | undefined; readonly postData?: types.PageRequestParams["postData"] | undefined; readonly secretHeaders?: types.PageRequestParams["secretHeaders"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<Response> {
     warnExperimental("page.request");
     return new Response(this.#host, await this.#host.call("page.request", defined({ pageId: this.#host.id, url, headers: options.headers, jsonSecrets: options.jsonSecrets, maxRedirects: options.maxRedirects, method: options.method, postData: options.postData, secretHeaders: options.secretHeaders }), { signal: options.signal }));
+  }
+
+  /**
+   * Reads or mutates `window.sessionStorage` (`items`, `get_item`, `set_item`, `remove_item`, `clear`) on the page's current origin (per-page tab storage). Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+   *
+   * @experimental
+   */
+  async sessionStorage(action: types.PageStorageParams["action"]): Promise<types.PageStorageResult> {
+    warnExperimental("page.session_storage");
+    return this.#host.call("page.session_storage", { pageId: this.#host.id, action }, {});
   }
 
   /**

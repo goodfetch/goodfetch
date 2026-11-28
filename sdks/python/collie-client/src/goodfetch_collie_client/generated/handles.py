@@ -184,6 +184,29 @@ class AsyncSession(AsyncHandle):
         self._host = host
         super().__init__(host, "session", "session_id")
 
+    async def add_cookies(self, cookies: list[models.NewCookie]) -> models.SessionCookiesChanged:
+        """Adds cookies to a Session's browser context, affecting subsequent navigations and `page.request` calls. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("session.add_cookies")
+        return result_of(models.SessionCookiesChanged, await self._host.call("session.add_cookies", models.AddCookiesParams(session_id=self._host.id, cookies=cookies)))
+
+    async def clear_cookies(self, *, domain: str | None | NotGiven = not_given, name: str | None | NotGiven = not_given, path: str | None | NotGiven = not_given) -> models.SessionCookiesChanged:
+        """Clears cookies from a Session's browser context, optionally filtered by `name`, `domain`, or `path`. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("session.clear_cookies")
+        params = models.ClearCookiesParams(session_id=self._host.id)
+        if not isinstance(domain, NotGiven):
+            params.domain = domain
+        if not isinstance(name, NotGiven):
+            params.name = name
+        if not isinstance(path, NotGiven):
+            params.path = path
+        return result_of(models.SessionCookiesChanged, await self._host.call("session.clear_cookies", params))
+
     async def close(self) -> None:
         """Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing.
 
@@ -191,6 +214,17 @@ class AsyncSession(AsyncHandle):
         """
         warn_experimental("session.close")
         await self._host.close("session.close", models.SessionParams(session_id=self._host.id))
+
+    async def cookies(self, *, urls: list[str] | None | NotGiven = not_given) -> list[models.Cookie]:
+        """Reads a Session's cookies carrying Playwright's fields with RFC 3339 UTC expiries (`null` for session cookies). Offered in the SDKs only so cookies never reach a model, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("session.cookies")
+        params = models.SessionCookiesParams(session_id=self._host.id)
+        if not isinstance(urls, NotGiven):
+            params.urls = urls
+        return result_of(models.SessionCookiesResult, await self._host.call("session.cookies", params)).cookies
 
     async def new_page(self, *, settings: PageSettings | NotGiven = not_given) -> AsyncPage:
         """Opens a page in the Session, with its cookies and storage, and its own settings. Once the Session is closed, it raises `closed`.
@@ -527,6 +561,14 @@ class AsyncPage(AsyncHandle):
         warn_experimental("page.lend")
         return result_of(models.CdpEndpointOpened, await self._host.call("page.lend", models.PageLendParams(page_id=self._host.id)))
 
+    async def local_storage(self, action: models.WebStorageAction) -> models.PageStorageResult:
+        """Reads or mutates `window.localStorage` (`items`, `get_item`, `set_item`, `remove_item`, `clear`) on the page's current origin. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.local_storage")
+        return result_of(models.PageStorageResult, await self._host.call("page.local_storage", models.PageStorageParams(page_id=self._host.id, action=action)))
+
     async def new_cdp_session(self) -> AsyncCDPSession:
         """Opens a raw CDP session on the page over the program's own connection, reaching only its page's target (ADR 0085). Marks results unguarded, records the attach in the Audit log, stops Secret typing while open, holds the page for the browser pool, and binds to a handler's lease check. Raises `capability_unavailable` on Firefox and WebKit.
 
@@ -595,6 +637,14 @@ class AsyncPage(AsyncHandle):
         if not isinstance(secret_headers, NotGiven):
             params.secret_headers = secret_headers
         return AsyncResponse(self._host, result_of(models.PageResponse, await self._host.call("page.request", params)))
+
+    async def session_storage(self, action: models.WebStorageAction) -> models.PageStorageResult:
+        """Reads or mutates `window.sessionStorage` (`items`, `get_item`, `set_item`, `remove_item`, `clear`) on the page's current origin (per-page tab storage). Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.session_storage")
+        return result_of(models.PageStorageResult, await self._host.call("page.session_storage", models.PageStorageParams(page_id=self._host.id, action=action)))
 
     async def wait_for_function(self, function: str, *, arg: Any | NotGiven = not_given, polling_interval: int | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> Any | None:
         """Runs a page function in the page's main frame, as `page.evaluate` does, again at each polling interval and in each new document, until its result is truthy, and answers that result as JSON. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -1100,6 +1150,29 @@ class Session(Handle):
         self._host = host
         super().__init__(host, "session", "session_id")
 
+    def add_cookies(self, cookies: list[models.NewCookie]) -> models.SessionCookiesChanged:
+        """Adds cookies to a Session's browser context, affecting subsequent navigations and `page.request` calls. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("session.add_cookies")
+        return result_of(models.SessionCookiesChanged, self._host.call("session.add_cookies", models.AddCookiesParams(session_id=self._host.id, cookies=cookies)))
+
+    def clear_cookies(self, *, domain: str | None | NotGiven = not_given, name: str | None | NotGiven = not_given, path: str | None | NotGiven = not_given) -> models.SessionCookiesChanged:
+        """Clears cookies from a Session's browser context, optionally filtered by `name`, `domain`, or `path`. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("session.clear_cookies")
+        params = models.ClearCookiesParams(session_id=self._host.id)
+        if not isinstance(domain, NotGiven):
+            params.domain = domain
+        if not isinstance(name, NotGiven):
+            params.name = name
+        if not isinstance(path, NotGiven):
+            params.path = path
+        return result_of(models.SessionCookiesChanged, self._host.call("session.clear_cookies", params))
+
     def close(self) -> None:
         """Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing.
 
@@ -1107,6 +1180,17 @@ class Session(Handle):
         """
         warn_experimental("session.close")
         self._host.close("session.close", models.SessionParams(session_id=self._host.id))
+
+    def cookies(self, *, urls: list[str] | None | NotGiven = not_given) -> list[models.Cookie]:
+        """Reads a Session's cookies carrying Playwright's fields with RFC 3339 UTC expiries (`null` for session cookies). Offered in the SDKs only so cookies never reach a model, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("session.cookies")
+        params = models.SessionCookiesParams(session_id=self._host.id)
+        if not isinstance(urls, NotGiven):
+            params.urls = urls
+        return result_of(models.SessionCookiesResult, self._host.call("session.cookies", params)).cookies
 
     def new_page(self, *, settings: PageSettings | NotGiven = not_given) -> Page:
         """Opens a page in the Session, with its cookies and storage, and its own settings. Once the Session is closed, it raises `closed`.
@@ -1426,6 +1510,14 @@ class Page(Handle):
         warn_experimental("page.lend")
         return result_of(models.CdpEndpointOpened, self._host.call("page.lend", models.PageLendParams(page_id=self._host.id)))
 
+    def local_storage(self, action: models.WebStorageAction) -> models.PageStorageResult:
+        """Reads or mutates `window.localStorage` (`items`, `get_item`, `set_item`, `remove_item`, `clear`) on the page's current origin. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.local_storage")
+        return result_of(models.PageStorageResult, self._host.call("page.local_storage", models.PageStorageParams(page_id=self._host.id, action=action)))
+
     def new_cdp_session(self) -> CDPSession:
         """Opens a raw CDP session on the page over the program's own connection, reaching only its page's target (ADR 0085). Marks results unguarded, records the attach in the Audit log, stops Secret typing while open, holds the page for the browser pool, and binds to a handler's lease check. Raises `capability_unavailable` on Firefox and WebKit.
 
@@ -1494,6 +1586,14 @@ class Page(Handle):
         if not isinstance(secret_headers, NotGiven):
             params.secret_headers = secret_headers
         return Response(self._host, result_of(models.PageResponse, self._host.call("page.request", params)))
+
+    def session_storage(self, action: models.WebStorageAction) -> models.PageStorageResult:
+        """Reads or mutates `window.sessionStorage` (`items`, `get_item`, `set_item`, `remove_item`, `clear`) on the page's current origin (per-page tab storage). Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.session_storage")
+        return result_of(models.PageStorageResult, self._host.call("page.session_storage", models.PageStorageParams(page_id=self._host.id, action=action)))
 
     def wait_for_function(self, function: str, *, arg: Any | NotGiven = not_given, polling_interval: int | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> Any | None:
         """Runs a page function in the page's main frame, as `page.evaluate` does, again at each polling interval and in each new document, until its result is truthy, and answers that result as JSON. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.

@@ -6,6 +6,11 @@
 //! that origin, answered by the engine itself through `Fetch`, so no request
 //! reaches the site; the script runs in the guard's isolated world, never
 //! through `Runtime.enable` (ADR 0019), and the page closes once done.
+//!
+//! Size: one concern — all CDP cookie and Web Storage access on a Session
+//! browser context and its pages (carry-over capture/restore plus the
+//! SDK-only cookie and `localStorage`/`sessionStorage` operations of ADR
+//! 0092).
 #![expect(
     clippy::disallowed_types,
     reason = "a Session's origins are added and listed one at a time, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
@@ -13,12 +18,16 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::{Duration, UNIX_EPOCH};
 
 use data_encoding::BASE64;
 use goodfetch_cdp::generated::{browser, fetch, network, page, storage, target};
 use goodfetch_cdp::{Failure, SessionId as TargetSession};
 use goodfetch_cdp::{RawEvent, Subscription};
 use goodfetch_engine::CallError;
+use goodfetch_protocol::page::storage::{
+    Cookie, CookieSameSite, NewCookie, PageStorageResult, WebStorageAction,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
@@ -513,6 +522,208 @@ impl<B: Connect> SessionDriver<B> {
         }
         Ok(())
     }
+
+    /// Reads every cookie currently held by the Session's browser context
+    /// (ADR 0092; ticket #746), returning an empty list if no context exists
+    /// yet.
+    pub(crate) async fn get_cookies(&self) -> Result<Vec<Cookie>, CallError> {
+        let Some(context) = self.context.get() else {
+            return Ok(Vec::new());
+        };
+        let browser = self.browser.connect().await?;
+        let call = browser.opening();
+        let cookies = browser
+            .send(
+                None,
+                &storage::GetCookiesParams {
+                    browser_context_id: Some(context.clone()),
+                },
+                &call,
+            )
+            .await?
+            .cookies;
+        Ok(cookies.into_iter().map(protocol_cookie).collect())
+    }
+
+    /// Adds `cookies` into the Session's browser context, creating the context
+    /// first if needed (ADR 0092; ticket #746).
+    pub(crate) async fn add_cookies(&self, cookies: Vec<NewCookie>) -> Result<(), CallError> {
+        if cookies.is_empty() {
+            return Ok(());
+        }
+        let browser = self.browser.connect().await?;
+        let context = self.context_in(&browser).await?;
+        let call = browser.opening();
+        let params: Vec<network::CookieParam> = cookies.into_iter().map(new_cookie_param).collect();
+        browser
+            .send(
+                None,
+                &storage::SetCookiesParams {
+                    cookies: params,
+                    browser_context_id: Some(context),
+                },
+                &call,
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Clears cookies from the Session's browser context (ADR 0092; #746).
+    ///
+    /// When `clear_all` is `true`, calls `Storage.clearCookies` on the whole
+    /// context. Otherwise, deletes only the cookies for which `should_delete`
+    /// returns `true` using `Network.deleteCookies`, leaving other cookies
+    /// untouched (essential for domain-bound borrowed browsers).
+    pub(crate) async fn clear_cookies<F>(
+        &self,
+        clear_all: bool,
+        should_delete: F,
+    ) -> Result<(), CallError>
+    where
+        F: Fn(&Cookie) -> bool,
+    {
+        let Some(context) = self.context.get() else {
+            return Ok(());
+        };
+        let browser = self.browser.connect().await?;
+        let call = browser.opening();
+        if clear_all {
+            browser
+                .send(
+                    None,
+                    &storage::ClearCookiesParams {
+                        browser_context_id: Some(context.clone()),
+                    },
+                    &call,
+                )
+                .await?;
+            return Ok(());
+        }
+        let matching: Vec<network::Cookie> = browser
+            .send(
+                None,
+                &storage::GetCookiesParams {
+                    browser_context_id: Some(context.clone()),
+                },
+                &call,
+            )
+            .await?
+            .cookies
+            .into_iter()
+            .filter(|raw| should_delete(&protocol_cookie(raw.clone())))
+            .collect();
+        if matching.is_empty() {
+            return Ok(());
+        }
+        let created = browser
+            .send(
+                None,
+                &target::CreateTargetParams {
+                    url: "about:blank".to_owned(),
+                    browser_context_id: Some(context.clone()),
+                    left: None,
+                    top: None,
+                    width: None,
+                    height: None,
+                    window_state: None,
+                    enable_begin_frame_control: None,
+                    new_window: None,
+                    background: Some(true),
+                    for_tab: None,
+                    hidden: None,
+                    focus: None,
+                },
+                &call,
+            )
+            .await?;
+        let delete_result = async {
+            let session = browser.attach_own(&created.target_id, &call).await?;
+            for cookie in matching {
+                browser
+                    .send(
+                        Some(&session),
+                        &network::DeleteCookiesParams {
+                            name: cookie.name,
+                            url: None,
+                            domain: Some(cookie.domain),
+                            path: Some(cookie.path),
+                            partition_key: cookie.partition_key,
+                        },
+                        &call,
+                    )
+                    .await?;
+            }
+            Ok::<(), CallError>(())
+        }
+        .await;
+        let _ = browser
+            .try_send(
+                None,
+                &target::CloseTargetParams {
+                    target_id: created.target_id,
+                },
+            )
+            .await;
+        delete_result
+    }
+}
+
+/// Converts a CDP `network::Cookie` into the protocol's [`Cookie`] carrying
+/// Playwright's fields with an RFC 3339 UTC expiry (`None` for session cookies).
+fn protocol_cookie(cookie: network::Cookie) -> Cookie {
+    let expires = if cookie.session || cookie.expires <= 0.0 || !cookie.expires.is_finite() {
+        None
+    } else {
+        Duration::try_from_secs_f64(cookie.expires)
+            .ok()
+            .and_then(|duration| UNIX_EPOCH.checked_add(duration))
+    };
+    let same_site = match cookie.same_site {
+        Some(network::CookieSameSite::Strict) => CookieSameSite::Strict,
+        Some(network::CookieSameSite::None) => CookieSameSite::None,
+        Some(network::CookieSameSite::Lax | network::CookieSameSite::Unlisted) | None => {
+            CookieSameSite::Lax
+        }
+    };
+    Cookie {
+        name: cookie.name,
+        value: cookie.value,
+        domain: cookie.domain,
+        path: cookie.path,
+        expires,
+        http_only: cookie.http_only,
+        secure: cookie.secure,
+        same_site,
+    }
+}
+
+/// Converts a protocol [`NewCookie`] into a CDP `network::CookieParam`.
+fn new_cookie_param(cookie: NewCookie) -> network::CookieParam {
+    let expires = cookie.expires.and_then(|at| {
+        at.duration_since(UNIX_EPOCH)
+            .ok()
+            .map(|duration| duration.as_secs_f64())
+    });
+    let same_site = cookie.same_site.map(|same_site| match same_site {
+        CookieSameSite::Strict => network::CookieSameSite::Strict,
+        CookieSameSite::Lax => network::CookieSameSite::Lax,
+        CookieSameSite::None => network::CookieSameSite::None,
+    });
+    network::CookieParam {
+        name: cookie.name,
+        value: cookie.value,
+        url: cookie.url,
+        domain: cookie.domain,
+        path: cookie.path,
+        secure: cookie.secure,
+        http_only: cookie.http_only,
+        same_site,
+        expires,
+        priority: None,
+        source_scheme: None,
+        source_port: None,
+        partition_key: None,
+    }
 }
 
 impl PageDriver {
@@ -603,6 +814,116 @@ impl PageDriver {
             return Ok(None);
         }
         Ok(Some((parsed.origin, parsed.items)))
+    }
+
+    /// Reads the current main frame's URL in the guard's isolated world,
+    /// without enabling `Runtime` (ADR 0019).
+    pub(crate) async fn current_location_href(&self) -> Result<String, CallError> {
+        let call = self.browser.opening();
+        let world = self
+            .browser
+            .send(
+                Some(&self.session),
+                &isolated_world(self.frame.clone()),
+                &call,
+            )
+            .await?;
+        let called = self
+            .browser
+            .send(
+                Some(&self.session),
+                &world::call(
+                    "() => window.location.href",
+                    Value::Null,
+                    world.execution_context_id,
+                ),
+                &call,
+            )
+            .await?;
+        Ok(called
+            .result
+            .value
+            .and_then(|value| value.as_str().map(str::to_owned))
+            .unwrap_or_default())
+    }
+
+    /// Runs a `WebStorage` action on `window.localStorage` (`is_local: true`)
+    /// or `window.sessionStorage` (`is_local: false`) in the guard's isolated
+    /// world, without enabling `Runtime` (ADRs 0019 and 0092; ticket #746).
+    pub(crate) async fn web_storage(
+        &self,
+        is_local: bool,
+        action: &WebStorageAction,
+    ) -> Result<PageStorageResult, CallError> {
+        const WEB_STORAGE_OP: &str = r#"(arg) => {
+            const store = arg.isLocal ? window.localStorage : window.sessionStorage;
+            switch (arg.op) {
+                case "items": {
+                    const out = {};
+                    for (let i = 0; i < store.length; i += 1) {
+                        const key = store.key(i);
+                        if (key !== null) out[key] = store.getItem(key) ?? "";
+                    }
+                    return { kind: "items", items: out };
+                }
+                case "get_item":
+                    return { kind: "item", value: store.getItem(arg.key) };
+                case "set_item":
+                    store.setItem(arg.key, arg.value);
+                    return { kind: "updated" };
+                case "remove_item":
+                    store.removeItem(arg.key);
+                    return { kind: "updated" };
+                case "clear":
+                    store.clear();
+                    return { kind: "updated" };
+                default:
+                    throw new Error("unknown storage op");
+            }
+        }"#;
+        let payload = match action {
+            WebStorageAction::Items => json!({ "isLocal": is_local, "op": "items" }),
+            WebStorageAction::GetItem { key } => {
+                json!({ "isLocal": is_local, "op": "get_item", "key": key })
+            }
+            WebStorageAction::SetItem { key, value } => {
+                json!({ "isLocal": is_local, "op": "set_item", "key": key, "value": value })
+            }
+            WebStorageAction::RemoveItem { key } => {
+                json!({ "isLocal": is_local, "op": "remove_item", "key": key })
+            }
+            WebStorageAction::Clear => json!({ "isLocal": is_local, "op": "clear" }),
+        };
+        let call = self.browser.opening();
+        let world = self
+            .browser
+            .send(
+                Some(&self.session),
+                &isolated_world(self.frame.clone()),
+                &call,
+            )
+            .await?;
+        let called = self
+            .browser
+            .send(
+                Some(&self.session),
+                &world::call(WEB_STORAGE_OP, payload, world.execution_context_id),
+                &call,
+            )
+            .await?;
+        if let Some(exception) = called.exception_details {
+            return Err(CallError::protocol(
+                goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
+                format!("web storage access failed: {}", exception.text),
+            ));
+        }
+        let value = called.result.value.unwrap_or(Value::Null);
+        serde_json::from_value(value).map_err(|error| {
+            CallError::protocol(
+                goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
+                format!("unexpected web storage result: {error}"),
+            )
+        })
     }
 }
 

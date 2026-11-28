@@ -50,6 +50,8 @@ mod client_conformance;
 mod command_line;
 mod commands;
 mod config;
+#[cfg(unix)]
+mod cookies_and_storage;
 mod daemon;
 mod daemon_commands;
 mod daemon_kills;

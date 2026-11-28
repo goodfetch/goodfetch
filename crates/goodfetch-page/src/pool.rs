@@ -1402,6 +1402,36 @@ impl Seat {
         driver.capture(&self.shared.origins).await
     }
 
+    /// Reads the Session's cookies from its browser context (ADR 0092; #746).
+    pub(crate) async fn get_cookies(
+        &self,
+    ) -> Result<Vec<goodfetch_protocol::page::storage::Cookie>, CallError> {
+        let (_number, driver, _opening) = self.shared.seated(None).await?;
+        driver.get_cookies().await
+    }
+
+    /// Adds cookies to the Session's browser context (ADR 0092; #746).
+    pub(crate) async fn add_cookies(
+        &self,
+        cookies: Vec<goodfetch_protocol::page::storage::NewCookie>,
+    ) -> Result<(), CallError> {
+        let (_number, driver, _opening) = self.shared.seated(None).await?;
+        driver.add_cookies(cookies).await
+    }
+
+    /// Clears cookies from the Session's browser context (ADR 0092; #746).
+    pub(crate) async fn clear_cookies<F>(
+        &self,
+        clear_all: bool,
+        should_delete: F,
+    ) -> Result<(), CallError>
+    where
+        F: Fn(&goodfetch_protocol::page::storage::Cookie) -> bool,
+    {
+        let (_number, driver, _opening) = self.shared.seated(None).await?;
+        driver.clear_cookies(clear_all, should_delete).await
+    }
+
     /// Closes the Session's browser contexts, and with them every page in
     /// them; its browsers stay, for the Run's other Sessions.
     pub(crate) async fn close(&self) {

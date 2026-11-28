@@ -147,6 +147,7 @@ mod pause;
 mod plugin_extractor;
 mod scroll_collect;
 pub(crate) mod served_formats;
+mod storage;
 mod waits;
 
 /// What the page crate adds to the engine (ADR 0087): its run state's
@@ -259,6 +260,7 @@ pub fn contribution_with(
     let contribution = with_page_read_handlers(contribution, &pages);
     let contribution = with_session_handlers(contribution, &pages.sessions, &remote);
     let contribution = with_save_identity_handler(contribution, &pages.sessions);
+    let contribution = storage::with_storage_handlers(contribution, &pages);
     let contribution = with_locator_handlers(contribution, &pages);
     let contribution = input::with_input_handlers(contribution, &pages);
     let contribution = with_event_handlers(contribution, &pages);

@@ -350,6 +350,55 @@ impl Session {
         self.host.raw(operation, "session", "session_id")
     }
 
+    /// Adds cookies to a Session's browser context, affecting subsequent navigations and `page.request` calls. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn add_cookies(
+        &self,
+        cookies: Vec<::goodfetch_protocol::page::storage::NewCookie>,
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::storage::SessionCookiesChanged>,
+        ::goodfetch_protocol::page::storage::AddCookiesParams,
+    > {
+        crate::markers::warn("session.add_cookies", true, None);
+        self.host.call(
+            "session.add_cookies",
+            ::goodfetch_protocol::page::storage::AddCookiesParams {
+                session_id: self.host.id().clone(),
+                cookies,
+            },
+        )
+    }
+
+    /// Clears cookies from a Session's browser context, optionally filtered by `name`, `domain`, or `path`. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn clear_cookies(
+        &self,
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::storage::SessionCookiesChanged>,
+        ::goodfetch_protocol::page::storage::ClearCookiesParams,
+    > {
+        crate::markers::warn("session.clear_cookies", true, None);
+        self.host.call(
+            "session.clear_cookies",
+            ::goodfetch_protocol::page::storage::ClearCookiesParams {
+                session_id: self.host.id().clone(),
+                name: None,
+                domain: None,
+                path: None,
+            },
+        )
+    }
+
     /// Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing.
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
@@ -365,6 +414,33 @@ impl Session {
                 session_id: self.host.id().clone(),
             },
         )
+    }
+
+    /// Reads a Session's cookies carrying Playwright's fields with RFC 3339 UTC expiries (`null` for session cookies). Offered in the SDKs only so cookies never reach a model, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn cookies(
+        &self,
+    ) -> crate::Call<
+        Vec<::goodfetch_protocol::page::storage::Cookie>,
+        ::goodfetch_protocol::page::storage::SessionCookiesParams,
+    > {
+        crate::markers::warn("session.cookies", true, None);
+        let call: crate::Call<
+            ::goodfetch_protocol::page::storage::SessionCookiesResult,
+            ::goodfetch_protocol::page::storage::SessionCookiesParams,
+        > = self.host.call(
+            "session.cookies",
+            ::goodfetch_protocol::page::storage::SessionCookiesParams {
+                session_id: self.host.id().clone(),
+                urls: None,
+            },
+        );
+        call.map(|result| result.cookies)
     }
 
     /// Opens a page in the Session, with its cookies and storage, and its own settings. Once the Session is closed, it raises `closed`.
@@ -1043,6 +1119,30 @@ impl Page {
         )
     }
 
+    /// Reads or mutates `window.localStorage` (`items`, `get_item`, `set_item`, `remove_item`, `clear`) on the page's current origin. Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn local_storage(
+        &self,
+        action: ::goodfetch_protocol::page::storage::WebStorageAction,
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::storage::PageStorageResult>,
+        ::goodfetch_protocol::page::storage::PageStorageParams,
+    > {
+        crate::markers::warn("page.local_storage", true, None);
+        self.host.call(
+            "page.local_storage",
+            ::goodfetch_protocol::page::storage::PageStorageParams {
+                page_id: self.host.id().clone(),
+                action,
+            },
+        )
+    }
+
     /// Opens a raw CDP session on the page over the program's own connection, reaching only its page's target (ADR 0085). Marks results unguarded, records the attach in the Audit log, stops Secret typing while open, holds the page for the browser pool, and binds to a handler's lease check. Raises `capability_unavailable` on Firefox and WebKit.
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
@@ -1180,6 +1280,30 @@ impl Page {
             },
         );
         call.map(move |result| crate::Response::new(host, result))
+    }
+
+    /// Reads or mutates `window.sessionStorage` (`items`, `get_item`, `set_item`, `remove_item`, `clear`) on the page's current origin (per-page tab storage). Offered in the SDKs only, and bounded to a source's `domains` (`domain_not_allowed` outside; ADR 0092).
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn session_storage(
+        &self,
+        action: ::goodfetch_protocol::page::storage::WebStorageAction,
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::storage::PageStorageResult>,
+        ::goodfetch_protocol::page::storage::PageStorageParams,
+    > {
+        crate::markers::warn("page.session_storage", true, None);
+        self.host.call(
+            "page.session_storage",
+            ::goodfetch_protocol::page::storage::PageStorageParams {
+                page_id: self.host.id().clone(),
+                action,
+            },
+        )
     }
 
     /// Runs a page function in the page's main frame, as `page.evaluate` does, again at each polling interval and in each new document, until its result is truthy, and answers that result as JSON. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -2097,6 +2221,31 @@ impl<T> crate::Call<T, ::goodfetch_protocol::page::session_pages::PageCloseParam
     /// the page's dialog handlers; false when absent.
     pub fn run_before_unload(self, run_before_unload: bool) -> Self {
         self.edit(move |request| request.run_before_unload = Some(run_before_unload))
+    }
+}
+
+impl<T> crate::Call<T, ::goodfetch_protocol::page::storage::ClearCookiesParams> {
+    /// Clear only cookies for this domain. On a domain-bound Session, a domain
+    /// outside the source's `domains` fails with `domain_not_allowed`.
+    pub fn domain(self, domain: impl Into<String>) -> Self {
+        self.edit(move |request| request.domain = Some(domain.into()))
+    }
+    /// Clear only cookies with this exact name.
+    pub fn name(self, name: impl Into<String>) -> Self {
+        self.edit(move |request| request.name = Some(name.into()))
+    }
+    /// Clear only cookies with this exact path.
+    pub fn path(self, path: impl Into<String>) -> Self {
+        self.edit(move |request| request.path = Some(path.into()))
+    }
+}
+
+impl<T> crate::Call<T, ::goodfetch_protocol::page::storage::SessionCookiesParams> {
+    /// When present, return only cookies that would be sent to at least one of
+    /// these URLs. On a domain-bound Session, any URL outside the source's
+    /// `domains` fails with `domain_not_allowed`.
+    pub fn urls(self, urls: Vec<String>) -> Self {
+        self.edit(move |request| request.urls = Some(urls))
     }
 }
 

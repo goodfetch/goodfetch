@@ -1492,6 +1492,119 @@ impl Sessions {
 
         Ok(goodfetch_protocol::page::session::IdentitySaved { name })
     }
+
+    /// Returns the Session's source domain bounds, if any, failing with
+    /// `closed` when the Session is no longer open (ADR 0092; #746).
+    pub(crate) fn source_domains_of(
+        &self,
+        session_id: &SessionId,
+    ) -> Result<Option<Arc<SourceDomains>>, CallError> {
+        let open = self
+            .index
+            .session(session_id)
+            .ok_or_else(|| self.closed_session(session_id))?;
+        Ok(open.interception.source_domains().cloned())
+    }
+
+    /// Reads the Session's cookies from its browser context (ADR 0092; #746).
+    pub(crate) async fn get_cookies(
+        &self,
+        session_id: &SessionId,
+    ) -> Result<Vec<goodfetch_protocol::page::storage::Cookie>, CallError> {
+        let open = self
+            .index
+            .session(session_id)
+            .ok_or_else(|| self.closed_session(session_id))?;
+        open.seat.get_cookies().await
+    }
+
+    /// Adds cookies to the Session's browser context (ADR 0092; #746).
+    pub(crate) async fn add_cookies(
+        &self,
+        session_id: &SessionId,
+        cookies: Vec<goodfetch_protocol::page::storage::NewCookie>,
+    ) -> Result<(), CallError> {
+        let open = self
+            .index
+            .session(session_id)
+            .ok_or_else(|| self.closed_session(session_id))?;
+        open.seat.add_cookies(cookies).await?;
+        let carried = Box::pin(capture_session_carried(&open)).await;
+        Box::pin(self.persist_carried(&open, carried)).await;
+        Ok(())
+    }
+
+    /// Clears matching cookies from the Session's browser context (ADR 0092; #746).
+    pub(crate) async fn clear_cookies<F>(
+        &self,
+        session_id: &SessionId,
+        clear_all: bool,
+        should_delete: F,
+    ) -> Result<(), CallError>
+    where
+        F: Fn(&goodfetch_protocol::page::storage::Cookie) -> bool,
+    {
+        let open = self
+            .index
+            .session(session_id)
+            .ok_or_else(|| self.closed_session(session_id))?;
+        open.seat.clear_cookies(clear_all, should_delete).await?;
+        let carried = Box::pin(capture_session_carried(&open)).await;
+        Box::pin(self.persist_carried(&open, carried)).await;
+        Ok(())
+    }
+
+    async fn persist_carried(&self, open: &Session, carried: Carried) {
+        if open.life.pooled()
+            || open.held_frames.is_some()
+            || !open.life.serves()
+            || open.is_profile_directory
+            || open.borrowed_source.is_some()
+        {
+            return;
+        }
+        let mut saved = open.saved_state.lock().await;
+        if !open.life.serves() || carried == saved.last {
+            return;
+        }
+        let sealed = if carried.is_empty() {
+            None
+        } else {
+            let Ok(bytes) = carried.to_bytes() else {
+                return;
+            };
+            match open
+                .run
+                .keys
+                .seal(&SESSION_STATE, &open.position.to_string(), &bytes)
+                .await
+            {
+                Ok(sealed) => Some(sealed),
+                Err(error) => {
+                    tracing::debug!(%error, "could not seal updated Session cookies");
+                    return;
+                }
+            }
+        };
+        let position = open.position;
+        if let Err(error) = open
+            .run
+            .state
+            .write(move |connection| {
+                connection
+                    .prepare_cached(
+                        "UPDATE page_sessions SET state = ?1 WHERE position = ?2 AND closed = 0",
+                    )?
+                    .execute(rusqlite::params![sealed, position])
+                    .map(drop)
+            })
+            .await
+        {
+            tracing::debug!(%error, "could not persist updated Session cookies to run state");
+            return;
+        }
+        saved.last = carried;
+    }
 }
 
 async fn capture_session_carried(open: &Session) -> Carried {

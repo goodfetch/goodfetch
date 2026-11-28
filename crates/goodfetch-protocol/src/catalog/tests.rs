@@ -94,7 +94,7 @@ fn a_malformed_protocol_version_is_refused(#[case] text: &str) {
     assert!(read.is_err(), "{text:?} was read as {read:?}");
 }
 
-/// Covers: story:11-218
+/// Covers: story:11-218, story:5-77
 #[test]
 fn the_catalog_marks_every_entry_it_keeps_to_the_sdks() {
     let unmarked: Vec<&str> = crate::entries::MODULES
@@ -107,6 +107,28 @@ fn the_catalog_marks_every_entry_it_keeps_to_the_sdks() {
         .collect();
 
     assert_eq!(unmarked, Vec::<&str>::new());
+
+    let generated: Value =
+        serde_json::from_str(include_str!("../../generated/catalog.json")).unwrap();
+    let sdk_only_in_generated: Vec<&str> = generated["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|operation| operation["reach"] == "sdk_only")
+        .filter_map(|operation| operation["name"].as_str())
+        .collect();
+    for name in [
+        "session.cookies",
+        "session.add_cookies",
+        "session.clear_cookies",
+        "page.local_storage",
+        "page.session_storage",
+    ] {
+        assert!(
+            sdk_only_in_generated.contains(&name),
+            "generated catalog.json must mark `{name}` as sdk_only; found: {sdk_only_in_generated:?}"
+        );
+    }
 }
 
 /// A deprecation's one text (ADR 0099), which every SDK's markers and

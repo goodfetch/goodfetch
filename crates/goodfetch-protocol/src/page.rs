@@ -73,6 +73,7 @@ pub mod route;
 pub mod session;
 pub mod session_pages;
 pub mod signing_key;
+pub mod storage;
 pub mod waits;
 
 use self::ai_work::{NOT_VERIFIED, PAGE_NAVIGATED_DURING_CALL};
@@ -2046,6 +2047,11 @@ pub const ENTRIES: Entries = Entries {
         pause::PAGE_PAUSE_ANSWER,
         pause::NEEDS_YOU_ANSWER_APPROVAL,
         session::SESSION_SAVE_IDENTITY,
+        storage::SESSION_COOKIES,
+        storage::SESSION_ADD_COOKIES,
+        storage::SESSION_CLEAR_COOKIES,
+        storage::PAGE_LOCAL_STORAGE,
+        storage::PAGE_SESSION_STORAGE,
         cdp_session::PAGE_NEW_CDP_SESSION,
         cdp_session::CDP_SESSION_SEND,
         cdp_session::CDP_SESSION_CLOSE,

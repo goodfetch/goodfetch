@@ -134,6 +134,25 @@ impl SourceDomains {
         }
     }
 
+    /// Checks whether a cookie or storage domain (with or without a leading
+    /// `.`) falls within the allowed registrable domains (ADR 0092; #746).
+    ///
+    /// # Errors
+    ///
+    /// Returns the unlisted registrable domain when `domain` is outside `allowed`.
+    pub(crate) fn check_domain(&self, domain: &str) -> Result<(), String> {
+        let trimmed = domain.trim_start_matches('.');
+        let Some(normalized) = normalize_domain(trimmed) else {
+            return Err(trimmed.to_owned());
+        };
+        let allowed = self.allowed.lock().unwrap_or_else(PoisonError::into_inner);
+        if allowed.contains(&normalized) {
+            Ok(())
+        } else {
+            Err(normalized)
+        }
+    }
+
     /// Adds a person-approved registrable domain to this live Session's bounds.
     pub(crate) fn allow_domain(&self, domain: &str) {
         if let Some(normalized) = normalize_domain(domain) {

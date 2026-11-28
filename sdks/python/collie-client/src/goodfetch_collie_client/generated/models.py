@@ -802,6 +802,17 @@ class ConsoleLocation(BaseModel):
     """The script's URL; empty for a script the page evaluated."""
 
 
+class CookieSameSite(StrEnum):
+    """A cookie's `SameSite` attribute (`strict`, `lax`, or `none`)."""
+
+    strict = "strict"
+    """Sent only on requests of its own site."""
+    lax = "lax"
+    """Also sent on top-level navigations from another site."""
+    none = "none"
+    """Sent on every request, which needs `secure`."""
+
+
 class Count(BaseModel):
     """
     A count of matches, bounded on either side or both: an exact count is
@@ -2583,6 +2594,53 @@ class NeedsYouRemoveRefetchDomainParams(BaseModel):
     """
 
 
+class NewCookie(BaseModel):
+    """
+    One cookie to add to a Session via `session.add_cookies` (ADR 0092).
+
+    Provide either `url`, or both `domain` and `path`, matching Playwright's
+    `addCookies`.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    domain: str | None = None
+    """
+    The domain it is sent to; requires `path` and cannot be combined with
+    `url`.
+    """
+    expires: PointInTime | None = None
+    """
+    When it expires, in RFC 3339 UTC; omitted or `null` for a session
+    cookie.
+    """
+    http_only: bool | None = None
+    """Whether scripts cannot read it; defaults to `false`."""
+    name: str
+    """Its name."""
+    path: str | None = None
+    """
+    The path it is sent under; requires `domain` and cannot be combined
+    with `url`.
+    """
+    same_site: CookieSameSite | None = None
+    """Its `SameSite` attribute; defaults to the browser's default (`lax`)."""
+    secure: bool | None = None
+    """
+    Whether it is sent over HTTPS only; defaults to `true` for `https:`
+    URLs and `false` otherwise.
+    """
+    url: str | None = None
+    """
+    The URL to derive domain, path and `secure` from; mutually exclusive
+    with `domain` and `path`.
+    """
+    value: str
+    """Its value."""
+
+
 class NotADaemonDetails(BaseModel):
     """What `not_a_daemon` details."""
 
@@ -2942,6 +3000,44 @@ class PageResponse(BaseModel):
     """Its status text."""
     url: str
     """Its final URL."""
+
+
+class PageStorageResult1(BaseModel):
+    """All key-value pairs of the page's current origin (for `items`)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    items: dict[str, str]
+    """The stored items, ordered by key."""
+    kind: Literal["items"]
+
+
+class PageStorageResult2(BaseModel):
+    """The value of one key, or `null` when absent (for `get_item`)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["item"]
+    value: str | None = None
+    """The stored value, or `null` when the key is absent."""
+
+
+class PageStorageResult3(BaseModel):
+    """Confirmation that `set_item`, `remove_item`, or `clear` completed."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["updated"]
+
+
+class PageStorageResult(
+    RootModel[PageStorageResult1 | PageStorageResult2 | PageStorageResult3]
+):
+    root: PageStorageResult1 | PageStorageResult2 | PageStorageResult3
+    """What `page.local_storage` and `page.session_storage` answer."""
 
 
 class PageValueDirection(StrEnum):
@@ -4996,6 +5092,14 @@ class SessionClosed(BaseModel):
     )
 
 
+class SessionCookiesChanged(BaseModel):
+    """What `session.add_cookies` and `session.clear_cookies` answer once applied."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
 class SessionEventName(StrEnum):
     """A Session's event a program listens to."""
 
@@ -6470,6 +6574,81 @@ class WebSocketFrame(BaseModel):
     """The socket."""
 
 
+class WebStorageAction1(BaseModel):
+    """Reads all key-value pairs of the page's current origin."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["items"]
+
+
+class WebStorageAction2(BaseModel):
+    """Reads one key of the page's current origin."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    """The storage key to read."""
+    kind: Literal["get_item"]
+
+
+class WebStorageAction3(BaseModel):
+    """Sets one key-value pair on the page's current origin."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    """The storage key to set."""
+    kind: Literal["set_item"]
+    value: str
+    """The string value to store."""
+
+
+class WebStorageAction4(BaseModel):
+    """Removes one key from the page's current origin."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    """The storage key to remove."""
+    kind: Literal["remove_item"]
+
+
+class WebStorageAction5(BaseModel):
+    """Clears all keys of the page's current origin."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["clear"]
+
+
+class WebStorageAction(
+    RootModel[
+        WebStorageAction1
+        | WebStorageAction2
+        | WebStorageAction3
+        | WebStorageAction4
+        | WebStorageAction5
+    ]
+):
+    root: (
+        WebStorageAction1
+        | WebStorageAction2
+        | WebStorageAction3
+        | WebStorageAction4
+        | WebStorageAction5
+    )
+    """
+    One `WebStorage` action on `page.local_storage` or `page.session_storage`
+    (ADR 0092): `items`, `get_item`, `set_item`, `remove_item`, or `clear`.
+    """
+
+
 class WebhookInvalidReason(StrEnum):
     """Why a call is no verified delivery."""
 
@@ -6527,6 +6706,22 @@ class Actor3(BaseModel):
 class Actor(RootModel[Actor1 | Actor2 | Actor3 | Actor4]):
     root: Actor1 | Actor2 | Actor3 | Actor4
     """Who an entry's event was done by."""
+
+
+class AddCookiesParams(BaseModel):
+    """What `session.add_cookies` takes: the Session and the cookies to add."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cookies: list[NewCookie]
+    """
+    The cookies to set. On a domain-bound Session, any cookie outside the
+    source's `domains` fails the whole call with `domain_not_allowed`
+    without writing any cookie.
+    """
+    session_id: SessionId
+    """The Session to add cookies to."""
 
 
 class AddInitScriptParams(BaseModel):
@@ -6918,6 +7113,28 @@ class Chunk(BaseModel):
     """Where its bytes start in the body."""
 
 
+class ClearCookiesParams(BaseModel):
+    """
+    What `session.clear_cookies` takes: the Session and optional exact-match
+    filters (`name`, `domain`, `path`).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    domain: str | None = None
+    """
+    Clear only cookies for this domain. On a domain-bound Session, a domain
+    outside the source's `domains` fails with `domain_not_allowed`.
+    """
+    name: str | None = None
+    """Clear only cookies with this exact name."""
+    path: str | None = None
+    """Clear only cookies with this exact path."""
+    session_id: SessionId
+    """The Session whose cookies to clear."""
+
+
 class Concurrency(BaseModel):
     """Every kind's concurrency."""
 
@@ -7045,6 +7262,34 @@ class Contacts(BaseModel):
     """Its telephone numbers, from `tel:` links and from text."""
     social: list[SocialProfile]
     """Its social profiles, from links to the extractor's list of networks."""
+
+
+class Cookie(BaseModel):
+    """
+    One cookie of a Session, carrying Playwright's fields with an RFC 3339
+    UTC expiry (`null` for a session cookie; ADR 0092).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    domain: str
+    """The domain it is sent to, with a leading `.` for its subdomains too."""
+    expires: PointInTime | None = None
+    """When it expires, in RFC 3339 UTC; `null` for a session cookie."""
+    http_only: bool
+    """Whether scripts cannot read it."""
+    name: str
+    """Its name."""
+    path: str
+    """The path it is sent under."""
+    same_site: CookieSameSite
+    """Its `SameSite` attribute (`strict`, `lax`, or `none`)."""
+    secure: bool
+    """Whether it is sent over HTTPS only."""
+    value: str
+    """Its value."""
 
 
 class CreditParams(BaseModel):
@@ -8766,6 +9011,21 @@ class PageRouteParams(BaseModel):
     """The URLs it answers."""
 
 
+class PageStorageParams(BaseModel):
+    """
+    What `page.local_storage` and `page.session_storage` take: the page and
+    the `WebStorage` action to perform on its current origin.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action: WebStorageAction
+    """The `WebStorage` action to perform."""
+    page_id: PageId
+    """The page whose current origin's storage to access."""
+
+
 class PageValueInvalidDetails(BaseModel):
     """What `page_value_invalid` details."""
 
@@ -9600,6 +9860,38 @@ class SeedBatch(BaseModel):
     """The id of the `run.add_seeds` call."""
     seeds: Annotated[list[Seed] | None, Field(validate_default=True)] = []
     """The seeds, in order."""
+
+
+class SessionCookiesParams(BaseModel):
+    """
+    What `session.cookies` takes: the Session and an optional list of URLs to
+    filter cookies by.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    session_id: SessionId
+    """The Session whose cookies to read."""
+    urls: list[str] | None = None
+    """
+    When present, return only cookies that would be sent to at least one of
+    these URLs. On a domain-bound Session, any URL outside the source's
+    `domains` fails with `domain_not_allowed`.
+    """
+
+
+class SessionCookiesResult(BaseModel):
+    """What `session.cookies` answers: the matching cookies."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    cookies: list[Cookie]
+    """
+    The matching cookies, bounded to the Session source's `domains` when
+    bound.
+    """
 
 
 class SessionRouteParams(BaseModel):

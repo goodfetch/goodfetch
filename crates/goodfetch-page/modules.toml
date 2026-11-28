@@ -172,6 +172,7 @@ pause = []
 plugin_extractor = []
 scroll_collect = []
 served_formats = ["clean_up"]
+storage = []
 waits = []
 
 # Which of `clean_up_versions' own modules may import which.

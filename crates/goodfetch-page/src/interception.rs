@@ -451,6 +451,13 @@ impl SessionInterception {
         self.caching.as_ref()
     }
 
+    /// The source domain bounds of this Session, when opened from a bound
+    /// source (`running_browser`, `profile_directory`, or `cdp_url` naming
+    /// `domains`; ADRs 0056 and 0092).
+    pub(crate) fn source_domains(&self) -> Option<&Arc<SourceDomains>> {
+        self.source_domains.as_ref()
+    }
+
     /// Whether one of its pages started a main-frame navigation, whoever
     /// started it, that its `load` has not ended.
     pub(crate) fn navigation_pending(&self) -> bool {

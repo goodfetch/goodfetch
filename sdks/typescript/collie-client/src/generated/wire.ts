@@ -6,6 +6,7 @@ import type { CollieOperationTypes } from "./operations.ts";
 
 /** The names of the types Collie's table holds. */
 export type CollieWireType =
+  | "AddCookiesParams"
   | "AddInitScriptParams"
   | "AppliedLimit"
   | "ArtifactDownloadFailedDetails"
@@ -38,11 +39,13 @@ export type CollieWireType =
   | "CertsListed"
   | "Checkpoint"
   | "CheckpointBehindDetails"
+  | "ClearCookiesParams"
   | "ClickParams"
   | "Concurrency"
   | "ConfigExplainParams"
   | "ConsoleLocation"
   | "ConsoleMessage"
+  | "Cookie"
   | "CpuReading"
   | "DaemonState"
   | "DaemonStopping"
@@ -128,6 +131,7 @@ export type CollieWireType =
   | "NeedsYouItem"
   | "NeedsYouList"
   | "NeedsYouRemoveRefetchDomainParams"
+  | "NewCookie"
   | "NewPageParams"
   | "NewSessionPageParams"
   | "NewSessionParams"
@@ -161,6 +165,7 @@ export type CollieWireType =
   | "PageRequestParams"
   | "PageResponse"
   | "PageRouteParams"
+  | "PageStorageParams"
   | "PageWebSocket"
   | "PathNotWritableDetails"
   | "PaymentMark"
@@ -235,6 +240,8 @@ export type CollieWireType =
   | "SchedulePreviewParams"
   | "ScheduleTrigger"
   | "SchemaValidatorFailedDetails"
+  | "SessionCookiesParams"
+  | "SessionCookiesResult"
   | "SessionOnParams"
   | "SessionOpened"
   | "SessionParams"
@@ -275,6 +282,7 @@ export type CollieWireType =
 /** Where Collie's types, operation params and results and event payloads hold fields the engine names otherwise, and points in time, which a program reads as `Date`s (ADRs 0092 and 0099). */
 export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieEventPayloads & string, CollieWireType> = {
   types: {
+    "AddCookiesParams": { fields: { "cookies": ["cookies", { items: { type: "NewCookie" } }], "session_id": "sessionId" } },
     "AddInitScriptParams": { fields: { "page_id": "pageId" } },
     "AppliedLimit": { fields: { "period": ["period", { type: "Period" }], "resets_at": ["resetsAt", "time"], "set_by": "setBy", "usage_kind": "usageKind" } },
     "ArtifactDownloadFailedDetails": { fields: { "pinned_by": "pinnedBy" } },
@@ -307,11 +315,13 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "CertsListed": { fields: { "pins": ["pins", { items: { type: "CertificatePin" } }] } },
     "Checkpoint": { fields: { "journal_position": "journalPosition", "run_epoch": "runEpoch", "run_id": "runId", "time": ["time", "time"] } },
     "CheckpointBehindDetails": { fields: { "checkpoint": ["checkpoint", { type: "RunStatePosition" }], "run_file": ["runFile", { type: "RunStatePosition" }] } },
+    "ClearCookiesParams": { fields: { "session_id": "sessionId" } },
     "ClickParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
     "Concurrency": { fields: { "browser_page": ["browserPage", { type: "KindConcurrency" }], "http": ["http", { type: "KindConcurrency" }], "model_call": ["modelCall", { type: "KindConcurrency" }] } },
     "ConfigExplainParams": { fields: { "missing_project": "missingProject", "run_id": "runId" } },
     "ConsoleLocation": { fields: { "column_number": "columnNumber", "line_number": "lineNumber" } },
     "ConsoleMessage": { fields: { "location": ["location", { type: "ConsoleLocation" }], "page_id": "pageId" } },
+    "Cookie": { fields: { "expires": ["expires", "time"], "http_only": "httpOnly", "same_site": "sameSite" } },
     "CpuReading": { fields: { "tokio_busy": "tokioBusy" } },
     "DaemonState": { fields: { "http_listener": "httpListener", "idle_timeout": "idleTimeout", "kept_alive": "keptAlive", "live_runs": "liveRuns", "live_view": "liveView", "product_version": "productVersion" } },
     "DaemonStopping": { fields: { "live_runs": "liveRuns" } },
@@ -397,6 +407,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "NeedsYouItem": { fields: { "since": ["since", "time"] } },
     "NeedsYouList": { fields: { "items": ["items", { items: { type: "NeedsYouItem" } }] } },
     "NeedsYouRemoveRefetchDomainParams": { fields: { "instead_of_star": "insteadOfStar" } },
+    "NewCookie": { fields: { "expires": ["expires", "time"], "http_only": "httpOnly", "same_site": "sameSite" } },
     "NewPageParams": { fields: { "run_id": "runId" } },
     "NewSessionPageParams": { fields: { "session_id": "sessionId" } },
     "NewSessionParams": { fields: { "run_id": "runId", "source": ["source", { type: "SessionSource" }] } },
@@ -430,6 +441,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "PageRequestParams": { fields: { "json_secrets": "jsonSecrets", "max_redirects": "maxRedirects", "page_id": "pageId", "post_data": "postData", "secret_headers": "secretHeaders" } },
     "PageResponse": { fields: { "from_service_worker": "fromServiceWorker", "request_id": "requestId", "status_text": "statusText" } },
     "PageRouteParams": { fields: { "page_id": "pageId" } },
+    "PageStorageParams": { fields: { "page_id": "pageId" } },
     "PageWebSocket": { fields: { "page_id": "pageId", "web_socket_id": "webSocketId" } },
     "PathNotWritableDetails": { fields: { "os_code": "osCode" } },
     "PaymentMark": { fields: { "payee_domain": "payeeDomain" } },
@@ -504,6 +516,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "SchedulePreviewParams": { fields: { "after": ["after", "time"], "time_zone": "timeZone", "trigger": ["trigger", { type: "ScheduleTrigger" }] } },
     "ScheduleTrigger": { type: "EveryTrigger" },
     "SchemaValidatorFailedDetails": { fields: { "exception_message": "exceptionMessage", "exception_type": "exceptionType" } },
+    "SessionCookiesParams": { fields: { "session_id": "sessionId" } },
+    "SessionCookiesResult": { fields: { "cookies": ["cookies", { items: { type: "Cookie" } }] } },
     "SessionOnParams": { fields: { "session_id": "sessionId" } },
     "SessionOpened": { fields: { "session_id": "sessionId" } },
     "SessionParams": { fields: { "session_id": "sessionId" } },
@@ -586,6 +600,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "page.keyboard.type": { type: "KeyboardTypeParams" },
     "page.keyboard.up": { type: "KeyboardKeyParams" },
     "page.lend": { type: "PageLendParams" },
+    "page.local_storage": { type: "PageStorageParams" },
     "page.mouse.click": { type: "MouseClickParams" },
     "page.mouse.dblclick": { type: "MouseDblclickParams" },
     "page.mouse.down": { type: "MouseButtonParams" },
@@ -600,6 +615,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "page.reload": { type: "PageParams" },
     "page.request": { type: "PageRequestParams" },
     "page.route": { type: "PageRouteParams" },
+    "page.session_storage": { type: "PageStorageParams" },
     "page.touchscreen.tap": { type: "TouchscreenTapParams" },
     "page.wait_for_function": { type: "WaitForFunctionParams" },
     "page.wait_for_load_state": { type: "WaitForLoadStateParams" },
@@ -636,7 +652,10 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "schedule.delete": { type: "ScheduleParams" },
     "schedule.info": { type: "ScheduleParams" },
     "schedule.preview": { type: "SchedulePreviewParams" },
+    "session.add_cookies": { type: "AddCookiesParams" },
+    "session.clear_cookies": { type: "ClearCookiesParams" },
     "session.close": { type: "SessionParams" },
+    "session.cookies": { type: "SessionCookiesParams" },
     "session.new_page": { type: "NewSessionPageParams" },
     "session.on": { type: "SessionOnParams" },
     "session.pages": { type: "SessionParams" },
@@ -701,6 +720,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "schedule.info": { type: "ScheduleInfo" },
     "schedule.list": { type: "ScheduleList" },
     "schedule.preview": { type: "SchedulePreview" },
+    "session.cookies": { type: "SessionCookiesResult" },
     "session.new_page": { type: "PageOpened" },
     "signing_key.create": { type: "SigningKeyCreated" },
     "signing_key.directory": { type: "SigningKeyDirectory" },

@@ -1214,6 +1214,32 @@ number = 5
 kind = "operation"
 prefix = "session.save_identity"
 
+# SDK-only cookies and Web Storage (#746, ADR 0092).
+[[area]]
+number = 5
+kind = "operation"
+prefix = "session.cookies"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "session.add_cookies"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "session.clear_cookies"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.local_storage"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.session_storage"
+
 # Saved identities: encrypted install store and identity.* operations (#736, ADRs 0015, 0035, 0056, 0098).
 [[area]]
 number = 5

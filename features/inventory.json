@@ -4966,6 +4966,17 @@
       ]
     },
     {
+      "id": "operation:page.local_storage",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:page.mouse.click",
       "kind": "operation",
       "area": 5,
@@ -5121,6 +5132,17 @@
     },
     {
       "id": "operation:page.route",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:page.session_storage",
       "kind": "operation",
       "area": 5,
       "milestone": null,
@@ -5670,7 +5692,40 @@
       ]
     },
     {
+      "id": "operation:session.add_cookies",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:session.clear_cookies",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:session.close",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:session.cookies",
       "kind": "operation",
       "area": 5,
       "milestone": null,

@@ -286,6 +286,36 @@ pub mod crawl {
         );
     }
 
+    /// The `crawl.revisit.*` settings.
+    pub mod revisit {
+
+        /// Maximum share of a domain's starts revisits may take while first visits wait on that domain in a Continuous crawl (0.0 to 1.0, `0.5` by default). Accepted on a batch crawl, where `config explain` marks it inactive.
+        ///
+        /// `crawl.revisit.domain_share`.
+        pub const DOMAIN_SHARE: crate::settings::Setting<
+            ::goodfetch_protocol::foxhound::continuous::RevisitDomainShare,
+        > = crate::settings::Setting::new(
+            "crawl.revisit.domain_share",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+
+        /// Order in which each turn of a domain in a Continuous crawl picks among `sources`, `first_visits` and `revisits`: `["sources", "first_visits", "revisits"]` by default. Within each kind, ADR 0004's priority and `forefront` order holds. Accepted on a batch crawl, where `config explain` marks it inactive.
+        ///
+        /// `crawl.revisit.order`.
+        pub const ORDER: crate::settings::Setting<
+            ::goodfetch_protocol::foxhound::continuous::RevisitOrder,
+        > = crate::settings::Setting::new(
+            "crawl.revisit.order",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+    }
+
     /// The `crawl.scope.*` settings.
     pub mod scope {
 

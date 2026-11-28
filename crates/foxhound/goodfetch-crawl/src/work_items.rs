@@ -35,7 +35,9 @@ use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::{BatchRows, BatchWriter, RunStateTables, run_row};
 use goodfetch_frontier::payload::{self, Payload};
 use goodfetch_frontier::trap_links::{self, Mark};
-use goodfetch_frontier::{Candidate, Declared, Entering, Keyed, Url, sitemap};
+use goodfetch_frontier::{
+    Candidate, Declared, Entering, Keyed, LANE_FIRST_VISIT, LANE_SOURCE, Url, sitemap,
+};
 use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{CrawlRequest, Seed, SitemapSeed};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpBody, HttpMethod, NotAddedReason};
@@ -1191,6 +1193,11 @@ pub(crate) fn add(
             priority: adding.priority,
             order: position,
             forefront: adding.forefront,
+            lane: if adding.label.is_empty() {
+                LANE_SOURCE
+            } else {
+                LANE_FIRST_VISIT
+            },
         });
     }
     Ok(id)
@@ -1259,10 +1266,11 @@ pub(crate) fn unkeyed(
 ) -> rusqlite::Result<Vec<(String, Waiting)>> {
     connection
         .prepare_cached(
-            "SELECT url, id, priority, position, forefront IS NOT NULL FROM work_items
+            "SELECT url, id, priority, position, forefront IS NOT NULL, label = '' FROM work_items
              WHERE domain_key IS NULL ORDER BY position LIMIT ?1",
         )?
         .query_map([i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
+            let is_source: bool = row.get(5)?;
             Ok((
                 row.get(0)?,
                 Waiting {
@@ -1271,6 +1279,11 @@ pub(crate) fn unkeyed(
                     priority: row.get(2)?,
                     order: row.get(3)?,
                     forefront: row.get(4)?,
+                    lane: if is_source {
+                        LANE_SOURCE
+                    } else {
+                        LANE_FIRST_VISIT
+                    },
                 },
             ))
         })?
@@ -1302,18 +1315,24 @@ pub(crate) fn waiting(
 ) -> rusqlite::Result<Vec<Waiting>> {
     let bound = i64::try_from(bound).unwrap_or(i64::MAX);
     let row = |row: &rusqlite::Row<'_>| {
+        let is_source: bool = row.get(5)?;
         Ok(Waiting {
             id: row.get(0)?,
             key: row.get(1)?,
             priority: row.get(2)?,
             order: row.get(3)?,
             forefront: row.get(4)?,
+            lane: if is_source {
+                LANE_SOURCE
+            } else {
+                LANE_FIRST_VISIT
+            },
         })
     };
     match key {
         Some(key) => connection
             .prepare_cached(
-                "SELECT id, domain_key, priority, position, forefront IS NOT NULL FROM work_items
+                "SELECT id, domain_key, priority, position, forefront IS NOT NULL, label = '' FROM work_items
                  WHERE status = 'pending' AND domain_key = ?1
                  ORDER BY forefront DESC, priority DESC, position LIMIT ?2",
             )?
@@ -1321,8 +1340,8 @@ pub(crate) fn waiting(
             .collect(),
         None => connection
             .prepare_cached(
-                "SELECT id, domain_key, priority, position, forefront IS NOT NULL FROM (
-                     SELECT id, domain_key, priority, position, forefront, row_number() OVER (
+                "SELECT id, domain_key, priority, position, forefront IS NOT NULL, label = '' FROM (
+                     SELECT id, domain_key, priority, position, forefront, label, row_number() OVER (
                          PARTITION BY domain_key ORDER BY forefront DESC, priority DESC, position
                      ) AS rank
                      FROM work_items WHERE status = 'pending' AND domain_key IS NOT NULL
@@ -1527,6 +1546,7 @@ fn leased_rows(
                         priority: row.get(6)?,
                         order: row.get(7)?,
                         forefront: row.get(8)?,
+                        lane: LANE_FIRST_VISIT,
                     },
                     sitemap: false,
                     trap_link_suspected: false,
@@ -1539,6 +1559,9 @@ fn leased_rows(
         if let Some(mut row) = row {
             row.crawl_request.payload = payload::of_request(connection, &row.crawl_request.id)?;
             row.sitemap = sitemap::is_fetch(connection, &row.crawl_request.id)?;
+            if row.sitemap {
+                row.waiting.lane = LANE_SOURCE;
+            }
             row.trap_link_suspected = trap_links::suspected(connection, &row.crawl_request.id)?
                 == Some(trap_links::Mark::Hidden);
             leased.push(row);

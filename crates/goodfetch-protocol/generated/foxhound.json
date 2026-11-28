@@ -30279,6 +30279,66 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": 0.5,
+      "deprecated": null,
+      "description": "Maximum share of a domain's starts revisits may take while first visits wait on that domain in a Continuous crawl (0.0 to 1.0, `0.5` by default). Accepted on a batch crawl, where `config explain` marks it inactive.",
+      "fixed_for_run": false,
+      "name": "crawl.revisit.domain_share",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "type": "number"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": [
+        "sources",
+        "first_visits",
+        "revisits"
+      ],
+      "deprecated": null,
+      "description": "Order in which each turn of a domain in a Continuous crawl picks among `sources`, `first_visits` and `revisits`: `[\"sources\", \"first_visits\", \"revisits\"]` by default. Within each kind, ADR 0004's priority and `forefront` order holds. Accepted on a batch crawl, where `config explain` marks it inactive.",
+      "fixed_for_run": false,
+      "name": "crawl.revisit.order",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "items": {
+          "enum": [
+            "sources",
+            "first_visits",
+            "revisits"
+          ],
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": 1,
       "deprecated": null,
       "description": "How many pages the sample crawl visits.",

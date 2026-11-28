@@ -46,6 +46,7 @@ fn leased(n: u64, domains: u64) -> Leased {
             priority: 0,
             order: i64::try_from(n).unwrap(),
             forefront: false,
+            lane: 0,
         },
         sitemap: false,
         trap_link_suspected: false,

@@ -38,6 +38,10 @@ use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::politeness::{Ending, SharedRule, milliseconds};
 use goodfetch_engine::run_state::{BatchRows, BatchWriter, RunStateTables, SealedBatch};
 use goodfetch_engine::settings::Resolved;
+use goodfetch_protocol::foxhound::continuous::{
+    CRAWL_CONTINUOUS, CRAWL_REVISIT_DOMAIN_SHARE, CRAWL_REVISIT_ORDER, RevisitDomainShare,
+    RevisitOrder, RevisitOrderKind,
+};
 use rusqlite::Connection;
 use tokio::time::Instant;
 
@@ -47,6 +51,31 @@ use crate::politeness::{self, DomainRule, Limits, SharedEntropy};
 mod order;
 
 use order::{DomainOrder, Standing, Turn, Turns};
+
+/// Lane index for first visits in [`Waiting::lane`].
+pub const LANE_FIRST_VISIT: u8 = 0;
+
+/// Lane index for sources (sitemaps, syndication feeds) in [`Waiting::lane`].
+pub const LANE_SOURCE: u8 = 1;
+
+/// Lane index for revisits in [`Waiting::lane`].
+pub const LANE_REVISIT: u8 = 2;
+
+const fn lane_of(kind: RevisitOrderKind) -> usize {
+    match kind {
+        RevisitOrderKind::FirstVisits => LANE_FIRST_VISIT as usize,
+        RevisitOrderKind::Sources => LANE_SOURCE as usize,
+        RevisitOrderKind::Revisits => LANE_REVISIT as usize,
+    }
+}
+
+fn rank_of(order: RevisitOrder, lane: usize) -> usize {
+    order
+        .kinds()
+        .iter()
+        .position(|kind| lane_of(*kind) == lane)
+        .unwrap_or(2)
+}
 
 /// How many requests one domain's queue holds at most; the rest wait in
 /// the run file until it drains.
@@ -88,13 +117,19 @@ impl Place {
 /// One domain's queue and state.
 #[derive(Debug, Default)]
 struct Domain {
-    waiting: BTreeSet<(Place, String)>,
+    /// Waiting requests partitioned by lane: `[first_visits, sources, revisits]`.
+    waiting: [BTreeSet<(Place, String)>; 3],
     /// Whether requests of it may wait outside the queue, in the run file,
     /// since it filled: then a request that does not go ahead of its last
     /// one waits outside too, until the queue drains and fills again in
     /// order.
     outside: bool,
     in_flight: usize,
+    /// Starts on this domain while first visits were waiting, for enforcing
+    /// `crawl.revisit.domain_share` (ADR 0004, ADR 0139).
+    contested_starts: u64,
+    /// Revisit starts on this domain while first visits were waiting.
+    contested_revisit_starts: u64,
     ready_at: Option<Instant>,
     backoffs: u32,
     /// Until when the shared Politeness holds it, unless a wake comes
@@ -172,13 +207,82 @@ impl Domain {
         }
     }
 
+    /// Total requests waiting across all lanes of this domain.
+    fn waiting_len(&self) -> usize {
+        self.waiting.iter().map(BTreeSet::len).sum()
+    }
+
+    /// Whether no request waits in any lane of this domain.
+    fn waiting_empty(&self) -> bool {
+        self.waiting.iter().all(BTreeSet::is_empty)
+    }
+
+    /// The lowest-priority `(rank, &(Place, String))` currently held across
+    /// all lanes under `order`.
+    fn worst(&self, order: RevisitOrder) -> Option<(usize, &(Place, String))> {
+        for (rank, kind) in order.kinds().into_iter().enumerate().rev() {
+            if let Some(last) = self.waiting[lane_of(kind)].last() {
+                return Some((rank, last));
+            }
+        }
+        None
+    }
+
+    /// Evicts and returns the ID of the lowest-priority waiting request under
+    /// `order`.
+    fn pop_worst(&mut self, order: RevisitOrder) -> Option<String> {
+        for kind in order.kinds().into_iter().rev() {
+            if let Some((_, id)) = self.waiting[lane_of(kind)].pop_last() {
+                return Some(id);
+            }
+        }
+        None
+    }
+
+    /// Pops the next request to admit under `order` and `domain_share`
+    /// (ADR 0004, ADR 0139).
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "contested start counts are bounded well below 2^53"
+    )]
+    fn pop_next(&mut self, order: RevisitOrder, domain_share: f64) -> Option<String> {
+        let first_visits_waiting = !self.waiting[LANE_FIRST_VISIT as usize].is_empty();
+        if !first_visits_waiting {
+            self.contested_starts = 0;
+            self.contested_revisit_starts = 0;
+        }
+        let revisit_allowed = !first_visits_waiting
+            || (domain_share > 0.0
+                && ((self.contested_revisit_starts + 1) as f64
+                    <= domain_share * (self.contested_starts + 1) as f64 + 1e-12));
+
+        let mut chosen = None;
+        for kind in order.kinds() {
+            let lane = lane_of(kind);
+            if self.waiting[lane].is_empty() {
+                continue;
+            }
+            if kind == RevisitOrderKind::Revisits && !revisit_allowed {
+                continue;
+            }
+            chosen = Some((kind, lane));
+            break;
+        }
+        let (kind, lane) = chosen?;
+        let (_, id) = self.waiting[lane].pop_first()?;
+        if first_visits_waiting {
+            self.contested_starts = self.contested_starts.saturating_add(1);
+            if kind == RevisitOrderKind::Revisits {
+                self.contested_revisit_starts = self.contested_revisit_starts.saturating_add(1);
+            }
+        }
+        Some(id)
+    }
+
     /// Whether it holds nothing more at `now`: no request waiting or in
     /// flight, no wait, and no backoff or ceiling it keeps itself.
     fn is_drained(&self, now: Instant) -> bool {
-        self.waiting.is_empty()
-            && self.in_flight == 0
-            && self.is_ready(now)
-            && self.limits.is_clear()
+        self.waiting_empty() && self.in_flight == 0 && self.is_ready(now) && self.limits.is_clear()
     }
 
     /// Why its requests wait at `now`, and until when, if that wait ends by
@@ -230,6 +334,13 @@ pub struct DomainQueues {
     recount: BTreeSet<String>,
     /// The counted domains whose wait ends by itself, by when it ends.
     expiring: BTreeSet<(Instant, String)>,
+    /// Whether `crawl.continuous` is active (enables per-kind turn order and
+    /// `domain_share` capping; off on batch crawls).
+    continuous: bool,
+    /// Per-domain turn order (`crawl.revisit.order`, ADR 0004, ADR 0139).
+    revisit_order: RevisitOrder,
+    /// Maximum revisit share while first visits wait (`crawl.revisit.domain_share`).
+    revisit_domain_share: f64,
 }
 
 impl DomainQueues {
@@ -252,6 +363,29 @@ impl DomainQueues {
             waits: Default::default(),
             recount: BTreeSet::new(),
             expiring: BTreeSet::new(),
+            continuous: false,
+            revisit_order: RevisitOrder::DEFAULT,
+            revisit_domain_share: RevisitDomainShare::DEFAULT.get(),
+        }
+    }
+
+    /// Configures Continuous crawl turn ordering and revisit share cap on these queues.
+    #[must_use]
+    pub const fn with_revisit_turn(mut self, order: RevisitOrder, domain_share: f64) -> Self {
+        self.continuous = true;
+        self.revisit_order = order;
+        self.revisit_domain_share = domain_share;
+        self
+    }
+
+    const fn normalized_lane(&self, raw: u8) -> usize {
+        if !self.continuous {
+            return LANE_FIRST_VISIT as usize;
+        }
+        if raw > LANE_REVISIT {
+            LANE_FIRST_VISIT as usize
+        } else {
+            raw as usize
         }
     }
 
@@ -311,7 +445,7 @@ impl DomainQueues {
         let Some(domain) = self.domains.get_mut(key) else {
             return;
         };
-        let requests = domain.waiting.len();
+        let requests = domain.waiting_len();
         if let Some((place, ends)) = domain.counted.take() {
             let waits = &mut self.waits[place];
             waits.requests -= requests;
@@ -378,12 +512,19 @@ impl Gate for DomainQueues {
         if self.ids.contains(&request.id) {
             return false;
         }
+        let lane = self.normalized_lane(request.lane);
         let place = (Place::of(&request), request.id);
         let domain = self.domains.entry(request.key.clone()).or_default();
-        if domain.outside && domain.waiting.last().is_none_or(|last| place > *last) {
-            return false;
+        if domain.outside {
+            let new_rank = rank_of(self.revisit_order, lane);
+            let worse_than_last = domain
+                .worst(self.revisit_order)
+                .is_none_or(|(last_rank, last)| (new_rank, &place) > (last_rank, last));
+            if worse_than_last {
+                return false;
+            }
         }
-        let before = domain.waiting.len();
+        let before = domain.waiting_len();
         if before == 0 {
             self.idle.remove(&request.key);
             let standing = domain.standing();
@@ -391,16 +532,16 @@ impl Gate for DomainQueues {
                 .join(&mut domain.turn, &request.key, domain.in_flight, standing);
         }
         self.ids.insert(place.1.clone());
-        domain.waiting.insert(place);
-        if domain.waiting.len() >= self.bound {
+        domain.waiting[lane].insert(place);
+        if domain.waiting_len() >= self.bound {
             domain.outside = true;
         }
-        if domain.waiting.len() > self.bound
-            && let Some((_, put_out)) = domain.waiting.pop_last()
+        if domain.waiting_len() > self.bound
+            && let Some(put_out) = domain.pop_worst(self.revisit_order)
         {
             self.ids.remove(&put_out);
         }
-        let after = domain.waiting.len();
+        let after = domain.waiting_len();
         self.queue_changed(&request.key, before, after);
         true
     }
@@ -412,9 +553,11 @@ impl Gate for DomainQueues {
         let Some(domain) = self.domains.get_mut(key) else {
             return;
         };
-        let before = domain.waiting.len();
-        domain.waiting.retain(|(_, waiting)| waiting != id);
-        let after = domain.waiting.len();
+        let before = domain.waiting_len();
+        for bucket in &mut domain.waiting {
+            bucket.retain(|(_, waiting)| waiting != id);
+        }
+        let after = domain.waiting_len();
         if after == 0 {
             domain.outside = false;
             self.turns.leave(&mut domain.turn);
@@ -434,9 +577,7 @@ impl Gate for DomainQueues {
     }
 
     fn waiting_under(&self, key: &str) -> usize {
-        self.domains
-            .get(key)
-            .map_or(0, |domain| domain.waiting.len())
+        self.domains.get(key).map_or(0, Domain::waiting_len)
     }
 
     fn hold(&mut self, key: &str, until: Instant, held: Held) {
@@ -511,10 +652,10 @@ impl Gate for DomainQueues {
         let key = self.turns.take(now)?;
         self.release_drained(now);
         let domain = self.domains.get_mut(&key)?;
-        let before = domain.waiting.len();
-        let (_, id) = domain.waiting.pop_first()?;
+        let before = domain.waiting_len();
+        let id = domain.pop_next(self.revisit_order, self.revisit_domain_share)?;
         domain.in_flight += 1;
-        let drained = domain.waiting.is_empty();
+        let drained = domain.waiting_empty();
         if drained {
             domain.outside = false;
             self.turns.leave(&mut domain.turn);
@@ -549,7 +690,7 @@ impl Gate for DomainQueues {
         };
         let domain = self.domains.entry(key.to_owned()).or_default();
         domain.in_flight = domain.in_flight.saturating_sub(1);
-        if domain.waiting.is_empty() && domain.in_flight == 0 {
+        if domain.waiting_empty() && domain.in_flight == 0 {
             self.idle.insert(key.to_owned());
         }
         let backed_off = domain.backoffs > 0;
@@ -683,6 +824,13 @@ impl Gates for DomainGates {
         let mut queues = DomainQueues::new(DomainKeys::of(settings), BOUND, entropy);
         queues.waiting_for = politeness::Waits::of(settings);
         queues.turns = Turns::new(DomainOrder::of(settings));
+        queues.continuous = settings.get::<bool>(&CRAWL_CONTINUOUS);
+        queues.revisit_order = RevisitOrder::read(settings.value(&CRAWL_REVISIT_ORDER))
+            .unwrap_or(RevisitOrder::DEFAULT);
+        queues.revisit_domain_share =
+            RevisitDomainShare::read(settings.value(&CRAWL_REVISIT_DOMAIN_SHARE))
+                .unwrap_or(RevisitDomainShare::DEFAULT)
+                .get();
         queues.anchor = Some((wall, now));
         let wall = milliseconds(wall);
         let mut rows = journal.prepare_cached("SELECT key, ready_at, backoffs FROM domains")?;

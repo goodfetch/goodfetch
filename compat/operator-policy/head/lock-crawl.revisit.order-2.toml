@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[lock.crawl.revisit]
+order = ["revisits", "first_visits", "sources"]

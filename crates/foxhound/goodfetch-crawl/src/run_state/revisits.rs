@@ -11,11 +11,11 @@
 //! the covering index and counting each reader fill on
 //! `F3.revisits_due_window_reads`.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use goodfetch_engine::admission::Waiting;
-use goodfetch_frontier::SharedBudget;
 use goodfetch_frontier::revisit::{self, DueEntry, PreviousState, RevisitRow};
+use goodfetch_frontier::{LANE_REVISIT, SharedBudget};
 use goodfetch_protocol::foxhound::outcomes::OutcomeKind;
 use rusqlite::Connection;
 
@@ -46,10 +46,14 @@ pub(super) struct RevisitTracker {
     /// visit, so re-admission decrements the exact previous outcome kind
     /// (`succeeded` vs `unchanged`).
     last_outcomes: HashMap<String, CountedAs>,
+    /// Domains for which `revisit_domain_behind` has already been warned once.
+    behind_domains: HashSet<String>,
 }
 
 /// A revisit currently waiting in its domain queue or leased in flight.
 pub(super) struct ActiveRevisit {
+    /// Domain key this revisit belongs to.
+    pub(super) domain_key: String,
     /// Cached `Leased` row prepared for the revisit attempt, when held in memory.
     pub(super) leased: Option<Leased>,
     /// Previous outcome counted in `Tally` before this revisit was claimed.
@@ -230,6 +234,7 @@ impl RevisitTracker {
             active: HashMap::new(),
             templates: HashMap::new(),
             last_outcomes: HashMap::new(),
+            behind_domains: HashSet::new(),
         }
     }
 
@@ -391,16 +396,18 @@ impl RevisitTracker {
     /// its [`Waiting`] item. Uses cached `Leased` template when available.
     pub(super) fn queue_due(&mut self, entry: &DueEntry) -> Waiting {
         let template = self.templates.get(&entry.work_item).cloned();
-        let waiting = template.as_ref().map_or_else(
+        let mut waiting = template.as_ref().map_or_else(
             || Waiting {
                 id: entry.work_item.clone(),
                 key: entry.domain_key.clone(),
                 priority: 0,
                 order: entry.work_item.parse::<i64>().unwrap_or(0),
                 forefront: false,
+                lane: LANE_REVISIT,
             },
             |leased| leased.waiting.clone(),
         );
+        waiting.lane = LANE_REVISIT;
         let prev_row = self.previous_row(&entry.work_item).cloned();
         let leased = template.map(|t| {
             let mut l = Leased::for_revisit(t);
@@ -422,12 +429,32 @@ impl RevisitTracker {
         self.active.insert(
             entry.work_item.clone(),
             ActiveRevisit {
+                domain_key: entry.domain_key.clone(),
                 leased,
                 previous_outcome,
                 in_flight: false,
             },
         );
         waiting
+    }
+
+    /// Whether any due revisit is currently queued waiting in `admission`
+    /// (not yet leased in flight).
+    pub(super) fn has_queued(&self) -> bool {
+        self.active.values().any(|active| !active.in_flight)
+    }
+
+    /// Whether `domain_key` currently has a due revisit queued waiting in `admission`.
+    pub(super) fn has_queued_for(&self, domain_key: &str) -> bool {
+        self.active
+            .values()
+            .any(|active| !active.in_flight && active.domain_key == domain_key)
+    }
+
+    /// Marks `domain_key` as having fallen behind under Politeness, returning
+    /// `true` only the first time for this domain.
+    pub(super) fn mark_behind(&mut self, domain_key: &str) -> bool {
+        self.behind_domains.insert(domain_key.to_owned())
     }
 
     /// Whether `id` is currently tracked as an active revisit (waiting or in flight).

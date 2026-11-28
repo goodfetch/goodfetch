@@ -534,6 +534,22 @@ impl RunState {
         self.revisits.drop_unleased();
     }
 
+    /// Whether any due revisit is queued waiting in `admission`.
+    pub(crate) fn has_queued_revisits(&self) -> bool {
+        self.revisits.has_queued()
+    }
+
+    /// Whether `domain_key` has a due revisit queued waiting in `admission`.
+    pub(crate) fn has_queued_revisit_for(&self, domain_key: &str) -> bool {
+        self.revisits.has_queued_for(domain_key)
+    }
+
+    /// Records that `domain_key` fell behind under Politeness, returning `true`
+    /// only the first time for that domain.
+    pub(crate) fn mark_revisit_domain_behind(&mut self, domain_key: &str) -> bool {
+        self.revisits.mark_behind(domain_key)
+    }
+
     /// Lets the crawl's pending work items go from memory for good: some
     /// may be pending that it did not hear of, as a work item keyed once
     /// the crawl is idle. Its reads find them in the run file from then

@@ -341,6 +341,20 @@ export interface FoxhoundSettings {
        */
       readonly max?: number;
     };
+    readonly revisit?: {
+      /**
+       * Maximum share of a domain's starts revisits may take while first visits wait on that domain in a Continuous crawl (0.0 to 1.0, `0.5` by default). Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `crawl.revisit.domain_share`.
+       */
+      readonly domainShare?: number;
+      /**
+       * Order in which each turn of a domain in a Continuous crawl picks among `sources`, `first_visits` and `revisits`: `["sources", "first_visits", "revisits"]` by default. Within each kind, ADR 0004's priority and `forefront` order holds. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `crawl.revisit.order`.
+       */
+      readonly order?: readonly ("sources" | "first_visits" | "revisits")[];
+    };
     /**
      * How many pages the sample crawl visits.
      *
@@ -1787,6 +1801,20 @@ export interface CrawlSettings {
        */
       readonly max?: number;
     };
+    readonly revisit?: {
+      /**
+       * Maximum share of a domain's starts revisits may take while first visits wait on that domain in a Continuous crawl (0.0 to 1.0, `0.5` by default). Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `crawl.revisit.domain_share`.
+       */
+      readonly domainShare?: number;
+      /**
+       * Order in which each turn of a domain in a Continuous crawl picks among `sources`, `first_visits` and `revisits`: `["sources", "first_visits", "revisits"]` by default. Within each kind, ADR 0004's priority and `forefront` order holds. Accepted on a batch crawl, where `config explain` marks it inactive.
+       *
+       * `crawl.revisit.order`.
+       */
+      readonly order?: readonly ("sources" | "first_visits" | "revisits")[];
+    };
     /**
      * How many pages the sample crawl visits.
      *
@@ -3117,6 +3145,10 @@ const SPELLING: Spelling = {
       enginePanicked: "engine_panicked",
       handlerFailed: "handler_failed",
       max: "max",
+    }],
+    revisit: ["revisit", {
+      domainShare: "domain_share",
+      order: "order",
     }],
     samplePages: "sample_pages",
     scope: ["scope", {

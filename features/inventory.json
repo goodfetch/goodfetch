@@ -9630,6 +9630,26 @@
       ]
     },
     {
+      "id": "setting:crawl.revisit.domain_share",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:crawl.revisit.order",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:crawl.sample_pages",
       "kind": "setting",
       "area": 1,

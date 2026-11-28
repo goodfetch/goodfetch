@@ -184,9 +184,11 @@ impl On<'_> {
                 // page as it drops, so the page never holds the Run's
                 // handles past the Run.
                 let page_id = served.page_id();
-                self.lessons
-                    .learn(tiers, page_id, &leased.crawl_request)
-                    .await;
+                if !leased.is_revisit {
+                    self.lessons
+                        .learn(tiers, page_id, &leased.crawl_request)
+                        .await;
+                }
                 record_tier(
                     &run.trace,
                     leased,

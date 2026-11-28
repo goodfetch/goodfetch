@@ -70,7 +70,7 @@ pub use politeness::{
     refuse_second_copies, settled_at_send, start_after, start_after_robots_txt, started_again,
     started_at_send,
 };
-pub use queues::DomainQueues;
+pub use queues::{DomainQueues, LANE_FIRST_VISIT, LANE_REVISIT, LANE_SOURCE};
 pub use robots_txt::{SharedRobotsTxt, TABLES as ROBOTS_TXT_TABLES};
 pub use rules::{TABLES as RULES_TABLES, learned_rules};
 pub use scope::{Narrowing, Patterns, Scope, Strategy as ScopeStrategy, TABLES as SCOPE_TABLES};

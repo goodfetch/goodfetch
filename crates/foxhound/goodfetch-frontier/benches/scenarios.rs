@@ -76,6 +76,7 @@ pub(crate) fn admit_all(requests: Vec<(String, i64)>) -> (usize, usize) {
             priority,
             order: i64::try_from(order).unwrap_or(i64::MAX),
             forefront: false,
+            lane: 0,
         });
     }
     let mut admitted = 0;

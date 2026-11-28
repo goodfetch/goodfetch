@@ -59,6 +59,10 @@ async fn progress_matching(
             Some(pos) => json!({ "run_id": run_id, "after": pos }),
         };
         let answer = client.call("run.progress", params, handler).await;
+        assert!(
+            answer["error"].is_null(),
+            "run.progress failed while waiting for progress: {answer}"
+        );
         let result = answer["result"].clone();
         if predicate(&result) {
             return result;
@@ -968,5 +972,216 @@ fn browser_tier_last_served_revisit_uses_signature_and_warns() {
             .iter()
             .any(|w| w["code"] == "revisit_browser_signature"),
         "expected revisit_browser_signature warning in report: {warnings:?}"
+    );
+}
+
+/// A domain whose Politeness (ADR 0086: 1s delay, 1 in flight) cannot keep up
+/// with its revisit interval falls behind: no request is sent sooner than
+/// Politeness allows, and the Run report carries `revisit_domain_behind`
+/// (ADR 0004, ADR 0139).
+#[test]
+fn domain_behind_under_politeness_reports_warning_and_respects_delay() {
+    let env = TestEnv::new();
+    let timestamps = std::sync::Arc::new(std::sync::Mutex::new(Vec::<tokio::time::Instant>::new()));
+    let recorded_ts = std::sync::Arc::clone(&timestamps);
+    let site = std::sync::Arc::new(ScriptedSite {
+        recorded: std::sync::Mutex::new(Vec::new()),
+        respond: Box::new(move |_| {
+            recorded_ts
+                .lock()
+                .unwrap()
+                .push(tokio::time::Instant::now());
+            (
+                200,
+                vec![(
+                    "content-type".to_owned(),
+                    "text/html; charset=utf-8".to_owned(),
+                )],
+                "<!doctype html><html><body><h1>Slow</h1><p>Body</p></body></html>".to_owned(),
+            )
+        }),
+    });
+    let engine = engine_with_site(std::sync::Arc::clone(&site));
+    let mut handler = |_: &Value| Reply::Records(Vec::new());
+
+    let report = super::crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let started = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "behind-politeness",
+                        "seeds": [seed("https://slow.test/a")],
+                        "settings": {
+                            "crawl": { "continuous": true },
+                            "fetch": { "tier": "http" },
+                            "politeness": { "domain": { "delay": 1_000, "concurrency": 1 } },
+                        },
+                        "labels": every_label(400),
+                    }),
+                    &mut handler,
+                )
+                .await;
+            assert!(started["error"].is_null(), "crawl.start failed: {started}");
+            // First visit finishes at t=0; revisit is due at t=400ms, while
+            // Politeness holds `slow.test` until t=1000ms.
+            let _ = progress_matching(
+                client,
+                "behind-politeness",
+                |p| p["idle"] == true && p["requests"]["succeeded"] == 1,
+                &mut handler,
+            )
+            .await;
+            advance(Duration::from_millis(500)).await;
+            advance(Duration::from_millis(700)).await;
+            let _ = progress_matching(
+                client,
+                "behind-politeness",
+                |p| p["idle"] == true && timestamps.lock().unwrap().len() >= 2,
+                &mut handler,
+            )
+            .await;
+            client
+                .call(
+                    "run.finish",
+                    json!({ "run_id": "behind-politeness" }),
+                    &mut handler,
+                )
+                .await
+        },
+    )
+    .0;
+
+    let times = timestamps.lock().unwrap();
+    assert!(
+        times.len() >= 2,
+        "expected at least 2 requests, got {}",
+        times.len()
+    );
+    for pair in times.windows(2) {
+        assert!(
+            pair[1].saturating_duration_since(pair[0]) >= Duration::from_millis(1_000),
+            "politeness 1s delay violated: {:?}",
+            pair[1].saturating_duration_since(pair[0])
+        );
+    }
+    let warnings = report["result"]["warnings"]
+        .as_array()
+        .expect("report warnings");
+    assert!(
+        warnings.iter().any(|w| w["code"] == "revisit_domain_behind"
+            && w["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("slow.test"))),
+        "expected revisit_domain_behind warning for slow.test: {warnings:?}"
+    );
+}
+
+/// Only first visits are evidence for Learned rules and trap paths: a run of
+/// 105 identical revisits under `/items/{number}` never closes the path as
+/// `trap_path`, and a newly added `/items/2` is still admitted and handled
+/// (ADR 0005, ADR 0139).
+#[test]
+fn revisits_never_teach_learned_rules_or_trap_paths() {
+    let env = TestEnv::new();
+    let seen = Rc::new(Cell::new(0_u32));
+    let seen_h = Rc::clone(&seen);
+    let site = std::sync::Arc::new(ScriptedSite {
+        recorded: std::sync::Mutex::new(Vec::new()),
+        respond: Box::new(move |_| {
+            (
+                200,
+                vec![(
+                    "content-type".to_owned(),
+                    "text/html; charset=utf-8".to_owned(),
+                )],
+                "<!doctype html><html><head><title>Item</title></head><body><main><p>Same body</p></main></body></html>"
+                    .to_owned(),
+            )
+        }),
+    });
+    let engine = engine_with_site(std::sync::Arc::clone(&site));
+    let mut handler = move |_: &Value| {
+        seen_h.set(seen_h.get() + 1);
+        Reply::Records(Vec::new())
+    };
+
+    let report = super::crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let started = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "no-revisit-trap",
+                        "seeds": [seed("https://shop.test/items/1")],
+                        "settings": {
+                            "crawl": { "continuous": true },
+                            "fetch": { "tier": "http" },
+                            "politeness": { "domain": { "delay": 0 } },
+                        },
+                        "labels": every_label(1_000),
+                    }),
+                    &mut handler,
+                )
+                .await;
+            assert!(started["error"].is_null(), "crawl.start failed: {started}");
+            // Drive 105 visits (1 first visit + 104 revisits), past ADR 0005's
+            // 100-page trap_path threshold.
+            for target in 1..=105 {
+                let _ = progress_matching(
+                    client,
+                    "no-revisit-trap",
+                    |p| p["idle"] == true && seen.get() >= target,
+                    &mut handler,
+                )
+                .await;
+                if target < 105 {
+                    advance(Duration::from_millis(1_100)).await;
+                }
+            }
+            // Add a second URL under the same `/items/{number}` pattern: it
+            // must be admitted (not refused as `trap_path`) and handled.
+            let added = client
+                .call(
+                    "run.add_seed",
+                    json!({
+                        "run_id": "no-revisit-trap",
+                        "seed": seed("https://shop.test/items/2"),
+                    }),
+                    &mut handler,
+                )
+                .await;
+            assert_eq!(
+                added["result"]["kind"], "added",
+                "second item under /items/{{number}} must not be refused as trap_path: {added}"
+            );
+            let _ = progress_matching(
+                client,
+                "no-revisit-trap",
+                |p| p["idle"] == true && seen.get() >= 106,
+                &mut handler,
+            )
+            .await;
+            client
+                .call(
+                    "run.finish",
+                    json!({ "run_id": "no-revisit-trap" }),
+                    &mut handler,
+                )
+                .await
+        },
+    )
+    .0;
+
+    let learned = report["result"]["learned_rules"]
+        .as_array()
+        .expect("learned_rules array");
+    assert!(
+        learned.is_empty(),
+        "revisits must not teach any learned rules or trap paths: {learned:?}"
     );
 }

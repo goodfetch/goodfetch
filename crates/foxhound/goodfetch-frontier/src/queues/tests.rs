@@ -26,7 +26,9 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 use tokio::time::Instant;
 
-use super::{BOUND, DomainGates, DomainQueues, TABLES};
+use super::{
+    BOUND, DomainGates, DomainQueues, LANE_FIRST_VISIT, LANE_REVISIT, LANE_SOURCE, TABLES,
+};
 use crate::domain_key::DomainKeys;
 
 fn queues() -> DomainQueues {
@@ -57,6 +59,7 @@ fn enqueue_as(gate: &mut dyn Gate, id: &str, url: &str, priority: i64, forefront
         priority,
         order,
         forefront,
+        lane: LANE_FIRST_VISIT,
     })
 }
 
@@ -565,6 +568,7 @@ proptest! {
                         priority,
                         order,
                         forefront,
+                        lane: LANE_FIRST_VISIT,
                     };
                     pending.insert(order, (domain, waiting.clone()));
                     queues.enqueue(waiting);
@@ -786,6 +790,7 @@ proptest! {
                         priority: 0,
                         order,
                         forefront: false,
+                        lane: LANE_FIRST_VISIT,
                     });
                     prop_assert!(enqueued);
                     model.entry(key).or_default().waiting.push(id);
@@ -941,6 +946,7 @@ proptest! {
                         priority: 0,
                         order: serial,
                         forefront: false,
+                        lane: LANE_FIRST_VISIT,
                     });
                     prop_assert!(enqueued);
                     let modeled = model.entry(key.clone()).or_default();
@@ -1033,4 +1039,226 @@ proptest! {
             prop_assert_eq!(queues.ready_at(now), ready_at);
         }
     }
+}
+
+fn enqueue_lane(
+    gate: &mut dyn Gate,
+    id: &str,
+    url: &str,
+    priority: i64,
+    order: i64,
+    forefront: bool,
+    lane: u8,
+) -> bool {
+    let key = gate.key(url);
+    gate.enqueue(Waiting {
+        id: id.to_owned(),
+        key,
+        priority,
+        order,
+        forefront,
+        lane,
+    })
+}
+
+/// Default `crawl.revisit.order` admits sources, then first visits, then
+/// revisits, preserving ADR 0004's `forefront` and priority order within each
+/// kind (ADR 0004, ADR 0139).
+///
+/// Covers: setting:crawl.revisit.order
+#[test]
+fn revisit_order_defaults_to_sources_first_visits_revisits_with_priority_and_forefront() {
+    let now = Instant::now();
+    let run = json!({ "crawl": { "continuous": true } });
+    let mut queues = queues_under(&settings(run), now);
+    let url = "https://news.test/item";
+
+    assert!(enqueue_lane(
+        &mut *queues,
+        "rev-low",
+        url,
+        0,
+        1,
+        false,
+        LANE_REVISIT
+    ));
+    assert!(enqueue_lane(
+        &mut *queues,
+        "rev-high",
+        url,
+        10,
+        2,
+        false,
+        LANE_REVISIT
+    ));
+    assert!(enqueue_lane(
+        &mut *queues,
+        "rev-front",
+        url,
+        0,
+        3,
+        true,
+        LANE_REVISIT
+    ));
+    assert!(enqueue_lane(
+        &mut *queues,
+        "fv-low",
+        url,
+        0,
+        4,
+        false,
+        LANE_FIRST_VISIT
+    ));
+    assert!(enqueue_lane(
+        &mut *queues,
+        "fv-high",
+        url,
+        10,
+        5,
+        false,
+        LANE_FIRST_VISIT
+    ));
+    assert!(enqueue_lane(
+        &mut *queues,
+        "fv-front",
+        url,
+        0,
+        6,
+        true,
+        LANE_FIRST_VISIT
+    ));
+    assert!(enqueue_lane(
+        &mut *queues,
+        "src-low",
+        url,
+        0,
+        7,
+        false,
+        LANE_SOURCE
+    ));
+    assert!(enqueue_lane(
+        &mut *queues,
+        "src-high",
+        url,
+        5,
+        8,
+        false,
+        LANE_SOURCE
+    ));
+    assert!(enqueue_lane(
+        &mut *queues,
+        "src-front",
+        url,
+        0,
+        9,
+        true,
+        LANE_SOURCE
+    ));
+
+    assert_eq!(
+        admit_all(&mut *queues, now),
+        vec![
+            "src-front",
+            "src-high",
+            "src-low",
+            "fv-front",
+            "fv-high",
+            "fv-low",
+            "rev-front",
+            "rev-high",
+            "rev-low",
+        ]
+    );
+}
+
+/// Even when `crawl.revisit.order` puts revisits ahead of first visits,
+/// `crawl.revisit.domain_share` (0.5 by default) caps revisits while first
+/// visits wait on the same domain, and lifts the cap once first visits drain
+/// (ADR 0004, ADR 0139).
+///
+/// Covers: setting:crawl.revisit.domain_share
+#[test]
+fn revisit_domain_share_caps_revisits_while_first_visits_wait() {
+    let now = Instant::now();
+    let run = json!({
+        "crawl": {
+            "continuous": true,
+            "revisit": {
+                "order": ["revisits", "first_visits", "sources"]
+            }
+        }
+    });
+    let mut queues = queues_under(&settings(run), now);
+    let url = "https://monitor.test/page";
+
+    for i in 1..=4 {
+        assert!(enqueue_lane(
+            &mut *queues,
+            &format!("r{i}"),
+            url,
+            0,
+            i,
+            false,
+            LANE_REVISIT
+        ));
+    }
+    for i in 1..=3 {
+        assert!(enqueue_lane(
+            &mut *queues,
+            &format!("f{i}"),
+            url,
+            0,
+            10 + i,
+            false,
+            LANE_FIRST_VISIT
+        ));
+    }
+
+    // With default 0.5 share while first visits wait: at no prefix do revisits
+    // exceed 50% of starts (f1, r1, f2, r2, f3), then once first visits drain
+    // the remaining revisits run uncapped (r3, r4).
+    assert_eq!(
+        admit_all(&mut *queues, now),
+        vec!["f1", "r1", "f2", "r2", "f3", "r3", "r4"]
+    );
+
+    // With domain_share = 0.0, zero revisits run while first visits wait.
+    let run_zero = json!({
+        "crawl": {
+            "continuous": true,
+            "revisit": {
+                "order": ["revisits", "first_visits", "sources"],
+                "domain_share": 0.0
+            }
+        }
+    });
+    let mut queues_zero = queues_under(&settings(run_zero), now);
+    assert!(enqueue_lane(
+        &mut *queues_zero,
+        "r1",
+        url,
+        0,
+        1,
+        false,
+        LANE_REVISIT
+    ));
+    assert!(enqueue_lane(
+        &mut *queues_zero,
+        "f1",
+        url,
+        0,
+        2,
+        false,
+        LANE_FIRST_VISIT
+    ));
+    assert!(enqueue_lane(
+        &mut *queues_zero,
+        "f2",
+        url,
+        0,
+        3,
+        false,
+        LANE_FIRST_VISIT
+    ));
+    assert_eq!(admit_all(&mut *queues_zero, now), vec!["f1", "f2", "r1"]);
 }

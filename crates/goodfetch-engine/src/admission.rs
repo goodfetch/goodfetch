@@ -87,6 +87,9 @@ pub struct Waiting {
     /// Whether it goes ahead of every request of its key waiting when it
     /// came, whatever their priority: of two such, the later goes first.
     pub forefront: bool,
+    /// Gate-defined lane within its key (`0` by default), such as separating
+    /// sources, first visits and revisits in a Continuous crawl.
+    pub lane: u8,
 }
 
 /// A request a gate admitted.

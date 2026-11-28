@@ -116,7 +116,7 @@ use goodfetch_protocol::foxhound::hook::CrawlHookDeclaration;
 use goodfetch_protocol::foxhound::outcomes::{OutcomeKind, SkipReason};
 use goodfetch_protocol::foxhound::report::{
     BLOCK_CLASSIFICATION_OFF, LEARNING_OFF, LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK, PROVENANCE_OFF,
-    RECORDS_OFF, REVISIT_BROWSER_SIGNATURE,
+    RECORDS_OFF, REVISIT_BROWSER_SIGNATURE, REVISIT_DOMAIN_BEHIND,
 };
 use goodfetch_protocol::foxhound::settings::{
     DATASET_RECORDS, FETCH_BLOCK_CLASSIFICATION, PROVENANCE_LOG,
@@ -1650,6 +1650,37 @@ async fn enqueue_due_revisits(
     Ok(())
 }
 
+/// Emits [`REVISIT_DOMAIN_BEHIND`] once per domain that has due revisits
+/// waiting while Politeness holds its requests (ADR 0086, ADR 0139).
+async fn warn_domains_behind(
+    run: &CrawlRun,
+    admission: &mut Admission,
+    state: &mut RunState,
+    now: Instant,
+) {
+    let queued = admission.queued(now, HELD_DOMAINS);
+    for group in queued {
+        if group.held.is_none() {
+            continue;
+        }
+        for (domain, _) in group.sample {
+            if state.has_queued_revisit_for(&domain) && state.mark_revisit_domain_behind(&domain) {
+                let warning = RunWarning {
+                    code: REVISIT_DOMAIN_BEHIND.to_owned(),
+                    message: format!(
+                        "Domain `{domain}` fell behind its revisit schedule because Politeness limits hold its requests (ADR 0086, ADR 0139)."
+                    ),
+                    sessions: Vec::new(),
+                    folder: None,
+                };
+                if let Err(error) = run.warnings.warn(warning).await {
+                    tracing::warn!(%error, run_id = %run.identity.id(), domain, "the warning of a domain falling behind its revisit schedule was not kept");
+                }
+            }
+        }
+    }
+}
+
 /// What settling one ended attempt keeps of it once its Session is scored,
 /// for its Connection's place, its domain's turn and queue after its
 /// outcome is written.
@@ -2274,6 +2305,9 @@ async fn admit(
         }
         ids.push(admitted.id);
         keys.push(admitted.key);
+    }
+    if pooled.fetching.continuous && ids.len() < room && pooled.state.has_queued_revisits() {
+        warn_domains_behind(run, admission, pooled.state, now).await;
     }
     if !refused.is_empty() {
         // Each ended in a batch a read may not see yet.

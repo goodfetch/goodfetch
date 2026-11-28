@@ -32,6 +32,236 @@ fn skip_unchanged() -> Value {
     Value::String("skip".to_owned())
 }
 
+fn default_revisit_order() -> Value {
+    json!(["sources", "first_visits", "revisits"])
+}
+
+fn default_revisit_domain_share() -> Value {
+    json!(0.5)
+}
+
+/// One kind of work a domain's turn orders in a Continuous crawl
+/// (`crawl.revisit.order`, ADR 0004, ADR 0139).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RevisitOrderKind {
+    /// Due source reads (sitemaps, syndication feeds).
+    Sources,
+    /// First visits of discovered URLs.
+    FirstVisits,
+    /// Due page revisits.
+    Revisits,
+}
+
+impl RevisitOrderKind {
+    /// Its wire name.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Sources => "sources",
+            Self::FirstVisits => "first_visits",
+            Self::Revisits => "revisits",
+        }
+    }
+}
+
+/// The order a domain's turn picks among sources, first visits and revisits
+/// (`crawl.revisit.order`, ADR 0004, ADR 0139): a permutation of all three
+/// [`RevisitOrderKind`] variants.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "Vec<RevisitOrderKind>", into = "Vec<RevisitOrderKind>")]
+pub struct RevisitOrder([RevisitOrderKind; 3]);
+
+/// An invalid [`RevisitOrder`] (not a permutation of all three kinds).
+#[non_exhaustive]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "`crawl.revisit.order` must list each of `sources`, `first_visits`, `revisits` exactly once"
+)]
+pub struct InvalidRevisitOrder;
+
+impl Default for RevisitOrder {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
+impl RevisitOrder {
+    /// The default turn order: `sources`, `first_visits`, `revisits`.
+    pub const DEFAULT: Self = Self([
+        RevisitOrderKind::Sources,
+        RevisitOrderKind::FirstVisits,
+        RevisitOrderKind::Revisits,
+    ]);
+
+    /// Builds a [`RevisitOrder`] from `kinds`, requiring all three distinct kinds.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidRevisitOrder`] when `kinds` does not contain each of
+    /// `sources`, `first_visits`, and `revisits` exactly once.
+    pub fn new(kinds: [RevisitOrderKind; 3]) -> Result<Self, InvalidRevisitOrder> {
+        if kinds[0] != kinds[1] && kinds[0] != kinds[2] && kinds[1] != kinds[2] {
+            Ok(Self(kinds))
+        } else {
+            Err(InvalidRevisitOrder)
+        }
+    }
+
+    /// The three kinds in priority order.
+    #[must_use]
+    pub const fn kinds(self) -> [RevisitOrderKind; 3] {
+        self.0
+    }
+
+    /// Parses a [`RevisitOrder`] from a JSON setting value.
+    ///
+    /// # Errors
+    ///
+    /// Returns a reason string when `value` is not a permutation of the three kinds.
+    pub fn read(value: &Value) -> Result<Self, String> {
+        serde_json::from_value::<Self>(value.clone()).map_err(|error| {
+            format!(
+                "`crawl.revisit.order` must be a list of `sources`, `first_visits`, `revisits` each once: {error}"
+            )
+        })
+    }
+}
+
+impl TryFrom<Vec<RevisitOrderKind>> for RevisitOrder {
+    type Error = InvalidRevisitOrder;
+
+    fn try_from(kinds: Vec<RevisitOrderKind>) -> Result<Self, Self::Error> {
+        let array: [RevisitOrderKind; 3] = kinds.try_into().map_err(|_| InvalidRevisitOrder)?;
+        Self::new(array)
+    }
+}
+
+impl From<RevisitOrder> for Vec<RevisitOrderKind> {
+    fn from(order: RevisitOrder) -> Self {
+        order.0.to_vec()
+    }
+}
+
+impl SettingJson for RevisitOrder {
+    fn into_setting_json(self) -> Value {
+        shape_json(self)
+    }
+}
+
+/// `crawl.revisit.order`'s values: a [`RevisitOrder`].
+pub const REVISIT_ORDER_SHAPE: ValueShape = ValueShape {
+    name: "RevisitOrder",
+    check: |value| RevisitOrder::read(value).map(drop),
+    schema: || {
+        json!({
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": ["sources", "first_visits", "revisits"]
+            }
+        })
+    },
+    examples: || {
+        vec![
+            json!(["sources", "first_visits", "revisits"]),
+            json!(["revisits", "first_visits", "sources"]),
+        ]
+    },
+};
+
+/// Maximum share of a domain's starts revisits may take while first visits
+/// wait (`crawl.revisit.domain_share`, ADR 0004, ADR 0139): a finite number
+/// in `0.0..=1.0`, defaulting to `0.5`.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "f64", into = "f64")]
+pub struct RevisitDomainShare(f64);
+
+/// A number outside `[0.0, 1.0]` for [`RevisitDomainShare`].
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, thiserror::Error)]
+#[error("`{0}` is not a finite share between 0.0 and 1.0")]
+pub struct InvalidRevisitDomainShare(pub f64);
+
+impl Default for RevisitDomainShare {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
+impl RevisitDomainShare {
+    /// The default share: `0.5` (at most half of a domain's starts).
+    pub const DEFAULT: Self = Self(0.5);
+
+    /// Validates `share` as a finite number in `0.0..=1.0`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidRevisitDomainShare`] when `share` is not finite or
+    /// outside `0.0..=1.0`.
+    pub fn new(share: f64) -> Result<Self, InvalidRevisitDomainShare> {
+        if share.is_finite() && (0.0..=1.0).contains(&share) {
+            Ok(Self(share))
+        } else {
+            Err(InvalidRevisitDomainShare(share))
+        }
+    }
+
+    /// The numeric share in `0.0..=1.0`.
+    #[must_use]
+    pub const fn get(self) -> f64 {
+        self.0
+    }
+
+    /// Parses a [`RevisitDomainShare`] from a JSON setting value.
+    ///
+    /// # Errors
+    ///
+    /// Returns a reason string when `value` is not a finite number in `0.0..=1.0`.
+    pub fn read(value: &Value) -> Result<Self, String> {
+        let Some(number) = value.as_f64() else {
+            return Err(format!(
+                "`crawl.revisit.domain_share` must be a number between 0 and 1, found `{value}`"
+            ));
+        };
+        Self::new(number).map_err(|error| error.to_string())
+    }
+}
+
+impl TryFrom<f64> for RevisitDomainShare {
+    type Error = InvalidRevisitDomainShare;
+
+    fn try_from(value: f64) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl From<RevisitDomainShare> for f64 {
+    fn from(share: RevisitDomainShare) -> Self {
+        share.0
+    }
+}
+
+impl SettingJson for RevisitDomainShare {
+    fn into_setting_json(self) -> Value {
+        shape_json(self)
+    }
+}
+
+/// `crawl.revisit.domain_share`'s values: a [`RevisitDomainShare`].
+pub const REVISIT_DOMAIN_SHARE_SHAPE: ValueShape = ValueShape {
+    name: "RevisitDomainShare",
+    check: |value| RevisitDomainShare::read(value).map(drop),
+    schema: || {
+        json!({
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0
+        })
+    },
+    examples: || vec![json!(0.5), json!(0.25)],
+};
+
 /// The values `revisit.change_check` takes (ADR 0139).
 pub const REVISIT_CHANGE_CHECK_VALUES: &[&str] =
     &["conditional+signature", "conditional", "signature", "none"];
@@ -321,6 +551,56 @@ pub const REVISIT_ON_UNCHANGED_YIELDS_TO_BATCH: Yielding = Yielding {
     reason: "a batch crawl does not revisit URLs",
 };
 
+/// `crawl.revisit.order` (ADR 0004, ADR 0139).
+pub const CRAWL_REVISIT_ORDER: Setting = Setting {
+    name: "crawl.revisit.order",
+    description: "Order in which each turn of a domain in a Continuous crawl picks among `sources`, `first_visits` and `revisits`: `[\"sources\", \"first_visits\", \"revisits\"]` by default. Within each kind, ADR 0004's priority and `forefront` order holds. Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Shape(&REVISIT_ORDER_SHAPE),
+    default: default_revisit_order,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.revisit.domain_share` (ADR 0004, ADR 0139).
+pub const CRAWL_REVISIT_DOMAIN_SHARE: Setting = Setting {
+    name: "crawl.revisit.domain_share",
+    description: "Maximum share of a domain's starts revisits may take while first visits wait on that domain in a Continuous crawl (0.0 to 1.0, `0.5` by default). Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Shape(&REVISIT_DOMAIN_SHARE_SHAPE),
+    default: default_revisit_domain_share,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.revisit.order` yields to `crawl.continuous = false`.
+pub const CRAWL_REVISIT_ORDER_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &CRAWL_REVISIT_ORDER,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl does not revisit URLs",
+};
+
+/// `crawl.revisit.domain_share` yields to `crawl.continuous = false`.
+pub const CRAWL_REVISIT_DOMAIN_SHARE_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &CRAWL_REVISIT_DOMAIN_SHARE,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl does not revisit URLs",
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -335,6 +615,8 @@ pub const ENTRIES: Entries = Entries {
         REVISIT_POLICY,
         REVISIT_CHANGE_CHECK,
         REVISIT_ON_UNCHANGED,
+        CRAWL_REVISIT_ORDER,
+        CRAWL_REVISIT_DOMAIN_SHARE,
     ],
     hook_stages: &[],
     shared_type_values: &[],

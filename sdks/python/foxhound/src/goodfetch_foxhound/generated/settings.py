@@ -304,6 +304,22 @@ class ConnectionCrawlRetrySettings(TypedDict):
     """
 
 
+class ConnectionCrawlRevisitSettings(TypedDict):
+    """The `crawl.revisit` settings of `FoxhoundSettings`."""
+
+    domain_share: NotRequired[float]
+    """Maximum share of a domain's starts revisits may take while first visits wait on that domain in a Continuous crawl (0.0 to 1.0, `0.5` by default). Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.revisit.domain_share`.
+    """
+
+    order: NotRequired[list[Literal["sources", "first_visits", "revisits"]]]
+    """Order in which each turn of a domain in a Continuous crawl picks among `sources`, `first_visits` and `revisits`: `["sources", "first_visits", "revisits"]` by default. Within each kind, ADR 0004's priority and `forefront` order holds. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.revisit.order`.
+    """
+
+
 class ConnectionCrawlScopeSettings(TypedDict):
     """The `crawl.scope` settings of `FoxhoundSettings`."""
 
@@ -424,6 +440,8 @@ class ConnectionCrawlSettings(TypedDict):
     payload: NotRequired[ConnectionCrawlPayloadSettings]
 
     retry: NotRequired[ConnectionCrawlRetrySettings]
+
+    revisit: NotRequired[ConnectionCrawlRevisitSettings]
 
     sample_pages: NotRequired[int]
     """How many pages the sample crawl visits.
@@ -2419,6 +2437,22 @@ class RunCrawlRetrySettings(TypedDict):
     """
 
 
+class RunCrawlRevisitSettings(TypedDict):
+    """The `crawl.revisit` settings of `CrawlSettings`."""
+
+    domain_share: NotRequired[float]
+    """Maximum share of a domain's starts revisits may take while first visits wait on that domain in a Continuous crawl (0.0 to 1.0, `0.5` by default). Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.revisit.domain_share`.
+    """
+
+    order: NotRequired[list[Literal["sources", "first_visits", "revisits"]]]
+    """Order in which each turn of a domain in a Continuous crawl picks among `sources`, `first_visits` and `revisits`: `["sources", "first_visits", "revisits"]` by default. Within each kind, ADR 0004's priority and `forefront` order holds. Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `crawl.revisit.order`.
+    """
+
+
 class RunCrawlScopeSettings(TypedDict):
     """The `crawl.scope` settings of `CrawlSettings`."""
 
@@ -2539,6 +2573,8 @@ class RunCrawlSettings(TypedDict):
     payload: NotRequired[RunCrawlPayloadSettings]
 
     retry: NotRequired[RunCrawlRetrySettings]
+
+    revisit: NotRequired[RunCrawlRevisitSettings]
 
     sample_pages: NotRequired[int]
     """How many pages the sample crawl visits.

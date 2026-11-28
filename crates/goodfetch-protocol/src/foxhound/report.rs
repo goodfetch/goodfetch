@@ -56,6 +56,10 @@ pub const BROWSER_VERSION_UNREAD: &str = "browser_version_unread";
 /// `revisit.change_check` (ADR 0139).
 pub const REVISIT_BROWSER_SIGNATURE: &str = "revisit_browser_signature";
 
+/// The warning that a domain in a Continuous crawl fell behind its revisit
+/// schedule because Politeness limits hold its requests (ADR 0086, ADR 0139).
+pub const REVISIT_DOMAIN_BEHIND: &str = "revisit_domain_behind";
+
 /// The Completeness reason of the URLs learned traps refused (ADR 0005).
 pub const TRAP_PATH: &str = "trap_path";
 /// The Completeness reason of listings paged only by an offset (ADR 0005).

@@ -1791,6 +1791,30 @@
                 },
                 "type": "object"
               },
+              "revisit": {
+                "additionalProperties": false,
+                "properties": {
+                  "domain_share": {
+                    "description": "Maximum share of a domain's starts revisits may take while first visits wait on that domain in a Continuous crawl (0.0 to 1.0, `0.5` by default). Accepted on a batch crawl, where `config explain` marks it inactive.",
+                    "maximum": 1.0,
+                    "minimum": 0.0,
+                    "type": "number"
+                  },
+                  "order": {
+                    "description": "Order in which each turn of a domain in a Continuous crawl picks among `sources`, `first_visits` and `revisits`: `[\"sources\", \"first_visits\", \"revisits\"]` by default. Within each kind, ADR 0004's priority and `forefront` order holds. Accepted on a batch crawl, where `config explain` marks it inactive.",
+                    "items": {
+                      "enum": [
+                        "sources",
+                        "first_visits",
+                        "revisits"
+                      ],
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              },
               "sample_pages": {
                 "description": "How many pages the sample crawl visits.",
                 "minimum": 0,
@@ -6859,6 +6883,30 @@
                     "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`.",
                     "minimum": 0,
                     "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "revisit": {
+                "additionalProperties": false,
+                "properties": {
+                  "domain_share": {
+                    "description": "Maximum share of a domain's starts revisits may take while first visits wait on that domain in a Continuous crawl (0.0 to 1.0, `0.5` by default). Accepted on a batch crawl, where `config explain` marks it inactive.",
+                    "maximum": 1.0,
+                    "minimum": 0.0,
+                    "type": "number"
+                  },
+                  "order": {
+                    "description": "Order in which each turn of a domain in a Continuous crawl picks among `sources`, `first_visits` and `revisits`: `[\"sources\", \"first_visits\", \"revisits\"]` by default. Within each kind, ADR 0004's priority and `forefront` order holds. Accepted on a batch crawl, where `config explain` marks it inactive.",
+                    "items": {
+                      "enum": [
+                        "sources",
+                        "first_visits",
+                        "revisits"
+                      ],
+                      "type": "string"
+                    },
+                    "type": "array"
                   }
                 },
                 "type": "object"

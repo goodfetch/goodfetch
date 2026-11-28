@@ -113,6 +113,7 @@ fn waiting(key: &str, order: i64, priority: i64, forefront: bool) -> Waiting {
         priority,
         order,
         forefront,
+        lane: 0,
     }
 }
 

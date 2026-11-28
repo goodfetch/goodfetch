@@ -1468,8 +1468,8 @@ impl On<'_> {
             .document(tiering, http, choice, hand_over)
             .await
             .map_err(|Unserved { answer, redirects }| {
-                // A sample's runs teach nothing, as [`Self::learn`] says.
-                if !matches!(how, Chosen::Sample(_)) {
+                // A sample's runs and revisits teach nothing (ADR 0005, ADR 0139).
+                if !matches!(how, Chosen::Sample(_)) && !self.leased.is_revisit {
                     self.lessons.skipped(&redirects);
                 }
                 answer
@@ -1562,11 +1562,12 @@ impl On<'_> {
 
     /// Notes what the run `how` names, its page `page_id` served and past
     /// its Page check, teaches the Frontier ([`Lessons::learn`]). Only a
-    /// run that may commit teaches: a sample's runs on a cheaper tier are
-    /// discarded for the browser's, whatever they find, so they teach
-    /// nothing (ADR 0020's #768 note).
+    /// first visit that may commit teaches: a sample's runs on a cheaper tier
+    /// are discarded for the browser's, whatever they find, so they teach
+    /// nothing (ADR 0020's #768 note), and revisits never teach Learned rules
+    /// or trap paths (ADR 0005, ADR 0139).
     async fn learn(&self, tiers: &FetchTiers, page_id: &PageId, how: Chosen) {
-        if !matches!(how, Chosen::Sample(_)) {
+        if !matches!(how, Chosen::Sample(_)) && !self.leased.is_revisit {
             self.lessons
                 .learn(tiers, page_id, &self.leased.crawl_request)
                 .await;

@@ -4513,6 +4513,14 @@
       "additionalProperties": true,
       "description": "A crawl's Run report (ADR 0102): what a crawl adds to every Run's\nreport, a part no area supplied being absent. On the wire, a crawl's\nparts sit beside every Run's, which a reader of [`RunReport`] keeps among\nits `kind_parts`.",
       "properties": {
+        "cache_mode": {
+          "arrived_in": "0.1",
+          "description": "Set to `\"replay\"` when the Run used `cache.mode: \"replay\"` (ADR 0046);\nabsent otherwise.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "checkpoint": {
           "anyOf": [
             {
@@ -20751,6 +20759,18 @@
             "kind": {
               "const": "response_cache",
               "type": "string"
+            },
+            "run_id": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/RunId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "arrived_in": "0.1",
+              "description": "The Run that fetched the cached response, when fetched in a Run."
             }
           },
           "required": [
@@ -22559,6 +22579,14 @@
       "additionalProperties": true,
       "description": "What a Run states about itself when it ends (ADR 0102). A part no area\nsupplied is absent, never zero.",
       "properties": {
+        "cache_mode": {
+          "arrived_in": "0.1",
+          "description": "Set to `\"replay\"` when the Run used `cache.mode: \"replay\"` (ADR 0046);\nabsent otherwise.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "checkpoint": {
           "anyOf": [
             {
@@ -23520,6 +23548,13 @@
           "$ref": "#/$defs/Milliseconds",
           "arrived_in": "0.1",
           "description": "How long it held a browser."
+        },
+        "cache_hits": {
+          "arrived_in": "0.1",
+          "description": "The requests answered from the Response cache, counted apart from\n`requests` (ADR 0046).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
         },
         "limits": {
           "arrived_in": "0.1",

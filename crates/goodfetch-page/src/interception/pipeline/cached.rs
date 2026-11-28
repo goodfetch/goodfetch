@@ -85,6 +85,85 @@ impl PageContext {
             .is_some_and(|caching| caching.replays_url(url))
     }
 
+    /// Marks a response answered from the Response cache in Provenance (when
+    /// `provenance.log` is on, allocating nothing when off) and charges
+    /// `cache_hits` through `ledger::charging` from held Slices (ADRs 0046
+    /// and 0140, issue 803).
+    async fn record_cache_hit(
+        &self,
+        method: &str,
+        url: &str,
+        status: u16,
+        fetched_at: std::time::SystemTime,
+        run_id: Option<&goodfetch_protocol::run::RunId>,
+    ) {
+        if let Some(charging) = &self.run.charging {
+            let _ = charging
+                .charge(goodfetch_protocol::usage::CACHE_HITS, 1)
+                .await;
+        }
+        if !self.run.lists.trace.logs_provenance() {
+            return;
+        }
+        let mut origin = serde_json::json!({ "kind": "response_cache" });
+        if let Ok(ts) = goodfetch_protocol::point_in_time::to_rfc3339(fetched_at) {
+            origin["fetched_at"] = serde_json::json!(ts);
+        }
+        if let Some(run_id) = run_id {
+            origin["run_id"] = serde_json::json!(run_id.as_str());
+        }
+        let mut entry = serde_json::json!({
+            "action": "response_cache",
+            "method": method,
+            "url": url,
+            "status": status,
+            "origin": origin,
+        });
+        if let Some(page_id) = self.sender.page_id() {
+            entry["page_id"] = serde_json::json!(page_id);
+        }
+        crate::trace::provenance(&self.run.lists.trace, entry).await;
+    }
+
+    /// Serves a fresh cache hit and records its Usage and Provenance.
+    async fn serve_fresh_hit(
+        &self,
+        held: &Held,
+        hit: goodfetch_engine::response_cache::Hit,
+    ) -> bool {
+        let (status, fetched_at, run_id) = (hit.head.status, hit.fetched_at, hit.run_id);
+        let served = self.serve(held, hit.head, &hit.body).await;
+        if served {
+            self.record_cache_hit(
+                held.method(),
+                held.url(),
+                status,
+                fetched_at,
+                run_id.as_ref(),
+            )
+            .await;
+        }
+        served
+    }
+
+    /// Serves a 304-revalidated cache hit and records its Usage and Provenance.
+    async fn serve_revalidated_hit(
+        &self,
+        paused: &PausedRequest,
+        method: &str,
+        hit: goodfetch_engine::response_cache::Hit,
+    ) -> bool {
+        let (status, fetched_at, run_id) = (hit.head.status, hit.fetched_at, hit.run_id);
+        let answered = self
+            .answer(paused.id(), paused.url(), hit.head, &hit.body)
+            .await;
+        if answered {
+            self.record_cache_hit(method, paused.url(), status, fetched_at, run_id.as_ref())
+                .await;
+        }
+        answered
+    }
+
     /// Marks a response answered from the Run's Response recording in the
     /// Run trace's Provenance log when `provenance.log` is on, allocating
     /// nothing when off (`E5.formatting_off`, ADRs 0105 and 0140, issue 802).
@@ -223,7 +302,7 @@ impl PageContext {
                 self.fail(held.paused.id(), AbortReason::Failed).await;
                 return Ok(true);
             }
-            Source::Fresh(hit) => return Ok(self.serve(held, hit.head, &hit.body).await),
+            Source::Fresh(hit) => return Ok(self.serve_fresh_hit(held, hit).await),
             Source::Network if caching.may_store(&asked.request, asked.kept_out) => None,
             Source::Network => return Ok(false),
             Source::Stale(stale) => {
@@ -504,7 +583,7 @@ impl PageContext {
                 return false;
             };
             return self
-                .answer(paused.id(), paused.url(), hit.head, &hit.body)
+                .serve_revalidated_hit(paused, &storing.request.method, hit)
                 .await;
         }
         let recording = caching.recording();

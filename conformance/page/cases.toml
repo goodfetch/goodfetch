@@ -823,6 +823,10 @@ covers = ["story:6-39", "setting:cache.mode", "setting:proxy.provider", "setting
 id = "blocked-failed-page-check-cut-body-and-invalid-cert-responses-are-never-cached"
 covers = ["story:6-40", "story:8-65", "setting:cache.mode", "setting:session.page_check", "setting:tls.accept_invalid_certs", "operation:page.goto"]
 
+[[capability.case]]
+id = "cache-hits-mark-provenance-completeness-usage-and-replay-report"
+covers = ["story:6-46", "setting:cache.mode", "operation:run.start", "operation:run.finish", "operation:page.goto"]
+
 [[capability]]
 name = "response_recording"
 

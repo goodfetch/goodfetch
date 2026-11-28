@@ -419,3 +419,15 @@ reason = "The Daemon's HTTP JSON-RPC listener joins the `Surface` union as `http
 [[announced]]
 entry = "typescript @goodfetch/collie-client/generated/types Surface"
 reason = "The Daemon's HTTP JSON-RPC listener joins the `Surface` union as `http_listener` (ADR 0027, issue 1400): a switch over every surface gains that member."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated ResponseOrigin"
+reason = "`ResponseOrigin::ResponseCache` carries the optional `runId` of the Run that originally fetched the cached entry (ADR 0046, issue 803)."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated/types ResponseOrigin"
+reason = "`ResponseOrigin::ResponseCache` carries the optional `runId` of the Run that originally fetched the cached entry (ADR 0046, issue 803)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/generated ResponseOrigin"
+reason = "`ResponseOrigin::ResponseCache` carries the optional `runId` of the Run that originally fetched the cached entry (ADR 0046, issue 803)."

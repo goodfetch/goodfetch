@@ -400,6 +400,10 @@ export type ResponseOrigin =
        */
       fetchedAt: PointInTime;
       kind: "response_cache";
+      /**
+       * The Run that fetched the cached response, when fetched in a Run.
+       */
+      runId?: RunId | null;
     }
   | {
       kind: "response_recording";
@@ -1917,6 +1921,11 @@ export interface HeldDomain {
  * via the `definition` "CrawlRunReport".
  */
 export interface CrawlRunReport {
+  /**
+   * Set to `"replay"` when the Run used `cache.mode: "replay"` (ADR 0046);
+   * absent otherwise.
+   */
+  cacheMode?: string | null;
   /**
    * The last Checkpoint written of it in this engine, when one was.
    */

@@ -201,7 +201,16 @@ impl Transport for Cached {
                         &miss,
                     ))));
                 }
-                Source::Fresh(hit) => return Ok(whole(hit.head, hit.body, None)),
+                Source::Fresh(hit) => {
+                    return Ok(whole(
+                        hit.head,
+                        hit.body,
+                        Some(ResponseOrigin::ResponseCache {
+                            fetched_at: hit.fetched_at,
+                            run_id: hit.run_id,
+                        }),
+                    ));
+                }
                 Source::Network => {
                     let sent = self.transport.send(hop, reuse).await?;
                     return Ok(kept(caching, self.deferred.as_ref(), request, sent));
@@ -227,7 +236,14 @@ impl Transport for Cached {
             if let Some(hit) = caching.revalidated(stale, &request, &head).await {
                 return Ok(Sent {
                     reused: sent.reused,
-                    ..whole(hit.head, hit.body, None)
+                    ..whole(
+                        hit.head,
+                        hit.body,
+                        Some(ResponseOrigin::ResponseCache {
+                            fetched_at: hit.fetched_at,
+                            run_id: hit.run_id,
+                        }),
+                    )
                 });
             }
             // The entry or its body is gone: the request is sent again

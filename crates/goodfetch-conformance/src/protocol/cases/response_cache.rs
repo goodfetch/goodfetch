@@ -20,8 +20,9 @@ use super::fetch_tiers::cached::HOST;
 use super::navigation::{answered, call};
 use super::proxies::server as proxy_server;
 use super::routes::received;
-use super::{Checks, Site, finish_run, new_page, start_run};
+use super::{Checks, Site, finish_run, new_page, run_trace, start_run};
 use crate::protocol::connection::{Connection, Gone, code_of};
+use crate::protocol::target::EngineTarget;
 
 /// The fetch-edge host serving cut bodies.
 const EDGE_HOST: &str = "fetch-edge.test";
@@ -32,6 +33,7 @@ pub(crate) enum Case {
     SubresourcesAreServed,
     PartitionsIsolate,
     ExclusionsNeverCached,
+    HitsMarkResults,
 }
 
 impl Case {
@@ -47,6 +49,9 @@ impl Case {
             "blocked-failed-page-check-cut-body-and-invalid-cert-responses-are-never-cached" => {
                 Self::ExclusionsNeverCached
             }
+            "cache-hits-mark-provenance-completeness-usage-and-replay-report" => {
+                Self::HitsMarkResults
+            }
             _ => return None,
         })
     }
@@ -55,6 +60,7 @@ impl Case {
     pub(crate) fn run(
         self,
         connection: &mut Connection,
+        target: &EngineTarget,
         site: &Site,
         checks: &mut Checks,
     ) -> Result<(), Gone> {
@@ -62,6 +68,7 @@ impl Case {
             Self::SubresourcesAreServed => subresources_are_served(connection, site, checks),
             Self::PartitionsIsolate => partitions_isolate(connection, site, checks),
             Self::ExclusionsNeverCached => exclusions_never_cached(connection, site, checks),
+            Self::HitsMarkResults => hits_mark_results(connection, target, site, checks),
         }
     }
 }
@@ -546,5 +553,73 @@ fn exclusions_never_cached(
     }
 
     finish_run(connection, run_id)?;
+    Ok(())
+}
+
+/// Under `cache.mode: replay`, a cache hit is recorded in Provenance with its
+/// original `fetched_at` and `run_id`, counts as a fetch for Completeness, is
+/// counted in Usage (`cache_hits`) apart from `requests`, and the Run report
+/// carries `cache_mode: "replay"` (ADRs 0005 and 0046, issue 803).
+fn hits_mark_results(
+    connection: &mut Connection,
+    target: &EngineTarget,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let name = "hits-mark-results";
+    let page_path = format!("/page/{name}");
+    let url = site.named_url(HOST, &page_path);
+    let replay_settings = json!({ "cache": { "mode": "replay" } });
+
+    let run1 = "conformance-cache-results-1";
+    start_run(connection, site, run1, &replay_settings, checks)?;
+    if let Some(page) = new_page(connection, run1, checks)? {
+        let loaded = connection.goto(&page, &url)?;
+        answered(&loaded, "run 1 replay load", &url, 200, checks);
+    }
+    let finished1 = connection.call(
+        goodfetch_protocol::run::RUN_FINISH.name,
+        &json!({ "run_id": run1 }),
+    )?;
+    let report1 = &finished1["result"];
+    checks.check(
+        "first replay Run finishes complete and marks cache_mode replay in its report",
+        report1["completeness"] == json!("complete") && report1["cache_mode"] == json!("replay"),
+    );
+
+    let hits_before = received(site, HOST, &page_path);
+    let run2 = "conformance-cache-results-2";
+    start_run(connection, site, run2, &replay_settings, checks)?;
+    if let Some(page) = new_page(connection, run2, checks)? {
+        let loaded = connection.goto(&page, &url)?;
+        answered(&loaded, "run 2 replay cache-hit load", &url, 200, checks);
+    }
+    let finished2 = connection.call(
+        goodfetch_protocol::run::RUN_FINISH.name,
+        &json!({ "run_id": run2 }),
+    )?;
+    let report2 = &finished2["result"];
+    let cache_hits = report2["usage"]["cache_hits"].as_u64().unwrap_or(0);
+    checks.check(
+        "second replay Run serves from cache, stays complete, counts cache_hits in Usage, and marks replay in its report",
+        received(site, HOST, &page_path) == hits_before
+            && report2["completeness"] == json!("complete")
+            && report2["cache_mode"] == json!("replay")
+            && cache_hits >= 1,
+    );
+
+    let trace = checks.run_trace(run_trace::provenance(target, run2));
+    let cache_entry = trace.iter().find(|entry| {
+        entry["action"] == json!("response_cache")
+            && entry["origin"]["kind"] == json!("response_cache")
+            && entry["origin"]["run_id"] == json!(run1)
+            && entry["origin"]["fetched_at"]
+                .as_str()
+                .is_some_and(|ts| goodfetch_protocol::point_in_time::from_rfc3339(ts).is_ok())
+    });
+    checks.check(
+        "Provenance marks the cache hit with its original fetched_at and fetching run_id",
+        cache_entry.is_some(),
+    );
     Ok(())
 }

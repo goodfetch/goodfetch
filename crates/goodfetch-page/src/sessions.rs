@@ -435,6 +435,7 @@ pub(crate) fn interception_run(run: &BrowserRun) -> RunPowers {
         run.keys.secrets().clone(),
         run.governor.clone(),
     )
+    .with_charging(run.charging.clone())
 }
 
 /// The identity and the powers of `run` a Session's egress relay takes

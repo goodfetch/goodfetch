@@ -26,7 +26,7 @@ pub fn walls() -> NeedsYouSource {
 /// `consent.domains` as resolved: each entry keyed as a host is everywhere
 /// (`host_name`), so `Bücher.de.` and `xn--bcher-kva.de` are one domain, or
 /// `*`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ConsentDomains(Vec<String>);
 
 impl ConsentDomains {

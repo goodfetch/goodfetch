@@ -5505,6 +5505,7 @@ impl Closing {
             limits,
             error,
             finished,
+            cache_mode: replay_cache_mode(&run.identity),
         };
         let state = run.state.clone();
         let (run_id, folder) = (run.identity.id().clone(), run.identity.folder().to_owned());
@@ -5671,4 +5672,20 @@ fn holder_gone(folder: &Path, epoch: u64) -> bool {
         }
         Err(_) => false,
     }
+}
+
+/// Returns `Some("replay")` when the Run ran under `cache.mode: replay`
+/// (ADR 0046, issue 803); `None` otherwise.
+fn replay_cache_mode(identity: &RunIdentity) -> Option<String> {
+    identity
+        .settings()
+        .and_then(|settings| {
+            goodfetch_protocol::response_cache::CacheMode::parse(
+                settings
+                    .resolved()
+                    .get(&goodfetch_protocol::response_cache::CACHE_MODE),
+            )
+        })
+        .filter(|mode| *mode == goodfetch_protocol::response_cache::CacheMode::Replay)
+        .map(|mode| mode.as_str().to_owned())
 }

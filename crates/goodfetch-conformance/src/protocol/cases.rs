@@ -729,7 +729,7 @@ impl Case {
             Self::Read(case) => case.run(connection, site, checks),
             Self::Wait(case) => case.run(connection, site, checks),
             Self::RobotsTxt(case) => case.run(connection, target, site, checks),
-            Self::ResponseCache(case) => case.run(connection, site, checks),
+            Self::ResponseCache(case) => case.run(connection, target, site, checks),
             Self::ResponseRecording(case) => case.run(connection, target, site, checks),
             Self::MarkdownMatchesTheOracle => {
                 formats::markdown_matches_the_oracle(connection, site, None, checks)

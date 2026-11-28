@@ -1604,6 +1604,8 @@ class ResponseOrigin1(BaseModel):
     fetched_at: PointInTime
     """When the cached response was fetched."""
     kind: Literal["response_cache"]
+    run_id: RunId | None = None
+    """The Run that fetched the cached response, when fetched in a Run."""
 
 
 class ResponseOrigin2(BaseModel):
@@ -3136,6 +3138,11 @@ class CrawlRunReport(RunReport):
         extra="allow",
         arbitrary_types_allowed=True,
     )
+    cache_mode: str | None = None
+    """
+    Set to `"replay"` when the Run used `cache.mode: "replay"` (ADR 0046);
+    absent otherwise.
+    """
     checkpoint: Checkpoint | None = None
     """The last Checkpoint written of it in this engine, when one was."""
     completeness: Completeness

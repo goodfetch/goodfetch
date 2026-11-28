@@ -59,6 +59,7 @@ mod caching;
 mod canonical;
 pub mod freshness;
 mod partition;
+mod scope;
 pub mod source;
 mod upkeep;
 
@@ -84,6 +85,7 @@ pub(crate) use self::canonical::body_sha256;
 pub use self::freshness::{CacheRequest, ResponseHead};
 use self::freshness::{Freshness, Stored};
 pub use self::partition::Keeper;
+pub use self::scope::{DomainList, EntryScope, WallAllowance};
 pub use self::source::{
     Capture, Capturing, KeptOut, NotRecorded, Recorded, Recording, Replaying, ResponseSource,
     Served, Source,
@@ -140,6 +142,9 @@ const SCHEMA: &[&str] = &[
         body_size INTEGER NOT NULL,
         run_id TEXT,
         used_at TEXT NOT NULL,
+        wall_domain TEXT NOT NULL DEFAULT '',
+        wall_refetch INTEGER NOT NULL DEFAULT 0,
+        consent_domain TEXT NOT NULL DEFAULT '',
         PRIMARY KEY (partition, person, country, language, device, method, url, vary_key, replay_key)
     ) STRICT",
     "CREATE INDEX IF NOT EXISTS entries_by_use ON entries (used_at)",
@@ -192,7 +197,7 @@ const USED: &str = "UPDATE entries SET used_at = ?1 WHERE partition = ?2 AND per
 
 /// A URL's entries in two partitions, the same one twice to read one,
 /// under one replay key, empty for `revalidate`'s, the newest first.
-const FIND: &str = "SELECT vary_key, request_headers, status, response_headers, fetched_at, body_sha256, body_size, run_id, partition FROM entries WHERE partition IN (?1, ?9) AND person = ?2 AND country = ?3 AND language = ?4 AND device = ?5 AND method = ?6 AND url = ?7 AND replay_key = ?8 ORDER BY fetched_at DESC";
+const FIND: &str = "SELECT vary_key, request_headers, status, response_headers, fetched_at, body_sha256, body_size, run_id, partition, wall_domain, wall_refetch, consent_domain FROM entries WHERE partition IN (?1, ?9) AND person = ?2 AND country = ?3 AND language = ?4 AND device = ?5 AND method = ?6 AND url = ?7 AND replay_key = ?8 ORDER BY fetched_at DESC";
 
 /// The replay key of `revalidate`'s entries.
 const REVALIDATED: &str = "";
@@ -223,6 +228,8 @@ pub struct Hit {
     pub head: ResponseHead,
     /// Its body, as stored.
     pub body: Bytes,
+    /// When the cached response was originally fetched (ADR 0046).
+    pub fetched_at: SystemTime,
     /// The Run that fetched it; none outside a Run.
     pub run_id: Option<RunId>,
 }
@@ -263,6 +270,7 @@ struct Entry {
     body_sha256: String,
     body_size: u64,
     run_id: Option<RunId>,
+    scope: EntryScope,
 }
 
 /// Why the cache could not be read or written: logged, never a fetch's
@@ -446,17 +454,43 @@ impl ResponseCache {
         request: &CacheRequest,
         now: SystemTime,
     ) -> Lookup {
-        if self.running_without() || !freshness::revalidates(request) {
+        self.lookup_scoped(partition, request, &WallAllowance::default(), false, now)
+            .await
+    }
+
+    /// As [`Self::lookup`], enforcing `allowance` on Wall-tagged entries and
+    /// returning `Lookup::Miss` immediately when `refetch` is true (ADR 0052).
+    pub async fn lookup_scoped(
+        &self,
+        partition: &Partition,
+        request: &CacheRequest,
+        allowance: &WallAllowance,
+        refetch: bool,
+        now: SystemTime,
+    ) -> Lookup {
+        if refetch || self.running_without() || !freshness::revalidates(request) {
             return Lookup::Miss;
         }
         let Some(read) = partition::read_from(partition.keeper.as_ref(), request) else {
             return Lookup::Miss;
         };
-        let (partition, request, bounds) = (partition.clone(), request.clone(), self.bounds);
+        let (partition, request, allowance, bounds) = (
+            partition.clone(),
+            request.clone(),
+            allowance.clone(),
+            self.bounds,
+        );
         let looked = self
             .store
             .read(Some((Lookup::Miss, false)), move |file, connection| {
-                file.lookup(connection, &partition, &read, &request, now, bounds)
+                file.lookup(
+                    connection,
+                    (&partition, &read),
+                    &request,
+                    &allowance,
+                    now,
+                    bounds,
+                )
             })
             .await;
         let (lookup, flush) = self.settled(looked).unwrap_or((Lookup::Miss, false));
@@ -508,6 +542,34 @@ impl ResponseCache {
         run_id: Option<&RunId>,
         now: SystemTime,
     ) -> bool {
+        self.store_scoped(
+            partition,
+            request,
+            head,
+            body,
+            &EntryScope::default(),
+            run_id,
+            now,
+        )
+        .await
+    }
+
+    /// As [`Self::store`], tagging the entry with `scope` (Wall allowance,
+    /// Wall refetch, or consent acceptance; ADRs 0048 and 0052).
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "store parameters with approval scope"
+    )]
+    pub async fn store_scoped(
+        &self,
+        partition: &Partition,
+        request: &CacheRequest,
+        head: &ResponseHead,
+        body: Bytes,
+        scope: &EntryScope,
+        run_id: Option<&RunId>,
+        now: SystemTime,
+    ) -> bool {
         let Some(variant) = freshness::storable(request, head) else {
             return false;
         };
@@ -518,6 +580,7 @@ impl ResponseCache {
             kept_in,
             variant,
             replay_key: REVALIDATED.to_owned(),
+            scope: scope.clone(),
         };
         self.put(entry(partition, request, head, keyed, run_id, now), body)
             .await
@@ -539,17 +602,43 @@ impl ResponseCache {
         request: &CacheRequest,
         now: SystemTime,
     ) -> Option<Hit> {
-        if self.running_without() {
+        self.replayed_scoped(partition, request, &WallAllowance::default(), false, now)
+            .await
+    }
+
+    /// As [`Self::replayed`], enforcing `allowance` on Wall-tagged entries and
+    /// returning `None` immediately when `refetch` is true (ADR 0052).
+    pub async fn replayed_scoped(
+        &self,
+        partition: &Partition,
+        request: &CacheRequest,
+        allowance: &WallAllowance,
+        refetch: bool,
+        now: SystemTime,
+    ) -> Option<Hit> {
+        if refetch || self.running_without() {
             return None;
         }
         let read = partition::read_from(partition.keeper.as_ref(), request)?;
         // Hashed once, before the request is handed to the reader.
         request.replay_key();
-        let (partition, request, bounds) = (partition.clone(), request.clone(), self.bounds);
+        let (partition, request, allowance, bounds) = (
+            partition.clone(),
+            request.clone(),
+            allowance.clone(),
+            self.bounds,
+        );
         let looked = self
             .store
             .read(Some((None, false)), move |file, connection| {
-                file.replayed(connection, &partition, &read, &request, now, bounds)
+                file.replayed(
+                    connection,
+                    (&partition, &read),
+                    &request,
+                    &allowance,
+                    now,
+                    bounds,
+                )
             })
             .await;
         let (hit, flush) = self.settled(looked).unwrap_or((None, false));
@@ -579,6 +668,34 @@ impl ResponseCache {
         run_id: Option<&RunId>,
         now: SystemTime,
     ) -> bool {
+        self.store_replayed_scoped(
+            partition,
+            request,
+            head,
+            body,
+            &EntryScope::default(),
+            run_id,
+            now,
+        )
+        .await
+    }
+
+    /// As [`Self::store_replayed`], tagging the entry with `scope` (Wall
+    /// allowance, Wall refetch, or consent acceptance; ADRs 0048 and 0052).
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "store_replayed parameters with approval scope"
+    )]
+    pub async fn store_replayed_scoped(
+        &self,
+        partition: &Partition,
+        request: &CacheRequest,
+        head: &ResponseHead,
+        body: Bytes,
+        scope: &EntryScope,
+        run_id: Option<&RunId>,
+        now: SystemTime,
+    ) -> bool {
         let Some(variant) = freshness::variant(request, head) else {
             return false;
         };
@@ -589,8 +706,38 @@ impl ResponseCache {
             kept_in,
             variant,
             replay_key: request.replay_key().to_owned(),
+            scope: scope.clone(),
         };
         self.put(entry(partition, request, head, keyed, run_id, now), body)
+            .await
+    }
+
+    /// Drops from Saved identity `name`'s partition any entries fetched under
+    /// a consent acceptance not covered by `consent` or a Wall allowance not
+    /// covered by `wall`, keeping all other entries (ADRs 0048 and 0052,
+    /// issue 803); returns the number of entries dropped.
+    ///
+    /// # Errors
+    ///
+    /// When the cache index cannot be updated.
+    pub async fn drop_unapproved_for_saved_identity(
+        &self,
+        person: &str,
+        name: &str,
+        consent: &DomainList,
+        wall: &WallAllowance,
+    ) -> Result<u64, ResponseCacheError> {
+        if self.running_without() {
+            return Ok(0);
+        }
+        let Some(partition_name) = Keeper::SavedIdentity(name.to_owned()).partition() else {
+            return Ok(0);
+        };
+        let (person, consent, wall) = (person.to_owned(), consent.clone(), wall.clone());
+        self.store
+            .write(Some(0), move |file, connection| {
+                file.drop_unapproved(connection, &person, &partition_name, &consent, &wall)
+            })
             .await
     }
 
@@ -665,16 +812,16 @@ impl CacheFile {
     fn lookup(
         &self,
         connection: &Connection,
-        partition: &Partition,
-        read: &[String; 2],
+        (partition, read): (&Partition, &[String; 2]),
         request: &CacheRequest,
+        allowance: &WallAllowance,
         now: SystemTime,
         bounds: Bounds,
     ) -> Result<(Lookup, bool), ResponseCacheError> {
         self.work.count(Row::CacheLookups);
         let rows = self.find(connection, partition, read, request, REVALIDATED)?;
         for entry in rows {
-            if bounds.outlived(entry.stored.fetched_at, now) {
+            if !entry.scope.allowed_by(allowance) || bounds.outlived(entry.stored.fetched_at, now) {
                 continue;
             }
             match freshness::freshness(&entry.stored, request, now) {
@@ -691,6 +838,7 @@ impl CacheFile {
                                 headers: freshness::served_headers(&entry.stored.head.headers, age),
                             },
                             body,
+                            fetched_at: entry.stored.fetched_at,
                             run_id: entry.run_id,
                         }),
                         flush,
@@ -718,15 +866,18 @@ impl CacheFile {
     fn replayed(
         &self,
         connection: &Connection,
-        partition: &Partition,
-        read: &[String; 2],
+        (partition, read): (&Partition, &[String; 2]),
         request: &CacheRequest,
+        allowance: &WallAllowance,
         now: SystemTime,
         bounds: Bounds,
     ) -> Result<(Option<Hit>, bool), ResponseCacheError> {
         self.work.count(Row::CacheLookups);
         let rows = self.find(connection, partition, read, request, request.replay_key())?;
         for entry in rows {
+            if !entry.scope.allowed_by(allowance) {
+                continue;
+            }
             let asked = freshness::variant(request, &entry.stored.head);
             if asked.is_none_or(|asked| asked.vary_key != entry.vary_key)
                 || bounds.outlived(entry.stored.fetched_at, now)
@@ -741,6 +892,7 @@ impl CacheFile {
                 Some(Hit {
                     head: entry.stored.head,
                     body,
+                    fetched_at: entry.stored.fetched_at,
                     run_id: entry.run_id,
                 }),
                 flush,
@@ -803,7 +955,7 @@ impl CacheFile {
     ) -> Result<Vec<Entry>, ResponseCacheError> {
         let mut statement = connection
             .prepare_cached(FIND)
-            .map_err(|error| self.failed(&error))?;
+            .map_err(|error: rusqlite::Error| self.failed(&error))?;
         let rows = statement
             .query_map(
                 (
@@ -828,10 +980,13 @@ impl CacheFile {
                         row.get::<_, i64>(6).ok(),
                         row.get::<_, Option<String>>(7).ok(),
                         row.get::<_, String>(8)?,
+                        row.get::<_, String>(9).unwrap_or_default(),
+                        row.get::<_, i64>(10).unwrap_or(0),
+                        row.get::<_, String>(11).unwrap_or_default(),
                     ))
                 },
             )
-            .map_err(|error| self.failed(&error))?;
+            .map_err(|error: rusqlite::Error| self.failed(&error))?;
         let mut entries = Vec::new();
         for row in rows {
             let (
@@ -844,6 +999,9 @@ impl CacheFile {
                 size,
                 run_id,
                 kept_in,
+                wall_domain,
+                wall_refetch,
+                consent_domain,
             ) = row.map_err(|error| self.failed(&error))?;
             let read = || {
                 Some(Entry {
@@ -866,6 +1024,11 @@ impl CacheFile {
                     run_id: match run_id? {
                         Some(run_id) => Some(RunId::parse(&run_id).ok()?),
                         None => None,
+                    },
+                    scope: EntryScope {
+                        wall_domain: (!wall_domain.is_empty()).then_some(wall_domain),
+                        wall_refetch: wall_refetch != 0,
+                        consent_domain: (!consent_domain.is_empty()).then_some(consent_domain),
                     },
                 })
             };
@@ -902,7 +1065,7 @@ impl CacheFile {
                     entry.replay_key,
                 ])
             })
-            .map_err(|error| self.failed(&error))?;
+            .map_err(|error: rusqlite::Error| self.failed(&error))?;
         if updated == 0 {
             return Ok(None);
         }
@@ -915,8 +1078,50 @@ impl CacheFile {
                 headers: freshness::served_headers(headers, Duration::ZERO),
             },
             body,
+            fetched_at: now,
             run_id: entry.run_id.clone(),
         }))
+    }
+
+    /// Drops from `partition_name` (a Saved identity's partition) every entry
+    /// whose consent acceptance or Wall allowance is not covered by the saving
+    /// Run's `consent` and `wall` (ADRs 0048 and 0052).
+    fn drop_unapproved(
+        &self,
+        connection: &Connection,
+        person: &str,
+        partition_name: &str,
+        consent: &DomainList,
+        wall: &WallAllowance,
+    ) -> Result<u64, ResponseCacheError> {
+        let (dropped, let_go) = sqlite_store::immediate(connection, |connection| {
+            let candidates: Vec<(i64, String, i64, String)> = connection
+                .prepare_cached(
+                    "SELECT rowid, wall_domain, wall_refetch, consent_domain FROM entries \
+                     WHERE partition = ?1 AND person = ?2 AND (wall_domain != '' OR consent_domain != '')",
+                )?
+                .query_map((partition_name, person), |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let mut dropped = 0_u64;
+            let mut delete = connection.prepare_cached("DELETE FROM entries WHERE rowid = ?1")?;
+            for (rowid, wall_domain, wall_refetch, consent_domain) in candidates {
+                let scope = EntryScope {
+                    wall_domain: (!wall_domain.is_empty()).then_some(wall_domain),
+                    wall_refetch: wall_refetch != 0,
+                    consent_domain: (!consent_domain.is_empty()).then_some(consent_domain),
+                };
+                if !scope.survives_identity_save(consent, wall) {
+                    dropped = dropped.saturating_add(u64::try_from(delete.execute([rowid])?).unwrap_or(0));
+                }
+            }
+            let let_go = let_go(connection)?;
+            Ok((dropped, let_go))
+        })
+        .map_err(|error: rusqlite::Error| self.failed(&error))?;
+        self.remove_bodies(&let_go);
+        Ok(dropped)
     }
 
     /// Stores `entry` with `body` under `bounds`, in one transaction with
@@ -941,7 +1146,7 @@ impl CacheFile {
             insert(connection, entry)?;
             evict(connection, bounds.max_size)
         })
-        .map_err(|error| self.failed(&error))?;
+        .map_err(|error: rusqlite::Error| self.failed(&error))?;
         self.remove_bodies(&let_go);
         Ok(())
     }
@@ -1044,10 +1249,10 @@ impl CacheFile {
     fn connect(&self, access: Access) -> Result<Connection, ResponseCacheError> {
         let connection = File::new(&self.index, self.vfs.as_deref())
             .connect(access)
-            .map_err(|error| self.failed(&error))?;
+            .map_err(|error: rusqlite::Error| self.failed(&error))?;
         connection
             .busy_timeout(BUSY_TIMEOUT)
-            .map_err(|error| self.failed(&error))?;
+            .map_err(|error: rusqlite::Error| self.failed(&error))?;
         Ok(connection)
     }
 
@@ -1100,7 +1305,7 @@ impl StoreFile for CacheFile {
                 "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('format', 'entries', 'bodies', 'held')",
             )
             .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
-            .map_err(|error| self.failed(&error))?;
+            .map_err(|error: rusqlite::Error| self.failed(&error))?;
         if tables < 4 {
             drop(connection);
             return self.open();
@@ -1108,7 +1313,7 @@ impl StoreFile for CacheFile {
         let found: String = connection
             .prepare_cached("SELECT version FROM format WHERE name = ?1")
             .and_then(|mut statement| statement.query_row([RESPONSE_CACHE.name], |row| row.get(0)))
-            .map_err(|error| self.failed(&error))?;
+            .map_err(|error: rusqlite::Error| self.failed(&error))?;
         sqlite_store::check_format(&RESPONSE_CACHE, &found).map_err(refused)?;
         Ok(connection)
     }
@@ -1129,6 +1334,8 @@ struct Keyed {
     variant: freshness::Variant,
     /// [`REVALIDATED`], or its request's replay key under `replay`.
     replay_key: String,
+    /// Approval tags for Wall allowance or consent acceptance.
+    scope: EntryScope,
 }
 
 /// The entry `head`, the response to `request` in `partition` received at
@@ -1146,6 +1353,7 @@ fn entry(
         kept_in,
         variant,
         replay_key,
+        scope,
     } = keyed;
     Entry {
         partition: partition.clone(),
@@ -1162,6 +1370,7 @@ fn entry(
         body_sha256: String::new(),
         body_size: 0,
         run_id: run_id.cloned(),
+        scope,
     }
 }
 
@@ -1169,10 +1378,10 @@ fn entry(
 fn insert(connection: &Connection, entry: &Entry) -> rusqlite::Result<()> {
     connection
         .prepare_cached(
-            "INSERT INTO entries (partition, person, country, language, device, method, url, vary_key, request_headers, status, response_headers, fetched_at, body_sha256, body_size, run_id, used_at, replay_key)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?12, ?16)
+            "INSERT INTO entries (partition, person, country, language, device, method, url, vary_key, request_headers, status, response_headers, fetched_at, body_sha256, body_size, run_id, used_at, replay_key, wall_domain, wall_refetch, consent_domain)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?12, ?16, ?17, ?18, ?19)
              ON CONFLICT (partition, person, country, language, device, method, url, vary_key, replay_key) DO UPDATE SET
-             request_headers = excluded.request_headers, status = excluded.status, response_headers = excluded.response_headers, fetched_at = excluded.fetched_at, body_sha256 = excluded.body_sha256, body_size = excluded.body_size, run_id = excluded.run_id, used_at = excluded.used_at",
+             request_headers = excluded.request_headers, status = excluded.status, response_headers = excluded.response_headers, fetched_at = excluded.fetched_at, body_sha256 = excluded.body_sha256, body_size = excluded.body_size, run_id = excluded.run_id, used_at = excluded.used_at, wall_domain = excluded.wall_domain, wall_refetch = excluded.wall_refetch, consent_domain = excluded.consent_domain",
         )?
         .execute(rusqlite::params![
             entry.kept_in,
@@ -1191,6 +1400,9 @@ fn insert(connection: &Connection, entry: &Entry) -> rusqlite::Result<()> {
             i64::try_from(entry.body_size).unwrap_or(i64::MAX),
             entry.run_id.as_ref().map(RunId::as_str),
             entry.replay_key,
+            entry.scope.wall_domain.as_deref().unwrap_or(""),
+            i64::from(entry.scope.wall_refetch),
+            entry.scope.consent_domain.as_deref().unwrap_or(""),
         ])
         .map(drop)
 }

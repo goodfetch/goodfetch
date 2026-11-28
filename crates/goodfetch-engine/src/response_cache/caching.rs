@@ -15,7 +15,8 @@ use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::run::RunId;
 
 use super::{
-    CacheRequest, Hit, Keeper, KeptOut, Partition, ResponseHead, ResponseSource, Source, Stale,
+    CacheRequest, EntryScope, Hit, Keeper, KeptOut, Partition, ResponseHead, ResponseSource,
+    Source, Stale,
 };
 use crate::clock::Clock;
 use crate::mask::{Masks, Scope};
@@ -209,6 +210,18 @@ impl Caching {
             .await
     }
 
+    /// As [`Self::source`], for a Wall refetch (ADR 0052): never reads the
+    /// Response cache.
+    pub async fn source_for_refetch(
+        &self,
+        request: &CacheRequest,
+        kept_out: Option<KeptOut>,
+    ) -> Source {
+        self.source
+            .source_for_refetch(None, &self.partition, request, kept_out, self.clock.wall())
+            .await
+    }
+
     /// Whether a response with `head` to `request` would be stored, as
     /// [`ResponseSource::stores`] says.
     pub fn stores(
@@ -237,16 +250,30 @@ impl Caching {
     /// Stores `body`, the whole answer with `head` to `request`, fetched
     /// by this Run now, as [`ResponseSource::store`] does: whether it was.
     pub async fn store(&self, request: &CacheRequest, head: &ResponseHead, body: Bytes) -> bool {
+        self.store_scoped(request, head, body, &EntryScope::default())
+            .await
+    }
+
+    /// As [`Self::store`], tagging the entry with `scope` (Wall allowance,
+    /// Wall refetch, or consent acceptance; ADRs 0048 and 0052).
+    pub async fn store_scoped(
+        &self,
+        request: &CacheRequest,
+        head: &ResponseHead,
+        body: Bytes,
+        scope: &EntryScope,
+    ) -> bool {
         let kept_out = self
             .carries_secret(request)
             .then_some(KeptOut::ResolvedSecret);
         self.source
-            .store(
+            .store_scoped(
                 &self.partition,
                 request,
                 head,
                 body,
                 kept_out,
+                scope,
                 Some(&self.run_id),
                 self.clock.wall(),
             )

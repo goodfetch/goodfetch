@@ -92,6 +92,11 @@ pub struct RunReport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub recording: Option<RecordingReport>,
+    /// Set to `"replay"` when the Run used `cache.mode: "replay"` (ADR 0046);
+    /// absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub cache_mode: Option<String>,
     /// The last Checkpoint written of it in this engine, when one was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -129,12 +134,14 @@ impl RunReport {
         self.verdict_reasons.push(reason);
     }
 
-    /// Whether it replayed a Response recording (ADR 0105), which marks it
-    /// in its Run index row.
+    /// Whether it replayed a Response recording (ADR 0105) or used
+    /// `cache.mode: "replay"` (ADR 0046), which marks it in its Run index row.
     pub fn replayed(&self) -> bool {
-        self.recording
-            .as_ref()
-            .is_some_and(|recording| recording.mode == "replay")
+        self.cache_mode.as_deref() == Some("replay")
+            || self
+                .recording
+                .as_ref()
+                .is_some_and(|recording| recording.mode == "replay")
     }
 }
 
@@ -225,6 +232,11 @@ pub struct RunUsage {
     /// The requests it sent.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub requests: u64,
+    /// The requests answered from the Response cache, counted apart from
+    /// `requests` (ADR 0046).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub cache_hits: u64,
     /// Its paid solves, by currency (ADR 0035).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -257,6 +269,14 @@ pub struct RunUsage {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub uncapped: bool,
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde skip_serializing_if requires &T"
+)]
+const fn is_zero(value: &u64) -> bool {
+    *value == 0
 }
 
 /// One kind of a Run's Model allowance (ADR 0107): the most model Usage

@@ -177,6 +177,7 @@ async fn a_fresh_entry_is_served_from_one_lookup_and_one_body_file() {
                 ]),
             },
             body: body(),
+            fetched_at: start(),
             run_id: Some(RunId::parse("first").unwrap()),
         }
     );
@@ -241,6 +242,7 @@ async fn a_replayed_form_post_is_served_as_stored_for_its_fields_and_variant() {
         Some(Hit {
             head: answer,
             body: body(),
+            fetched_at: start(),
             run_id: None,
         })
     );
@@ -1133,4 +1135,219 @@ async fn a_request_carrying_a_resolved_secret_leaves_no_canary_in_cache_bodies_o
         "secret canary leaked into Response cache: {leaks:?}"
     );
     drop(mask);
+}
+
+/// An entry fetched under a Wall allowance is tagged with its domain and served
+/// only to Runs whose `wall.domains` cover it; a refetched entry carries its
+/// own tag and is served only when `wall.refetch_domains` also covers it; none
+/// is served for a denied domain (even under `*`); and a refetch never reads
+/// the cache (ADR 0052, issue 803).
+/// Covers: story:6-47
+#[tokio::test]
+async fn wall_allowance_entries_are_scoped_denied_domains_blocked_and_refetch_never_reads_cache() {
+    use goodfetch_protocol::response_cache::CacheMode;
+
+    use crate::response_cache::{EntryScope, ResponseSource, Source, WallAllowance};
+
+    let env = TestEnv::new();
+    let cache = cache(&env);
+    let now = start();
+    let run_id = RunId::parse("run-wall-1").unwrap();
+    let req = get("/article", &[]);
+    let head = minute();
+
+    // Store an entry fetched under Wall allowance for news.test.
+    assert!(
+        cache
+            .store_scoped(
+                &ada(),
+                &req,
+                &head,
+                Bytes::from_static(b"wall-served"),
+                &EntryScope::wall("news.test"),
+                Some(&run_id),
+                now,
+            )
+            .await
+    );
+
+    // Run without news.test in wall.domains misses.
+    let no_wall = WallAllowance::default();
+    assert!(matches!(
+        cache
+            .lookup_scoped(&ada(), &req, &no_wall, false, now)
+            .await,
+        Lookup::Miss
+    ));
+
+    // Run with news.test in wall.domains gets the hit with fetched_at and run_id.
+    let allowed = WallAllowance::from_lists(&["news.test"], &[], &[]);
+    let Lookup::Fresh(hit) = cache
+        .lookup_scoped(&ada(), &req, &allowed, false, now)
+        .await
+    else {
+        panic!("expected Fresh hit for allowed wall domain");
+    };
+    assert_eq!(hit.body, Bytes::from_static(b"wall-served"));
+    assert_eq!(hit.fetched_at, now);
+    assert_eq!(hit.run_id, Some(run_id.clone()));
+
+    // Denied domain is never served, even when wall.domains has `*`.
+    let denied = WallAllowance::from_lists(&["*"], &["*"], &["news.test"]);
+    assert!(matches!(
+        cache.lookup_scoped(&ada(), &req, &denied, false, now).await,
+        Lookup::Miss
+    ));
+
+    // A refetch never reads the cache, even when the domain is allowed.
+    let refetch_allowed = WallAllowance::from_lists(&["news.test"], &["news.test"], &[]);
+    assert!(matches!(
+        cache
+            .lookup_scoped(&ada(), &req, &refetch_allowed, true, now)
+            .await,
+        Lookup::Miss
+    ));
+    let source =
+        ResponseSource::of(&cache, CacheMode::Revalidate).wall_allowance(refetch_allowed.clone());
+    assert!(matches!(
+        source
+            .source_for_refetch(None, &ada(), &req, None, now)
+            .await,
+        Source::Network
+    ));
+
+    // Store a refetched entry: requires BOTH wall.domains and wall.refetch_domains.
+    let refetch_req = get("/metered", &[]);
+    assert!(
+        cache
+            .store_scoped(
+                &ada(),
+                &refetch_req,
+                &head,
+                Bytes::from_static(b"refetched-body"),
+                &EntryScope::wall_refetch("news.test"),
+                Some(&run_id),
+                now,
+            )
+            .await
+    );
+    assert!(matches!(
+        cache
+            .lookup_scoped(&ada(), &refetch_req, &allowed, false, now)
+            .await,
+        Lookup::Miss
+    ));
+    let Lookup::Fresh(refetch_hit) = cache
+        .lookup_scoped(&ada(), &refetch_req, &refetch_allowed, false, now)
+        .await
+    else {
+        panic!("expected Fresh hit for allowed wall_refetch domain");
+    };
+    assert_eq!(refetch_hit.body, Bytes::from_static(b"refetched-body"));
+    assert!(matches!(
+        cache
+            .lookup_scoped(&ada(), &refetch_req, &denied, false, now)
+            .await,
+        Lookup::Miss
+    ));
+}
+
+/// Saving an identity drops from its partition the entries fetched under a
+/// consent acceptance outside the saving Run's `consent.domains` (and Wall
+/// entries outside its Wall allowance) and keeps the others (ADRs 0048 and
+/// 0052, issue 803).
+/// Covers: story:6-48
+#[tokio::test]
+async fn saving_identity_drops_unapproved_consent_entries_and_keeps_others() {
+    use serde_json::json;
+
+    use crate::response_cache::{DomainList, EntryScope, Keeper, WallAllowance};
+
+    let env = TestEnv::new();
+    let cache = cache(&env);
+    let now = start();
+    let run_id = RunId::parse("run-consent-1").unwrap();
+    let identity_partition = Partition {
+        keeper: Some(Keeper::SavedIdentity("work".to_owned())),
+        ..ada()
+    };
+    let head = ResponseHead {
+        status: 200,
+        headers: vec![
+            ("cache-control".to_owned(), "private, max-age=60".to_owned()),
+            ("set-cookie".to_owned(), "sid=1".to_owned()),
+        ],
+    };
+
+    let unapproved_req = get("/consent-other", &[("cookie", "sid=1")]);
+    let approved_req = get("/consent-allowed", &[("cookie", "sid=1")]);
+    let ordinary_req = get("/ordinary", &[("cookie", "sid=1")]);
+
+    assert!(
+        cache
+            .store_scoped(
+                &identity_partition,
+                &unapproved_req,
+                &head,
+                Bytes::from_static(b"other-site"),
+                &EntryScope::consent("other.test"),
+                Some(&run_id),
+                now,
+            )
+            .await
+    );
+    assert!(
+        cache
+            .store_scoped(
+                &identity_partition,
+                &approved_req,
+                &head,
+                Bytes::from_static(b"allowed-site"),
+                &EntryScope::consent("allowed.test"),
+                Some(&run_id),
+                now,
+            )
+            .await
+    );
+    assert!(
+        cache
+            .store_scoped(
+                &identity_partition,
+                &ordinary_req,
+                &head,
+                Bytes::from_static(b"ordinary-site"),
+                &EntryScope::default(),
+                Some(&run_id),
+                now,
+            )
+            .await
+    );
+
+    let saving_consent = DomainList::of(&json!(["allowed.test"]));
+    let dropped = cache
+        .drop_unapproved_for_saved_identity(
+            &identity_partition.person,
+            "work",
+            &saving_consent,
+            &WallAllowance::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(dropped, 1);
+
+    // Unapproved consent entry is gone; approved and ordinary entries stay.
+    assert!(matches!(
+        cache
+            .lookup(&identity_partition, &unapproved_req, now)
+            .await,
+        Lookup::Miss
+    ));
+    assert!(matches!(
+        cache.lookup(&identity_partition, &approved_req, now).await,
+        Lookup::Fresh(_)
+    ));
+    assert!(matches!(
+        cache.lookup(&identity_partition, &ordinary_req, now).await,
+        Lookup::Fresh(_)
+    ));
 }

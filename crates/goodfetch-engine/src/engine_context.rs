@@ -387,6 +387,7 @@ impl EngineContext {
             &self.stores.response_cache.bounded(Bounds::of(settings)),
             mode,
         )
+        .wall_allowance(crate::response_cache::WallAllowance::of(settings))
     }
 
     /// As [`EngineContext::response_source`], with `run_id`'s Response

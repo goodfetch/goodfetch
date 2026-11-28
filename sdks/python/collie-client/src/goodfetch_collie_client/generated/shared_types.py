@@ -152,13 +152,14 @@ received (ADR 0079).
 - `storage_low`: The Run met the `low` storage level: the folder, its free space and what was shed.
 """
 
-UsageKind: TypeAlias = Literal["browser_time", "model_calls", "model_tokens", "page_crashes", "paid_solves", "plugin_calls", "plugin_time", "proxy_bytes", "requests", "sample_echoes"] | str
+UsageKind: TypeAlias = Literal["browser_time", "cache_hits", "model_calls", "model_tokens", "page_crashes", "paid_solves", "plugin_calls", "plugin_time", "proxy_bytes", "requests", "sample_echoes"] | str
 """A `usage_kind`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
 received (ADR 0079).
 
 - `browser_time`: The time a run held a browser, in milliseconds (ADR 0101).
+- `cache_hits`: Requests answered from the Response cache, counted apart from requests (ADR 0046).
 - `model_calls`: Model calls a run made, retries and Repairs included (ADR 0101).
 - `model_tokens`: Model tokens a run used, input and output (ADR 0101).
 - `page_crashes`: Crashes of a run: one per renderer that crashed, and one per browser process that crashed, however many pages it held (ADR 0040). A crash racing the page's close does not count.

@@ -11839,6 +11839,14 @@
       "additionalProperties": true,
       "description": "What a Run states about itself when it ends (ADR 0102). A part no area\nsupplied is absent, never zero.",
       "properties": {
+        "cache_mode": {
+          "arrived_in": "0.1",
+          "description": "Set to `\"replay\"` when the Run used `cache.mode: \"replay\"` (ADR 0046);\nabsent otherwise.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "checkpoint": {
           "anyOf": [
             {
@@ -12543,6 +12551,13 @@
           "$ref": "#/$defs/Milliseconds",
           "arrived_in": "0.1",
           "description": "How long it held a browser."
+        },
+        "cache_hits": {
+          "arrived_in": "0.1",
+          "description": "The requests answered from the Response cache, counted apart from\n`requests` (ADR 0046).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
         },
         "limits": {
           "arrived_in": "0.1",
@@ -28532,6 +28547,13 @@
       "arrived_in": "0.1",
       "description": "The time a run held a browser, in milliseconds (ADR 0101).",
       "name": "browser_time",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Requests answered from the Response cache, counted apart from requests (ADR 0046).",
+      "name": "cache_hits",
       "product": "collie",
       "type": "usage_kind"
     },

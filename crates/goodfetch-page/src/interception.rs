@@ -168,6 +168,7 @@ pub(crate) struct RunPowers {
     pub(crate) lists: ListsRun,
     pub(crate) secrets: RunSecrets,
     pub(crate) governor: RunGovernor,
+    pub(crate) charging: Option<goodfetch_engine::ledger::RunCharging>,
 }
 
 impl RunPowers {
@@ -191,7 +192,15 @@ impl RunPowers {
             },
             secrets,
             governor,
+            charging: None,
         }
+    }
+
+    /// Attaches the Run's [`RunCharging`] so cache hits charge `cache_hits`
+    /// through `ledger::charging` from held Slices (ADR 0046, issue 803).
+    pub(crate) fn with_charging(mut self, charging: goodfetch_engine::ledger::RunCharging) -> Self {
+        self.charging = Some(charging);
+        self
     }
 
     /// The Run's identity.

@@ -246,6 +246,7 @@ impl TakeOver {
             limits: Vec::new(),
             error: None,
             finished: Vec::new(),
+            cache_mode: None,
         };
         let parts = self.parts.clone();
         let ended = state

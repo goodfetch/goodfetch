@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::foxhound::fetch::FetchTier;
 use crate::page::read::{TransformProvenance, UnreadField};
+use crate::run::RunId;
 
 /// How one committed Record was obtained.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -179,6 +180,10 @@ pub enum ResponseOrigin {
         #[serde(with = "crate::point_in_time")]
         #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
         fetched_at: SystemTime,
+        /// The Run that fetched the cached response, when fetched in a Run.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        run_id: Option<RunId>,
     },
     /// A Response recording (ADR 0105).
     ResponseRecording {

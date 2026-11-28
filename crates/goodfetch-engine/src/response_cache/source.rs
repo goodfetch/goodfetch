@@ -19,8 +19,8 @@ use goodfetch_protocol::run::RunId;
 use crate::dns::HostMapping;
 
 use super::{
-    CacheRequest, Hit, Lookup, Partition, ResponseCache, ResponseCacheError, ResponseHead, Stale,
-    freshness, partition,
+    CacheRequest, EntryScope, Hit, Lookup, Partition, ResponseCache, ResponseCacheError,
+    ResponseHead, Stale, WallAllowance, freshness, partition,
 };
 
 /// A response served whole without the network: a fulfilling route's or
@@ -167,6 +167,9 @@ pub struct ResponseSource {
     /// Run reaches hosts mapped to loopback live while answering every other
     /// host from its recording before any DNS lookup (ADR 0105, issue 801).
     resolve: Arc<HostMapping>,
+    /// The Run's Wall allowance, built once from its settings so Wall-tagged
+    /// entries are served only to Runs whose settings cover them (ADR 0052).
+    wall_allowance: WallAllowance,
 }
 
 /// How a Run uses the cache, as its `cache.mode` says.
@@ -194,6 +197,17 @@ impl ResponseSource {
             recording: None,
             capture: None,
             resolve: Arc::new(HostMapping::default()),
+            wall_allowance: WallAllowance::default(),
+        }
+    }
+
+    /// Attaches the Run's [`WallAllowance`], built once from its settings
+    /// (ADR 0052, issue 803).
+    #[must_use]
+    pub fn wall_allowance(self, wall_allowance: WallAllowance) -> Self {
+        Self {
+            wall_allowance,
+            ..self
         }
     }
 
@@ -328,6 +342,34 @@ impl ResponseSource {
         kept_out: Option<KeptOut>,
         now: SystemTime,
     ) -> Source {
+        self.resolve_source(routed, partition, request, kept_out, false, now)
+            .await
+    }
+
+    /// As [`Self::source`], for a Wall refetch (ADR 0052): a refetch never
+    /// reads the Response cache, so it never replays the copy that was
+    /// withheld.
+    pub async fn source_for_refetch(
+        &self,
+        routed: Option<Served>,
+        partition: &Partition,
+        request: &CacheRequest,
+        kept_out: Option<KeptOut>,
+        now: SystemTime,
+    ) -> Source {
+        self.resolve_source(routed, partition, request, kept_out, true, now)
+            .await
+    }
+
+    async fn resolve_source(
+        &self,
+        routed: Option<Served>,
+        partition: &Partition,
+        request: &CacheRequest,
+        kept_out: Option<KeptOut>,
+        refetch: bool,
+        now: SystemTime,
+    ) -> Source {
         if let Some(served) = routed {
             return Source::Routed(served);
         }
@@ -346,20 +388,23 @@ impl ResponseSource {
                 Recorded::Missed(miss) => Source::NotRecorded(miss),
             };
         }
-        if self.capture.is_some() {
-            return Source::Network;
-        }
-        if kept_out.is_some_and(KeptOut::bars_serving) {
+        if refetch || self.capture.is_some() || kept_out.is_some_and(KeptOut::bars_serving) {
             return Source::Network;
         }
         match &self.cache {
             Keeping::Off => Source::Network,
-            Keeping::Revalidate(cache) => match cache.lookup(partition, request, now).await {
+            Keeping::Revalidate(cache) => match cache
+                .lookup_scoped(partition, request, &self.wall_allowance, false, now)
+                .await
+            {
                 Lookup::Miss => Source::Network,
                 Lookup::Fresh(hit) => Source::Fresh(hit),
                 Lookup::Stale(stale) => Source::Stale(stale),
             },
-            Keeping::Replay(cache) => match cache.replayed(partition, request, now).await {
+            Keeping::Replay(cache) => match cache
+                .replayed_scoped(partition, request, &self.wall_allowance, false, now)
+                .await
+            {
                 Some(hit) => Source::Fresh(hit),
                 None => Source::Network,
             },
@@ -425,6 +470,36 @@ impl ResponseSource {
         run_id: Option<&RunId>,
         now: SystemTime,
     ) -> bool {
+        self.store_scoped(
+            partition,
+            request,
+            head,
+            body,
+            kept_out,
+            &EntryScope::default(),
+            run_id,
+            now,
+        )
+        .await
+    }
+
+    /// As [`Self::store`], tagging the stored entry with `scope` (Wall
+    /// allowance, Wall refetch, or consent acceptance; ADRs 0048 and 0052).
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the cache's own store arguments, with outcome and approval scope"
+    )]
+    pub async fn store_scoped(
+        &self,
+        partition: &Partition,
+        request: &CacheRequest,
+        head: &ResponseHead,
+        body: Bytes,
+        kept_out: Option<KeptOut>,
+        scope: &EntryScope,
+        run_id: Option<&RunId>,
+        now: SystemTime,
+    ) -> bool {
         if self.recording.is_some() || kept_out.is_some() {
             return false;
         }
@@ -432,12 +507,12 @@ impl ResponseSource {
             Keeping::Off => false,
             Keeping::Revalidate(cache) => {
                 cache
-                    .store(partition, request, head, body, run_id, now)
+                    .store_scoped(partition, request, head, body, scope, run_id, now)
                     .await
             }
             Keeping::Replay(cache) => {
                 cache
-                    .store_replayed(partition, request, head, body, run_id, now)
+                    .store_replayed_scoped(partition, request, head, body, scope, run_id, now)
                     .await
             }
         }

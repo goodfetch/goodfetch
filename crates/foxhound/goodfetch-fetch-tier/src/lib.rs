@@ -72,6 +72,7 @@ pub use gate::{
 };
 pub use goodfetch_extractor::BuiltIn;
 pub use goodfetch_page::BrowserRun;
+pub use goodfetch_page::page_value::DiscoveredByClicking;
 pub use goodfetch_page::page_value::{HeldPlace, PooledSession};
 pub use http_profile::HttpProfile;
 pub use light_browser::{

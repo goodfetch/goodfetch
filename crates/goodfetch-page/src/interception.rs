@@ -94,7 +94,7 @@ mod steps;
 pub(crate) mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use data_encoding::BASE64;
@@ -460,11 +460,128 @@ pub(super) struct PageState {
     /// What it does with each document its main frame receives, when a
     /// program opened it; none for a service worker's own.
     on_document: Option<Arc<dyn OnDocument>>,
+    /// Active discovery-click capture (issue 1087): when set, main-frame
+    /// navigations, popup first requests and unsafe requests (`method` not
+    /// `GET`/`HEAD`/`OPTIONS`) are recorded and aborted unsent inline on the
+    /// interception reader task with no task spawned.
+    discovery: Mutex<Option<DiscoverySlot>>,
     /// Its Session's [`SessionInterception::caching`].
     caching: Option<Arc<Caching>>,
     /// Its Product's Block classifier, which keeps blocked responses out of
     /// the Response cache (ADR 0046).
     blocks: Arc<dyn BlockClassifier>,
+}
+
+/// Whether `method` is a safe read-only HTTP method allowed during discovery
+/// clicks (issue 1087): `GET`, `HEAD` or `OPTIONS`.
+pub(crate) fn is_safe_discovery_method(method: &str) -> bool {
+    method.eq_ignore_ascii_case("GET")
+        || method.eq_ignore_ascii_case("HEAD")
+        || method.eq_ignore_ascii_case("OPTIONS")
+}
+
+/// One page's attachment to a [`DiscoveryCapture`].
+#[derive(Clone)]
+pub(super) struct DiscoverySlot {
+    pub(super) capture: Arc<DiscoveryCapture>,
+    pub(super) is_popup: bool,
+}
+
+/// Recorded state shared between a discovery click on a page and any popup it
+/// opens while armed (issue 1087).
+pub(crate) struct DiscoveryCapture {
+    recorded: Mutex<DiscoveryRecorded>,
+    pending_popups: AtomicUsize,
+    changed: tokio::sync::watch::Sender<u64>,
+}
+
+impl Default for DiscoveryCapture {
+    fn default() -> Self {
+        let (changed, _) = tokio::sync::watch::channel(0);
+        Self {
+            recorded: Mutex::new(DiscoveryRecorded::default()),
+            pending_popups: AtomicUsize::new(0),
+            changed,
+        }
+    }
+}
+
+#[derive(Default)]
+struct DiscoveryRecorded {
+    urls: Vec<String>,
+    aborted: Vec<(String, String)>,
+    popups: Vec<PageId>,
+}
+
+impl DiscoveryCapture {
+    /// Creates an empty capture for one discovery click.
+    pub(crate) fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    /// Notes that the click opened `popup` so it is closed after the click
+    /// settles, and marks its first request as pending.
+    pub(crate) fn popup_opened(&self, popup: PageId) {
+        self.pending_popups.fetch_add(1, Ordering::AcqRel);
+        lock(&self.recorded).popups.push(popup);
+        self.changed.send_modify(|n| *n = n.wrapping_add(1));
+    }
+
+    /// Records a discovered navigation or popup URL and wakes any waiter.
+    pub(super) fn record_url(&self, url: &str, from_popup: bool) {
+        lock(&self.recorded).urls.push(url.to_owned());
+        if from_popup {
+            let _ = self
+                .pending_popups
+                .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                    Some(n.saturating_sub(1))
+                });
+        }
+        self.changed.send_modify(|n| *n = n.wrapping_add(1));
+    }
+
+    /// Records an unsafe request aborted unsent and wakes any waiter.
+    pub(super) fn record_aborted(&self, method: &str, url: &str, from_popup: bool) {
+        lock(&self.recorded)
+            .aborted
+            .push((method.to_ascii_uppercase(), url.to_owned()));
+        if from_popup {
+            let _ = self
+                .pending_popups
+                .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                    Some(n.saturating_sub(1))
+                });
+        }
+        self.changed.send_modify(|n| *n = n.wrapping_add(1));
+    }
+
+    /// Whether any navigation URL or aborted unsafe request has been captured.
+    pub(crate) fn has_activity(&self) -> bool {
+        let recorded = lock(&self.recorded);
+        !recorded.urls.is_empty() || !recorded.aborted.is_empty()
+    }
+
+    /// How many popups opened by this click are still awaiting their first
+    /// intercepted request.
+    pub(crate) fn pending_popups(&self) -> usize {
+        self.pending_popups.load(Ordering::Acquire)
+    }
+
+    /// Subscribes to discovery capture changes before checking state so no
+    /// wakeup can be missed between check and await.
+    pub(crate) fn subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.changed.subscribe()
+    }
+
+    /// Takes the URLs, aborted unsafe requests and opened popup IDs recorded.
+    pub(crate) fn take_all(&self) -> (Vec<String>, Vec<(String, String)>, Vec<PageId>) {
+        let mut recorded = lock(&self.recorded);
+        (
+            std::mem::take(&mut recorded.urls),
+            std::mem::take(&mut recorded.aborted),
+            std::mem::take(&mut recorded.popups),
+        )
+    }
 }
 
 /// What a crawl request's own document fetch sends in place of the
@@ -500,6 +617,17 @@ impl PageState {
             overrides.headers = Some(merged);
         }
         Some(overrides)
+    }
+
+    /// Active discovery-click slot, if armed.
+    pub(super) fn discovery_slot(&self) -> Option<DiscoverySlot> {
+        lock(&self.discovery).clone()
+    }
+
+    /// Whether an active discovery-click capture handles and aborts this
+    /// request inline on the reader task (zero tasks spawned, `C5.spawns`).
+    pub(super) fn discovery_handles(&self, method: &str, navigation: bool) -> bool {
+        lock(&self.discovery).is_some() && (navigation || !is_safe_discovery_method(method))
     }
 }
 
@@ -862,6 +990,7 @@ impl Interception {
                 signing: session.signing.clone(),
             },
             on_document,
+            discovery: Mutex::new(None),
             caching: session.caching.clone(),
             blocks: self.shared.blocks(),
         });
@@ -1010,6 +1139,7 @@ impl Interception {
                             signing: session.signing.clone(),
                         },
                         on_document: None,
+                        discovery: Mutex::new(None),
                         caching: session.caching.clone(),
                         blocks: shared.blocks(),
                     });
@@ -1320,6 +1450,40 @@ impl PageInterception {
         own.or_else(|| lock(&state.session_failure).take())
     }
 
+    /// Arms discovery-click interception on this page until the returned
+    /// [`DiscoveryArmed`] guard drops (issue 1087).
+    pub(crate) fn arm_discovery(&self, capture: Arc<DiscoveryCapture>) -> DiscoveryArmed {
+        let state = self.held().cloned();
+        if let Some(state) = &state {
+            *lock(&state.discovery) = Some(DiscoverySlot {
+                capture,
+                is_popup: false,
+            });
+        }
+        DiscoveryArmed(state)
+    }
+
+    /// Returns the page's active discovery-click capture, if armed, so a popup
+    /// opened by the click attaches to the same capture.
+    pub(crate) fn discovery(&self) -> Option<Arc<DiscoveryCapture>> {
+        let state = self.held()?;
+        lock(&state.discovery)
+            .as_ref()
+            .map(|slot| Arc::clone(&slot.capture))
+    }
+
+    /// Attaches a popup opened during a discovery click to its opener's
+    /// capture so the popup's first navigation or unsafe request is recorded
+    /// and aborted unsent.
+    pub(crate) fn set_popup_discovery(&self, capture: Arc<DiscoveryCapture>) {
+        if let Some(state) = self.held() {
+            *lock(&state.discovery) = Some(DiscoverySlot {
+                capture,
+                is_popup: true,
+            });
+        }
+    }
+
     /// Closes it, as its page ends: its own routes' subscriptions end, and
     /// a navigation pending on its page, whose `load` never comes now,
     /// gives back the permit a service worker's request took for it. Its
@@ -1365,6 +1529,17 @@ impl Drop for OwnFetchSent {
     fn drop(&mut self) {
         if let Some(state) = &self.0 {
             *lock(&state.own) = None;
+        }
+    }
+}
+
+/// Discovery-click interception armed on a page until it drops (issue 1087).
+pub(crate) struct DiscoveryArmed(Option<Arc<PageState>>);
+
+impl Drop for DiscoveryArmed {
+    fn drop(&mut self) {
+        if let Some(state) = &self.0 {
+            *lock(&state.discovery) = None;
         }
     }
 }

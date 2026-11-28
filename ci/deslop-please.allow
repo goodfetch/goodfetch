@@ -100,7 +100,6 @@ field-leak goodfetch_engine::engine::Engine::driver_slot
 field-leak goodfetch_engine::engine_context::EngineContext::audit
 field-leak goodfetch_engine::engine_context::EngineContext::home
 field-leak goodfetch_engine::engine_context::EngineContext::needs_you
-field-leak goodfetch_engine::engine_context::EngineContext::sandbox_probe
 field-leak goodfetch_engine::engine_context::EngineContext::settings
 field-leak goodfetch_engine::events::Events::instance
 field-leak goodfetch_engine::framing::Envelope::id
@@ -109,7 +108,6 @@ field-leak goodfetch_engine::framing::Envelope::params
 field-leak goodfetch_engine::governor::shares::Shares::browsers
 field-leak goodfetch_engine::governor::system::System::disks
 field-leak goodfetch_engine::governor::system::linux::Mount::options
-field-leak goodfetch_engine::group::authority::GroupAuthority::certificate
 field-leak goodfetch_engine::ledger::charging::Holding::stored
 field-leak goodfetch_engine::live_view::driver::Frame::page
 field-leak goodfetch_engine::live_view::driver::Watches::open
@@ -230,8 +228,6 @@ field-leak goodfetch_page::pages::scroll_collect::kept::Kept::rows
 field-leak goodfetch_page::session::Attachments::background
 field-leak goodfetch_page::session::Attachments::background_next
 field-leak goodfetch_page::sessions::Sessions::page_owners
-field-leak goodfetch_protocol::foxhound::sink::SinkSettings::deliver
-field-leak goodfetch_protocol::foxhound::sink::SinkSettings::mode
 field-leak goodfetch_proving_ground::markdown::Structure::links
 field-leak goodfetch_proving_ground::observation::Observations::hosts
 field-leak goodfetch_proving_ground::observation::Observations::record
@@ -321,13 +317,10 @@ module-cycle goodfetch_collie_client::generated::events,goodfetch_collie_client:
 module-cycle goodfetch_conformance::protocol::cases::blocking_off,goodfetch_conformance::protocol::cases::clean_up
 module-cycle goodfetch_conformance::protocol::cases::formats::content_modes,goodfetch_conformance::protocol::cases::formats::extractor
 module-cycle goodfetch_conformance::protocol::connection,goodfetch_conformance::protocol::gateway,goodfetch_conformance::protocol::plugin,goodfetch_conformance::protocol::target
-module-cycle goodfetch_engine::engine_context,goodfetch_engine::response_cache
-module-cycle goodfetch_engine::group::operations,goodfetch_engine::group::peering
 module-cycle goodfetch_fetch_tier::xpath::syntax,goodfetch_fetch_tier::xpath::tokens
 module-cycle goodfetch_page::cdp::children,goodfetch_page::cdp::driver,goodfetch_page::cdp::masking,goodfetch_page::cdp::paused
 module-cycle goodfetch_page::cdp::driver::carry,goodfetch_page::cdp::driver::page_reader,goodfetch_page::cdp::driver::popups
 module-cycle goodfetch_protocol::foxhound::crawl,goodfetch_protocol::foxhound::declaration,goodfetch_protocol::foxhound::frontier,goodfetch_protocol::foxhound::hook,goodfetch_protocol::foxhound::outcomes,goodfetch_protocol::foxhound::report
-module-cycle goodfetch_protocol::foxhound::crawl,goodfetch_protocol::foxhound::frontier,goodfetch_protocol::foxhound::hook,goodfetch_protocol::foxhound::outcomes,goodfetch_protocol::foxhound::report
 module-cycle goodfetch_protocol::foxhound::dataset,goodfetch_protocol::foxhound::dataset_view
 module-cycle goodfetch_test_support::endpoints::http,goodfetch_test_support::endpoints::http_proxy,goodfetch_test_support::endpoints::json_rpc,goodfetch_test_support::endpoints::runner,goodfetch_test_support::endpoints::websocket
 shallow-module goodfetch_collie_client::generated
@@ -346,10 +339,7 @@ shallow-module goodfetch_engine::trace
 shallow-module goodfetch_engine::transport
 shallow-module goodfetch_fetch_tier::driver
 shallow-module goodfetch_foxhound::crawl::context
-shallow-module goodfetch_page::cdp
-shallow-module goodfetch_page::cdp::driver
 shallow-module goodfetch_protocol::catalog
-shallow-module goodfetch_protocol::plugin
 shallow-module xtask::compare::trials
 tangle goodfetch_collie::executable::daemon::Machine,goodfetch_collie::executable::daemon::foreground::configured,goodfetch_collie::executable::daemon::foreground::reach
 tangle goodfetch_collie::linked::Opening,goodfetch_collie::linked::ProductConnection,goodfetch_collie::linked::refusable::Refusable
@@ -363,7 +353,6 @@ tangle goodfetch_frontier::politeness::DomainRule,goodfetch_frontier::politeness
 tangle goodfetch_frontier::unwritten::Holding,goodfetch_frontier::unwritten::UnwrittenVisits
 tangle goodfetch_identity_profile::population::Brand,goodfetch_identity_profile::population::Device,goodfetch_identity_profile::population::Kind,goodfetch_identity_profile::population::Os
 tangle goodfetch_page::cdp::driver::Browser,goodfetch_page::cdp::driver::BrowserState,goodfetch_page::cdp::driver::PageDriver,goodfetch_page::cdp::driver::popups::OnPopup,goodfetch_page::cdp::driver::popups::PopupHandler,goodfetch_page::cdp::driver::popups::Popups,goodfetch_page::cdp::driver::prepare,goodfetch_page::cdp::driver::service_workers::OnWorker,goodfetch_page::cdp::driver::service_workers::ServiceWorkerChoices,goodfetch_page::cdp::driver::service_workers::ServiceWorkers
-tangle goodfetch_page::cdp::driver::Browser,goodfetch_page::cdp::driver::BrowserState,goodfetch_page::cdp::driver::PageDriver,goodfetch_page::cdp::driver::popups::OnPopup,goodfetch_page::cdp::driver::popups::PopupHandler,goodfetch_page::cdp::driver::popups::Popups,goodfetch_page::cdp::driver::prepare,goodfetch_page::cdp::driver::service_workers::OnWorker,goodfetch_page::cdp::driver::service_workers::ServiceWorkerChoices,goodfetch_page::cdp::driver::service_workers::ServiceWorkers,goodfetch_page::cdp::driver::service_workers::shown
 tangle goodfetch_page::interception::PageState,goodfetch_page::interception::navigations::Pending
 tangle goodfetch_page::pool::Browsers,goodfetch_page::pool::Hold,goodfetch_page::pool::InBrowser,goodfetch_page::pool::Opening,goodfetch_page::pool::PlaceCommand,goodfetch_page::pool::Pool,goodfetch_page::pool::Pooled,goodfetch_page::pool::Seat,goodfetch_page::pool::SeatShared,goodfetch_page::pool::Shared,goodfetch_page::pool::keep_place,goodfetch_page::pool::lock
 tangle goodfetch_page::sessions::Sessions,goodfetch_page::sessions::robots_txt::Reader,goodfetch_page::sessions::session_pages::SessionPopups

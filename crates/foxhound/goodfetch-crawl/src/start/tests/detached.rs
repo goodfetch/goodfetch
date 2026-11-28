@@ -1,7 +1,8 @@
 //! What a crawl's start from a Client is checked for before its Run
-//! begins (ADRs 0036, 0078 and 0102): a Schedule's reserved tag is refused,
-//! and a `detached` start of a crawl the program serves, or on an engine
-//! that ends with its Connection, fails with `detach_unsupported`.
+//! begins (ADRs 0036, 0078, 0102 and 0103): a Schedule's reserved tag is
+//! refused, a `detached` start of a crawl the program serves, or on an
+//! engine that ends with its Connection, fails with `detach_unsupported`,
+//! and a keyed Sink with no key for its Datasets with `setting_invalid`.
 
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_test_support::TestEnv;
@@ -43,6 +44,60 @@ fn started(start: Value) -> (Value, bool) {
 
     let begun = env.home().join("1").join("runs").join("refused").exists();
     (reply, begun)
+}
+
+/// A Sink in a keyed write mode is refused with `setting_invalid` naming
+/// its `key`, before its Run begins, when it names no key and its Dataset
+/// declares none, or when its key names a field its Dataset's schema does
+/// not require (ADR 0103).
+///
+/// Covers: story:6-286, error:setting_invalid
+#[rstest]
+#[case::no_key(json!({ "name": "products" }), json!(null))]
+#[case::a_field_not_required(
+    json!({
+        "name": "products",
+        "schema": {
+            "type": "object",
+            "properties": { "sku": { "type": "string" }, "price": { "type": "number" } },
+            "required": ["sku"],
+        },
+        "key": ["sku"],
+    }),
+    json!(["price"])
+)]
+fn a_keyed_sink_without_a_key_its_datasets_require_is_setting_invalid(
+    #[case] dataset: Value,
+    #[case] key: Value,
+) {
+    let mut sink = json!({
+        "type": "sqlite",
+        "datasets": ["products"],
+        "mode": "upsert",
+        "destination": "env:WAREHOUSE",
+    });
+    if !key.is_null() {
+        sink["key"] = key;
+    }
+
+    let (refused, begun) = started(json!({
+        "datasets": [dataset],
+        "settings": { "sinks": { "warehouse": sink } },
+    }));
+
+    assert_eq!(
+        (
+            &refused["error"]["data"]["code"],
+            &refused["error"]["data"]["key"],
+            begun,
+        ),
+        (
+            &json!("setting_invalid"),
+            &json!("sinks.warehouse.key"),
+            false
+        ),
+        "{refused}"
+    );
 }
 
 /// A crawl's start carrying a Schedule's reserved tag is refused with

@@ -155,6 +155,7 @@ details! {
     crate::foxhound::hook::HookIneffectiveDetails => foxhound::HOOK_INEFFECTIVE,
     crate::foxhound::hook::HookUndeclaredDetails => foxhound::HOOK_UNDECLARED,
     crate::foxhound::hook::HookUnknownDetails => foxhound::HOOK_UNKNOWN,
+    crate::foxhound::sink::SinkGuaranteeUnmetDetails => foxhound::SINK_GUARANTEE_UNMET,
     crate::foxhound::sql_tab::QueryInvalidDetails => foxhound::QUERY_INVALID,
     crate::foxhound::sql_tab::QueryMemoryExceededDetails => foxhound::QUERY_MEMORY_EXCEEDED,
     crate::governor::PageMemoryExceededDetails => ErrorCode::PAGE_MEMORY_EXCEEDED,

@@ -807,6 +807,7 @@ dependencies = [
  "memchr",
  "minimal-lexical",
  "nom 7.1.3",
+ "once_cell",
  "percent-encoding",
  "phf_shared 0.11.3",
  "postcard",

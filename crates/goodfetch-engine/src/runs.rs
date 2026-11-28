@@ -1793,8 +1793,9 @@ impl Runs {
     /// The Secret-provider driver, and what a call outside any Run resolves
     /// through: the engine's providers, each bounded by `timeout.secret`'s
     /// default, its values masked. `signing_key.*` makes and reads keys
-    /// through them (ADR 0045).
-    pub(crate) fn outside_a_run(&self) -> (&Secrets, RunSecrets) {
+    /// through them (ADR 0045), and `sink.probe` resolves a Sink's
+    /// destination through them (ADR 0026).
+    pub fn outside_a_run(&self) -> (&Secrets, RunSecrets) {
         (&self.secrets, run_secrets(&self.secrets, None))
     }
 
@@ -2790,6 +2791,32 @@ impl Runs {
             .map_err(|_| RunError::Stopped)?;
         let editing = answered.await.map_err(|_| RunError::Stopped)??;
         editing.edit(work).await
+    }
+
+    /// Runs `work` in one transaction of the ended Run `run_id`'s state,
+    /// under its writer lock and a new run epoch, keeping its kept Exports
+    /// intact: for post-Run delivery bookkeeping such as removing retried
+    /// dead letters (ADR 0026).
+    ///
+    /// # Errors
+    ///
+    /// As [`Runs::edit`].
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave `work` committed.
+    pub async fn update_ended<T, F>(&self, run_id: RunId, work: F) -> Result<T, RunError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&rusqlite::Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        let (answer, answered) = oneshot::channel();
+        self.commands
+            .send(Command::Edit(run_id, answer))
+            .await
+            .map_err(|_| RunError::Stopped)?;
+        let editing = answered.await.map_err(|_| RunError::Stopped)??;
+        editing.update(work).await
     }
 
     /// The same Runs, each Run started through them belonging to the

@@ -9,22 +9,67 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+# Encoded Export part bytes handed to `object_store`.
+bytes.workspace = true
+# DuckDB in-binary Sink (ADR 0026; issue 1163).
+duckdb = { workspace = true, features = ["bundled"] }
+# Streaming object-store listing on probe.
+futures-util = { workspace = true, features = ["alloc", "std"] }
 # The committed Records a delivery reads, through the Dataset's own query.
 goodfetch-dataset.workspace = true
+# The Run a crawl's Sinks deliver from: its run file, its tasks and the
+# Secrets its Sinks' destinations resolve through.
+goodfetch-engine.workspace = true
 # The Guarantee class a probe reports, the protocol's own (ADR 0026).
 goodfetch-protocol.workspace = true
+# Webhook Sink HTTP requests sent through the engine's NotificationEndpoint.
+hyper.workspace = true
 # A Record's commit time, written RFC 3339 into the destination.
 jiff.workspace = true
+# SMTP Sink message building and delivery (ADR 0026; issue 1163).
+mail-builder.workspace = true
+mail-send = { workspace = true, features = ["tls12"] }
+smtp-proto.workspace = true
+# MySQL and MariaDB Sink (ADR 0026; issue 1163).
+mysql_async.workspace = true
+# Object-store Sinks (S3, GCS, Azure Blob) in Files mode (ADR 0026).
+object_store = { workspace = true, features = ["aws", "gcp", "azure"] }
 rusqlite.workspace = true
+# SFTP and FTP Files-mode Sinks (ADR 0026; issue 1159).
+russh.workspace = true
+russh-sftp.workspace = true
+# A destination's resolved Secret.
+secrecy.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+suppaftp.workspace = true
 thiserror.workspace = true
+# A Sink's driver opens once, whichever delivery reaches it first, and its
+# delivery task waits for a commit, a retry or its stop, whichever comes first.
+tokio = { workspace = true, features = ["macros", "sync"] }
+# PostgreSQL and Supabase Sinks (ADR 0026; issue 1162).
+rustls = { workspace = true, features = ["ring"] }
+tokio-postgres.workspace = true
+tokio-postgres-rustls.workspace = true
 tracing.workspace = true
+url.workspace = true
+webpki-roots.workspace = true
 goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]
+flate2.workspace = true
+goodfetch-simulation.workspace = true
 goodfetch-test-support.workspace = true
+hmac.workspace = true
+http-body-util.workspace = true
+hyper-util.workspace = true
+proptest.workspace = true
+proptest-state-machine.workspace = true
 rstest.workspace = true
+sha2.workspace = true
 tempfile.workspace = true
+toml.workspace = true
+zstd.workspace = true
 goodfetch-dev-workspace-hack.workspace = true
 
 [lints]

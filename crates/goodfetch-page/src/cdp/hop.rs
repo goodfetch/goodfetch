@@ -127,6 +127,20 @@ impl CdpPage {
             .map(drop)
     }
 
+    /// Toggles the page's HTTP cache (`Network.setCacheDisabled`) so a tier
+    /// race's navigation bypasses Chrome's HTTP cache lock behind its
+    /// in-flight browser-fetch for the same URL (ADR 0040; issue 1630).
+    ///
+    /// # Errors
+    ///
+    /// The code of opening a page when the browser refuses.
+    pub(crate) async fn set_cache_disabled(&self, cache_disabled: bool) -> Result<(), CallError> {
+        self.page
+            .opening_command(&network::SetCacheDisabledParams { cache_disabled })
+            .await
+            .map(drop)
+    }
+
     /// Starts a load of `url` as the main frame's document: answers the
     /// browser's network error when it refused the load before it reached
     /// the network, as it does a URL no load may go to.

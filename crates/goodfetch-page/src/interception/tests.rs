@@ -61,6 +61,7 @@ fn state_of(session: &SessionInterception, failure: Option<LeftFailure>) -> Page
         lists_blocked: std::sync::atomic::AtomicU64::new(0),
         learned: Arc::new(Learned::default()),
         on_document: None,
+        discovery: Mutex::new(None),
         caching: None,
         blocks: Arc::new(crate::blocks::NoBlocks),
     }

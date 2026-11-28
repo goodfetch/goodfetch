@@ -427,18 +427,34 @@ impl Navigation {
         if !matches!(
             cancelled.try_recv(),
             Err(oneshot::error::TryRecvError::Empty)
-        ) || self.run.charging.charge(REQUESTS, 1).await.is_err()
-        {
+        ) {
             self.second_copies.give_back(copy).await;
             let _ = navigated.send(Navigated::NotSent);
             return;
         }
+        let Ok(reservation) = self.run.charging.reserve(REQUESTS, None, 1).await else {
+            self.second_copies.give_back(copy).await;
+            let _ = navigated.send(Navigated::NotSent);
+            return;
+        };
+        if !matches!(
+            cancelled.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ) {
+            let _ = self.run.charging.settle(reservation, 0).await;
+            self.second_copies.give_back(copy).await;
+            let _ = navigated.send(Navigated::NotSent);
+            return;
+        }
+        // Past the last cancel check the navigation leaves on its first poll
+        // below before `cancelled` is polled, so `reservation` stays charged at
+        // its worst case of 1 without an extra settlement write.
         let _ = sending.send(());
         let opened = tokio::select! {
             biased;
+            opened = self.tiers.browser_raced(&self.hand_over, &self.pooled, &self.crawl_request, &self.context) => Some(opened),
             // Dropped, the navigation's page closes, its load with it.
             _ = &mut cancelled => None,
-            opened = self.tiers.browser(&self.hand_over, &self.pooled, &self.crawl_request, &self.context) => Some(opened),
         };
         self.second_copies.give_back(copy).await;
         let Some(opened) = opened else {

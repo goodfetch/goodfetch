@@ -189,10 +189,9 @@ fn a_scope_beneath_a_run_that_sets_an_unbuilt_setting_is_refused() {
 /// that default is refused naming the key, the run layer and the phase's
 /// feature, never accepted and ignored (ADRs 0080 and 0083).
 ///
-/// Covers: story:11-41, setting:timeout.sink_write, setting:timeout.agent,
+/// Covers: story:11-41, setting:timeout.agent,
 /// setting:timeout.ai, setting:timeout.model, setting:timeout.human_pause
 #[rstest::rstest]
-#[case::sink_write("sink_write", "timeout.sink_write", 30_000, "sinks")]
 #[case::agent("agent", "timeout.agent", 600_000, "agent")]
 #[case::ai("ai", "timeout.ai", 120_000, "ai_verbs")]
 #[case::model("model", "timeout.model", 60_000, "model_calls")]
@@ -236,5 +235,33 @@ fn each_unbuilt_phase_timeout_shows_its_default_and_is_refused_away_from_it(
             Some((json!(default_millis), SettingsLayer::Default)),
             Some((key.to_owned(), SettingsLayer::Run, feature.to_owned()))
         )
+    );
+}
+
+/// `timeout.sink_write` defaults to 30 s and is accepted when set away from
+/// its default now that Sink write timeouts are built (ADRs 0026 and 0080).
+///
+/// Covers: setting:timeout.sink_write
+#[test]
+fn timeout_sink_write_defaults_to_thirty_seconds_and_accepts_overrides() {
+    let defaults = resolve(&Layers::default(), Product::Foxhound, Product::Foxhound).unwrap();
+    assert_eq!(
+        defaults.value(&goodfetch_protocol::settings::TIMEOUT_SINK_WRITE),
+        &json!(30_000)
+    );
+    let serde_json::Value::Object(set) = json!({ "timeout": { "sink_write": 5_000 } }) else {
+        unreachable!("a table")
+    };
+    let layers = Layers {
+        run: Values::read(SettingsLayer::Run, &set, Product::Foxhound).unwrap(),
+        ..Layers::default()
+    };
+    let resolved = resolve(&layers, Product::Foxhound, Product::Foxhound).unwrap();
+    resolved
+        .refuse_unbuilt()
+        .expect("timeout.sink_write is built and accepts overrides");
+    assert_eq!(
+        resolved.value(&goodfetch_protocol::settings::TIMEOUT_SINK_WRITE),
+        &json!(5_000)
     );
 }

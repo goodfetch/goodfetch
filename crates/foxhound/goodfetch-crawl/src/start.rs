@@ -69,6 +69,7 @@ use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
 use goodfetch_protocol::site_preferences::{
     PERSONAL_DATA_KEYWORD, PERSONAL_DATA_NOTICE as PERSONAL_DATA_AUDIT, SITE_PREFERENCES_PURPOSE,
 };
+use goodfetch_sink::Sinks;
 
 use crate::code_free::{self, CodeFree, CodeFreeCrawl};
 use crate::crawl_run::CrawlRun;
@@ -96,8 +97,10 @@ use crate::work_items::{self, CheckedSeed};
 /// record of each per-page feature a Run switches off (ADR 0138). Its crawl
 /// requests are fetched on the tiers of `tiers` (spec #579), the value
 /// Foxhound's composition also hands Collie's pages, and which finds the
-/// Run of a raw call naming a page they serve (ADR 0099).
-pub fn contribution(tiers: FetchTiers) -> Contribution {
+/// Run of a raw call naming a page they serve (ADR 0099). Its crawls
+/// deliver their Records to the Sinks of `sinks` (ADR 0026), the value of
+/// Foxhound's composition.
+pub fn contribution(tiers: FetchTiers, sinks: Sinks) -> Contribution {
     let crawls = Crawls::default();
     let starting = tiers.clone();
     let serving = crawls.clone();
@@ -111,7 +114,8 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
     let pages = code_free::Pages::default();
     let [read_outcomes, read_failed_requests] = outcomes::handlers();
     let [add_seed, add_seeds] = seeding::handlers(&crawls);
-    let [read_links, enqueue_links] = enqueue::links::handlers(&crawls, &tiers);
+    let [read_links, enqueue_links, enqueue_links_by_clicking] =
+        enqueue::links::handlers(&crawls, &tiers);
     // A per-page feature switched off is recorded once per Run (ADR 0138).
     let contribution = SWITCHED_OFF_FEATURES.into_iter().fold(
         Contribution::new("goodfetch-crawl"),
@@ -125,7 +129,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
                 params,
                 context,
                 crawls.clone(),
-                starting.clone(),
+                (starting.clone(), sinks),
                 redeclared.clone(),
                 pages.clone(),
             )
@@ -137,6 +141,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
         .with_handler(push::handler(pushing))
         .with_handler(read_links)
         .with_handler(enqueue_links)
+        .with_handler(enqueue_links_by_clicking)
         .with_handler(add_seed)
         .with_handler(add_seeds)
         .with_handler(read_outcomes)
@@ -159,7 +164,18 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
                 let (redeclared, crawls, tiers) =
                     (redeclaring.clone(), resuming.clone(), tiers.clone());
                 Box::pin(async move {
-                    let run = CrawlRun::of(&run, &context);
+                    // A resumed copy probes its Sinks again (ADR 0026): one
+                    // that no longer meets the Run's minimum ends it.
+                    let run =
+                        match CrawlRun::started(&run, &context, (sinks, settings.resolved()))
+                            .await
+                        {
+                            Ok(started) => started,
+                            Err(error) => {
+                                tracing::warn!(%error, run_id = %run.identity.id(), "the resumed crawl's Sinks were refused");
+                                return;
+                            }
+                        };
                     let hooks = redeclared.record(&run.identity, &run.state).await;
                     // Boxed: the resumed delivery's future is large.
                     Box::pin(delivery::resume(
@@ -247,7 +263,7 @@ async fn start(
     mut params: CrawlStartParams,
     context: CallContext,
     crawls: Crawls,
-    tiers: FetchTiers,
+    (tiers, sinks): (FetchTiers, Sinks),
     redeclared: Redeclared,
     pages: code_free::Pages,
 ) -> Result<CrawlStarted, CallError> {
@@ -265,6 +281,7 @@ async fn start(
     labels.sends_from_login_pools(settings.resolved())?;
     let datasets = pages.map_or_else(|| Datasets::declare(&params.datasets), Ok)?;
     FetchTiers::check(settings.resolved(), &labels.settings)?;
+    sinks.check(settings.resolved(), datasets.declarations())?;
     let invariants = Invariants::of_settings(settings.resolved(), &params.labels, fragments)?;
     let egress = domain_policy(settings.resolved())?;
     let existing_seeds =
@@ -319,7 +336,7 @@ async fn start(
         Started::New(run) => {
             start_new(
                 (run, &context),
-                (limits, settings, new_answers),
+                (limits, settings, new_answers, sinks),
                 (crawls, egress, serving, opening),
                 (tiers, labels, crawl, hooks),
             )
@@ -430,7 +447,12 @@ async fn notify_personal_data(
 /// Starts delivery for a newly created crawl Run after applying its Limits.
 async fn start_new(
     (run, context): (goodfetch_engine::runs::RunParts, &CallContext),
-    (limits, settings, new_answers): (StartLimits, RunSettings, Arc<OnceLock<Vec<Enqueued>>>),
+    (limits, settings, new_answers, sinks): (
+        StartLimits,
+        RunSettings,
+        Arc<OnceLock<Vec<Enqueued>>>,
+        Sinks,
+    ),
     (crawls, egress, serving, opening): (Crawls, Policy, Invariants, Datasets),
     (tiers, labels, crawl, hooks): (
         FetchTiers,
@@ -439,7 +461,9 @@ async fn start_new(
         Vec<CrawlHookDeclaration>,
     ),
 ) -> Result<CrawlStarted, CallError> {
-    let run = CrawlRun::of(&run, context);
+    // A Sink below the Run's `crawl.min_sink_guarantee` refuses it
+    // before it does any work (ADR 0026).
+    let run = CrawlRun::started(&run, context, (sinks, settings.resolved())).await?;
     notify_personal_data(&run, &opening, settings.resolved(), context).await;
     let started = RunStarted {
         run_id: run.identity.id().clone(),
@@ -450,7 +474,7 @@ async fn start_new(
     // Its Limits hold it before its driver sends a request; a
     // crawl they cannot hold ends `failed` rather than run unheld.
     if let Err(error) = limits.give(&started, context).await {
-        run.end.end(delivery::failed(&run.identity, &error)).await;
+        run.end(delivery::failed(&run.identity, &error)).await;
         return Err(error);
     }
     let seeds = new_answers.get().cloned().unwrap_or_default();

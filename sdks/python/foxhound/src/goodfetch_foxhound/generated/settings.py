@@ -409,6 +409,18 @@ class ConnectionCrawlSettings(TypedDict):
     `crawl.max_url_length`.
     """
 
+    min_sink_guarantee: NotRequired[Literal["fenced", "record_fenced", "keyed", "at_least_once"] | None]
+    """The weakest Guarantee class a crawl's Run accepts of each of its Sinks, from the strongest: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). Each Sink is probed at the Run's start, and a Sink whose probe proves a weaker class, or fails, refuses the start with `sink_guarantee_unmet` before the Run does any work. None by default: any class is accepted, and a Sink whose probe fails delivers nothing; `null` clears it.
+
+    `crawl.min_sink_guarantee`.
+    """
+
+    on_sink_failure: NotRequired[Literal["continue", "stop"]]
+    """Whether collection goes on when a Sink fails (`continue`, the default) or stops at the next safe point (`stop`), so a destination's outage never stops a crawl unasked (ADR 0026).
+
+    `crawl.on_sink_failure`.
+    """
+
     path_budgets: NotRequired[list[CrawlPathBudgetsItem]]
     """Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.
 
@@ -1774,7 +1786,7 @@ class SinksEntry(TypedDict):
     """The fields a keyed mode uses: each Dataset's own key when left out."""
 
     mode: NotRequired[Literal["append", "upsert", "insert_only", "replace", "history"] | None]
-    """How it writes them: `append` when left out ([`Self::write_mode`])."""
+    """How it writes them: `append` when left out."""
 
     rate: NotRequired[SinksEntryRate | None]
     """Its token bucket: the destination's preset when left out."""
@@ -2477,6 +2489,18 @@ class RunCrawlSettings(TypedDict):
     """The longest URL a crawl admits, in characters as the WHATWG parser serializes it, without its fragment (Scrapy's `URLLENGTH_LIMIT`): a longer one is not added, with `max_url_length`, and a finished Run that refused one is `unverified`. 2,083 by default; `null` turns the cap off.
 
     `crawl.max_url_length`.
+    """
+
+    min_sink_guarantee: NotRequired[Literal["fenced", "record_fenced", "keyed", "at_least_once"] | None]
+    """The weakest Guarantee class a crawl's Run accepts of each of its Sinks, from the strongest: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). Each Sink is probed at the Run's start, and a Sink whose probe proves a weaker class, or fails, refuses the start with `sink_guarantee_unmet` before the Run does any work. None by default: any class is accepted, and a Sink whose probe fails delivers nothing; `null` clears it.
+
+    `crawl.min_sink_guarantee`.
+    """
+
+    on_sink_failure: NotRequired[Literal["continue", "stop"]]
+    """Whether collection goes on when a Sink fails (`continue`, the default) or stops at the next safe point (`stop`), so a destination's outage never stops a crawl unasked (ADR 0026).
+
+    `crawl.on_sink_failure`.
     """
 
     path_budgets: NotRequired[list[CrawlPathBudgetsItem]]

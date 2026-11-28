@@ -70,6 +70,30 @@ class FoxhoundTypes(BaseModel):
     )
 
 
+class AbortedDiscoveryRequest1(BaseModel):
+    """
+    A request with an unsafe HTTP method was aborted before leaving the
+    browser so discovery clicks never place an order or mutate a site.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["unsafe_request_aborted"]
+    method: str
+    """The aborted request's HTTP method, such as `POST`."""
+    url: str
+    """The aborted request's URL."""
+
+
+class AbortedDiscoveryRequest(RootModel[AbortedDiscoveryRequest1]):
+    root: AbortedDiscoveryRequest1
+    """
+    An unsafe network request aborted unsent during a discovery click (issue
+    1087): any method other than `GET`, `HEAD` or `OPTIONS`.
+    """
+
+
 class AttemptError(BaseModel):
     """The error an attempt failed with."""
 
@@ -200,6 +224,50 @@ class CrawlNotImportableDetails(BaseModel):
     The module named for workers to import, or the module where the crawl
     was created when none was named.
     """
+
+
+class CrawlRequestEnqueueLinksByClickingElementsParams(BaseModel):
+    """
+    What `crawl_request.enqueue_links_by_clicking_elements` takes: a locator on
+    the attempt's browser page whose matched elements are clicked in document
+    order through the guard to discover script-only links (ADR 0093; issue 1087).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    crawl_request_id: str
+    """The ID of the crawl request whose attempt enqueues."""
+    exclude: list[str] | None = None
+    """URL patterns a link must match none of, besides the crawl's scope."""
+    include: list[str] | None = None
+    """
+    URL patterns, globs as `crawl.scope.include`'s, of which a link must
+    match one when there are any, besides the crawl's scope, which they
+    only narrow.
+    """
+    label: str
+    """Their Label."""
+    lease_epoch: Annotated[int, Field(ge=0)]
+    """The attempt's lease epoch, as `crawl_request.handle` gave it."""
+    limit: Annotated[int | None, Field(ge=0)] = None
+    """
+    At most this many links are added; once they are, each later
+    discovered URL the Frontier would judge is not added, with
+    `link_limit`. None for no limit.
+    """
+    locator: Locator
+    """The locator, on the browser page `crawl_request.handle` gave."""
+    payload: Any | None = None
+    """The one Payload every discovered link takes."""
+    priority: int | None = 0
+    """
+    Their priority among the requests of their domain, as
+    `crawl_request.enqueue`'s; 0 by default.
+    """
+    run_id: RunId
+    """The crawl's Run."""
 
 
 class CrawlRequestEnqueueLinksParams(BaseModel):
@@ -506,6 +574,20 @@ class DeclaredExtract(BaseModel):
     """Its named fields, by name, each a value field, a list or rows."""
 
 
+class DiscoveryClickRefusal(BaseModel):
+    """A matched element whose discovery click the guard refused (issue 1087)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: str
+    """The guard's Error code (for example `deadline_exceeded`)."""
+    index: Annotated[int, Field(ge=0)]
+    """Zero-based index of the matched element in document order."""
+    message: str
+    """Why the guard refused the click."""
+
+
 class EncodingSource(StrEnum):
     """
     Where a document's encoding came from, in the order the tiers look
@@ -629,6 +711,30 @@ class EnqueuedLinks(BaseModel):
     )
     links: list[EnqueuedLink]
     """Each element's answer."""
+
+
+class EnqueuedLinksByClickingElements(BaseModel):
+    """
+    What `crawl_request.enqueue_links_by_clicking_elements` answers: what
+    became of each discovered link, each unsafe request aborted unsent, and
+    any matched element whose click the guard refused (issue 1087).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    aborted: list[AbortedDiscoveryRequest] | None = None
+    """
+    Requests with a method other than `GET`, `HEAD` or `OPTIONS` aborted
+    unsent during the clicks.
+    """
+    links: list[EnqueuedLink]
+    """
+    Each discovered link's admission answer, as `crawl_request.enqueue_links`
+    answers.
+    """
+    refused: list[DiscoveryClickRefusal] | None = None
+    """Matched elements whose click the guard refused."""
 
 
 class EquivalentForm(StrEnum):
@@ -1980,6 +2086,196 @@ class SheetCapacityExceededDetails(BaseModel):
     """The most a sheet holds of it."""
 
 
+class SinkDeliverAction1(BaseModel):
+    """
+    Redelivers one delivery by its `delivery_id`, carrying the same
+    delivery ID so the destination can deduplicate it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    delivery_id: str
+    """The delivery ID to redeliver (`<run_id>/<sink>/<dataset>/<number>`)."""
+    kind: Literal["redeliver"]
+
+
+class SinkDeliverAction2(BaseModel):
+    """
+    Recovers failed deliveries (dead letters) committed at or after `since`
+    (RFC 3339 in UTC).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    kind: Literal["recover"]
+    since: PointInTime
+    """RFC 3339 UTC timestamp lower bound (inclusive)."""
+
+
+class SinkDeliverAction3(BaseModel):
+    """
+    Replays committed Records of the Run that were never delivered to the
+    Sink.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["replay"]
+
+
+class SinkDeliverAction4(BaseModel):
+    """
+    Backfills every committed Record of a past Run to any configured Sink,
+    including a Sink added after the Run ended.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["backfill"]
+
+
+class SinkDeliverAction(
+    RootModel[
+        SinkDeliverAction1
+        | SinkDeliverAction2
+        | SinkDeliverAction3
+        | SinkDeliverAction4
+    ]
+):
+    root: (
+        SinkDeliverAction1
+        | SinkDeliverAction2
+        | SinkDeliverAction3
+        | SinkDeliverAction4
+    )
+    """
+    What `sink.deliver` does against a Run's committed Records or dead letters
+    (ADR 0026).
+    """
+
+
+class SinkDeliverParams(BaseModel):
+    """What `sink.deliver` takes (ADRs 0026 and 0099)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    action: SinkDeliverAction
+    """
+    Which delivery operation to run (`redeliver`, `recover`, `replay` or
+    `backfill`).
+    """
+    project: ProjectSettings | None = None
+    """The project configuration the Client found, layer 3 (ADR 0083)."""
+    run_id: RunId
+    """The Run whose Records or dead letters to deliver."""
+    settings: dict[str, Any] | None = None
+    """
+    Settings over the connection's, nested by key, as a crawl's Run takes
+    them (ADR 0083), such as a Sink added after the Run ended.
+    """
+    sink: str
+    """The Sink's name, its key under `sinks`."""
+
+
+class SinkGuaranteeUnmetDetails(BaseModel):
+    """What `sink_guarantee_unmet` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    cause: str | None = None
+    """Why the probe failed, for people; none when it proved a class."""
+    proved: GuaranteeClass | None = None
+    """The class the Sink's probe proved; none when the probe failed."""
+    required: GuaranteeClass
+    """The class the Run requires, its `crawl.min_sink_guarantee`."""
+    sink: str
+    """The Sink's name, its key under `sinks`."""
+
+
+class SinkListParams(BaseModel):
+    """
+    What `sink.list` takes: optionally one Run to read each Sink's status
+    from, or settings over the connection's to probe and summarize every
+    configured Sink (ADRs 0026 and 0099).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    project: ProjectSettings | None = None
+    """The project configuration the Client found, layer 3 (ADR 0083)."""
+    run_id: RunId | None = None
+    """
+    When set, lists the Sinks that applied to this Run with its
+    Run-scoped class, status, dead letters and deliveries outside the
+    deduplication window. When absent, lists the Sinks configured in
+    `settings` and aggregates their dead letters and late deliveries
+    across Runs.
+    """
+    settings: dict[str, Any] | None = None
+    """
+    Settings over the connection's, nested by key, as a crawl's Run
+    takes them (ADR 0083).
+    """
+
+
+class SinkProbeOutcome1(BaseModel):
+    """Its destination proved a Guarantee class."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    class_: Annotated[GuaranteeClass, Field(alias="class")]
+    """The class."""
+    status: Literal["proved"]
+
+
+class SinkProbeOutcome2(BaseModel):
+    """Its probe failed: its destination did not resolve, open or answer."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    cause: str
+    """Why, for people."""
+    status: Literal["failed"]
+
+
+class SinkProbeOutcome(RootModel[SinkProbeOutcome1 | SinkProbeOutcome2]):
+    root: SinkProbeOutcome1 | SinkProbeOutcome2
+    """What a Sink's probe found."""
+
+
+class SinkProbeParams(BaseModel):
+    """
+    What `sink.probe` takes: the Sink, by its name among the `sinks` the
+    settings resolve to as a crawl's Run would.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    project: ProjectSettings | None = None
+    """The project configuration the Client found, layer 3 (ADR 0083)."""
+    settings: dict[str, Any] | None = None
+    """
+    Settings over the connection's, nested by key, as a crawl's Run
+    takes them (ADR 0083), such as the `sinks` to probe.
+    """
+    sink: str
+    """The Sink's name, its key under `sinks`."""
+
+
 class SinkStatus(StrEnum):
     """A Sink's delivery status (ADRs 0026 and 0103)."""
 
@@ -3009,6 +3305,66 @@ class Seeds(RootModel[list[Seed]]):
     """A crawl's seeds, at least one."""
 
 
+class SinkDeliver(BaseModel):
+    """What `sink.deliver` answers (ADR 0026)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    dead_letters: Annotated[int, Field(ge=0)]
+    """How many dead letters remain for this Run and Sink after this call."""
+    delivered: Annotated[int, Field(ge=0)]
+    """How many Records or dead letters were delivered by this call."""
+    run_id: RunId
+    """The Run whose Records were delivered."""
+    sink: str
+    """The Sink's name."""
+    status: SinkStatus
+    """The Sink's status after this delivery."""
+
+
+class SinkListEntry(BaseModel):
+    """One Sink in `sink.list`'s answer (ADR 0026)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    dead_letters: Annotated[int, Field(ge=0)]
+    """How many deliveries are currently on its dead-letter list."""
+    guarantee_class: GuaranteeClass | None = None
+    """
+    Its Guarantee class, when probed or recorded on a Run; none when
+    probing failed outside any Run.
+    """
+    name: str
+    """The Sink's name, its key under `sinks`."""
+    outside_dedup_window: Annotated[int, Field(ge=0)]
+    """
+    How many deliveries fell outside the destination's deduplication
+    window, and so were at least once.
+    """
+    probe_cause: str | None = None
+    """Why probing failed outside a Run, when `guarantee_class` is absent."""
+    status: SinkStatus | None = None
+    """
+    Its delivery status on the named Run; absent when listing
+    configured Sinks outside a single Run.
+    """
+
+
+class SinkProbe(BaseModel):
+    """What `sink.probe` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    outcome: SinkProbeOutcome
+    """What its probe found."""
+    sink: str
+    """The Sink's name."""
+
+
 class SinkReport(BaseModel):
     """A Sink that applies to a crawl's Run (ADRs 0026 and 0103)."""
 
@@ -3395,6 +3751,16 @@ class RunAddSeedParams(BaseModel):
     """The crawl's Run."""
     seed: Seed
     """The seed."""
+
+
+class SinkList(BaseModel):
+    """What `sink.list` answers (ADR 0026)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    sinks: list[SinkListEntry]
+    """Each Sink, in name order."""
 
 
 class DatasetRecord(BaseModel):

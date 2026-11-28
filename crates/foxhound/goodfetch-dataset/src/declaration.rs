@@ -166,7 +166,7 @@ impl Datasets {
                 )
             })?;
             validators.push(Some(validator));
-            let required = required(schema);
+            let required = required_fields(schema);
             if let Some(field) = declaration
                 .key
                 .iter()
@@ -602,8 +602,10 @@ fn record_message(name: &str, issues: &[RecordIssue]) -> String {
     )
 }
 
-/// The top-level fields `schema` requires.
-fn required(schema: &Value) -> Vec<&str> {
+/// The top-level fields `schema` requires: those a key may name (ADR
+/// 0103).
+#[must_use]
+pub fn required_fields(schema: &Value) -> Vec<&str> {
     schema
         .get("required")
         .and_then(Value::as_array)

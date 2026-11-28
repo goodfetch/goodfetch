@@ -311,6 +311,151 @@ fn crawl_start_follows_its_run_under_follow(
     assert_eq!((flags.follow, flags.require_verified), expected);
 }
 
+/// `--declaration <file>` reads a `CrawlDeclaration` JSON object from a file
+/// without emitting an `extraction` param; when no CLI URL or `--seeds-file`
+/// is given, the declaration's own `seeds` populate `crawl.start`'s `seeds`
+/// without duplicating them in `declaration`.
+///
+/// Covers: story:11-1069
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test writes the declaration and seeds files the flags read"
+)]
+fn crawl_start_reads_a_declaration_from_a_file() {
+    let folder = tempfile::tempdir().unwrap();
+    let declaration_file = folder.path().join("declaration.json");
+    std::fs::write(
+        &declaration_file,
+        json!({
+            "seeds": [{ "url": "https://a.test/catalog", "label": "listing" }],
+            "labels": [{ "name": "listing" }],
+            "datasets": [{ "name": "products" }],
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let seeds_file = folder.path().join("seeds.txt");
+    std::fs::write(
+        &seeds_file,
+        "{\"url\":\"https://a.test/extra\",\"label\":\"listing\"}\n",
+    )
+    .unwrap();
+
+    let from_declaration = asked(
+        Product::Foxhound,
+        &[
+            "crawl",
+            "start",
+            "--declaration",
+            declaration_file.to_str().unwrap(),
+        ],
+    )
+    .unwrap();
+    let with_seeds_file = asked(
+        Product::Foxhound,
+        &[
+            "crawl",
+            "start",
+            "--declaration",
+            declaration_file.to_str().unwrap(),
+            "--seeds-file",
+            seeds_file.to_str().unwrap(),
+        ],
+    )
+    .unwrap();
+
+    assert_eq!(
+        (
+            from_declaration.params().get("extraction").cloned(),
+            from_declaration.params()["seeds"].clone(),
+            from_declaration.params()["declaration"].clone(),
+            with_seeds_file.params().get("extraction").cloned(),
+            with_seeds_file.params()["seeds"].clone(),
+            with_seeds_file.params()["declaration"]["seeds"].clone(),
+        ),
+        (
+            None,
+            json!([{ "url": "https://a.test/catalog", "label": "listing" }]),
+            json!({
+                "labels": [{ "name": "listing" }],
+                "datasets": [{ "name": "products" }],
+            }),
+            None,
+            json!([{ "url": "https://a.test/extra", "label": "listing" }]),
+            json!([{ "url": "https://a.test/catalog", "label": "listing" }]),
+        )
+    );
+}
+
+/// Naming `--declaration` alongside `--format`, `--field`, `--fields` or
+/// `--links` sends both `declaration` and `extraction` to `crawl.start`, so
+/// the engine refuses the start with `setting_invalid`.
+///
+/// Covers: story:11-1069
+#[rstest]
+#[case::with_format(&["--format", "markdown"])]
+#[case::with_field(&["--field", "title=h1"])]
+#[case::with_links(&["--links", "none"])]
+fn crawl_start_sends_both_declaration_and_extraction_when_extraction_flags_are_given(
+    #[case] extra: &[&str],
+) {
+    let folder = tempfile::tempdir().unwrap();
+    let declaration_file = folder.path().join("declaration.json");
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test writes the declaration file the flag reads"
+    )]
+    std::fs::write(
+        &declaration_file,
+        json!({
+            "seeds": [{ "url": "https://a.test/catalog", "label": "listing" }],
+            "labels": [{ "name": "listing" }],
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut arguments = vec![
+        "crawl",
+        "start",
+        "--declaration",
+        declaration_file.to_str().unwrap(),
+    ];
+    arguments.extend_from_slice(extra);
+
+    let call = asked(Product::Foxhound, &arguments).unwrap();
+
+    assert!(
+        call.params().contains_key("declaration") && call.params().contains_key("extraction"),
+        "{:?}",
+        call.params()
+    );
+}
+
+/// A `--declaration` file that cannot be read or is not a JSON object fails
+/// command-line validation before any engine starts.
+///
+/// Covers: story:11-1069
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test writes an invalid declaration file for the flag to refuse"
+)]
+fn crawl_start_refuses_a_declaration_that_is_not_a_json_object() {
+    let folder = tempfile::tempdir().unwrap();
+    let bad = folder.path().join("bad.json");
+    std::fs::write(&bad, "[1, 2, 3]").unwrap();
+
+    let refused = asked(
+        Product::Foxhound,
+        &["crawl", "start", "--declaration", bad.to_str().unwrap()],
+    )
+    .err()
+    .unwrap();
+
+    assert_eq!(refused.kind(), ErrorKind::ValueValidation, "{refused}");
+}
+
 /// `run export` takes the Dataset as its second positional argument, after
 /// the Run ID, and needs `--out`.
 ///

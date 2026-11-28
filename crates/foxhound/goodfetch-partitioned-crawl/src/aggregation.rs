@@ -318,6 +318,7 @@ pub fn aggregate_reports(crawl_id: &RunId, reports: &[RunReport]) -> RunReport {
         plugins: None,
         warnings,
         recording: None,
+        cache_mode: reports.iter().find_map(|r| r.cache_mode.clone()),
         checkpoint: reports.iter().find_map(|r| {
             r.checkpoint.clone().map(|mut cp| {
                 cp.run_id = crawl_id.clone();
@@ -443,6 +444,7 @@ pub fn running_placeholder(run_id: &RunId, started_at: SystemTime, usage: RunUsa
         plugins: None,
         warnings: Vec::new(),
         recording: None,
+        cache_mode: None,
         checkpoint: None,
         nothing_done: None,
         uncertain_effects: None,

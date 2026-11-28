@@ -16,13 +16,15 @@ from __future__ import annotations
 
 import functools
 import logging
+import os
 import threading
 import weakref
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Generic, Literal, Protocol, TypeVar
+from typing import TYPE_CHECKING, Generic, Literal, Protocol, TypeVar, cast
 
 import anyio
 
+from goodfetch_collie_client._file_saving import save_file
 from goodfetch_collie_client._followed import PagedReading
 from goodfetch_collie_client._framing import object_members
 from goodfetch_collie_client._once import Once
@@ -37,6 +39,7 @@ from goodfetch_collie_client.generated.handles import Run as RunMembers
 from goodfetch_collie_client.generated.models import (
     ConfigExplainParams,
     Lifecycle,
+    RecordingSaved,
     RunAbortParams,
     RunId,
     RunProgress,
@@ -62,7 +65,7 @@ from goodfetch_collie_client.listeners import (
 )
 from goodfetch_collie_client.markers import warn_entry
 from goodfetch_collie_client.portal import LoopStopped
-from goodfetch_collie_client.sequence import AsyncSequence, Reading, Sequence
+from goodfetch_collie_client.sequence import AsyncSequence, Reading, Reads, Sequence
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, Mapping
@@ -72,6 +75,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel, JsonValue
 
     from goodfetch_collie_client._shared_subscription import SharedSubscription
+    from goodfetch_collie_client.connection import ClientConnection
     from goodfetch_collie_client.generated.models import (
         KeyValueStoreAttempt,
         ProjectSettings,
@@ -145,6 +149,7 @@ class _RunScope:
     def __init__(self, run_id: str) -> None:
         self.id = run_id
         self.state: Literal["running", "ended", "closed"] = "running"
+        self.save_recording_on_end: Callable[[], Awaitable[object]] | None = None
         self.order = Order()
         """What `on` and a `Subscription`'s `close()` send, before any later call."""
         self._failures: list[_Failure] = []
@@ -319,6 +324,12 @@ def _log_failures(errors: list[ListenerFailedError]) -> None:
         _logger.error("%s", error, exc_info=error)
 
 
+class _RunnableReads(Reads[_Item], Protocol):
+    """A `Reads` whose `run()` coroutine drives its underlying stream."""
+
+    async def run(self) -> None: ...
+
+
 class _AsyncHost(Generic[_Id]):
     """What a handle of ID `id` in a Run reaches the engine through (ADR 0078).
 
@@ -344,6 +355,11 @@ class _AsyncHost(Generic[_Id]):
     def id(self) -> _Id:
         """The ID each of the handle's calls carries."""
         return self._id
+
+    @property
+    def connection(self) -> ClientConnection:
+        """The Connection this handle's calls and copies reach the engine through."""
+        return cast("ClientConnection", self._connection)
 
     def _ensure_callable(self, operation: str) -> None:
         """Raises what stops a call on the value: a closed value, or a failed listener.
@@ -400,9 +416,30 @@ class _AsyncHost(Generic[_Id]):
         """
         self._ensure_callable(operation)
         await self.run.order.settled()
-        result = await send()
+        is_end = self._value is None and operation in (
+            "run.finish",
+            "run.stop",
+            "run.abort",
+        )
+        save_on_end = self.run.save_recording_on_end if is_end else None
+        if save_on_end is not None:
+            self.run.save_recording_on_end = None
+        try:
+            result = await send()
+        except BaseException:
+            if save_on_end is not None:
+                try:
+                    await save_on_end()
+                except Exception as write_error:
+                    _logger.warning(
+                        "Could not write Response recording after Run failure: %s",
+                        write_error,
+                    )
+            raise
         if self._value is None and self.run.state == "running" and _says_ended(result):
             self.run.state = "ended"
+        if save_on_end is not None:
+            await save_on_end()
         return result
 
     def read(
@@ -421,6 +458,18 @@ class _AsyncHost(Generic[_Id]):
         self._ensure_callable(operation)
         spawn = spawner()
         reading = Reading(self._connection, operation, params, item_of, self.run.order)
+        spawn(reading.run)
+        return AsyncSequence(reading)
+
+    def open_sequence(
+        self,
+        operation: str,
+        build: Callable[[Streams, Order], _RunnableReads[_Item]],
+    ) -> AsyncSequence[_Item]:
+        """Opens a custom bidirectional sequence (such as `run.add_seeds`)."""
+        self._ensure_callable(operation)
+        spawn = spawner()
+        reading = build(self._connection, self.run.order)
         spawn(reading.run)
         return AsyncSequence(reading)
 
@@ -598,6 +647,16 @@ class _SyncHost(Generic[_Id]):
         """The ID each of the handle's calls carries."""
         return self._host.id
 
+    @property
+    def connection(self) -> ClientConnection:
+        """The Connection this handle's calls and copies reach the engine through."""
+        return self._host.connection
+
+    @property
+    def loop(self) -> PrivateLoop:
+        """The private loop that drives this handle's async calls and Run copies."""
+        return self._loop
+
     def call(
         self, operation: str, params: BaseModel, *, timeout_setting: str | None = None
     ) -> object:
@@ -742,7 +801,12 @@ class AsyncRun(AsyncRunMembers):
     """A Run of the async API."""
 
     def __init__(
-        self, connection: RunHost, started: RunStarted, *, detached: bool = False
+        self,
+        connection: RunHost,
+        started: RunStarted,
+        *,
+        detached: bool = False,
+        record_path: str | None = None,
     ) -> None:
         """Takes its Connection and the engine's answer to its start.
 
@@ -762,11 +826,54 @@ class AsyncRun(AsyncRunMembers):
         self._closing = Once()
         self.key_value_store = AsyncKeyValueStore(host)
         """Its Key-value store (ADR 0103), whose writes commit at once."""
+        conn = cast("ClientConnection", connection)
+        if record_path is not None and conn.engine.kind != "attached":
+            target = os.fspath(record_path)
+
+            async def _save_on_end() -> RecordingSaved:
+                raw = await save_file(
+                    conn,
+                    "recording.save_as",
+                    {"run_id": scope.id, "filename": os.path.basename(target)},
+                    target,
+                    call="save_recording",
+                )
+                return result_of(RecordingSaved, raw)
+
+            scope.save_recording_on_end = _save_on_end
 
     @property
     def id(self) -> str:
         """Its Run ID."""
         return self._scope.id
+
+    async def save_recording(self, path: str | os.PathLike[str]) -> RecordingSaved:
+        """Saves a Run's recorded Response recording to `path`.
+
+        Saves a Run's recorded Response recording as a WARC 1.1 file, whole or
+        not at all (ADRs 0105 and 0116). An Attached engine given the program's
+        path writes it through a hidden temporary file beside it, synced and
+        renamed over it, creating missing folders and replacing a file there;
+        any other engine writes nothing on its own machine and sends the file in
+        `$/chunk` notifications of at most 64 KiB, one per credit granted with
+        `$/credit`, for the SDK to write. A Run that recorded no responses
+        raises `recording_invalid`. A path that cannot be written raises
+        `path_not_writable`, and full or failing storage `file_write_failed`,
+        leaving the path as it was.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_entry("recording.save_as", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        self._scope.ensure_open("recording.save_as")
+        target = os.fspath(path)
+        raw = await save_file(
+            cast("ClientConnection", self._connection),
+            "recording.save_as",
+            {"run_id": self._scope.id, "filename": os.path.basename(target)},
+            target,
+            call="save_recording",
+        )
+        return result_of(RecordingSaved, raw)
 
     def _attempt_key_value_store(
         self, attempt: KeyValueStoreAttempt
@@ -794,6 +901,14 @@ class AsyncRun(AsyncRunMembers):
             RuntimeError: No asyncio or Trio loop runs on this thread.
         """
         return _held[self][0].read(operation, params, item_of)
+
+    def _open_sequence(
+        self,
+        operation: str,
+        build: Callable[[Streams, Order], _RunnableReads[_Item]],
+    ) -> AsyncSequence[_Item]:
+        """Opens a custom sequence `operation` on the Run (such as `run.add_seeds`)."""
+        return _held[self][0].open_sequence(operation, build)
 
     async def explain_settings(
         self, keys: Iterable[str] | None = None
@@ -932,12 +1047,28 @@ class AsyncRun(AsyncRunMembers):
     async def _close(self) -> None:
         stops = self._scope.state == "running" and not self._detached
         self._scope.state = "closed"
+        save_on_end = self._scope.save_recording_on_end if stops else None
+        if save_on_end is not None:
+            self._scope.save_recording_on_end = None
         try:
             await self._scope.order.settled()
             if stops and self._connection.reachable():
-                await self._connection.call(
-                    "run.abort", RunAbortParams(run_id=RunId(self.id))
-                )
+                try:
+                    await self._connection.call(
+                        "run.abort", RunAbortParams(run_id=RunId(self.id))
+                    )
+                except BaseException:
+                    if save_on_end is not None:
+                        try:
+                            await save_on_end()
+                        except Exception as write_error:
+                            _logger.warning(
+                                "Could not write recording after Run failure: %s",
+                                write_error,
+                            )
+                    raise
+                if save_on_end is not None:
+                    await save_on_end()
         finally:
             self._connection.forget(self)
             await self._scope.stop_listeners(None)
@@ -1004,6 +1135,28 @@ class Run(RunMembers):
     def id(self) -> str:
         """Its Run ID."""
         return self._run.id
+
+    def save_recording(self, path: str | os.PathLike[str]) -> RecordingSaved:
+        """Saves a Run's recorded Response recording to `path`.
+
+        Saves a Run's recorded Response recording as a WARC 1.1 file, whole or
+        not at all (ADRs 0105 and 0116). An Attached engine given the program's
+        path writes it through a hidden temporary file beside it, synced and
+        renamed over it, creating missing folders and replacing a file there;
+        any other engine writes nothing on its own machine and sends the file in
+        `$/chunk` notifications of at most 64 KiB, one per credit granted with
+        `$/credit`, for the SDK to write. A Run that recorded no responses
+        raises `recording_invalid`. A path that cannot be written raises
+        `path_not_writable`, and full or failing storage `file_write_failed`,
+        leaving the path as it was.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        scope = _held[self._run][0].run
+        try:
+            return self._loop.call(functools.partial(self._run.save_recording, path))
+        except LoopStopped:
+            raise scope.closed_error("recording.save_as") from None
 
     def explain_settings(
         self, keys: Iterable[str] | None = None

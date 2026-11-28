@@ -41,6 +41,7 @@
 mod cdp;
 mod counted_work;
 mod deny;
+mod deploy;
 mod deprecated_settings;
 mod digest;
 mod emit;
@@ -363,6 +364,7 @@ impl Plan {
             PROTOCOL_GENERATED,
             special_purpose::OUTPUT_FOLDER,
             executables::COLLIE_FOLDER,
+            deploy::FOXHOUND_FOLDER,
             skills::FOXHOUND_FOLDER,
             cdp::FOLDER,
             rust::FOLDER,
@@ -430,6 +432,7 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
     files.extend(special_purpose::generate(root)?);
     files.extend(counted_work::generate(root)?);
     files.extend(executables.into_files());
+    files.extend(deploy::files(root)?);
     files.extend(skills::files(root, &catalog, command_lines.as_ref())?);
     let sources = features::Sources {
         root,
@@ -576,6 +579,22 @@ fn json_text(value: &Value) -> Result<Vec<u8>> {
 /// Writes every generated file, removing any other file from the folders
 /// `xtask codegen` owns.
 pub(crate) fn write(cargo: &OsStr, generators: &Generators, root: &Path) -> Result<()> {
+    // Write the Rust SDK generated files before invoking `executables::Files::printed`,
+    // which compiles `goodfetch-collie` and `goodfetch-foxhound` against them, so a
+    // lockstep edit to `xtask/src/codegen/rust/` and `goodfetch-collie-client` bootstraps.
+    let version = product_version::read(root)?;
+    let emitted = emitter::emit(cargo, root)?;
+    let bundle: Value =
+        serde_json::from_slice(&emitted.bundle).context("reading the emitted bundle")?;
+    let mut catalog: Value =
+        serde_json::from_slice(&emitted.catalog).context("reading the emitted catalog")?;
+    settle_daemon_address(&mut catalog, &version)?;
+    let collie = projection::project(&catalog, &bundle, Product::Collie)?;
+    let foxhound = projection::project(&catalog, &bundle, Product::Foxhound)?;
+    for (path, contents) in rust_files(root, &bundle, &collie, &foxhound, &version)? {
+        write_file(&root.join(&path), &contents)?;
+    }
+
     let plan = plan(cargo, root, executables::Files::printed(cargo, root)?)?;
     let written = plan.written();
     for folder in Plan::owned_folders() {

@@ -688,6 +688,24 @@ impl RunCharging {
             .await
     }
 
+    /// Reclassifies one previously charged `requests` Usage as a `cache_hits`
+    /// Usage when a fetch was answered from the Response cache (ADR 0046,
+    /// issue 803), keeping `usage.requests` apart from `usage.cache_hits`.
+    ///
+    /// # Errors
+    ///
+    /// As [`RunCharging::settle`]'s.
+    pub async fn reclassify_request_as_cache_hit(&self) -> Result<(), ChargeError> {
+        self.settled(|_| Charged {
+            counted: vec![
+                Counted::of(goodfetch_protocol::usage::REQUESTS, None, -1),
+                Counted::of(goodfetch_protocol::usage::CACHE_HITS, None, 1),
+            ],
+            ..Charged::default()
+        })
+        .await
+    }
+
     /// Makes `change` on the Run's charging, journals what it charged, and
     /// asks the Run to stop at its next safe point when a Limit refused it;
     /// answers none once the Run ended. A change that is a step in memory

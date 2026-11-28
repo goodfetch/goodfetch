@@ -130,23 +130,50 @@ fn containerfile_builds_five_tags_on_debian_13_slim_uid_10001_with_rules_and_exe
         );
     }
 
-    // Seccomp profile allows user-namespace syscalls needed by Chromium's sandbox.
+    // Seccomp profile allows Chromium's three user-namespace rules (`clone`
+    // with `CLONE_NEWUSER`, `unshare`, `setns`) on top of Docker's default
+    // profile (where `clone3` returns ENOSYS so glibc falls back to `clone`).
     let seccomp: Value = serde_json::from_str(
         &std::fs::read_to_string(root().join("packaging/oci/seccomp-profile.json")).unwrap(),
     )
     .unwrap();
-    let names: Vec<&str> = seccomp["syscalls"][0]["names"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(Value::as_str)
-        .collect();
-    for syscall in ["unshare", "setns", "clone", "clone3"] {
+    let rules = seccomp["syscalls"].as_array().unwrap();
+    let allows_unconditional = |syscall: &str| {
+        rules.iter().any(|rule| {
+            rule["action"].as_str() == Some("SCMP_ACT_ALLOW")
+                && rule.get("includes").is_none()
+                && rule
+                    .get("args")
+                    .and_then(Value::as_array)
+                    .is_none_or(Vec::is_empty)
+                && rule["names"]
+                    .as_array()
+                    .is_some_and(|names| names.iter().any(|n| n.as_str() == Some(syscall)))
+        })
+    };
+    for syscall in ["unshare", "setns"] {
         assert!(
-            names.contains(&syscall),
+            allows_unconditional(syscall),
             "seccomp profile must allow `{syscall}`"
         );
     }
+    let allows_clone_newuser = rules.iter().any(|rule| {
+        rule["action"].as_str() == Some("SCMP_ACT_ALLOW")
+            && rule["names"]
+                .as_array()
+                .is_some_and(|names| names.iter().any(|n| n.as_str() == Some("clone")))
+            && rule["args"].as_array().is_some_and(|args| {
+                args.iter().any(|arg| {
+                    arg["op"].as_str() == Some("SCMP_CMP_MASKED_EQ")
+                        && arg["value"].as_u64() == Some(0x1000_0000)
+                        && arg["valueTwo"].as_u64() == Some(0x1000_0000)
+                })
+            })
+    });
+    assert!(
+        allows_clone_newuser,
+        "seccomp profile must allow `clone` with CLONE_NEWUSER"
+    );
 }
 
 #[test]

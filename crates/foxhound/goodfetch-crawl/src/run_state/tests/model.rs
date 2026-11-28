@@ -1049,6 +1049,7 @@ fn seed(page: usize) -> Seed {
         forefront: false,
         method: HttpMethod::get(),
         body: None,
+        headers: std::collections::BTreeMap::new(),
         key: None,
     })
 }
@@ -1352,8 +1353,14 @@ impl Subject {
             .expect("invariant: the crawl runs until the case ends");
         let asking = crawl.asking.clone();
         self.runtime
-            .block_on(crawl.asks(asking.seeds(seeds)))
-            .map(|answers| refused(&answers.expect("the model's seeds are valid")))
+            .block_on(crawl.asks(asking.seeds(seeds, None)))
+            .map(|answers| {
+                refused(
+                    &answers
+                        .expect("no attempt")
+                        .expect("the model's seeds are valid"),
+                )
+            })
     }
 
     /// The attempt at `index` enqueues `page`.
@@ -1375,6 +1382,7 @@ impl Subject {
                 forefront: false,
                 method: HttpMethod::get(),
                 body: None,
+                headers: std::collections::BTreeMap::new(),
                 key: None,
                 page_id: None,
             },

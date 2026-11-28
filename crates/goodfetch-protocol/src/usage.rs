@@ -46,6 +46,10 @@ pub const RUN: &str = "run";
 /// and, with the browser, a page's navigations.
 pub const REQUESTS: &str = "requests";
 
+/// The Usage kind of requests answered from the Response cache, counted
+/// apart from `requests` so request counts stay honest (ADR 0046).
+pub const CACHE_HITS: &str = "cache_hits";
+
 /// The Usage kind of the bytes a run sent and received through a proxy,
 /// counted per proxy kind (area 8 charges it).
 pub const PROXY_BYTES: &str = "proxy_bytes";
@@ -475,6 +479,12 @@ pub const ENTRIES: Entries = Entries {
             shared_type: SharedType::UsageKind,
             name: REQUESTS,
             description: "Requests a run sent: a crawl's Crawl requests, and a page's navigations.",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::UsageKind,
+            name: CACHE_HITS,
+            description: "Requests answered from the Response cache, counted apart from requests (ADR 0046).",
             arrived_in: ARRIVED_IN,
         },
         SharedTypeValue {

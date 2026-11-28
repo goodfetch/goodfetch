@@ -459,6 +459,13 @@ impl Sessions {
                 .mask(&CdpPage::of(driver), (run, session, page), &open.injections)
                 .await?;
         }
+        // A replaying Run's page gets its time-and-randomness init script
+        // once, before any document script runs (ADRs 0105 and 0140, issue 801).
+        if let Some(script) = open.interception.replay_script() {
+            CdpPage::of(driver)
+                .add_init_script_opening(script.to_owned())
+                .await?;
+        }
         // A page a program opened reads robots.txt for each document its
         // main frame receives, beside its navigation, never before it (ADR
         // 0086).
@@ -545,6 +552,10 @@ impl Sessions {
         let Ok(opener_events) = self.page_owners.events(&opener_id) else {
             return false;
         };
+        let discovery = self
+            .page_owners
+            .get(&opener_id)
+            .and_then(|owner| owner.interception().discovery());
         let run = Arc::clone(&open.run);
         let admission = run.governor.share().admit(WorkKind::BrowserPage).await;
         let in_browser = open.seat.popup_in(opener.in_browser.browser(), &driver);
@@ -571,6 +582,13 @@ impl Sessions {
             .await;
         match adopted {
             Ok(popup) => {
+                if let Some(discovery) = discovery {
+                    discovery.popup_opened(popup.clone());
+                    if let Some(popup_owner) = self.page_owners.get(&popup) {
+                        popup_owner.interception().set_popup_discovery(discovery);
+                    }
+                    return true;
+                }
                 opener_events.publish(
                     PageEventName::Popup,
                     &PAGE_POPUP,

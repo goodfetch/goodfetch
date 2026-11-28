@@ -2,16 +2,26 @@
 //! one family per Sink, each entry a [`SinkSettings`] of the keys every
 //! Sink type shares, set on a connection or a crawl's Run and refused on a
 //! Label. [`GuaranteeClass`] is what a Sink's probe proves of its
-//! destination, which its delivery reports.
+//! destination, which its delivery reports; `crawl.min_sink_guarantee`
+//! refuses a Run whose Sink proves less, and `sink.probe` probes one Sink
+//! on demand.
+
+use std::time::SystemTime;
 
 use schemars::JsonSchema;
 use schemars::generate::SchemaSettings;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::catalog::{Authority, Entries, ProtocolVersion, Setting, ValueKind, ValueShape};
+use crate::catalog::{
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
+    ProtocolVersion, Reach, Setting, Stability, ValueKind, ValueShape, schema_of,
+};
 use crate::foxhound::export::{ExportCompression, ExportFormat};
+use crate::point_in_time::PointInTime;
+use crate::run::RunId;
 use crate::secret_reference::{REFERENCE_PATTERN, SecretReference};
+use crate::settings::ProjectSettings;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -320,7 +330,7 @@ pub struct SinkSettings {
     /// The names of the Datasets it receives.
     #[schemars(length(min = 1), extend("arrived_in" = "0.1"))]
     pub datasets: Vec<String>,
-    /// How it writes them: `append` when left out ([`Self::write_mode`]).
+    /// How it writes them: `append` when left out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub mode: Option<WriteMode>,
@@ -374,42 +384,34 @@ pub struct SinkSettings {
     pub image: Option<String>,
 }
 
-impl SinkSettings {
-    /// How it writes its Records: its `mode`, else `append`.
-    #[must_use]
-    pub fn write_mode(&self) -> WriteMode {
-        self.mode.unwrap_or_default()
+/// Reads `value` as a Sink's entry.
+///
+/// # Errors
+///
+/// What is wrong with it, never repeating a Secret reference's place's
+/// text, since a value given there may be the secret itself.
+pub fn read_sink_settings(value: &Value) -> Result<SinkSettings, String> {
+    let settings: SinkSettings = serde_json::from_value(value.clone()).map_err(|error| {
+        format!("expected a Sink's entry of `datasets` and the keys every Sink shares: {error}")
+    })?;
+    if settings.datasets.is_empty() {
+        return Err("a Sink's `datasets` names at least one Dataset".to_owned());
     }
-
-    /// Reads `value` as a Sink's entry.
-    ///
-    /// # Errors
-    ///
-    /// What is wrong with it, never repeating a Secret reference's place's
-    /// text, since a value given there may be the secret itself.
-    pub fn read(value: &Value) -> Result<Self, String> {
-        let settings: Self = serde_json::from_value(value.clone()).map_err(|error| {
-            format!("expected a Sink's entry of `datasets` and the keys every Sink shares: {error}")
-        })?;
-        if settings.datasets.is_empty() {
-            return Err("a Sink's `datasets` names at least one Dataset".to_owned());
-        }
-        if settings.sink_type.is_some() && settings.destination.is_none() {
-            return Err(
-                "a Sink of a `type` names its `destination`, a Secret reference such as `env:SINK_DSN`"
-                    .to_owned(),
-            );
-        }
-        reference("destination", settings.destination.as_deref())?;
-        reference(
-            "webhook.signing_secret",
-            settings
-                .webhook
-                .as_ref()
-                .and_then(|webhook| webhook.signing_secret.as_deref()),
-        )?;
-        Ok(settings)
+    if settings.sink_type.is_some() && settings.destination.is_none() {
+        return Err(
+            "a Sink of a `type` names its `destination`, a Secret reference such as `env:SINK_DSN`"
+                .to_owned(),
+        );
     }
+    reference("destination", settings.destination.as_deref())?;
+    reference(
+        "webhook.signing_secret",
+        settings
+            .webhook
+            .as_ref()
+            .and_then(|webhook| webhook.signing_secret.as_deref()),
+    )?;
+    Ok(settings)
 }
 
 /// Whether `text`, the value of the key `key` names, is a Secret reference
@@ -432,7 +434,7 @@ impl crate::catalog::SettingJson for SinkSettings {
 /// A value of `sinks`: one Sink's entry.
 pub const SINK_SHAPE: ValueShape = ValueShape {
     name: "SinkSettings",
-    check: |value| SinkSettings::read(value).map(drop),
+    check: |value| read_sink_settings(value).map(drop),
     schema: || {
         let schema = SchemaSettings::draft2020_12()
             .with(|settings| settings.inline_subschemas = true)
@@ -542,10 +544,26 @@ pub const SINKS: Setting = Setting {
     authority: Authority::Every,
     weakens: None,
     fixed_for_run: false,
-    unbuilt: Some("sinks"),
+    unbuilt: None,
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// A Sink's delivery status (ADRs 0026 and 0103).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SinkStatus {
+    /// Everything was delivered.
+    Complete,
+    /// Everything was delivered, some of it rejected.
+    CompleteWithRejections,
+    /// It is still delivering.
+    Behind,
+    /// It failed.
+    Failed,
+    /// It names none of the crawl's Datasets and delivers nothing.
+    Inactive,
+}
 
 /// What a Sink's probe proves of its destination (ADR 0026), from the
 /// strongest.
@@ -564,16 +582,334 @@ pub enum GuaranteeClass {
     AtLeastOnce,
 }
 
-/// A crawl's Sinks' entries: their settings.
+/// `crawl.min_sink_guarantee` (ADR 0026).
+pub const CRAWL_MIN_SINK_GUARANTEE: Setting = Setting {
+    name: "crawl.min_sink_guarantee",
+    description: "The weakest Guarantee class a crawl's Run accepts of each of its Sinks, from the strongest: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). Each Sink is probed at the Run's start, and a Sink whose probe proves a weaker class, or fails, refuses the start with `sink_guarantee_unmet` before the Run does any work. None by default: any class is accepted, and a Sink whose probe fails delivers nothing; `null` clears it.",
+    kind: ValueKind::Choice(&["fenced", "record_fenced", "keyed", "at_least_once"]),
+    default: no_minimum,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn no_minimum() -> Value {
+    Value::Null
+}
+
+/// What a crawl's Run does when a Sink fails (ADR 0026).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum OnSinkFailure {
+    /// Collection goes on even when a Sink fails; the Sink's status in the
+    /// Run report records the failure.
+    #[default]
+    Continue,
+    /// Stop collection at the next safe point when any Sink fails.
+    Stop,
+}
+
+/// `crawl.on_sink_failure` (ADR 0026).
+pub const CRAWL_ON_SINK_FAILURE: Setting = Setting {
+    name: "crawl.on_sink_failure",
+    description: "Whether collection goes on when a Sink fails (`continue`, the default) or stops at the next safe point (`stop`), so a destination's outage never stops a crawl unasked (ADR 0026).",
+    kind: ValueKind::Choice(&["continue", "stop"]),
+    default: default_on_sink_failure,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn default_on_sink_failure() -> Value {
+    Value::String("continue".to_owned())
+}
+
+/// A crawl's Run refused at its start for a Sink below its
+/// `crawl.min_sink_guarantee` (ADR 0026).
+pub const SINK_GUARANTEE_UNMET: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "sink_guarantee_unmet",
+    description: "A Sink of a crawl's Run proved a weaker Guarantee class than the Run's `crawl.min_sink_guarantee`, or its probe failed, so the Run was refused at its start and did no work. The details name the Sink, the class required, the class its probe proved, if any, and the cause of a failed probe. Deliver to a destination that proves the class, such as a Fenced SQLite Sink, or lower `crawl.min_sink_guarantee`.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `sink_guarantee_unmet` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SinkGuaranteeUnmetDetails {
+    /// The Sink's name, its key under `sinks`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub sink: String,
+    /// The class the Run requires, its `crawl.min_sink_guarantee`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub required: GuaranteeClass,
+    /// The class the Sink's probe proved; none when the probe failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub proved: Option<GuaranteeClass>,
+    /// Why the probe failed, for people; none when it proved a class.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub cause: Option<String>,
+}
+
+/// What `sink.probe` takes: the Sink, by its name among the `sinks` the
+/// settings resolve to as a crawl's Run would.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SinkProbeParams {
+    /// The Sink's name, its key under `sinks`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub sink: String,
+    /// Settings over the connection's, nested by key, as a crawl's Run
+    /// takes them (ADR 0083), such as the `sinks` to probe.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub settings: serde_json::Map<String, Value>,
+    /// The project configuration the Client found, layer 3 (ADR 0083).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub project: Option<ProjectSettings>,
+}
+
+/// What `sink.probe` answers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SinkProbe {
+    /// The Sink's name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub sink: String,
+    /// What its probe found.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub outcome: SinkProbeOutcome,
+}
+
+/// What a Sink's probe found.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum SinkProbeOutcome {
+    /// Its destination proved a Guarantee class.
+    Proved {
+        /// The class.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        class: GuaranteeClass,
+    },
+    /// Its probe failed: its destination did not resolve, open or answer.
+    Failed {
+        /// Why, for people.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        cause: String,
+    },
+}
+
+/// `sink.probe` (ADR 0026).
+pub const SINK_PROBE: Operation = Operation {
+    name: "sink.probe",
+    description: "Probes one Sink now, by its name among the `sinks` the connection's settings and the call's `settings` resolve to, as a crawl's Run would, and answers the Guarantee class its destination proves: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). A probe may create what the Sink writes to, such as a SQLite Sink's table. A probe that fails answers `failed` with its cause, such as a destination that did not resolve or open; a Sink the settings do not name answers `failed` naming those they do. A Sink this engine does not deliver to yet fails with `capability_unavailable`. A crawl's Run probes each of its Sinks again at its start.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<SinkProbeParams>,
+    result: schema_of::<SinkProbe>,
+    events: &[],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `sink.list` takes: optionally one Run to read each Sink's status
+/// from, or settings over the connection's to probe and summarize every
+/// configured Sink (ADRs 0026 and 0099).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SinkListParams {
+    /// When set, lists the Sinks that applied to this Run with its
+    /// Run-scoped class, status, dead letters and deliveries outside the
+    /// deduplication window. When absent, lists the Sinks configured in
+    /// `settings` and aggregates their dead letters and late deliveries
+    /// across Runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: Option<RunId>,
+    /// Settings over the connection's, nested by key, as a crawl's Run
+    /// takes them (ADR 0083).
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub settings: serde_json::Map<String, Value>,
+    /// The project configuration the Client found, layer 3 (ADR 0083).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub project: Option<ProjectSettings>,
+}
+
+/// One Sink in `sink.list`'s answer (ADR 0026).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SinkListEntry {
+    /// The Sink's name, its key under `sinks`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+    /// Its Guarantee class, when probed or recorded on a Run; none when
+    /// probing failed outside any Run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub guarantee_class: Option<GuaranteeClass>,
+    /// How many deliveries are currently on its dead-letter list.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub dead_letters: u64,
+    /// How many deliveries fell outside the destination's deduplication
+    /// window, and so were at least once.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub outside_dedup_window: u64,
+    /// Its delivery status on the named Run; absent when listing
+    /// configured Sinks outside a single Run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub status: Option<SinkStatus>,
+    /// Why probing failed outside a Run, when `guarantee_class` is absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub probe_cause: Option<String>,
+}
+
+/// What `sink.list` answers (ADR 0026).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SinkList {
+    /// Each Sink, in name order.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub sinks: Vec<SinkListEntry>,
+}
+
+/// `sink.list` (ADRs 0026 and 0099).
+pub const SINK_LIST: Operation = Operation {
+    name: "sink.list",
+    description: "Lists each Sink with its Guarantee class, its dead-letter count and its deliveries outside the destination's deduplication window (ADR 0026). With `run_id`, reads the Sinks that applied to that Run; without `run_id`, resolves `sinks` from the connection's and call's settings, probes each deliverable Sink and aggregates its dead letters and late deliveries across Runs.",
+    class: OperationClass::Read,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<SinkListParams>,
+    result: schema_of::<SinkList>,
+    events: &[],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `sink.deliver` does against a Run's committed Records or dead letters
+/// (ADR 0026).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SinkDeliverAction {
+    /// Redelivers one delivery by its `delivery_id`, carrying the same
+    /// delivery ID so the destination can deduplicate it.
+    Redeliver {
+        /// The delivery ID to redeliver (`<run_id>/<sink>/<dataset>/<number>`).
+        #[schemars(extend("arrived_in" = "0.1"))]
+        delivery_id: String,
+    },
+    /// Recovers failed deliveries (dead letters) committed at or after `since`
+    /// (RFC 3339 in UTC).
+    Recover {
+        /// RFC 3339 UTC timestamp lower bound (inclusive).
+        #[serde(with = "crate::point_in_time")]
+        #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+        since: SystemTime,
+    },
+    /// Replays committed Records of the Run that were never delivered to the
+    /// Sink.
+    Replay,
+    /// Backfills every committed Record of a past Run to any configured Sink,
+    /// including a Sink added after the Run ended.
+    Backfill,
+}
+
+/// What `sink.deliver` takes (ADRs 0026 and 0099).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SinkDeliverParams {
+    /// The Run whose Records or dead letters to deliver.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// The Sink's name, its key under `sinks`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub sink: String,
+    /// Which delivery operation to run (`redeliver`, `recover`, `replay` or
+    /// `backfill`).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub action: SinkDeliverAction,
+    /// Settings over the connection's, nested by key, as a crawl's Run takes
+    /// them (ADR 0083), such as a Sink added after the Run ended.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub settings: serde_json::Map<String, Value>,
+    /// The project configuration the Client found, layer 3 (ADR 0083).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub project: Option<ProjectSettings>,
+}
+
+/// What `sink.deliver` answers (ADR 0026).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SinkDeliver {
+    /// The Run whose Records were delivered.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// The Sink's name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub sink: String,
+    /// How many Records or dead letters were delivered by this call.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub delivered: u64,
+    /// How many dead letters remain for this Run and Sink after this call.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub dead_letters: u64,
+    /// The Sink's status after this delivery.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub status: SinkStatus,
+}
+
+/// `sink.deliver` (ADRs 0026 and 0099).
+pub const SINK_DELIVER: Operation = Operation {
+    name: "sink.deliver",
+    description: "Delivers committed Records or dead letters of a Run to a configured Sink after the Run (ADR 0026): `redeliver` resends one delivery by its `delivery_id`, `recover` retries dead letters committed since an RFC 3339 timestamp, `replay` delivers Records not yet at the destination, and `backfill` delivers every committed Record of a past Run to any Sink (including one configured after the Run ended).",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<SinkDeliverParams>,
+    result: schema_of::<SinkDeliver>,
+    events: &[],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A crawl's Sinks' entries: their settings, `sink.probe`, `sink.list`,
+/// `sink.deliver` and the refusal of a Run whose Sink proves too little.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[],
+    operations: &[SINK_PROBE, SINK_LIST, SINK_DELIVER],
     events: &[],
     handler_requests: &[],
-    error_codes: &[],
+    error_codes: &[SINK_GUARANTEE_UNMET],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[SINKS],
+    settings: &[SINKS, CRAWL_MIN_SINK_GUARANTEE, CRAWL_ON_SINK_FAILURE],
     hook_stages: &[],
     shared_type_values: &[],
 };

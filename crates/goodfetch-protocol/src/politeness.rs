@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::catalog::{
-    Authority, Entries, Event, EventClass, Instrument, Metric, ProtocolVersion, Setting, Stability,
-    ValueKind, schema_of,
+    Authority, Entries, Event, EventClass, Instrument, Metric, ProtocolVersion, Setting,
+    SharedType, SharedTypeValue, Stability, ValueKind, schema_of,
 };
 use crate::run::RunId;
 
@@ -200,6 +200,16 @@ pub const POLITENESS_STORE_DEGRADED_METRIC: Metric = Metric {
     arrived_in: ARRIVED_IN,
 };
 
+/// The Audit log kind of a Politeness or Site-preferences value that
+/// presses a site harder than its built-in default (ADRs 0086 and 0088),
+/// recorded once per run per key.
+pub const POLITENESS_WEAKENED: SharedTypeValue = SharedTypeValue {
+    shared_type: SharedType::AuditKind,
+    name: "politeness_weakened",
+    description: "A run set a Politeness or Site-preferences value that presses a site harder than its built-in default, or a `site_preferences.robots_txt_user_agent`, once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0086).",
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -218,5 +228,5 @@ pub const ENTRIES: Entries = Entries {
         store::POLITENESS_STORE,
     ],
     hook_stages: &[],
-    shared_type_values: &[],
+    shared_type_values: &[POLITENESS_WEAKENED],
 };

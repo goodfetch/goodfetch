@@ -50,7 +50,11 @@ async fn seeds(params: RunSeedsParams, context: CallContext) -> Result<RunSeeds,
 }
 
 /// Each seed's answer in order; none in a run file no crawl wrote.
-fn read(connection: &Connection) -> rusqlite::Result<Vec<Enqueued>> {
+///
+/// # Errors
+///
+/// When the run file cannot be read, or a recorded seed answer no longer decodes.
+pub fn read(connection: &Connection) -> rusqlite::Result<Vec<Enqueued>> {
     let has_seeds = connection
         .prepare_cached("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'seeds'")
         .and_then(|mut cached| cached.query_row([], |_| Ok(())))

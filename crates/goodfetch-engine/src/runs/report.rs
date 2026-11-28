@@ -23,8 +23,8 @@ use goodfetch_protocol::run::{
 };
 use goodfetch_protocol::settings::{ExplainedSetting, WeakenedSetting};
 use goodfetch_protocol::usage::{
-    BROWSER_TIME, MODEL_CALLS, MODEL_TOKENS, PAID_SOLVES, PLUGIN_CALLS, PLUGIN_TIME, PROXY_BYTES,
-    REQUESTS,
+    BROWSER_TIME, CACHE_HITS, MODEL_CALLS, MODEL_TOKENS, PAID_SOLVES, PLUGIN_CALLS, PLUGIN_TIME,
+    PROXY_BYTES, REQUESTS,
 };
 use rusqlite::{Connection, OptionalExtension as _};
 
@@ -83,6 +83,9 @@ pub(super) struct EndFacts {
     /// (ADRs 0031 and 0122), guaranteeing the `"no_trace"` warning is present
     /// even if the background warning task raced with the Run's end.
     pub(super) no_trace_folder: Option<String>,
+    /// Set to `Some("replay")` when the Run used `cache.mode: replay`
+    /// (ADR 0046); `None` otherwise.
+    pub(super) cache_mode: Option<String>,
 }
 
 /// The report answered when a Run's end could not be written to its run state
@@ -182,6 +185,7 @@ impl EndFacts {
             plugins: None,
             warnings: Vec::new(),
             recording: None,
+            cache_mode: self.cache_mode.clone(),
             checkpoint: self.checkpoint.clone(),
             nothing_done: None,
             uncertain_effects: None,
@@ -336,6 +340,7 @@ pub(super) fn usage(
                 amount,
             }),
             (REQUESTS, None) => usage.requests = amount,
+            (CACHE_HITS, None) => usage.cache_hits = amount,
             (PAID_SOLVES, currency) => usage.paid_solves.push(UsageAmount { currency, amount }),
             (PAID_FETCH, currency) => usage.paid_fetches.push(UsageAmount { currency, amount }),
             // `plugins` holds them, by implementation.

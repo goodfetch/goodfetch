@@ -1,0 +1,35 @@
+{
+  "name": "@goodfetch/website",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Goodfetch's docs site at goodfetch.dev/docs (ADRs 0030 and 0097): Docusaurus over the source tree `xtask docs-site render` writes; never published.",
+  "scripts": {
+    "render": "cd .. && cargo run --quiet --bin xtask -- docs-site render",
+    "build": "pnpm run render && docusaurus build --out-dir ../target/docs-site/build",
+    "start": "pnpm run render && docusaurus start",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@docusaurus/core": "3.10.2",
+    "@docusaurus/module-type-aliases": "3.10.2",
+    "@docusaurus/plugin-content-docs": "3.10.2",
+    "@docusaurus/plugin-content-pages": "3.10.2",
+    "@docusaurus/plugin-sitemap": "3.10.2",
+    "@docusaurus/theme-classic": "3.10.2",
+    "@docusaurus/types": "3.10.2",
+    "@easyops-cn/docusaurus-search-local": "0.55.3",
+    "@goodfetch/test-support": "workspace:*",
+    "@mdx-js/react": "3.1.1",
+    "@playwright/test": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "19.3.0",
+    "prism-react-renderer": "2.4.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

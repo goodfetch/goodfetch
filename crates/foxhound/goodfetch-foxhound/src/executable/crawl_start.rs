@@ -1,18 +1,21 @@
 //! `crawl start <url>…`, the command line's code-free crawl (ADRs 0099 and
-//! 0103; spec #611's CLI): it calls `crawl.start` with the seeds and the
-//! `extraction` its flags give in place of those two params, on the Daemon,
-//! and prints the Run ID, the one JSON value under `--json`. Each URL is a
-//! seed of the code-free crawl's Label, and so is each line of
-//! `--seeds-file`, where a line holding a JSON object is a seed as
-//! `crawl.start` takes it. `--format` names a format of `page.formats`,
-//! repeatable; `--field <name>=<locator>` reads a named field by a CSS
-//! selector, or an `XPath` expression after `xpath:`, given by the `text`
-//! Value transform; `--fields` reads named fields in the catalog's JSON form;
-//! `--links` says which pages the crawl fetches beyond its seeds. A crawl
-//! given neither a format nor a field keeps each page's Markdown. Its help
-//! is its own, and it takes no `--datasets`: a code-free crawl declares
-//! its one Dataset, `pages`, itself. Nor does it take `--hooks`: no program
-//! on its Connection answers a Hook's call.
+//! 0103; spec #611's CLI): it calls `crawl.start` with the seeds and either
+//! the `extraction` its flags give or the `declaration` `--declaration` reads
+//! in place of those params, on the Daemon, and prints the Run ID, the one
+//! JSON value under `--json`. Each URL is a seed of the code-free crawl's
+//! Label, and so is each line of `--seeds-file`, where a line holding a JSON
+//! object is a seed as `crawl.start` takes it. `--format` names a format of
+//! `page.formats`, repeatable; `--field <name>=<locator>` reads a named field
+//! by a CSS selector, or an `XPath` expression after `xpath:`, given by the
+//! `text` Value transform; `--fields` reads named fields in the catalog's
+//! JSON form; `--links` says which pages the crawl fetches beyond its seeds;
+//! `--declaration` reads a reviewed `CrawlDeclaration` JSON object from a
+//! file or `-` (naming it with `--format`, `--field`, `--fields` or `--links`
+//! sends both `declaration` and `extraction`, which the engine refuses with
+//! `setting_invalid`). A crawl given neither a declaration, a format nor a
+//! field keeps each page's Markdown. Its help is its own, and it takes no
+//! `--datasets`: a code-free crawl declares its own Datasets itself. Nor does
+//! it take `--hooks`: no program on its Connection answers a Hook's call.
 //!
 //! A seeds file whose seeds would pass the engine's message limit
 //! (`MAX_MESSAGE_BYTES`) in `crawl.start` starts the crawl with the URLs
@@ -67,10 +70,10 @@ pub(super) const COMMAND: OwnCommand = OwnCommand {
 const OPERATION: &str = "crawl.start";
 
 /// The params its own flags give, `datasets`, which a crawl with an
-/// `extraction` refuses, and `hooks`, which only a program answering its
-/// Hooks' calls declares (ADR 0104), so its command offers no flag for
-/// either.
-const REPLACES: &[&str] = &[SEEDS, EXTRACTION, DATASETS, HOOKS];
+/// `extraction` or a `declaration` refuses, and `hooks`, which only a program
+/// answering its Hooks' calls declares (ADR 0104), so its command offers no
+/// flag for either.
+const REPLACES: &[&str] = &[SEEDS, EXTRACTION, DECLARATION, DATASETS, HOOKS];
 
 /// Its help, in place of `crawl.start`'s, which tells of a handler's crawl.
 const ABOUT: &str = "Starts a code-free crawl of its seeds, the URLs given and those of `--seeds-file`, whose Records of the Dataset `pages` hold what its flags read from each page, and prints its Run ID";
@@ -91,6 +94,9 @@ const SEEDS: &str = "seeds";
 /// The param that says what a code-free crawl reads from each page.
 const EXTRACTION: &str = "extraction";
 
+/// The param that carries a reviewed `CrawlDeclaration`.
+const DECLARATION: &str = "declaration";
+
 /// The Label of a code-free crawl, which its seeds take (ADR 0103).
 const CODE_FREE_LABEL: &str = "page";
 
@@ -104,9 +110,9 @@ const FIELDS: &str = "fields";
 const LINKS: &str = "links";
 const SEEDS_FILE: &str = "seeds-file";
 
-/// `command` with the flags of `crawl start` that give its seeds and its
-/// `extraction`, and `--follow`; the values `--format` and `--links` take
-/// are read from the catalog's schemas of `operation`'s params.
+/// `command` with the flags of `crawl start` that give its seeds, its
+/// `extraction` or `declaration`, and `--follow`; the values `--format` and
+/// `--links` take are read from the catalog's schemas of `operation`'s params.
 fn args(command: Command, operation: &Operation) -> Command {
     command
         .arg(
@@ -114,8 +120,15 @@ fn args(command: Command, operation: &Operation) -> Command {
                 .value_name("URL")
                 .num_args(1..)
                 .action(ArgAction::Append)
-                .required_unless_present(SEEDS_FILE)
+                .required_unless_present_any([SEEDS_FILE, DECLARATION])
                 .help("A seed of the crawl, its URL; repeatable"),
+        )
+        .arg(
+            Arg::new(DECLARATION)
+                .long(DECLARATION)
+                .value_name("FILE|-")
+                .value_parser(declaration)
+                .help("Reads a reviewed CrawlDeclaration as one JSON object in FILE, or from standard input for `-`; naming it with `--format`, `--field`, `--fields` or `--links` is refused with `setting_invalid`"),
         )
         .arg(
             Arg::new(FORMAT)
@@ -243,13 +256,28 @@ fn field(text: &str) -> Result<(String, Value), String> {
     ))
 }
 
+/// Reads one JSON object from the file `source` names, or from standard
+/// input for `-`.
+fn json_object(source: &str, expected: &str) -> Result<Map<String, Value>, String> {
+    match serde_json::from_str(&read(source)?) {
+        Ok(Value::Object(object)) => Ok(object),
+        _ => Err(expected.to_owned()),
+    }
+}
+
+/// Reads `--declaration`'s `CrawlDeclaration` JSON object from the file
+/// `source` names, or from standard input for `-`.
+fn declaration(source: &str) -> Result<Map<String, Value>, String> {
+    json_object(source, "expected a JSON object holding a CrawlDeclaration")
+}
+
 /// Reads `--fields`' JSON object of named fields from the file `source`
 /// names, or from standard input for `-`.
 fn fields(source: &str) -> Result<Map<String, Value>, String> {
-    match serde_json::from_str(&read(source)?) {
-        Ok(Value::Object(fields)) => Ok(fields),
-        _ => Err("expected a JSON object of named fields, each with its `locator`".to_owned()),
-    }
+    json_object(
+        source,
+        "expected a JSON object of named fields, each with its `locator`",
+    )
 }
 
 /// Reads `--seeds-file`'s seeds from the file `source` names, or from
@@ -363,36 +391,56 @@ impl Flags {
             seeds.is_empty(),
         );
         seeds.extend(started);
-        let mut named = matches
-            .get_one::<Map<String, Value>>(FIELDS)
-            .cloned()
-            .unwrap_or_default();
-        for (name, field) in matches
-            .get_many::<(String, Value)>(FIELD)
-            .into_iter()
-            .flatten()
+        let mut declaration = matches.get_one::<Map<String, Value>>(DECLARATION).cloned();
+        if seeds.is_empty()
+            && let Some(declared) = declaration.as_mut()
+            && declared
+                .get(SEEDS)
+                .and_then(Value::as_array)
+                .is_some_and(|list| !list.is_empty())
+            && let Some(Value::Array(declared_seeds)) = declared.remove(SEEDS)
         {
-            named.insert(name.clone(), field.clone());
+            seeds = declared_seeds;
         }
-        let mut formats: Map<String, Value> = matches
-            .get_many::<String>(FORMAT)
-            .into_iter()
-            .flatten()
-            .map(|format| (format.clone(), Value::Bool(true)))
-            .collect();
-        if formats.is_empty() && named.is_empty() {
-            formats.insert(DEFAULT_FORMAT.to_owned(), Value::Bool(true));
-        }
-        let mut extraction = Map::new();
-        extraction.insert("formats".to_owned(), Value::Object(formats));
-        if let Some(links) = matches.get_one::<String>(LINKS) {
-            extraction.insert("follow".to_owned(), Value::from(links.as_str()));
-        }
-        if !named.is_empty() {
-            extraction.insert("fields".to_owned(), Value::Object(named));
-        }
+        let has_extraction = matches.get_one::<Map<String, Value>>(FIELDS).is_some()
+            || matches.get_many::<(String, Value)>(FIELD).is_some()
+            || matches.get_many::<String>(FORMAT).is_some()
+            || matches.get_one::<String>(LINKS).is_some();
         params.insert(SEEDS.to_owned(), Value::Array(seeds));
-        params.insert(EXTRACTION.to_owned(), Value::Object(extraction));
+        if declaration.is_none() || has_extraction {
+            let mut named = matches
+                .get_one::<Map<String, Value>>(FIELDS)
+                .cloned()
+                .unwrap_or_default();
+            for (name, field) in matches
+                .get_many::<(String, Value)>(FIELD)
+                .into_iter()
+                .flatten()
+            {
+                named.insert(name.clone(), field.clone());
+            }
+            let mut formats: Map<String, Value> = matches
+                .get_many::<String>(FORMAT)
+                .into_iter()
+                .flatten()
+                .map(|format| (format.clone(), Value::Bool(true)))
+                .collect();
+            if formats.is_empty() && named.is_empty() {
+                formats.insert(DEFAULT_FORMAT.to_owned(), Value::Bool(true));
+            }
+            let mut extraction = Map::new();
+            extraction.insert("formats".to_owned(), Value::Object(formats));
+            if let Some(links) = matches.get_one::<String>(LINKS) {
+                extraction.insert("follow".to_owned(), Value::from(links.as_str()));
+            }
+            if !named.is_empty() {
+                extraction.insert("fields".to_owned(), Value::Object(named));
+            }
+            params.insert(EXTRACTION.to_owned(), Value::Object(extraction));
+        }
+        if let Some(declaration) = declaration {
+            params.insert(DECLARATION.to_owned(), Value::Object(declaration));
+        }
         Self {
             follow: matches.get_flag(FOLLOW),
             require_verified: matches.get_flag(REQUIRE_VERIFIED),

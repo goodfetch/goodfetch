@@ -115,6 +115,7 @@ pub mod browser {
         &[
             ::goodfetch_protocol::catalog::SettingScope::Connection,
             ::goodfetch_protocol::catalog::SettingScope::Run,
+            ::goodfetch_protocol::catalog::SettingScope::Session,
         ],
     );
 
@@ -820,7 +821,7 @@ pub mod egress {
             ],
         );
 
-    /// The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `["192.0.2.10", "2001:db8::10"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own.
+    /// The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `["192.0.2.10", "2001:db8::10"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. Naming an interface also binds each socket to its device on Linux (`SO_BINDTODEVICE`), macOS and illumos (`IP_BOUND_IF`); Windows binds by the interface's address under its strong host model (the interface needs its own route, and an administrator can change this with `WeakHostSend`). A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own.
     ///
     /// `egress.local_addresses`. `None` clears it.
     pub const LOCAL_ADDRESSES: crate::settings::Setting<
@@ -830,6 +831,7 @@ pub mod egress {
         &[
             ::goodfetch_protocol::catalog::SettingScope::Connection,
             ::goodfetch_protocol::catalog::SettingScope::Run,
+            ::goodfetch_protocol::catalog::SettingScope::Session,
         ],
     );
 
@@ -2285,7 +2287,7 @@ pub mod timeout {
             &[::goodfetch_protocol::catalog::SettingScope::Connection],
         );
 
-    /// How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: "timed_out"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.
+    /// How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: "timed_out"`, or `"resolver_failed"` for the program's own `resolveSecret`, asked for a `caller:` reference: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.
     ///
     /// `timeout.secret`.
     pub const SECRET: crate::settings::Setting<::std::time::Duration> =

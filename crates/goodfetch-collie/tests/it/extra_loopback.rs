@@ -380,3 +380,155 @@ fn two_sessions_opened_at_once_keep_their_own_proxy_exit_and_local_address_acros
         "{sessions:?} {first:?} {second:?}"
     );
 }
+
+/// Two Sessions of one Run each set their own `egress.local_addresses`
+/// (`127.0.0.3` and `127.0.0.4`) on `run.new_session` (ticket 1625): each
+/// Session's relay and engine client bind its own address, Provenance records
+/// each, and a Session naming an address this host does not hold fails with
+/// `local_address_unavailable`.
+///
+/// Covers: story:4-45, setting:egress.local_addresses, error:local_address_unavailable, operation:run.new_session, operation:page.goto
+#[test]
+fn two_sessions_of_one_run_leave_from_their_own_local_addresses_and_unavailable_is_refused() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let run_id = "per-session";
+    let mut engine = started_with(&env, &cache, &proving_ground, run_id, &Map::new(), |_| {});
+
+    let first = engine.ask(
+        2,
+        "run.new_session",
+        &json!({
+            "run_id": run_id,
+            "settings": { "egress": { "local_addresses": ["127.0.0.3"] } },
+        }),
+    );
+    let second = engine.ask(
+        3,
+        "run.new_session",
+        &json!({
+            "run_id": run_id,
+            "settings": { "egress": { "local_addresses": ["127.0.0.4"] } },
+        }),
+    );
+    let unavailable = engine.ask(
+        4,
+        "run.new_session",
+        &json!({
+            "run_id": run_id,
+            "settings": { "egress": { "local_addresses": ["192.0.2.99"] } },
+        }),
+    );
+    let first_id = first["result"]["session_id"].clone();
+    let second_id = second["result"]["session_id"].clone();
+    let first_page = opened(&engine.ask(5, "session.new_page", &json!({ "session_id": first_id })));
+    let second_page =
+        opened(&engine.ask(6, "session.new_page", &json!({ "session_id": second_id })));
+    visit_marked(
+        &mut engine,
+        &proving_ground,
+        7,
+        &json!(first_page.page_id.0),
+        "first",
+    );
+    visit_marked(
+        &mut engine,
+        &proving_ground,
+        8,
+        &json!(second_page.page_id.0),
+        "second",
+    );
+    let _ = engine.ask(9, "run.finish", &json!({ "run_id": run_id }));
+    let _ = engine.finish();
+
+    let observations = proving_ground.observations().unwrap();
+    let address = |address: &str| BTreeSet::from([json!(address).to_string()]);
+    assert_eq!(
+        (
+            sources_for_mark(&observations, "mark=first"),
+            sources_for_mark(&observations, "mark=second"),
+            unavailable["error"]["data"]["code"].clone(),
+            unavailable["error"]["data"]["failure"].clone(),
+            relay_addresses(&env, run_id),
+        ),
+        (
+            BTreeSet::from(["127.0.0.3".to_owned()]),
+            BTreeSet::from(["127.0.0.4".to_owned()]),
+            json!("local_address_unavailable"),
+            json!("not_held"),
+            BTreeMap::from([
+                ("per-session.session-1".to_owned(), address("127.0.0.3")),
+                ("per-session.session-2".to_owned(), address("127.0.0.4")),
+            ]),
+        ),
+        "{first} {second} {unavailable}"
+    );
+}
+
+/// Source IP addresses of connections carrying requests whose target matches `mark`.
+fn sources_for_mark(observations: &Value, mark: &str) -> BTreeSet<String> {
+    let carried: BTreeSet<u64> = ReceivedRequests::of(observations)
+        .every()
+        .filter(|request| request.target.contains(mark))
+        .map(|request| request.connection)
+        .collect();
+    observations["connections"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|connection| {
+            connection["id"]
+                .as_u64()
+                .is_some_and(|id| carried.contains(&id))
+        })
+        .filter_map(|connection| connection["source"].as_str())
+        .filter_map(|source| source.parse::<SocketAddr>().ok())
+        .map(|source| source.ip().to_string())
+        .collect()
+}
+
+/// An Operator policy that locks `egress.local_addresses` refuses a Session's
+/// own `egress.local_addresses` with `setting_locked` (ticket 1625).
+///
+/// Covers: story:4-45, setting:egress.local_addresses, error:setting_locked, operation:run.new_session
+#[test]
+fn a_session_cannot_override_egress_local_addresses_locked_by_operator_policy() {
+    let env = TestEnv::new();
+    let layout = goodfetch_test_client::HomeLayout::of(env.home());
+    std::fs::create_dir_all(layout.per_major()).unwrap();
+    std::fs::write(
+        layout.operator_policy(),
+        "version = \"0.1\"\n\n[lock.egress]\nlocal_addresses = [\"127.0.0.3\"]\n",
+    )
+    .unwrap();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let run_id = "locked-local";
+    let mut engine = started_with(&env, &cache, &proving_ground, run_id, &Map::new(), |_| {});
+
+    let refused = engine.ask(
+        2,
+        "run.new_session",
+        &json!({
+            "run_id": run_id,
+            "settings": { "egress": { "local_addresses": ["127.0.0.4"] } },
+        }),
+    );
+    let _ = engine.ask(3, "run.finish", &json!({ "run_id": run_id }));
+    let _ = engine.finish();
+
+    assert_eq!(
+        (
+            &refused["error"]["data"]["code"],
+            &refused["error"]["data"]["limit"]["key"],
+            &refused["error"]["data"]["limit"]["layer"],
+        ),
+        (
+            &json!("setting_locked"),
+            &json!("egress.local_addresses"),
+            &json!("operator_policy"),
+        ),
+        "{refused}"
+    );
+}

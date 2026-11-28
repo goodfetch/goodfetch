@@ -21,6 +21,16 @@
 # job = "nightly.yml#sinks"
 # run = "<the command that writes one row and reads it back>"
 
+# The docs site's (ADR 0068; .github/workflows/docs.yml): Playwright tests,
+# named by their file and title.
+[[live-check]]
+id = "website/tests/live/external-links.live.ts › docs-external-links"
+area = 1
+
+[[live-check]]
+id = "website/tests/live/deploy-smoke.live.ts › docs-deploy-smoke"
+area = 1
+
 # OpenSSF Scorecard against ci/scorecard.toml's floors (#146). It blocks
 # nothing: a check under its floor opens this check's issue.
 [[live-check]]
@@ -53,3 +63,18 @@ id = "skills"
 area = 9
 job = "nightly.yml#models"
 run = "node bench/src/cli.ts skills"
+
+# Clean-up rules daily-channel gate on owned fixtures and the online Proving
+# ground (ADRs 0047 and 0064; issue 208). Exit 75 marks inconclusive and
+# publishes nothing.
+[[live-check]]
+id = "clean-up-rules-daily"
+area = 1
+job = "clean-up-rules-daily.yml#build-and-gate"
+run = "ci/release/gate-clean-up-set.sh"
+
+# Benchmark release-gate Live check (ADRs 0025, 0064 and 0076; issue 176).
+# Exit 75 marks inconclusive (e.g. host-gate refusal), never a pass.
+[[live-check]]
+id = "release-gate"
+area = 2

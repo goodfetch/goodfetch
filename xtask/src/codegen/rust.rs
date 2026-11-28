@@ -111,6 +111,17 @@ const PAGE_EXCHANGE: &str = "::goodfetch_protocol::page::events::PageExchange";
 /// The ID of the page a `Response` reads its body through.
 const PAGE_ID: &str = "::goodfetch_protocol::page::PageId";
 
+/// The protocol's Checkpoint, which a Run's `checkpoint()` answers as the
+/// crate's `Checkpoint` with `save_as` and `stream` (ADRs 0102 and 0116).
+const RUN_CHECKPOINT: &str = "::goodfetch_protocol::run::Checkpoint";
+
+/// The protocol's `RunTrace`, which a Run's `trace()` answers as the crate's
+/// `RunTrace` with `save_as` and `stream` (ADRs 0102 and 0116).
+const RUN_TRACE: &str = "::goodfetch_protocol::run_trace::RunTrace";
+
+/// The ID of the Run a `Checkpoint` or `RunTrace` belongs to.
+const RUN_ID: &str = "::goodfetch_protocol::run::RunId";
+
 /// Collie's Rust handles, `handles.rs`, `blocking.rs`, `events.rs` and
 /// `settings.rs` under [`FOLDER`], or nothing when the workspace has no
 /// Rust client.
@@ -244,11 +255,15 @@ enum Responds {
     Optionally,
     /// It answers a `PageExchange`.
     Exchanged,
+    /// It answers a `Checkpoint`.
+    Checkpoint,
+    /// It answers an optional `RunTrace`.
+    OptionalTrace,
 }
 
 impl Responds {
     /// Whether `answered`, the type a member answers, is a page's
-    /// response.
+    /// response or a Run's copy handle.
     fn of(answered: &str) -> Self {
         if answered == PAGE_RESPONSE {
             Self::Always
@@ -256,6 +271,10 @@ impl Responds {
             Self::Optionally
         } else if answered == PAGE_EXCHANGE {
             Self::Exchanged
+        } else if answered == RUN_CHECKPOINT {
+            Self::Checkpoint
+        } else if answered == format!("Option<{RUN_TRACE}>") {
+            Self::OptionalTrace
         } else {
             Self::No
         }
@@ -269,11 +288,13 @@ impl Responds {
             Self::Always => format!("{}::Response", twin.builders()),
             Self::Optionally => format!("Option<{}::Response>", twin.builders()),
             Self::Exchanged => format!("{}::Exchange", twin.builders()),
+            Self::Checkpoint => format!("{}::Checkpoint", twin.builders()),
+            Self::OptionalTrace => format!("Option<{}::RunTrace>", twin.builders()),
         }
     }
 
     /// An async member's answer, `value`, wrapped: each response with the
-    /// page's `host`.
+    /// page's `host`, each Run copy with its connection.
     fn wrapped(self, value: &str) -> String {
         match self {
             Self::No => value.to_owned(),
@@ -282,6 +303,12 @@ impl Responds {
                 format!("{value}.map(|response| crate::Response::new(host, response))")
             }
             Self::Exchanged => format!("crate::Exchange::new(host, {value})"),
+            Self::Checkpoint => {
+                format!("host.checkpoint({value})")
+            }
+            Self::OptionalTrace => {
+                format!("{value}.map(|trace| host.run_trace(trace))")
+            }
         }
     }
 
@@ -292,6 +319,8 @@ impl Responds {
             Self::Always => "crate::blocking::Response::new",
             Self::Optionally => "|answered| answered.map(crate::blocking::Response::new)",
             Self::Exchanged => "crate::blocking::Exchange::new",
+            Self::Checkpoint => "crate::blocking::Checkpoint::new",
+            Self::OptionalTrace => "|answered| answered.map(crate::blocking::RunTrace::new)",
         }
     }
 }
@@ -756,12 +785,14 @@ fn responds(
     });
     if responds != Responds::No {
         if member.form == Form::Query {
-            bail!("{owner}: a query answers no page's response, which a call reads the body of");
+            bail!("{owner}: a query answers no wrapped handle");
         }
-        if index.type_path(&id.type_name)? != PAGE_ID {
-            bail!(
-                "{owner}: only a page's member answers a response, which reads its body through the page"
-            );
+        let expected_id = match responds {
+            Responds::Checkpoint | Responds::OptionalTrace => RUN_ID,
+            _ => PAGE_ID,
+        };
+        if index.type_path(&id.type_name)? != expected_id {
+            bail!("{owner}: wrapped handle requires handle ID `{expected_id}`");
         }
     }
     Ok(responds)
@@ -1041,7 +1072,7 @@ impl Module {
                     let _ = write!(built, ".map({})", member.responds.blocking());
                 }
                 format!(
-                    "crate::blocking::{}::new({built}, self.inner.host.connection())",
+                    "crate::blocking::{}::new({built}, self.inner.host.runtime())",
                     member.builds().name()
                 )
             }

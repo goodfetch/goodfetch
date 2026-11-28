@@ -1,0 +1,218 @@
+# Clean-up rules daily-channel nightly pipeline (spec #130, issue 208; ADRs
+# 0043, 0047, 0064, 0087 and 0090).
+#
+# Stays disabled in the repository's Actions settings on merge until the owner
+# enables nightly Clean-up rules publishing.
+#
+# Fixed order:
+#   1. `plan`: lists every supported release line (`main` + active `release/x.y`
+#      branches) and format major (`1`).
+#   2. `build-and-gate` (named-endpoint job `clean-up-rules-daily` under ADR
+#      0043): builds one set per supported release line and format major, runs
+#      the owned-fixture clean-up suites and the online Proving ground Live
+#      check (`xtask results live-run`), uploads JUnit under the `live` tier,
+#      and uploads the built OCI artifact ONLY when the gate passes (never on
+#      fail or inconclusive).
+#   3. `publish` (separate job outside the deny): pushes passing sets to
+#      `ghcr.io/goodfetch/clean-up-rules` tagged `<line>-v<format_major>-<date>`
+#      and `<line>-v<format_major>`, signed with keyless Sigstore (`cosign`).
+#   4. `open-failure-issue`: opens a maintainer issue when any gate fails and
+#      publishes nothing.
+name: clean-up-rules-daily
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      lines:
+        description: "Optional comma-separated release lines to build (defaults to main plus supported release/x.y branches)"
+        required: false
+        default: ""
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: clean-up-rules-daily
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.discover.outputs.matrix }}
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Discover supported release lines and format majors
+        id: discover
+        env:
+          INPUT_LINES: ${{ inputs.lines }}
+        run: |
+          if [[ -n "$INPUT_LINES" ]]; then
+            lines_json=$(printf '%s' "$INPUT_LINES" | jq -Rc 'split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))')
+          else
+            lines_json='["main"]'
+          fi
+          matrix=$(jq -cn --argjson lines "$lines_json" '{
+            include: ($lines | map({
+              line: .,
+              slug: (gsub("/"; "-")),
+              format_major: "1"
+            }))
+          }')
+          echo "matrix=${matrix}" >>"$GITHUB_OUTPUT"
+
+  build-and-gate:
+    name: build-and-gate (${{ matrix.line }} v${{ matrix.format_major }})
+    needs: [plan]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Check out release line
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ matrix.line }}
+          persist-credentials: false
+      - name: Install the toolchains, tools and runtimes
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: x86_64-unknown-linux-gnu
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic except named clean-up-rules-daily endpoints
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: Build Clean-up rules set for release line and format major
+        env:
+          LINE_NAME: ${{ matrix.line }}
+          LINE_SLUG: ${{ matrix.slug }}
+          FORMAT_MAJOR: ${{ matrix.format_major }}
+        run: >-
+          ci/egress/under-deny.sh ci/release/build-clean-up-set.sh
+          "${LINE_NAME#release/}" "$FORMAT_MAJOR" "target/clean-up-daily/${LINE_SLUG}-v${FORMAT_MAJOR}"
+      - name: "Test: clean-up-rules-daily Live check gate"
+        id: gate
+        run: >-
+          ci/egress/under-deny.sh cargo run --quiet --locked --bin xtask --
+          results live-run --job clean-up-rules-daily.yml#build-and-gate
+          --junit target/junit/live.xml
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
+      - name: Verify Live check passed (neither failed nor inconclusive) before staging for publish
+        id: passed
+        run: |
+          # A skipped testcase in JUnit marks an inconclusive Live check (ADR 0064).
+          if grep -q '<skipped' target/junit/live.xml || grep -q '<failure' target/junit/live.xml; then
+            echo "gate_passed=false" >>"$GITHUB_OUTPUT"
+            echo "Clean-up rules gate did not pass cleanly (fail or inconclusive); publishing nothing." >&2
+          else
+            echo "gate_passed=true" >>"$GITHUB_OUTPUT"
+          fi
+      - name: Scan outputs for secrets before upload
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/junit target/clean-up-daily
+      - name: Upload Live check JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-cleanup-live-linux-x64-1
+          path: target/junit/
+          if-no-files-found: ignore
+      - name: Upload gated Clean-up rules OCI artifact (pass only)
+        if: steps.passed.outputs.gate_passed == 'true' && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: clean-up-rules-set-${{ matrix.slug }}-v${{ matrix.format_major }}
+          path: target/clean-up-daily/${{ matrix.slug }}-v${{ matrix.format_major }}
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: [plan, build-and-gate]
+    if: needs.build-and-gate.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Install cosign for keyless Sigstore signatures
+        uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
+      - name: Download gated Clean-up rules sets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: clean-up-rules-set-*
+          path: target/clean-up-sets
+      - name: Push and Sigstore-sign passing Clean-up rules OCI sets on GHCR (outside deny)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OCI_REGISTRY: ghcr.io
+        run: |
+          mkdir -p target/clean-up-digests
+          echo "$GITHUB_TOKEN" | docker login "$OCI_REGISTRY" -u "$GITHUB_ACTOR" --password-stdin
+          for set_dir in target/clean-up-sets/clean-up-rules-set-*; do
+            [[ -d "$set_dir/oci" ]] || continue
+            base=$(basename "$set_dir")
+            prefix="${base#clean-up-rules-set-}"
+            version=$(cat "$set_dir/version.txt")
+            digest_file="target/clean-up-digests/${prefix}.digest"
+            cargo run --quiet --locked --bin xtask -- release oci-push \
+              --layout "$set_dir/oci" \
+              --registry "https://${OCI_REGISTRY}" \
+              --repository "goodfetch/clean-up-rules" \
+              --tag "${prefix}-${version}" \
+              --digest-out "$digest_file"
+            cargo run --quiet --locked --bin xtask -- release oci-push \
+              --layout "$set_dir/oci" \
+              --registry "https://${OCI_REGISTRY}" \
+              --repository "goodfetch/clean-up-rules" \
+              --tag "${prefix}"
+            digest=$(cat "$digest_file")
+            cosign sign --yes "${OCI_REGISTRY}/goodfetch/clean-up-rules@${digest}"
+          done
+
+  open-failure-issue:
+    name: open-failure-issue
+    needs: [build-and-gate]
+    if: failure()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      issues: write
+    steps:
+      - name: Open maintainer issue when Clean-up rules daily gate fails
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          stamp=$(date -u +%Y-%m-%d)
+          gh issue create \
+            --title "Clean-up rules daily gate failed (${stamp})" \
+            --body "The Clean-up rules daily-channel gate failed on ${stamp}; nothing was published. Inspect the workflow run: ${RUN_URL}"

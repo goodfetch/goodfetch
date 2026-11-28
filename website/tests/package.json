@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "type": "module",
+  "//": "The docs site's Playwright tests are ES modules, as test support is; the site itself is not one, since Docusaurus 3.10's server build fails under \"type\": \"module\". No package: the pnpm workspace's is website/."
+}

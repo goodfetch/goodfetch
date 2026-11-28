@@ -14,6 +14,7 @@ use goodfetch_protocol::audit::PRIVATE_ADDRESSES_ALLOWED;
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
 use goodfetch_protocol::egress::EGRESS_PRIVATE_RANGES;
 use goodfetch_protocol::engine::{ENGINE_INFO, EngineInfo, EngineInfoParams};
+use goodfetch_protocol::politeness::{POLITENESS_SHARING, POLITENESS_WEAKENED};
 use goodfetch_protocol::security::SECURITY_CONTROLS;
 
 use crate::call_error::CallError;
@@ -69,7 +70,12 @@ pub(crate) fn contribution_sharing(effects: &Effects) -> Contribution {
     let contribution = SECURITY_CONTROLS
         .into_iter()
         .fold(contribution, Contribution::with_control)
-        .with_recorded_listing(&EGRESS_PRIVATE_RANGES, &PRIVATE_ADDRESSES_ALLOWED, "ranges");
+        .with_recorded_listing(&EGRESS_PRIVATE_RANGES, &PRIVATE_ADDRESSES_ALLOWED, "ranges")
+        .with_recorded_weakening(
+            &POLITENESS_SHARING,
+            &POLITENESS_WEAKENED,
+            POLITENESS_SHARING.default,
+        );
     crate::control_state::ENGINE_CONTROL_STORES
         .iter()
         .fold(contribution, |contribution, &(store, mode)| {

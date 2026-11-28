@@ -28,6 +28,7 @@ use goodfetch_collie_client::{
 };
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
+use goodfetch_engine::governor::System;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::installed::{InstalledList, fingerprint};
 use goodfetch_engine::politeness::PolitenessOptions;
@@ -71,6 +72,7 @@ pub struct ConnectOptions {
     engine: EngineChoice,
     settings: Settings,
     project: ProjectChoice,
+    resolve_secret: bool,
 }
 
 impl fmt::Debug for ConnectOptions {
@@ -87,6 +89,7 @@ impl fmt::Debug for ConnectOptions {
             .field("engine", &self.engine)
             .field("settings", &self.settings)
             .field("project", &self.project)
+            .field("resolve_secret", &self.resolve_secret)
             .finish()
     }
 }
@@ -188,6 +191,16 @@ impl ConnectOptions {
         self
     }
 
+    /// Declares that this program answers `caller:<name>` Secret references
+    /// through [`crate::Collie::secret_requests`] (ADRs 0092 and 0104).
+    /// Calling `secret_requests()` without declaring this fails with
+    /// `setting_invalid`.
+    #[must_use]
+    pub fn resolve_secret(mut self) -> Self {
+        self.resolve_secret = true;
+        self
+    }
+
     /// The environment the connection reads, the one set or the
     /// process's, the connection's Limits, its `timeout` and its listener
     /// queue, once checked, the project file it read, with the `timeout`
@@ -218,6 +231,7 @@ impl ConnectOptions {
                 timeout,
                 listener_queue,
                 project,
+                resolve_secret: self.resolve_secret,
             },
             engine: self.engine,
             settings,
@@ -280,6 +294,7 @@ pub(crate) struct Asked {
     pub(crate) timeout: ConnectTimeout,
     pub(crate) listener_queue: ListenerQueue,
     pub(crate) project: Option<Project>,
+    pub(crate) resolve_secret: bool,
 }
 
 /// The engine a connection links: its Product and that Product's
@@ -570,6 +585,9 @@ impl ProductConnection {
     /// and set each of `asked`'s Limits; when a Limit is refused, it is
     /// closed.
     async fn reached(mut self, asked: Asked) -> Result<Self, Error> {
+        if asked.resolve_secret {
+            self.connection.declare_resolve_secret();
+        }
         if let Some(project) = asked.project {
             self.info = Arc::new(EngineInfo {
                 project_file: Some(project.file),
@@ -854,8 +872,9 @@ impl LinkedEngine {
             product_version: version(),
             channel: Channel::CratesIo,
         };
-        let engine =
-            Engine::new(identity, &(engine.composition)()).map_err(Error::engine_failed)?;
+        let engine = Engine::new(identity, &(engine.composition)())
+            .map_err(Error::engine_failed)?
+            .with_governor(System::os());
         let (network, dialer) = transport::in_memory();
         let tasks = TaskTracker::new();
         let (home, clock) = (dependencies.home.clone(), dependencies.clock);

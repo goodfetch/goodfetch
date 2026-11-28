@@ -62,6 +62,8 @@ pub const PLUGIN_FIGURES: &str = "plugin_figures";
 /// The engine stopped the Run while it stopped on a panic in a part every
 /// Run shares (ADR 0148).
 pub const ENGINE_PANICKED: &str = "engine_panicked";
+/// A schema of the Run marked one or more fields as personal (ADR 0016).
+pub const PERSONAL_DATA_NOTICE: &str = "personal_data_notice";
 
 const fn warning(name: &'static str, description: &'static str) -> SharedTypeValue {
     SharedTypeValue {
@@ -74,7 +76,7 @@ const fn warning(name: &'static str, description: &'static str) -> SharedTypeVal
 
 /// The warning codes both Products hand over to a Run's report (ADR
 /// 0102); Foxhound adds its own.
-pub const WARNING_CODES: [SharedTypeValue; 25] = [
+pub const WARNING_CODES: [SharedTypeValue; 26] = [
     warning(FINGERPRINT_NONE, "A Session ran with no fingerprint."),
     warning(
         FINGERPRINT_JS_INJECTION,
@@ -159,5 +161,9 @@ pub const WARNING_CODES: [SharedTypeValue; 25] = [
     warning(
         ENGINE_PANICKED,
         "The engine stopped the Run as it stopped on a bug in a part every Run shares; a start with its Run ID resumes it.",
+    ),
+    warning(
+        PERSONAL_DATA_NOTICE,
+        "A schema of the Run marked one or more fields as personal (`\"x-goodfetch-personal\": true`): the advisory personal-data notice was shown once, naming the fields, without blocking the Run (ADR 0016).",
     ),
 ];

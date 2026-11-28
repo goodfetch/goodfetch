@@ -31,7 +31,6 @@ use goodfetch_protocol::entries::operations_of;
 use goodfetch_protocol::formats::{Compatibility, Format};
 use goodfetch_protocol::group::{ErasureTarget, LEAD_UNREACHABLE};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::run::Recording;
 use goodfetch_protocol::run::{
     Checkpoint, Lifecycle, RESOURCES_EXHAUSTED, Resource, ResourcesExhaustedDetails,
 };
@@ -51,6 +50,7 @@ use goodfetch_protocol::run::{
 use goodfetch_protocol::run::{
     RUN_STATE_FILESYSTEM_UNSUPPORTED, RUN_STATE_LOCATION, RunStateFilesystemUnsupportedDetails,
 };
+use goodfetch_protocol::run::{Recording, RecordingMode};
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::usage::{
     LIMIT_NOT_UNDERSTOOD, LIMIT_REACHED, Limit, LimitNotUnderstoodDetails,
@@ -1180,6 +1180,8 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
                 .transpose()
         })
         .transpose()?;
+    let recording_mode = params.recording.clone();
+    let recording_bytes = params.recording_bytes;
     let inputs = start_inputs(params.plan, params.recording);
     let limits = StartLimits::checked(params.limits, run_id.as_ref(), &context).await?;
     let (settings, _) = context
@@ -1197,6 +1199,13 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
         })
         .await
         .map_err(|error| settings_error(&error, &context))?;
+    let prepared = prepare_recording(
+        recording_mode,
+        recording_bytes,
+        settings.resolved(),
+        &context,
+    )
+    .await?;
     let timeout = given_timeout.unwrap_or_else(|| settings.resolved().get(&TIMEOUT_RUN));
     let started = context
         .runs()
@@ -1220,21 +1229,152 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
         .await
         .map_err(start_error)?;
     let started = match started {
-        Started::New(run) => RunStarted {
-            run_id: run.identity.id().clone(),
-            started_as: StartedAs::New,
-            lifecycle: goodfetch_protocol::run::Lifecycle::Running,
-            needs: Product::Collie,
-            partitions: Vec::new(),
-        },
+        Started::New(run) => {
+            prepared.attach(&context, run.identity.id(), Some(run.state.clone()));
+            RunStarted {
+                run_id: run.identity.id().clone(),
+                started_as: StartedAs::New,
+                lifecycle: goodfetch_protocol::run::Lifecycle::Running,
+                needs: Product::Collie,
+                partitions: Vec::new(),
+            }
+        }
         // The resumed Run counts its timeout on a fresh clock (ADR 0102).
         Started::Interrupted(run_id) => {
-            resume_run(&context, run_id, None, settings, timeout, true).await?
+            let started = resume_run(&context, run_id, None, settings, timeout, true).await?;
+            let state = context
+                .runs()
+                .live(started.run_id.clone())
+                .await
+                .ok()
+                .map(|live| live.state.clone());
+            prepared.attach(&context, &started.run_id, state);
+            started
         }
         Started::Ended(ended) => ended,
     };
     limits.give(&started, &context).await?;
     Ok(started)
+}
+
+struct PreparedRecording {
+    replayed: Option<crate::response_recording::Replayed>,
+    record_path: Option<String>,
+    software: String,
+}
+
+async fn restore_recording(
+    run: &crate::runs::RunParts,
+    settings: &crate::settings::Resolved,
+    context: &CallContext,
+) -> Result<(), CallError> {
+    let inputs_json: Option<String> = run
+        .state
+        .read(|connection| {
+            use rusqlite::OptionalExtension as _;
+            connection
+                .prepare_cached("SELECT inputs FROM run")?
+                .query_row([], |row| row.get(0))
+                .optional()
+        })
+        .await
+        .ok()
+        .flatten();
+    let Some(inputs_json) = inputs_json else {
+        return Ok(());
+    };
+    let Ok(inputs) = serde_json::from_str::<BTreeMap<StartInput, Value>>(&inputs_json) else {
+        return Ok(());
+    };
+    let Some(recording_val) = inputs.get(&StartInput::Recording) else {
+        return Ok(());
+    };
+    let Ok(recording) = serde_json::from_value::<Recording>(recording_val.clone()) else {
+        return Ok(());
+    };
+    let prepared = prepare_recording(Some(recording), None, settings, context).await?;
+    prepared.attach(context, run.identity.id(), Some(run.state.clone()));
+    Ok(())
+}
+
+async fn prepare_recording(
+    recording: Option<Recording>,
+    recording_bytes: Option<String>,
+    settings: &crate::settings::Resolved,
+    context: &CallContext,
+) -> Result<PreparedRecording, CallError> {
+    let replayed = match recording.as_ref() {
+        Some(recording) if recording.mode == RecordingMode::Replay => {
+            if let Some(encoded) = recording_bytes {
+                let bytes = data_encoding::BASE64
+                    .decode(encoded.as_bytes())
+                    .map_err(|error| {
+                        crate::response_recording::recording_invalid_error(
+                            &recording.path,
+                            format!("invalid base64 recording bytes: {error}"),
+                        )
+                    })?;
+                Some(
+                    context
+                        .engine()
+                        .open_replay_bytes(&recording.path, bytes::Bytes::from(bytes), settings)
+                        .await?,
+                )
+            } else {
+                Some(
+                    context
+                        .engine()
+                        .open_replay(&recording.path, settings)
+                        .await?,
+                )
+            }
+        }
+        _ => None,
+    };
+    let record_path = recording
+        .filter(|recording| recording.mode == RecordingMode::Record)
+        .map(|recording| recording.path);
+    let software = format!(
+        "{} {}",
+        context.identity().product.name(),
+        context.identity().product_version
+    );
+    Ok(PreparedRecording {
+        replayed,
+        record_path,
+        software,
+    })
+}
+
+impl PreparedRecording {
+    fn attach(
+        self,
+        context: &CallContext,
+        run_id: &RunId,
+        state: Option<crate::run_state::RunState>,
+    ) {
+        if let Some(replayed) = self.replayed {
+            context
+                .engine()
+                .recordings()
+                .attach(run_id.clone(), replayed);
+        } else if let Some(path) = self.record_path {
+            let recorder = context.engine().new_recorder(
+                path,
+                run_id.clone(),
+                self.software,
+                false,
+                context.daemon().is_none(),
+            );
+            if let Some(state) = state {
+                recorder.attach_run_state(state);
+            }
+            context
+                .engine()
+                .recordings()
+                .attach_recorder(run_id.clone(), recorder);
+        }
+    }
 }
 
 /// A Collie Run's inputs, which a start naming it again gives unchanged
@@ -1482,6 +1622,9 @@ pub async fn resume_run(
         Resumed::New {
             run, kind, needs, ..
         } => {
+            if !redeclared {
+                restore_recording(&run, settings.resolved(), context).await?;
+            }
             let identity = &run.identity;
             let started = RunStarted {
                 run_id: identity.id().clone(),

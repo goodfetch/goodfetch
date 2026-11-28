@@ -252,6 +252,15 @@ form = "runtime"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "ClientConnection"
+member = "stream_chunks"
+entry = "none"
+reason = "Sends a sequence call whose items arrive in `$/chunk` notifications carrying Base64-encoded bytes, decoded in order under `$/credit` backpressure."
+words = ["stream", "chunks"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
 member = "handler_requests"
 entry = "none"
 reason = "The engine's requests of `method`, such as the Crawl requests a crawl's handlers answer (ADR 0093), from now until the Connection ends or the stream is dropped."
@@ -3012,6 +3021,157 @@ reason = "The time the timestamp is checked against, the system clock when left 
 words = ["at"]
 form = "read"
 
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "SecretRequest"
+entry = "none"
+reason = "One `secrets.resolve` request from the engine for a `caller:<name>` Secret reference (ADRs 0092 and 0104)."
+words = ["secret", "request"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "SecretRequest"
+member = "name"
+entry = "none"
+reason = "The reference's name, what follows `caller:`."
+words = ["name"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "SecretRequest"
+member = "run_id"
+entry = "none"
+reason = "The Run that uses the reference, which this Connection opened."
+words = ["run", "id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "SecretRequest"
+member = "domain"
+entry = "none"
+reason = "The host the value is sent to, where the use has one."
+words = ["domain"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "SecretRequest"
+member = "answer"
+entry = "none"
+reason = "Answers the engine with the resolved value without keeping or logging a copy (ADRs 0067 and 0092)."
+only = "TypeScript and Python return the value from `resolveSecret` / `resolve_secret`."
+words = ["answer"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "SecretRequest"
+member = "fail"
+entry = "none"
+reason = "Fails the request with a redacted `secret_unavailable` reply so no Secret canary can leak (ADR 0067)."
+only = "TypeScript and Python throw from `resolveSecret` / `resolve_secret`."
+words = ["fail"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "declare_resolve_secret"
+entry = "none"
+reason = "Marks this Connection as having declared `ConnectOptions::resolve_secret()` so `secret_requests()` may open the `secrets.resolve` stream."
+only = "Rust client-crate runtime plumbing for `ConnectOptions::resolve_secret()`."
+words = ["declare", "resolve", "secret"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "secret_requests"
+entry = "none"
+reason = "Opens the `EventStream<SecretRequest>` serving `secrets.resolve` requests on this Connection (ADRs 0092 and 0104)."
+only = "TypeScript and Python pass `resolveSecret` / `resolve_secret` to `connect()`."
+words = ["secret", "requests"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::ClientConnection"
+member = "secret_requests"
+entry = "none"
+reason = "Opens the blocking `EventIter<SecretRequest>` serving `secrets.resolve` requests on this Connection."
+only = "TypeScript and Python pass `resolveSecret` / `resolve_secret` to `connect()`."
+words = ["secret", "requests"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "Feed"
+entry = "none"
+reason = "One bidirectional streaming call in flight on a Connection (such as `run.add_seeds`), which Product crates drive under `$/credit` backpressure (ADR 0024)."
+only = "TypeScript and Python expose streaming notifications directly on their internal stream handle; Rust exposes `Feed` across the `goodfetch-collie-client` / `goodfetch-foxhound` crate boundary."
+words = ["feed"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "FeedEvent"
+entry = "none"
+reason = "What a `Feed` hears from the engine: its sent call ID, an incoming notification or its final reply (ADR 0024)."
+only = "Rust's typed event enum for `Feed::poll_event`."
+words = ["feed", "event"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Feed"
+member = "notify"
+entry = "none"
+reason = "Sends a client-to-engine notification (such as `$/seeds`) on the Connection (ADR 0024)."
+words = ["notify"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Feed"
+member = "decode"
+entry = "none"
+reason = "Decodes a JSON notification payload heard from a `Feed` (ADR 0024)."
+words = ["decode"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Feed"
+member = "poll_event"
+entry = "none"
+reason = "Polls for the next event on the bidirectional streaming call (ADR 0024)."
+words = ["poll", "event"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "feed"
+entry = "none"
+reason = "Opens a bidirectional streaming call (such as `run.add_seeds`) for a Product crate (ADR 0024)."
+words = ["feed"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "start_held_with"
+entry = "none"
+reason = "Starts a Run whose wire reply carries fields beside `RunStarted` (such as `CrawlStarted::seeds`), returning both the Run and the decoded reply (ADR 0024)."
+words = ["start", "held", "with"]
+form = "opener"
+
 [[unreached]]
 entries = [
   "audit.export",
@@ -3078,6 +3238,567 @@ reason = "Issue 1287 adds `run.effect`, which declares an Effect through them."
 entries = ["page.body"]
 reason = "A Client that cannot read a page body's file streams it through `page.body`; no member streams it yet (issue 1404)."
 
-[[unreached]]
-entries = ["key_value_store.keys"]
-reason = "Issue 1284 adds the Rust store's `keys`."
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "Checkpoint"
+entry = "none"
+reason = "A completed Checkpoint of a Run with `save_as` and `stream` (ADRs 0102 and 0116)."
+words = ["checkpoint"]
+form = "type"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "Checkpoint"
+member = "run_id"
+entry = "none"
+reason = "The Run ID the Checkpoint belongs to (ADR 0102)."
+words = ["run", "id"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "Checkpoint"
+member = "location"
+entry = "none"
+reason = "The Checkpoint's path on the engine's machine (ADR 0102)."
+words = ["location"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "Checkpoint"
+member = "size"
+entry = "none"
+reason = "The Checkpoint's size in bytes (ADR 0102)."
+words = ["size"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "Checkpoint"
+member = "digest"
+entry = "none"
+reason = "The Checkpoint's SHA-256 digest (ADR 0102)."
+words = ["digest"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "Checkpoint"
+member = "run_epoch"
+entry = "none"
+reason = "The run epoch of the writer that took the Checkpoint (ADR 0003)."
+words = ["run", "epoch"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "Checkpoint"
+member = "journal_position"
+entry = "none"
+reason = "The Run journal position the Checkpoint holds (ADR 0102)."
+words = ["journal", "position"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "Checkpoint"
+member = "time"
+entry = "none"
+reason = "When the Checkpoint was taken (ADR 0102)."
+words = ["time"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "Checkpoint"
+member = "save_as"
+entry = "checkpoint.save_as"
+words = ["save", "as"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "Checkpoint"
+member = "stream"
+entry = "checkpoint.stream"
+words = ["stream"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "RunTrace"
+entry = "none"
+reason = "A Run's trace copy with `save_as` and `stream` (ADRs 0102 and 0116)."
+words = ["run", "trace"]
+form = "type"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "RunTrace"
+member = "run_id"
+entry = "none"
+reason = "The Run ID the trace copy belongs to (ADR 0102)."
+words = ["run", "id"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "RunTrace"
+member = "location"
+entry = "none"
+reason = "The trace copy's path on the engine's machine (ADR 0102)."
+words = ["location"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "RunTrace"
+member = "size"
+entry = "none"
+reason = "The trace copy's size in bytes (ADR 0102)."
+words = ["size"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "RunTrace"
+member = "digest"
+entry = "none"
+reason = "The trace copy's SHA-256 digest (ADR 0102)."
+words = ["digest"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "RunTrace"
+member = "save_as"
+entry = "trace.save_as"
+words = ["save", "as"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "RunTrace"
+member = "stream"
+entry = "trace.stream"
+words = ["stream"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "KeyValueStore"
+member = "get_with"
+entry = "none"
+reason = "Schema-validated form of `get`; Rust has no method overloading."
+only = "Rust has no method overloading; `get_with` takes a `Schema<T>` alongside `get`."
+words = ["get", "with"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "KeyValueStore"
+member = "set_with"
+entry = "none"
+reason = "Schema-validated form of `set`; Rust has no method overloading."
+only = "Rust has no method overloading; `set_with` takes a `Schema<T>` alongside `set`."
+words = ["set", "with"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "KeyValueStore"
+member = "keys"
+entry = "key_value_store.keys"
+words = ["keys"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "KeyValueStoreView"
+entry = "none"
+reason = "Read-only view of a Run's Key-value store on `RunView` (ADRs 0102 and 0103)."
+words = ["key", "value", "store", "view"]
+form = "type"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "KeyValueStoreView"
+member = "get"
+entry = "key_value_store.get"
+words = ["get"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "KeyValueStoreView"
+member = "get_with"
+entry = "none"
+reason = "Schema-validated form of `get`; Rust has no method overloading."
+only = "Rust has no method overloading; `get_with` takes a `Schema<T>` alongside `get`."
+words = ["get", "with"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "KeyValueStoreView"
+member = "get_bytes"
+entry = "key_value_store.get_bytes"
+words = ["get", "bytes"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "KeyValueStoreView"
+member = "keys"
+entry = "key_value_store.keys"
+words = ["keys"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "RunView"
+member = "progress"
+entry = "run.progress"
+words = ["progress"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "RunView"
+member = "report"
+entry = "run.report"
+words = ["report"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "RunView"
+member = "trace"
+entry = "run.trace"
+words = ["trace"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "RunView"
+member = "key_value_store"
+entry = "none"
+reason = "Read-only view of the Run's Key-value store (ADRs 0102 and 0103)."
+words = ["key", "value", "store"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking"
+member = "Checkpoint"
+entry = "none"
+reason = "Blocking twin of `Checkpoint` (ADR 0081)."
+words = ["checkpoint"]
+form = "type"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::Checkpoint"
+member = "run_id"
+entry = "none"
+reason = "The Run ID the Checkpoint belongs to (ADR 0102)."
+words = ["run", "id"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::Checkpoint"
+member = "location"
+entry = "none"
+reason = "The Checkpoint's path on the engine's machine (ADR 0102)."
+words = ["location"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::Checkpoint"
+member = "size"
+entry = "none"
+reason = "The Checkpoint's size in bytes (ADR 0102)."
+words = ["size"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::Checkpoint"
+member = "digest"
+entry = "none"
+reason = "The Checkpoint's SHA-256 digest (ADR 0102)."
+words = ["digest"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::Checkpoint"
+member = "run_epoch"
+entry = "none"
+reason = "The run epoch of the writer that took the Checkpoint (ADR 0003)."
+words = ["run", "epoch"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::Checkpoint"
+member = "journal_position"
+entry = "none"
+reason = "The Run journal position the Checkpoint holds (ADR 0102)."
+words = ["journal", "position"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::Checkpoint"
+member = "time"
+entry = "none"
+reason = "When the Checkpoint was taken (ADR 0102)."
+words = ["time"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::Checkpoint"
+member = "save_as"
+entry = "checkpoint.save_as"
+words = ["save", "as"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::Checkpoint"
+member = "stream"
+entry = "checkpoint.stream"
+words = ["stream"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking"
+member = "RunTrace"
+entry = "none"
+reason = "Blocking twin of `RunTrace` (ADR 0081)."
+words = ["run", "trace"]
+form = "type"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::RunTrace"
+member = "run_id"
+entry = "none"
+reason = "The Run ID the trace copy belongs to (ADR 0102)."
+words = ["run", "id"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::RunTrace"
+member = "location"
+entry = "none"
+reason = "The trace copy's path on the engine's machine (ADR 0102)."
+words = ["location"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::RunTrace"
+member = "size"
+entry = "none"
+reason = "The trace copy's size in bytes (ADR 0102)."
+words = ["size"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::RunTrace"
+member = "digest"
+entry = "none"
+reason = "The trace copy's SHA-256 digest (ADR 0102)."
+words = ["digest"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::RunTrace"
+member = "save_as"
+entry = "trace.save_as"
+words = ["save", "as"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::RunTrace"
+member = "stream"
+entry = "trace.stream"
+words = ["stream"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::KeyValueStore"
+member = "get_with"
+entry = "none"
+reason = "Schema-validated form of `get`; Rust has no method overloading."
+only = "Rust has no method overloading; `get_with` takes a `Schema<T>` alongside `get`."
+words = ["get", "with"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::KeyValueStore"
+member = "set_with"
+entry = "none"
+reason = "Schema-validated form of `set`; Rust has no method overloading."
+only = "Rust has no method overloading; `set_with` takes a `Schema<T>` alongside `set`."
+words = ["set", "with"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::KeyValueStore"
+member = "keys"
+entry = "key_value_store.keys"
+words = ["keys"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking"
+member = "KeyValueStoreView"
+entry = "none"
+reason = "Blocking twin of `KeyValueStoreView` (ADR 0081)."
+words = ["key", "value", "store", "view"]
+form = "type"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::KeyValueStoreView"
+member = "get"
+entry = "key_value_store.get"
+words = ["get"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::KeyValueStoreView"
+member = "get_with"
+entry = "none"
+reason = "Schema-validated form of `get`; Rust has no method overloading."
+only = "Rust has no method overloading; `get_with` takes a `Schema<T>` alongside `get`."
+words = ["get", "with"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::KeyValueStoreView"
+member = "get_bytes"
+entry = "key_value_store.get_bytes"
+words = ["get", "bytes"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::KeyValueStoreView"
+member = "keys"
+entry = "key_value_store.keys"
+words = ["keys"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking"
+member = "RunView"
+entry = "none"
+reason = "Blocking twin of `RunView` (ADR 0081)."
+words = ["run", "view"]
+form = "type"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::RunView"
+member = "id"
+entry = "none"
+reason = "The Run ID the view was opened with, read without a round trip (ADR 0102)."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::RunView"
+member = "progress"
+entry = "run.progress"
+words = ["progress"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::RunView"
+member = "report"
+entry = "run.report"
+words = ["report"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::RunView"
+member = "trace"
+entry = "run.trace"
+words = ["trace"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::RunView"
+member = "key_value_store"
+entry = "none"
+reason = "Read-only view of the Run's Key-value store (ADRs 0102 and 0103)."
+words = ["key", "value", "store"]
+form = "read"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::RunView"
+member = "close"
+entry = "none"
+reason = "Frees only the view (ADR 0102): the Run goes on."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "Run"
+member = "save_recording"
+entry = "recording.save_as"
+words = ["save", "recording"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "RunView"
+member = "save_recording"
+entry = "recording.save_as"
+words = ["save", "recording"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::Run"
+member = "save_recording"
+entry = "recording.save_as"
+words = ["save", "recording"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::RunView"
+member = "save_recording"
+entry = "recording.save_as"
+words = ["save", "recording"]
+form = "round_trip"

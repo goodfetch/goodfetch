@@ -35,6 +35,7 @@ const SESSIONS: Part = (
         "sessions.page_check",
         "sessions.blocked",
         "sessions.proxy",
+        "secrets.caller",
     ],
 );
 const PROXY_LIMITS: Part = ("proxy_limits", &["sessions.proxy_limits"]);
@@ -86,9 +87,10 @@ const READ: Part = ("read", &["read"]);
 const WAITS: Part = ("waits", &["waits"]);
 const ROBOTS_TXT: Part = ("robots-txt", &["robots_txt"]);
 const RESPONSE_CACHE: Part = ("response-cache", &["response_cache"]);
+const RESPONSE_RECORDING: Part = ("response-recording", &["response_recording"]);
 
 /// Every part.
-const PARTS: [Part; 22] = [
+const PARTS: [Part; 23] = [
     SESSIONS,
     PROXY_LIMITS,
     NAVIGATION,
@@ -111,6 +113,7 @@ const PARTS: [Part; 22] = [
     WAITS,
     ROBOTS_TXT,
     RESPONSE_CACHE,
+    RESPONSE_RECORDING,
 ];
 
 #[test]
@@ -196,7 +199,7 @@ fn prove_in(env: &TestEnv, (_, capabilities): Part, name: &str) {
     );
 }
 
-/// Covers: story:5-61, story:5-60, story:5-62, operation:run.new_session, operation:session.new_page, operation:session.close, error:closed, error:setting_not_applicable, error:capability_unavailable, error:run_ended, story:5-79, setting:session.page_check, error:logged_out, error:page_check_failed, operation:run.new_page, operation:page.goto, error:setting_invalid, story:5-88, story:5-89, error:proxy_unavailable, error:proxy_auth_failed, setting:proxy.server, setting:proxy.password, error:setting_locked, story:5-91, story:8-63, story:8-58, story:8-59, error:blocked, operation:locator.click, operation:page.wait_for_url, operation:page.evaluate, operation:page.request, operation:session.pages, setting:session.source, operation:run.start, story:8-64
+/// Covers: story:5-61, story:5-60, story:5-62, operation:run.new_session, operation:session.new_page, operation:session.close, error:closed, error:setting_not_applicable, error:capability_unavailable, error:run_ended, story:5-79, setting:session.page_check, error:logged_out, error:page_check_failed, operation:run.new_page, operation:page.goto, error:setting_invalid, story:5-88, story:5-89, error:proxy_unavailable, error:proxy_auth_failed, setting:proxy.server, setting:proxy.password, error:setting_locked, story:5-91, story:8-63, story:8-58, story:8-59, error:blocked, operation:locator.click, operation:page.wait_for_url, operation:page.evaluate, operation:page.request, operation:session.pages, setting:session.source, operation:run.start, story:8-64, story:4-59, error:secret_unavailable, setting:timeout.secret
 #[test]
 fn the_page_suite_proves_sessions_against_collies_attached_engine() {
     prove(SESSIONS);
@@ -362,8 +365,35 @@ fn the_page_suite_proves_robots_txt_against_collies_attached_engine() {
     prove(ROBOTS_TXT);
 }
 
-/// Covers: story:6-41, story:6-51, setting:cache.mode, setting:browser.service_workers, operation:page.goto, operation:page.evaluate, operation:run.new_session, operation:session.new_page
+/// Covers: story:6-39, story:6-40, story:6-41, story:6-46, story:6-51, story:8-65, setting:cache.mode, setting:browser.service_workers, setting:proxy.provider, setting:proxy.country, setting:browser.locale, setting:browser.is_mobile, setting:session.page_check, setting:tls.accept_invalid_certs, operation:run.start, operation:run.finish, operation:page.goto, operation:page.evaluate, operation:run.new_session, operation:session.new_page, operation:session.close, operation:cache.stats, operation:effect.open, operation:effect.close
 #[test]
 fn the_page_suite_proves_the_response_cache_against_collies_attached_engine() {
     prove(RESPONSE_CACHE);
+}
+
+/// Covers: story:6-52, story:6-53, story:6-54, story:6-55, story:6-56, story:6-57, story:6-58, story:6-59, story:6-60, story:6-61, error:response_not_recorded, error:recording_invalid, error:response_truncated, setting:site_preferences.read_robots_txt_for_navigation, setting:network.resolve, setting:cache.mode, setting:provenance.log, operation:run.start, operation:page.goto, operation:page.request, operation:page.evaluate, operation:effect.open, operation:effect.close, operation:run.finish
+#[test]
+fn the_page_suite_proves_response_recordings_against_collies_attached_engine() {
+    prove(RESPONSE_RECORDING);
+}
+
+/// Replayed page time and randomness never depend on the host's time zone or
+/// locale (ADR 0073, issue 801): under `TZ=Pacific/Chatham` and
+/// `LANG=tr_TR.UTF-8`, the replayed date, epoch and seeded `Math.random()`
+/// cases pass identically as under the host's environment. The Release suite
+/// runs this test with the Pre-merge suite's tests.
+///
+/// Covers: story:6-58, story:6-59, operation:run.start, operation:page.goto, operation:page.evaluate, operation:run.finish
+#[test]
+fn the_page_suite_proves_response_recordings_under_another_time_zone_and_locale() {
+    let elsewhere = TestEnv::new()
+        .with_time_zone("Pacific/Chatham")
+        .unwrap()
+        .with_locale("tr-TR")
+        .unwrap();
+    prove_in(
+        &elsewhere,
+        RESPONSE_RECORDING,
+        "response-recording-chatham-tr",
+    );
 }

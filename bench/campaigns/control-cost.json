@@ -1,0 +1,110 @@
+{
+  "id": "control-cost",
+  "host_class": { "requested": "local-controlled", "allow_downgrade": true },
+  "order_seed": 18805,
+  "blocks": 5,
+  "warmup": 1,
+  "iterations": 3,
+  "concurrency": 1,
+  "timeout_ms": 30000,
+  "max_duration_ms": 180000,
+  "max_restarts": 2,
+  "tasks": ["catalog/2"],
+  "registry": {
+    "folder": "registry",
+    "decisions": ["D-control-cost"]
+  },
+  "control_cost_comparisons": [
+    {
+      "control": "live_hiding",
+      "product": "collie",
+      "on_adapter": "collie-all-on",
+      "off_adapter": "collie-live-hiding-off",
+      "baseline_setting": "live_hiding = off"
+    },
+    {
+      "control": "filter_list_blocking",
+      "product": "collie",
+      "on_adapter": "collie-all-on",
+      "off_adapter": "collie-filter-lists-off",
+      "baseline_setting": "filter_lists = off",
+      "measure_server_bytes": true
+    },
+    {
+      "control": "consent_prompt_handling",
+      "product": "collie",
+      "on_adapter": "collie-all-on",
+      "off_adapter": "collie-consent-off",
+      "baseline_setting": "consent.handling = off",
+      "measure_server_bytes": true
+    },
+    {
+      "control": "tls_relay_cert_exceptions",
+      "product": "collie",
+      "on_adapter": "collie-tls-relay",
+      "off_adapter": "collie-all-on",
+      "baseline_setting": "certs.accept = empty"
+    }
+  ],
+  "adapters": [
+    {
+      "id": "collie-all-on",
+      "command": [
+        "node",
+        "../adapters/goodfetch/src/adapter.ts",
+        "--product",
+        "collie",
+        "--setting",
+        "live_view.hiding=true"
+      ]
+    },
+    {
+      "id": "collie-live-hiding-off",
+      "command": [
+        "node",
+        "../adapters/goodfetch/src/adapter.ts",
+        "--product",
+        "collie",
+        "--setting",
+        "live_view.hiding=false"
+      ]
+    },
+    {
+      "id": "collie-filter-lists-off",
+      "command": [
+        "node",
+        "../adapters/goodfetch/src/adapter.ts",
+        "--product",
+        "collie",
+        "--setting",
+        "filter_lists.ads=false",
+        "--setting",
+        "filter_lists.trackers=false",
+        "--setting",
+        "filter_lists.annoyances=false"
+      ]
+    },
+    {
+      "id": "collie-consent-off",
+      "command": [
+        "node",
+        "../adapters/goodfetch/src/adapter.ts",
+        "--product",
+        "collie",
+        "--setting",
+        "consent.handling=off"
+      ]
+    },
+    {
+      "id": "collie-tls-relay",
+      "command": [
+        "node",
+        "../adapters/goodfetch/src/adapter.ts",
+        "--product",
+        "collie",
+        "--setting",
+        "certs.accept=2.catalog.test"
+      ]
+    }
+  ]
+}

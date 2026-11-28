@@ -27,8 +27,10 @@ from goodfetch_collie_client.generated.models import (
     Partitions,
     PlanReport,
     PluginRun,
+    Product,
     ProgressMessage,
     ProjectSettings,
+    Recording,
     RecordingReport,
     RedoneReport,
     RunId,
@@ -42,6 +44,9 @@ from goodfetch_collie_client.generated.models import (
     SampleEchoed,
     SessionId,
     SettingLimit,
+    SettingsLayer,
+    StartedAs,
+    StartedPartition,
     StopReason,
     Tags,
     UncertainEffect,
@@ -67,6 +72,30 @@ class FoxhoundTypes(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+
+
+class AbortedDiscoveryRequest1(BaseModel):
+    """
+    A request with an unsafe HTTP method was aborted before leaving the
+    browser so discovery clicks never place an order or mutate a site.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["unsafe_request_aborted"]
+    method: str
+    """The aborted request's HTTP method, such as `POST`."""
+    url: str
+    """The aborted request's URL."""
+
+
+class AbortedDiscoveryRequest(RootModel[AbortedDiscoveryRequest1]):
+    root: AbortedDiscoveryRequest1
+    """
+    An unsafe network request aborted unsent during a discovery click (issue
+    1087): any method other than `GET`, `HEAD` or `OPTIONS`.
+    """
 
 
 class AttemptError(BaseModel):
@@ -141,6 +170,8 @@ class CrawlConcurrency(BaseModel):
     """The Resource governor's level, once it sampled."""
     handler_concurrency: Annotated[int, Field(ge=0)]
     """`crawl.handler.concurrency`, per serving Connection."""
+    handler_concurrency_layer: SettingsLayer | None = None
+    """The settings layer that set `crawl.handler.concurrency` (ADR 0102)."""
     handlers: Annotated[int, Field(ge=0)]
     """How many handlers run."""
     open_pages: Annotated[int | None, Field(ge=0)] = None
@@ -182,6 +213,65 @@ class CrawlHookHandled(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+
+
+class CrawlNotImportableDetails(BaseModel):
+    """What `crawl_not_importable` details (ADR 0024)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    export: str | None = None
+    """The export or attribute name looked up on `module`, if any."""
+    module: str | None = None
+    """
+    The module named for workers to import, or the module where the crawl
+    was created when none was named.
+    """
+
+
+class CrawlRequestEnqueueLinksByClickingElementsParams(BaseModel):
+    """
+    What `crawl_request.enqueue_links_by_clicking_elements` takes: a locator on
+    the attempt's browser page whose matched elements are clicked in document
+    order through the guard to discover script-only links (ADR 0093; issue 1087).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    crawl_request_id: str
+    """The ID of the crawl request whose attempt enqueues."""
+    exclude: list[str] | None = None
+    """URL patterns a link must match none of, besides the crawl's scope."""
+    include: list[str] | None = None
+    """
+    URL patterns, globs as `crawl.scope.include`'s, of which a link must
+    match one when there are any, besides the crawl's scope, which they
+    only narrow.
+    """
+    label: str
+    """Their Label."""
+    lease_epoch: Annotated[int, Field(ge=0)]
+    """The attempt's lease epoch, as `crawl_request.handle` gave it."""
+    limit: Annotated[int | None, Field(ge=0)] = None
+    """
+    At most this many links are added; once they are, each later
+    discovered URL the Frontier would judge is not added, with
+    `link_limit`. None for no limit.
+    """
+    locator: Locator
+    """The locator, on the browser page `crawl_request.handle` gave."""
+    payload: Any | None = None
+    """The one Payload every discovered link takes."""
+    priority: int | None = 0
+    """
+    Their priority among the requests of their domain, as
+    `crawl_request.enqueue`'s; 0 by default.
+    """
+    run_id: RunId
+    """The crawl's Run."""
 
 
 class CrawlRequestEnqueueLinksParams(BaseModel):
@@ -488,6 +578,20 @@ class DeclaredExtract(BaseModel):
     """Its named fields, by name, each a value field, a list or rows."""
 
 
+class DiscoveryClickRefusal(BaseModel):
+    """A matched element whose discovery click the guard refused (issue 1087)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: str
+    """The guard's Error code (for example `deadline_exceeded`)."""
+    index: Annotated[int, Field(ge=0)]
+    """Zero-based index of the matched element in document order."""
+    message: str
+    """Why the guard refused the click."""
+
+
 class EncodingSource(StrEnum):
     """
     Where a document's encoding came from, in the order the tiers look
@@ -611,6 +715,30 @@ class EnqueuedLinks(BaseModel):
     )
     links: list[EnqueuedLink]
     """Each element's answer."""
+
+
+class EnqueuedLinksByClickingElements(BaseModel):
+    """
+    What `crawl_request.enqueue_links_by_clicking_elements` answers: what
+    became of each discovered link, each unsafe request aborted unsent, and
+    any matched element whose click the guard refused (issue 1087).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    aborted: list[AbortedDiscoveryRequest] | None = None
+    """
+    Requests with a method other than `GET`, `HEAD` or `OPTIONS` aborted
+    unsent during the clicks.
+    """
+    links: list[EnqueuedLink]
+    """
+    Each discovered link's admission answer, as `crawl_request.enqueue_links`
+    answers.
+    """
+    refused: list[DiscoveryClickRefusal] | None = None
+    """Matched elements whose click the guard refused."""
 
 
 class EquivalentForm(StrEnum):
@@ -1535,6 +1663,12 @@ class RequestSeed(BaseModel):
     whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
     such requests, the later goes first; `false` by default.
     """
+    headers: dict[str, str] | None = None
+    """
+    Extra request headers sent with the request (ADR 0093). Forbidden
+    headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method
+    overrides; ADR 0033) are refused with `header_forbidden`.
+    """
     key: str | None = None
     """
     Its identity in the Frontier, declared by the program in place of
@@ -1579,6 +1713,8 @@ class ResponseOrigin1(BaseModel):
     fetched_at: PointInTime
     """When the cached response was fetched."""
     kind: Literal["response_cache"]
+    run_id: RunId | None = None
+    """The Run that fetched the cached response, when fetched in a Run."""
 
 
 class ResponseOrigin2(BaseModel):
@@ -1636,20 +1772,6 @@ class RobotsTxtMark(StrEnum):
     `site_preferences.respect_robots_txt` was off; marked only while
     `site_preferences.mark_robots_txt_ignored` is on.
     """
-
-
-class RunAddSeedsParams(BaseModel):
-    """
-    What `run.add_seeds` takes: the running crawl its Client streams seeds
-    to.
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-    )
-    run_id: RunId
-    """The crawl's Run."""
 
 
 class RunExportParams(BaseModel):
@@ -1968,6 +2090,196 @@ class SheetCapacityExceededDetails(BaseModel):
     """
     maximum: Annotated[int, Field(ge=0)]
     """The most a sheet holds of it."""
+
+
+class SinkDeliverAction1(BaseModel):
+    """
+    Redelivers one delivery by its `delivery_id`, carrying the same
+    delivery ID so the destination can deduplicate it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    delivery_id: str
+    """The delivery ID to redeliver (`<run_id>/<sink>/<dataset>/<number>`)."""
+    kind: Literal["redeliver"]
+
+
+class SinkDeliverAction2(BaseModel):
+    """
+    Recovers failed deliveries (dead letters) committed at or after `since`
+    (RFC 3339 in UTC).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    kind: Literal["recover"]
+    since: PointInTime
+    """RFC 3339 UTC timestamp lower bound (inclusive)."""
+
+
+class SinkDeliverAction3(BaseModel):
+    """
+    Replays committed Records of the Run that were never delivered to the
+    Sink.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["replay"]
+
+
+class SinkDeliverAction4(BaseModel):
+    """
+    Backfills every committed Record of a past Run to any configured Sink,
+    including a Sink added after the Run ended.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["backfill"]
+
+
+class SinkDeliverAction(
+    RootModel[
+        SinkDeliverAction1
+        | SinkDeliverAction2
+        | SinkDeliverAction3
+        | SinkDeliverAction4
+    ]
+):
+    root: (
+        SinkDeliverAction1
+        | SinkDeliverAction2
+        | SinkDeliverAction3
+        | SinkDeliverAction4
+    )
+    """
+    What `sink.deliver` does against a Run's committed Records or dead letters
+    (ADR 0026).
+    """
+
+
+class SinkDeliverParams(BaseModel):
+    """What `sink.deliver` takes (ADRs 0026 and 0099)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    action: SinkDeliverAction
+    """
+    Which delivery operation to run (`redeliver`, `recover`, `replay` or
+    `backfill`).
+    """
+    project: ProjectSettings | None = None
+    """The project configuration the Client found, layer 3 (ADR 0083)."""
+    run_id: RunId
+    """The Run whose Records or dead letters to deliver."""
+    settings: dict[str, Any] | None = None
+    """
+    Settings over the connection's, nested by key, as a crawl's Run takes
+    them (ADR 0083), such as a Sink added after the Run ended.
+    """
+    sink: str
+    """The Sink's name, its key under `sinks`."""
+
+
+class SinkGuaranteeUnmetDetails(BaseModel):
+    """What `sink_guarantee_unmet` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    cause: str | None = None
+    """Why the probe failed, for people; none when it proved a class."""
+    proved: GuaranteeClass | None = None
+    """The class the Sink's probe proved; none when the probe failed."""
+    required: GuaranteeClass
+    """The class the Run requires, its `crawl.min_sink_guarantee`."""
+    sink: str
+    """The Sink's name, its key under `sinks`."""
+
+
+class SinkListParams(BaseModel):
+    """
+    What `sink.list` takes: optionally one Run to read each Sink's status
+    from, or settings over the connection's to probe and summarize every
+    configured Sink (ADRs 0026 and 0099).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    project: ProjectSettings | None = None
+    """The project configuration the Client found, layer 3 (ADR 0083)."""
+    run_id: RunId | None = None
+    """
+    When set, lists the Sinks that applied to this Run with its
+    Run-scoped class, status, dead letters and deliveries outside the
+    deduplication window. When absent, lists the Sinks configured in
+    `settings` and aggregates their dead letters and late deliveries
+    across Runs.
+    """
+    settings: dict[str, Any] | None = None
+    """
+    Settings over the connection's, nested by key, as a crawl's Run
+    takes them (ADR 0083).
+    """
+
+
+class SinkProbeOutcome1(BaseModel):
+    """Its destination proved a Guarantee class."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    class_: Annotated[GuaranteeClass, Field(alias="class")]
+    """The class."""
+    status: Literal["proved"]
+
+
+class SinkProbeOutcome2(BaseModel):
+    """Its probe failed: its destination did not resolve, open or answer."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    cause: str
+    """Why, for people."""
+    status: Literal["failed"]
+
+
+class SinkProbeOutcome(RootModel[SinkProbeOutcome1 | SinkProbeOutcome2]):
+    root: SinkProbeOutcome1 | SinkProbeOutcome2
+    """What a Sink's probe found."""
+
+
+class SinkProbeParams(BaseModel):
+    """
+    What `sink.probe` takes: the Sink, by its name among the `sinks` the
+    settings resolve to as a crawl's Run would.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    project: ProjectSettings | None = None
+    """The project configuration the Client found, layer 3 (ADR 0083)."""
+    settings: dict[str, Any] | None = None
+    """
+    Settings over the connection's, nested by key, as a crawl's Run
+    takes them (ADR 0083), such as the `sinks` to probe.
+    """
+    sink: str
+    """The Sink's name, its key under `sinks`."""
 
 
 class SinkStatus(StrEnum):
@@ -2299,6 +2611,8 @@ class CrawlRequest(BaseModel):
     )
     body: HttpBody | None = None
     """The body it is sent with, if any."""
+    headers: dict[str, str] | None = None
+    """Extra request headers carried from its seed or enqueue, if any."""
     id: str
     """Its ID within the Run."""
     label: str
@@ -2331,6 +2645,12 @@ class CrawlRequestEnqueueParams(BaseModel):
     whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
     such requests, the later goes first. A priority or `forefront` never
     orders requests of different domains (ADR 0004); `false` by default.
+    """
+    headers: dict[str, str] | None = None
+    """
+    Extra request headers sent with the request (ADR 0093). Forbidden
+    headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method
+    overrides; ADR 0033) are refused with `header_forbidden`.
     """
     key: str | None = None
     """
@@ -2675,6 +2995,37 @@ class CrawlRunProgress(RunProgress):
     """Whether an engine works it."""
 
 
+class CrawlStarted(BaseModel):
+    """
+    What `crawl.start` answers: the Run it started or reopened, and each
+    seed's original answer in order, so `run.seeds()` answers with no round
+    trip, including after a resume (ADR 0102).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    lifecycle: Lifecycle
+    """Where it is now."""
+    needs: Product
+    """
+    The Product it needs (ADR 0098): Collie until it uses an entry the
+    catalog marks Foxhound's, Foxhound from then on.
+    """
+    partitions: list[StartedPartition] | None = None
+    """
+    For a Partitioned crawl (ADR 0054), each Partition's Run ID and Group
+    member placement beside the Partitioned crawl ID; empty otherwise.
+    """
+    run_id: RunId
+    """The Run's ID (or the Partitioned crawl ID for a Partitioned crawl)."""
+    seeds: list[Enqueued] | None = None
+    """Each seed's original answer in order, as `run.seeds` answers."""
+    started_as: StartedAs
+    """Whether the start began it."""
+
+
 class DatasetList(BaseModel):
     """What `dataset.list` answers."""
 
@@ -2930,6 +3281,26 @@ class RecordSort(BaseModel):
     """The field's name."""
 
 
+class RunAddSeedsParams(BaseModel):
+    """
+    What `run.add_seeds` takes: the running crawl its Client streams seeds
+    to.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    attempt: SeedAttempt | None = None
+    """
+    The attempt that adds them, when a handler streams seeds through its
+    context's `run`; absent, the program streams them from outside any
+    attempt.
+    """
+    run_id: RunId
+    """The crawl's Run."""
+
+
 class Seed(RootModel[RequestSeed | SitemapSeed]):
     root: RequestSeed | SitemapSeed
     """
@@ -2943,6 +3314,66 @@ class Seeds(RootModel[list[Seed]]):
 
     root: Annotated[list[Seed], Field(min_length=1)]
     """A crawl's seeds, at least one."""
+
+
+class SinkDeliver(BaseModel):
+    """What `sink.deliver` answers (ADR 0026)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    dead_letters: Annotated[int, Field(ge=0)]
+    """How many dead letters remain for this Run and Sink after this call."""
+    delivered: Annotated[int, Field(ge=0)]
+    """How many Records or dead letters were delivered by this call."""
+    run_id: RunId
+    """The Run whose Records were delivered."""
+    sink: str
+    """The Sink's name."""
+    status: SinkStatus
+    """The Sink's status after this delivery."""
+
+
+class SinkListEntry(BaseModel):
+    """One Sink in `sink.list`'s answer (ADR 0026)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    dead_letters: Annotated[int, Field(ge=0)]
+    """How many deliveries are currently on its dead-letter list."""
+    guarantee_class: GuaranteeClass | None = None
+    """
+    Its Guarantee class, when probed or recorded on a Run; none when
+    probing failed outside any Run.
+    """
+    name: str
+    """The Sink's name, its key under `sinks`."""
+    outside_dedup_window: Annotated[int, Field(ge=0)]
+    """
+    How many deliveries fell outside the destination's deduplication
+    window, and so were at least once.
+    """
+    probe_cause: str | None = None
+    """Why probing failed outside a Run, when `guarantee_class` is absent."""
+    status: SinkStatus | None = None
+    """
+    Its delivery status on the named Run; absent when listing
+    configured Sinks outside a single Run.
+    """
+
+
+class SinkProbe(BaseModel):
+    """What `sink.probe` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    outcome: SinkProbeOutcome
+    """What its probe found."""
+    sink: str
+    """The Sink's name."""
 
 
 class SinkReport(BaseModel):
@@ -3071,6 +3502,11 @@ class CrawlRunReport(RunReport):
         extra="allow",
         arbitrary_types_allowed=True,
     )
+    cache_mode: str | None = None
+    """
+    Set to `"replay"` when the Run used `cache.mode: "replay"` (ADR 0046);
+    absent otherwise.
+    """
     checkpoint: Checkpoint | None = None
     """The last Checkpoint written of it in this engine, when one was."""
     completeness: Completeness
@@ -3219,6 +3655,8 @@ class CrawlStartParams(BaseModel):
     """
     project: ProjectSettings | None = None
     """The project configuration the Client found, layer 3 (ADR 0083)."""
+    recording: Recording | None = None
+    """The Response recording the crawl replays or records (ADR 0105)."""
     run_id: Annotated[
         str | None, Field(pattern="^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$")
     ] = None
@@ -3344,6 +3782,16 @@ class RunAddSeedParams(BaseModel):
     """The crawl's Run."""
     seed: Seed
     """The seed."""
+
+
+class SinkList(BaseModel):
+    """What `sink.list` answers (ADR 0026)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    sinks: list[SinkListEntry]
+    """Each Sink, in name order."""
 
 
 class DatasetRecord(BaseModel):

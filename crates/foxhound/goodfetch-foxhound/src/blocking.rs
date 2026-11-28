@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use goodfetch_collie::EngineInfo;
 use goodfetch_collie::linked::ProductConnection;
-use goodfetch_collie_client::{Error, RunView, blocking};
+use goodfetch_collie_client::{Error, blocking};
 use goodfetch_protocol::run::{CatalogTarget, RunId};
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 
@@ -19,15 +19,22 @@ pub use crawl::{
     AttemptRun, Crawl, CrawlContext, CrawlRun, Enqueue, EnqueueLinks, ReadRecords,
     ReadRejectedRecords, StartCrawl,
 };
+pub use export::{Export, ExportDataset};
 pub use goodfetch_collie_client::blocking::{
-    Call, Connection, CreatedSchedule, EventIter, Exchange, HandlerlessStart, KeyValueStore,
-    Locator, Page, Query, RawCall, Response, Run, Schedule, Schedules, Session, Start,
+    Call, Checkpoint, Connection, CreatedSchedule, EventIter, Exchange, HandlerlessStart,
+    KeyValueStore, KeyValueStoreView, Locator, Page, Query, RawCall, Response, Run, RunTrace,
+    RunView, SaveFile, Schedule, Schedules, Session, Start,
 };
+pub use outcomes::{ReadFailedRequests, ReadOutcomes, RetryFailed};
+pub use seeds::{AddSeed, AddSeeds};
 
 use crate::crawl_requests::CrawlRequests;
 use crate::foxhound::{ConnectOptions, ENGINE};
 
 mod crawl;
+mod export;
+mod outcomes;
+mod seeds;
 
 /// A connection to Foxhound whose calls block: `foxhound.start().send()`
 /// starts a Run. Cloning it is cheap and every clone is the same

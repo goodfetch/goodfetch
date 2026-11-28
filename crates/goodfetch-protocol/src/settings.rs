@@ -713,7 +713,7 @@ pub const WALL_DOMAINS: Setting = Setting {
     authority: Authority::Narrowed,
     weakens: None,
     fixed_for_run: false,
-    unbuilt: Some("wall_reading"),
+    unbuilt: None,
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };
@@ -1181,8 +1181,7 @@ pub const TIMEOUT_PLUGIN: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
-/// `timeout.sink_write` (ADRs 0080 and 0083), refused away from its default until its phase is
-/// built.
+/// `timeout.sink_write` (ADRs 0026 and 0080), bounding each write to a Sink.
 pub const TIMEOUT_SINK_WRITE: Setting = Setting {
     name: "timeout.sink_write",
     description: "How long one write to a Sink may take before it fails with `deadline_exceeded`: 30 s.",
@@ -1192,7 +1191,7 @@ pub const TIMEOUT_SINK_WRITE: Setting = Setting {
     authority: Authority::Every,
     weakens: None,
     fixed_for_run: false,
-    unbuilt: Some("sinks"),
+    unbuilt: None,
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };

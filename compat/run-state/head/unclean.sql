@@ -170,6 +170,7 @@ INSERT INTO "record_search_data" VALUES(1,X'');
 INSERT INTO "record_search_data" VALUES(10,X'00000000FF000001000000');
 CREATE TABLE 'record_search_docsize'(id INTEGER PRIMARY KEY, sz BLOB, origin INTEGER);
 CREATE TABLE 'record_search_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID;
+CREATE TABLE recorded_responses ( position INTEGER PRIMARY KEY AUTOINCREMENT, recorded_at TEXT NOT NULL, method TEXT NOT NULL, url TEXT NOT NULL, request_headers TEXT NOT NULL, request_body BLOB NOT NULL, status INTEGER NOT NULL, response_headers TEXT NOT NULL, response_body BLOB NOT NULL, truncated INTEGER NOT NULL CHECK (truncated IN (0, 1)) ) STRICT;
 CREATE TABLE records (
             dataset TEXT NOT NULL,
             number INTEGER NOT NULL,
@@ -307,7 +308,7 @@ CREATE TABLE run (
         report TEXT,
         charges TEXT NOT NULL DEFAULT 'synced' CHECK (charges IN ('synced', 'deferred', 'unsynced'))
     ) STRICT;
-INSERT INTO "run" VALUES('unclean','collie','collie','os_user',1,'{}','stopped','{"kind":"abort","by":"client"}','verified','incomplete','2026-01-05T09:00:04Z','2026-01-05T09:00:04Z','sha256:0227dc879fda140d','[{"key":"run_state.batch.sync","value":"off","layer":"run","origin":"settings","preset":{"key":"run_state.durability","value":"off"}},{"key":"run_state.durability","value":"off","layer":"run","origin":"settings"}]',2,NULL,'sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9','{}','{"run_state.batch.sync":"9f3becba6e4b1583b3e19441dde4d59622537d9bd54a94d22262785e485384d0","run_state.durability":"9f3becba6e4b1583b3e19441dde4d59622537d9bd54a94d22262785e485384d0"}',0,NULL,NULL,NULL,'{"run_id":"unclean","lifecycle":"stopped","stop_reason":{"kind":"abort","by":"client"},"verdict":"verified","completeness":"incomplete","completeness_reasons":[{"code":"stopped","message":"It stopped early: aborted by its Client."}],"started_at":"2026-01-05T09:00:04Z","ended_at":"2026-01-05T09:00:04Z","usage":{"model":{"calls":0,"tokens":0,"input_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"output_tokens":0,"reasoning_tokens":0,"price":null},"browser_time":0,"proxy_bytes":0,"requests":0,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":983,"set_by":"client"}]},"weakened":[{"key":"run_state.batch.sync","value":"off","layer":"run","origin":"settings","preset":{"key":"run_state.durability","value":"off"}},{"key":"run_state.durability","value":"off","layer":"run","origin":"settings"}],"policy_version":"sha256:0227dc879fda140d"}','unsynced');
+INSERT INTO "run" VALUES('unclean','collie','collie','os_user',1,'{}','stopped','{"kind":"abort","by":"client"}','verified','incomplete','2026-01-05T09:00:51.361Z','2026-01-05T09:00:51.361Z','sha256:0227dc879fda140d','[{"key":"run_state.batch.sync","value":"off","layer":"run","origin":"settings","preset":{"key":"run_state.durability","value":"off"}},{"key":"run_state.durability","value":"off","layer":"run","origin":"settings"}]',2,NULL,'sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9','{}','{"run_state.batch.sync":"9f3becba6e4b1583b3e19441dde4d59622537d9bd54a94d22262785e485384d0","run_state.durability":"9f3becba6e4b1583b3e19441dde4d59622537d9bd54a94d22262785e485384d0"}',0,NULL,NULL,NULL,'{"run_id":"unclean","lifecycle":"stopped","stop_reason":{"kind":"abort","by":"client"},"verdict":"verified","completeness":"incomplete","completeness_reasons":[{"code":"stopped","message":"It stopped early: aborted by its Client."}],"started_at":"2026-01-05T09:00:51.361Z","ended_at":"2026-01-05T09:00:51.361Z","usage":{"model":{"calls":0,"tokens":0,"input_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"output_tokens":0,"reasoning_tokens":0,"price":null},"browser_time":0,"proxy_bytes":0,"requests":0,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":983,"set_by":"client"}]},"weakened":[{"key":"run_state.batch.sync","value":"off","layer":"run","origin":"settings","preset":{"key":"run_state.durability","value":"off"}},{"key":"run_state.durability","value":"off","layer":"run","origin":"settings"}],"policy_version":"sha256:0227dc879fda140d"}','unsynced');
 CREATE TABLE run_file_chunks (sha256 TEXT NOT NULL, offset INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (sha256, offset)) STRICT;
 CREATE TABLE run_files (position INTEGER NOT NULL PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL) STRICT;
 CREATE TABLE run_key (
@@ -332,6 +333,34 @@ CREATE TABLE seeds (
             position INTEGER NOT NULL PRIMARY KEY,
             answer TEXT NOT NULL
         ) STRICT;
+CREATE TABLE sink_dead_letters (
+            sink TEXT NOT NULL,
+            delivery_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            run_epoch INTEGER NOT NULL,
+            dataset TEXT NOT NULL,
+            record_number INTEGER NOT NULL,
+            committed_at TEXT NOT NULL,
+            record TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            attempts INTEGER NOT NULL,
+            PRIMARY KEY (sink, delivery_id)
+        ) STRICT, WITHOUT ROWID;
+CREATE TABLE sink_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sink TEXT NOT NULL,
+            event TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            occurred_at TEXT NOT NULL
+        ) STRICT;
+CREATE TABLE sink_state (
+            sink TEXT NOT NULL PRIMARY KEY,
+            guarantee_class TEXT NOT NULL,
+            status TEXT NOT NULL,
+            paused_reason TEXT,
+            outside_dedup_window INTEGER NOT NULL,
+            undeclared_datasets TEXT NOT NULL
+        ) STRICT, WITHOUT ROWID;
 CREATE TABLE sitemap_entries (
             work_item TEXT NOT NULL,
             reason TEXT NOT NULL,
@@ -408,6 +437,7 @@ CREATE TABLE work_items (
             position INTEGER NOT NULL UNIQUE,
             url TEXT NOT NULL,
             method TEXT NOT NULL,
+            headers TEXT,
             body BLOB,
             label TEXT NOT NULL,
             depth INTEGER NOT NULL,

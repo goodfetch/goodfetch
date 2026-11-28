@@ -277,6 +277,22 @@ impl FingerprintPlan {
         self.window
     }
 
+    /// The Identity profile's language tag, if any (ADR 0046).
+    pub(crate) fn language(&self) -> Option<&str> {
+        let identity = self.identity.as_deref()?;
+        identity
+            .exit
+            .language
+            .as_deref()
+            .or_else(|| identity.navigator.languages.first().map(String::as_str))
+    }
+
+    /// The Identity profile's device class (`desktop` or `mobile`), if any
+    /// (ADR 0046).
+    pub(crate) fn device(&self) -> Option<&str> {
+        Some(self.identity.as_deref()?.device.as_str())
+    }
+
     /// The values its pages show through the browser's own overrides,
     /// `basic`'s, and the script they run before each document's own,
     /// `js_injection`'s: its Identity profile at the version of the browser

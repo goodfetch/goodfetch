@@ -1363,6 +1363,14 @@
           "arrived_in": "0.1",
           "description": "The Response recording the Run replays or records (ADR 0105)."
         },
+        "recording_bytes": {
+          "arrived_in": "0.1",
+          "description": "The Response recording's bytes in Base64, when the SDK read the file on\nthe program's machine for `mode: \"replay\"` (ADR 0105); empty string for\na test engine's empty replay recording.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "run_id": {
           "arrived_in": "0.1",
           "description": "The Run's ID, as `run.start`'s.",
@@ -2013,6 +2021,130 @@
         "checkpoint",
         "run_file",
         "fix"
+      ],
+      "type": "object"
+    },
+    "CheckpointSaveAsParams": {
+      "additionalProperties": false,
+      "description": "What `checkpoint.save_as` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "location": {
+          "arrived_in": "0.1",
+          "description": "Where the Checkpoint is on the engine's machine, as `run.checkpoint` answered.",
+          "type": "string"
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The program's path, absolute, which an Attached engine writes\nitself; any other engine leaves it to the SDK and sends the file's\nbytes instead.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "location"
+      ],
+      "type": "object"
+    },
+    "CheckpointSaved": {
+      "description": "What `checkpoint.save_as` answers once the file is whole.",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "run_epoch": {
+          "arrived_in": "0.1",
+          "description": "The run epoch of the writer that took the Checkpoint (ADR 0003).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "The file's size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "written": {
+          "arrived_in": "0.1",
+          "description": "Whether the engine wrote the program's path itself; when not, the\n`$/chunk` notifications before this answer carried every byte, and\nthe SDK writes the path.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "size",
+        "digest",
+        "written",
+        "run_epoch"
+      ],
+      "type": "object"
+    },
+    "CheckpointStreamParams": {
+      "additionalProperties": false,
+      "description": "What `checkpoint.stream` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "location": {
+          "arrived_in": "0.1",
+          "description": "Where the Checkpoint is on the engine's machine, as `run.checkpoint` answered.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "location"
+      ],
+      "type": "object"
+    },
+    "CheckpointStreamed": {
+      "description": "What `checkpoint.stream` answers once it sent every byte.",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "run_epoch": {
+          "arrived_in": "0.1",
+          "description": "The run epoch of the writer that took the Checkpoint (ADR 0003).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "The file's size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "size",
+        "digest",
+        "run_epoch"
       ],
       "type": "object"
     },
@@ -4911,6 +5043,20 @@
           "type": "string"
         }
       ]
+    },
+    "HeaderForbiddenDetails": {
+      "description": "What `header_forbidden` details.",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The forbidden header name, as given.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
     },
     "HeaderValueInvalidDetails": {
       "description": "What `header_value_invalid` details.",
@@ -10329,6 +10475,14 @@
           "arrived_in": "0.1",
           "description": "The Response recording the Run replays or records (ADR 0105)."
         },
+        "recording_bytes": {
+          "arrived_in": "0.1",
+          "description": "The Response recording's bytes in Base64, when the SDK read the file on\nthe program's machine for `mode: \"replay\"` (ADR 0105); empty string for\na test engine's empty replay recording.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "run_id": {
           "arrived_in": "0.1",
           "description": "The Run's ID, as `run.start`'s.",
@@ -10530,6 +10684,69 @@
         "mode",
         "file",
         "responses_used"
+      ],
+      "type": "object"
+    },
+    "RecordingSaveAsParams": {
+      "additionalProperties": false,
+      "description": "What `recording.save_as` takes (ADRs 0105 and 0116).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "filename": {
+          "arrived_in": "0.1",
+          "description": "The recording's file name (such as `site.warc.gz`), used for `warcinfo`\nand `.gz` per-record gzip detection when `path` is absent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The program's path, absolute, which an Attached engine writes\nitself; any other engine leaves it to the SDK and sends the file's\nbytes in `$/chunk` notifications instead.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RecordingSaved": {
+      "description": "What `recording.save_as` answers once the file is whole (ADRs 0105 and 0116).",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "The file's size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "written": {
+          "arrived_in": "0.1",
+          "description": "Whether the engine wrote the program's path itself; when not, the\n`$/chunk` notifications before this answer carried every byte, and\nthe SDK writes the path.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "size",
+        "digest",
+        "written"
       ],
       "type": "object"
     },
@@ -12315,6 +12532,14 @@
       "additionalProperties": true,
       "description": "What a Run states about itself when it ends (ADR 0102). A part no area\nsupplied is absent, never zero.",
       "properties": {
+        "cache_mode": {
+          "arrived_in": "0.1",
+          "description": "Set to `\"replay\"` when the Run used `cache.mode: \"replay\"` (ADR 0046);\nabsent otherwise.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "checkpoint": {
           "anyOf": [
             {
@@ -12738,6 +12963,14 @@
           "arrived_in": "0.1",
           "description": "The Response recording the Run replays or records (ADR 0105): an\ninput of the Run, as `plan` is."
         },
+        "recording_bytes": {
+          "arrived_in": "0.1",
+          "description": "The Response recording's bytes in Base64, when the SDK read the file on\nthe program's machine for `mode: \"replay\"` (ADR 0105); empty string for\na test engine's empty replay recording.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "run_id": {
           "arrived_in": "0.1",
           "description": "The Run's ID; the engine generates a lowercase ULID when it is\nabsent. An existing ID reaches that Run when the caller and the\ninputs match, as `run.start` says, and fails with `run_conflict`\notherwise.",
@@ -13035,6 +13268,58 @@
       ],
       "type": "object"
     },
+    "RunTrace": {
+      "description": "A Run's trace copy, kept on the engine's machine (ADRs 0102 and 0116).",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "location": {
+          "arrived_in": "0.1",
+          "description": "Where it is: the trace file's path on the engine's machine.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "Its size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "run_id",
+        "location",
+        "size",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "RunTraceResult": {
+      "description": "What `run.trace` answers: the Run's trace copy, or none when the Run keeps\nno trace.",
+      "properties": {
+        "trace": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunTrace"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Run's trace copy, or null when the Run keeps no trace."
+        }
+      },
+      "type": "object"
+    },
     "RunTrigger": {
       "description": "What fired a Schedule's occurrence (ADR 0036), as its run's reserved\n`goodfetch.trigger` tag names it.",
       "oneOf": [
@@ -13067,6 +13352,13 @@
           "$ref": "#/$defs/Milliseconds",
           "arrived_in": "0.1",
           "description": "How long it held a browser."
+        },
+        "cache_hits": {
+          "arrived_in": "0.1",
+          "description": "The requests answered from the Response cache, counted apart from\n`requests` (ADR 0046).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
         },
         "limits": {
           "arrived_in": "0.1",
@@ -14164,6 +14456,20 @@
         }
       ]
     },
+    "SecretResolved": {
+      "description": "What `resolveSecret` answers: the value. Its `Debug` leaves it out.",
+      "properties": {
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The value.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "type": "object"
+    },
     "SecretUnavailableDetails": {
       "description": "What `secret_unavailable` details.",
       "properties": {
@@ -14222,6 +14528,38 @@
       "required": [
         "placeholder",
         "bound"
+      ],
+      "type": "object"
+    },
+    "SecretsResolveParams": {
+      "description": "What `secrets.resolve` gives the program's `resolveSecret`.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The host the value is sent to, where the use has one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The reference's name, what follows `caller:`.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run that uses it, which this Connection opened."
+        }
+      },
+      "required": [
+        "name",
+        "run_id"
       ],
       "type": "object"
     },
@@ -16140,6 +16478,114 @@
       ],
       "type": "object"
     },
+    "TraceSaveAsParams": {
+      "additionalProperties": false,
+      "description": "What `trace.save_as` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "location": {
+          "arrived_in": "0.1",
+          "description": "Where the trace copy is on the engine's machine, as `run.trace` answered.",
+          "type": "string"
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The program's path, absolute, which an Attached engine writes\nitself; any other engine leaves it to the SDK and sends the file's\nbytes instead.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "location"
+      ],
+      "type": "object"
+    },
+    "TraceSaved": {
+      "description": "What `trace.save_as` answers once the file is whole.",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "The file's size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "written": {
+          "arrived_in": "0.1",
+          "description": "Whether the engine wrote the program's path itself; when not, the\n`$/chunk` notifications before this answer carried every byte, and\nthe SDK writes the path.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "size",
+        "digest",
+        "written"
+      ],
+      "type": "object"
+    },
+    "TraceStreamParams": {
+      "additionalProperties": false,
+      "description": "What `trace.stream` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "location": {
+          "arrived_in": "0.1",
+          "description": "Where the trace copy is on the engine's machine, as `run.trace` answered.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "location"
+      ],
+      "type": "object"
+    },
+    "TraceStreamed": {
+      "description": "What `trace.stream` answers once it sent every byte.",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "The file's size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "size",
+        "digest"
+      ],
+      "type": "object"
+    },
     "TriggerDescription": {
       "description": "The plain-words description of a trigger (ADR 0073): a structured form\na Client can render in its own locale, and the engine's English\nrendering.",
       "properties": {
@@ -17959,6 +18405,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A seed, enqueue or Hook tried to set a header the engine owns (`Host`, `Cookie`, `Authorization`, `Proxy-*`, or a method-override header), so nothing was added or changed. The details name the forbidden header. Remove the header, or use the engine's own session, proxy or method APIs instead.",
+      "details": {
+        "$ref": "#/$defs/HeaderForbiddenDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "header_forbidden",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A header value the engine would send holds a CR, an LF or a NUL, which could end the header and start another, so it is refused before it reaches the wire or the browser. The details name the header and the character, never the value. Remove the character from the value.",
       "details": {
         "$ref": "#/$defs/HeaderValueInvalidDetails"
@@ -19701,6 +20160,20 @@
         "$ref": "#/$defs/RouteHandled"
       },
       "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "deprecated": null,
+      "description": "Asks the program's `resolveSecret` for the value of a `caller:<name>` Secret reference, at its use by a Run this Connection opened; no other Connection is asked. The value goes straight to the engine, which masks it and keeps it nowhere. A failure reply, such as a Client with no `resolveSecret`, or no answer within `timeout.secret`, which cancels the request, fails the use with `secret_unavailable`, `failure: \"resolver_failed\"`.",
+      "name": "secrets.resolve",
+      "params": {
+        "$ref": "#/$defs/SecretsResolveParams"
+      },
+      "product": "collie",
+      "result": {
+        "$ref": "#/$defs/SecretResolved"
+      },
+      "stability": "experimental"
     }
   ],
   "hook_stages": [
@@ -20401,6 +20874,44 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/CertsListed"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Saves a Checkpoint's file, which the engine keeps on its machine, whole or not at all (ADRs 0102 and 0116). An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size, its SHA-256 digest and its run epoch. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "checkpoint.save_as",
+      "params": {
+        "$ref": "#/$defs/CheckpointSaveAsParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/CheckpointSaved"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Sends a Checkpoint's bytes in order, in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, and answers its size, its SHA-256 digest and its run epoch once every byte is sent (ADRs 0102 and 0116). Nothing is written on either machine: a program that writes the bytes itself meets its own language's file errors.",
+      "events": [],
+      "kind": "sequence",
+      "name": "checkpoint.stream",
+      "params": {
+        "$ref": "#/$defs/CheckpointStreamParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/CheckpointStreamed"
       },
       "stability": "experimental"
     },
@@ -21600,6 +22111,25 @@
     {
       "arrived_in": "0.1",
       "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Saves a Run's recorded Response recording as a WARC 1.1 file, whole or not at all (ADRs 0105 and 0116). An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. A Run that recorded no responses raises `recording_invalid`. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "recording.save_as",
+      "params": {
+        "$ref": "#/$defs/RecordingSaveAsParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/RecordingSaved"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
       "class": "read",
       "deprecated": null,
       "description": "Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser, on the session of the frame that loaded it. A body the browser no longer holds, or a redirect's, which has none, raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole. Past its `timeout`, `timeout.wait` when the call gives none, a request that has not ended fails it with `deadline_exceeded`; a page that ends under it raises what ended it, as a call on the page does.",
@@ -22028,6 +22558,25 @@
     },
     {
       "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads a Run's trace copy as recorded so far, or null when the Run keeps no trace (ADRs 0102 and 0116). Returns only once the copy is whole, with its size and SHA-256 digest; a write the engine cannot make fails with `file_write_failed`, side `engine`, and leaves no unfinished file. Takes no writer lock, so a view reads a Run no program holds without resuming it. A Run ID the Run index does not list fails with `run_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.trace",
+      "params": {
+        "$ref": "#/$defs/RunParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/RunTraceResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "cancellable": false,
       "class": "read",
       "deprecated": null,
@@ -22317,6 +22866,44 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SigningKeyDirectory"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Saves a Run trace's file, which the engine keeps on its machine, whole or not at all (ADRs 0102 and 0116). An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size and its SHA-256 digest. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "trace.save_as",
+      "params": {
+        "$ref": "#/$defs/TraceSaveAsParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/TraceSaved"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Sends a Run trace's bytes in order, in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, and answers its size and its SHA-256 digest once every byte is sent (ADRs 0102 and 0116). Nothing is written on either machine: a program that writes the bytes itself meets its own language's file errors.",
+      "events": [],
+      "kind": "sequence",
+      "name": "trace.stream",
+      "params": {
+        "$ref": "#/$defs/TraceStreamParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/TraceStreamed"
       },
       "stability": "experimental"
     },
@@ -22839,7 +23426,8 @@
       ],
       "scopes": [
         "connection",
-        "run"
+        "run",
+        "session"
       ],
       "value": {
         "type": "boolean"
@@ -24123,7 +24711,7 @@
       "clearable": true,
       "default": null,
       "deprecated": null,
-      "description": "The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `[\"192.0.2.10\", \"2001:db8::10\"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own.",
+      "description": "The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `[\"192.0.2.10\", \"2001:db8::10\"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. Naming an interface also binds each socket to its device on Linux (`SO_BINDTODEVICE`), macOS and illumos (`IP_BOUND_IF`); Windows binds by the interface's address under its strong host model (the interface needs its own route, and an administrator can change this with `WeakHostSend`). A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own.",
       "fixed_for_run": false,
       "name": "egress.local_addresses",
       "product": "collie",
@@ -24133,7 +24721,8 @@
       ],
       "scopes": [
         "connection",
-        "run"
+        "run",
+        "session"
       ],
       "value": {
         "oneOf": [
@@ -29366,7 +29955,7 @@
       "clearable": false,
       "default": 30000,
       "deprecated": null,
-      "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
+      "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`, or `\"resolver_failed\"` for the program's own `resolveSecret`, asked for a `caller:` reference: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
       "fixed_for_run": false,
       "name": "timeout.secret",
       "product": "collie",
@@ -29789,6 +30378,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Requests answered from the Response cache, counted apart from requests (ADR 0046).",
+      "name": "cache_hits",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A page that asks a person to prove they are human.",
       "name": "captcha",
       "product": "collie",
@@ -30125,6 +30721,20 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A schema of the Run marked one or more fields as personal (`\"x-goodfetch-personal\": true`): the advisory personal-data notice was shown once, naming the fields, without blocking the Run (ADR 0016).",
+      "name": "personal_data_notice",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Run's schema marked one or more fields as personal (`\"x-goodfetch-personal\": true`): the advisory personal-data notice was shown once for the Run, naming the fields, without blocking it (ADR 0016).",
+      "name": "personal_data_notice",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Calls a run made into Plugins, of every form, per implementation (ADR 0033).",
       "name": "plugin_calls",
       "product": "collie",
@@ -30157,6 +30767,13 @@
       "name": "politeness_store_degraded",
       "product": "collie",
       "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A run set a Politeness or Site-preferences value that presses a site harder than its built-in default, or a `site_preferences.robots_txt_user_agent`, once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0086).",
+      "name": "politeness_weakened",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

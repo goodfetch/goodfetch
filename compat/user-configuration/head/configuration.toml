@@ -377,6 +377,9 @@ adaptive_delay = true
 rate = 4
 burst = 4
 
+[settings.politeness.ip]
+concurrency = 4
+
 [settings.politeness.backoff]
 enabled = true
 initial = 30000
@@ -410,6 +413,8 @@ max_segment_repeats = 4
 max_sitemap_nesting = 4
 path_budgets = [{ max_requests = 100, pattern = "/shop?*" }]
 keep_url_fragment = true
+min_sink_guarantee = "fenced"
+on_sink_failure = "continue"
 
 [settings.crawl.retry]
 max = 4

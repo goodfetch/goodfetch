@@ -385,6 +385,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A crawl started with `workers > 1` cannot be imported by an extra worker process: it was defined inside a function rather than at module level, no module was named, or the named module or export does not yield a `Crawl`. Nothing was started. Define the `Crawl` at module level or name `module`.",
+      "details": {
+        "$ref": "#/$defs/CrawlNotImportableDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "crawl_not_importable",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The foreground Daemon is draining on `SIGTERM`: it takes no run and checkpoints every live run as resumable, then exits. Start or resume the run on the Daemon that replaces it.",
       "details": {
         "$ref": "#/$defs/DaemonDrainingDetails"
@@ -756,6 +769,19 @@
       "name": "handler_lost",
       "product": "foxhound",
       "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A seed, enqueue or Hook tried to set a header the engine owns (`Host`, `Cookie`, `Authorization`, `Proxy-*`, or a method-override header), so nothing was added or changed. The details name the forbidden header. Remove the header, or use the engine's own session, proxy or method APIs instead.",
+      "details": {
+        "$ref": "#/$defs/HeaderForbiddenDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "header_forbidden",
+      "product": "collie",
+      "retryable": false
     },
     {
       "arrived_in": "0.1",
@@ -2101,6 +2127,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Sink of a crawl's Run proved a weaker Guarantee class than the Run's `crawl.min_sink_guarantee`, or its probe failed, so the Run was refused at its start and did no work. The details name the Sink, the class required, the class its probe proved, if any, and the cause of a failed probe. Deliver to a destination that proves the class, such as a Fenced SQLite Sink, or lower `crawl.min_sink_guarantee`.",
+      "details": {
+        "$ref": "#/$defs/SinkGuaranteeUnmetDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "sink_guarantee_unmet",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The site's preferences refused the navigation or the request before it left, or refused the document once its response arrived, leaving the page on a blank document: its robots.txt disallows the URL (`robots_txt`), its `Crawl-delay` asks for more than the crawl allows (`crawl_delay`), or a use signal it sends refuses the crawl's Purpose (`use_signals`). Only a crawl handler's page asks a site's preferences; a page a program opens never raises it. The details name the URL and the reason.",
       "details": {
         "$ref": "#/$defs/SitePreferencesRefusedDetails"
@@ -2811,6 +2850,20 @@
       "product": "collie",
       "result": {
         "$ref": "#/$defs/RouteHandled"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "deprecated": null,
+      "description": "Asks the program's `resolveSecret` for the value of a `caller:<name>` Secret reference, at its use by a Run this Connection opened; no other Connection is asked. The value goes straight to the engine, which masks it and keeps it nowhere. A failure reply, such as a Client with no `resolveSecret`, or no answer within `timeout.secret`, which cancels the request, fails the use with `secret_unavailable`, `failure: \"resolver_failed\"`.",
+      "name": "secrets.resolve",
+      "params": {
+        "$ref": "#/$defs/SecretsResolveParams"
+      },
+      "product": "collie",
+      "result": {
+        "$ref": "#/$defs/SecretResolved"
       },
       "stability": "experimental"
     }
@@ -3575,6 +3628,44 @@
     },
     {
       "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Saves a Checkpoint's file, which the engine keeps on its machine, whole or not at all (ADRs 0102 and 0116). An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size, its SHA-256 digest and its run epoch. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "checkpoint.save_as",
+      "params": {
+        "$ref": "#/$defs/CheckpointSaveAsParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/CheckpointSaved"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Sends a Checkpoint's bytes in order, in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, and answers its size, its SHA-256 digest and its run epoch once every byte is sent (ADRs 0102 and 0116). Nothing is written on either machine: a program that writes the bytes itself meets its own language's file errors.",
+      "events": [],
+      "kind": "sequence",
+      "name": "checkpoint.stream",
+      "params": {
+        "$ref": "#/$defs/CheckpointStreamParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/CheckpointStreamed"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "cancellable": false,
       "class": "read",
       "deprecated": null,
@@ -3702,7 +3793,7 @@
       "product": "foxhound",
       "reach": "all_surfaces",
       "result": {
-        "$ref": "#/$defs/RunStarted"
+        "$ref": "#/$defs/CrawlStarted"
       },
       "stability": "experimental"
     },
@@ -3741,6 +3832,25 @@
       "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/EnqueuedLinks"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Finds links that exist only in scripts by clicking each element a locator matches on the attempt's browser page in document order through the guard (a handler context's `enqueueLinksByClickingElements`). Main-frame navigations and popup first requests started by each click are recorded and aborted before leaving the browser, History API URL changes (`pushState`/`replaceState`) are recorded, and any request with a method other than `GET`, `HEAD` or `OPTIONS` is aborted unsent and reported as `unsafe_request_aborted` with its method and URL. Each recorded URL is admitted as an enqueue under `label`, `payload`, `include`, `exclude`, `limit` and `priority`; a guard refusal stops that click and is reported in `refused`. On a non-browser tier it escalates under `fetch.tier: auto` and fails with `browser_required` under a forced tier. Because clicks change the page's state, call it last in a handler.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "crawl_request.enqueue_links_by_clicking_elements",
+      "params": {
+        "$ref": "#/$defs/CrawlRequestEnqueueLinksByClickingElementsParams"
+      },
+      "product": "foxhound",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/EnqueuedLinksByClickingElements"
       },
       "stability": "experimental"
     },
@@ -5035,6 +5145,25 @@
     {
       "arrived_in": "0.1",
       "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Saves a Run's recorded Response recording as a WARC 1.1 file, whole or not at all (ADRs 0105 and 0116). An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. A Run that recorded no responses raises `recording_invalid`. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "recording.save_as",
+      "params": {
+        "$ref": "#/$defs/RecordingSaveAsParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/RecordingSaved"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
       "class": "read",
       "deprecated": null,
       "description": "Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser, on the session of the frame that loaded it. A body the browser no longer holds, or a redirect's, which has none, raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole. Past its `timeout`, `timeout.wait` when the call gives none, a request that has not ended fails it with `deadline_exceeded`; a page that ends under it raises what ended it, as a call on the page does.",
@@ -5170,7 +5299,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.",
+      "description": "Adds one seed to a running crawl, `run.addSeed`, admitted and answered as soon as the Run state accepts it (written with the next Run-state batch at the default durability, or committed before answering at `full`), and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is staged with that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.",
       "events": [],
       "kind": "round_trip",
       "name": "run.add_seed",
@@ -5189,7 +5318,7 @@
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine commits each batch, sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.",
+      "description": "Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine admits each batch (staged with `attempt` when named, or written with the next Run-state batch at default durability), sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.",
       "events": [],
       "kind": "sequence",
       "name": "run.add_seeds",
@@ -5634,6 +5763,25 @@
     },
     {
       "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads a Run's trace copy as recorded so far, or null when the Run keeps no trace (ADRs 0102 and 0116). Returns only once the copy is whole, with its size and SHA-256 digest; a write the engine cannot make fails with `file_write_failed`, side `engine`, and leaves no unfinished file. Takes no writer lock, so a view reads a Run no program holds without resuming it. A Run ID the Run index does not list fails with `run_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.trace",
+      "params": {
+        "$ref": "#/$defs/RunParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/RunTraceResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "cancellable": false,
       "class": "read",
       "deprecated": null,
@@ -5944,6 +6092,101 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SigningKeyDirectory"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Delivers committed Records or dead letters of a Run to a configured Sink after the Run (ADR 0026): `redeliver` resends one delivery by its `delivery_id`, `recover` retries dead letters committed since an RFC 3339 timestamp, `replay` delivers Records not yet at the destination, and `backfill` delivers every committed Record of a past Run to any Sink (including one configured after the Run ended).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "sink.deliver",
+      "params": {
+        "$ref": "#/$defs/SinkDeliverParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SinkDeliver"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists each Sink with its Guarantee class, its dead-letter count and its deliveries outside the destination's deduplication window (ADR 0026). With `run_id`, reads the Sinks that applied to that Run; without `run_id`, resolves `sinks` from the connection's and call's settings, probes each deliverable Sink and aggregates its dead letters and late deliveries across Runs.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "sink.list",
+      "params": {
+        "$ref": "#/$defs/SinkListParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SinkList"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Probes one Sink now, by its name among the `sinks` the connection's settings and the call's `settings` resolve to, as a crawl's Run would, and answers the Guarantee class its destination proves: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). A probe may create what the Sink writes to, such as a SQLite Sink's table. A probe that fails answers `failed` with its cause, such as a destination that did not resolve or open; a Sink the settings do not name answers `failed` naming those they do. A Sink this engine does not deliver to yet fails with `capability_unavailable`. A crawl's Run probes each of its Sinks again at its start.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "sink.probe",
+      "params": {
+        "$ref": "#/$defs/SinkProbeParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SinkProbe"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Saves a Run trace's file, which the engine keeps on its machine, whole or not at all (ADRs 0102 and 0116). An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size and its SHA-256 digest. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "trace.save_as",
+      "params": {
+        "$ref": "#/$defs/TraceSaveAsParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/TraceSaved"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Sends a Run trace's bytes in order, in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, and answers its size and its SHA-256 digest once every byte is sent (ADRs 0102 and 0116). Nothing is written on either machine: a program that writes the bytes itself meets its own language's file errors.",
+      "events": [],
+      "kind": "sequence",
+      "name": "trace.stream",
+      "params": {
+        "$ref": "#/$defs/TraceStreamParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/TraceStreamed"
       },
       "stability": "experimental"
     },
@@ -6485,7 +6728,8 @@
       ],
       "scopes": [
         "connection",
-        "run"
+        "run",
+        "session"
       ],
       "value": {
         "type": "boolean"
@@ -7857,6 +8101,60 @@
     {
       "arrived_in": "0.1",
       "authority": "every",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "The weakest Guarantee class a crawl's Run accepts of each of its Sinks, from the strongest: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). Each Sink is probed at the Run's start, and a Sink whose probe proves a weaker class, or fails, refuses the start with `sink_guarantee_unmet` before the Run does any work. None by default: any class is accepted, and a Sink whose probe fails delivers nothing; `null` clears it.",
+      "fixed_for_run": false,
+      "name": "crawl.min_sink_guarantee",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "enum": [
+          "fenced",
+          "record_fenced",
+          "keyed",
+          "at_least_once"
+        ]
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "continue",
+      "deprecated": null,
+      "description": "Whether collection goes on when a Sink fails (`continue`, the default) or stops at the next safe point (`stop`), so a destination's outage never stops a crawl unasked (ADR 0026).",
+      "fixed_for_run": false,
+      "name": "crawl.on_sink_failure",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "enum": [
+          "continue",
+          "stop"
+        ]
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
       "clearable": false,
       "default": [],
       "deprecated": null,
@@ -8496,7 +8794,7 @@
       "clearable": true,
       "default": null,
       "deprecated": null,
-      "description": "The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `[\"192.0.2.10\", \"2001:db8::10\"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own.",
+      "description": "The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `[\"192.0.2.10\", \"2001:db8::10\"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. Naming an interface also binds each socket to its device on Linux (`SO_BINDTODEVICE`), macOS and illumos (`IP_BOUND_IF`); Windows binds by the interface's address under its strong host model (the interface needs its own route, and an administrator can change this with `WeakHostSend`). A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own.",
       "fixed_for_run": false,
       "name": "egress.local_addresses",
       "product": "collie",
@@ -8506,7 +8804,8 @@
       ],
       "scopes": [
         "connection",
-        "run"
+        "run",
+        "session"
       ],
       "value": {
         "oneOf": [
@@ -11373,9 +11672,9 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": true,
-      "default": null,
+      "default": 1,
       "deprecated": null,
-      "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1. A value above 1 is listed in the run's result as one that presses a site harder.",
+      "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder.",
       "fixed_for_run": false,
       "name": "politeness.domain.concurrency",
       "product": "foxhound",
@@ -11399,9 +11698,9 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": true,
-      "default": null,
+      "default": 1000,
       "deprecated": null,
-      "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s. A value below 1 s is listed in the run's result as one that presses a site harder.",
+      "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder.",
       "fixed_for_run": false,
       "name": "politeness.domain.delay",
       "product": "foxhound",
@@ -11431,6 +11730,30 @@
       "description": "How many crawl requests a minute may start on one domain key, counted across every run of the user that shares Politeness, as a token bucket of `politeness.domain.burst` tokens refilled at this rate: 30 holds a site to 30 requests a minute. Each run is held to its own value; the delay between starts still applies. None by default.",
       "fixed_for_run": false,
       "name": "politeness.domain.rate",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "How many crawl requests may be in flight at once to one resolved IP address, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. At least 1; none by default, for no per-IP cap.",
+      "fixed_for_run": false,
+      "name": "politeness.ip.concurrency",
       "product": "foxhound",
       "products": [
         "foxhound"
@@ -14571,7 +14894,7 @@
                 }
               ],
               "arrived_in": "0.1",
-              "description": "How it writes them: `append` when left out ([`Self::write_mode`])."
+              "description": "How it writes them: `append` when left out."
             },
             "rate": {
               "additionalProperties": false,
@@ -15903,7 +16226,7 @@
       "clearable": false,
       "default": 30000,
       "deprecated": null,
-      "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
+      "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`, or `\"resolver_failed\"` for the program's own `resolveSecret`, asked for a `caller:` reference: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
       "fixed_for_run": false,
       "name": "timeout.secret",
       "product": "collie",
@@ -16337,6 +16660,13 @@
       "name": "browser_version_unread",
       "product": "foxhound",
       "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Requests answered from the Response cache, counted apart from requests (ADR 0046).",
+      "name": "cache_hits",
+      "product": "collie",
+      "type": "usage_kind"
     },
     {
       "arrived_in": "0.1",
@@ -16830,6 +17160,20 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A schema of the Run marked one or more fields as personal (`\"x-goodfetch-personal\": true`): the advisory personal-data notice was shown once, naming the fields, without blocking the Run (ADR 0016).",
+      "name": "personal_data_notice",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Run's schema marked one or more fields as personal (`\"x-goodfetch-personal\": true`): the advisory personal-data notice was shown once for the Run, naming the fields, without blocking it (ADR 0016).",
+      "name": "personal_data_notice",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Calls a run made into Plugins, of every form, per implementation (ADR 0033).",
       "name": "plugin_calls",
       "product": "collie",
@@ -16867,7 +17211,7 @@
       "arrived_in": "0.1",
       "description": "A run set a Politeness or Site-preferences value that presses a site harder than its built-in default, or a `site_preferences.robots_txt_user_agent`, once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0086).",
       "name": "politeness_weakened",
-      "product": "foxhound",
+      "product": "collie",
       "type": "audit_kind"
     },
     {

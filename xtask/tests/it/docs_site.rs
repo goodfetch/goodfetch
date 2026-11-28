@@ -111,7 +111,10 @@ fn render_copies_the_root_pages_as_written_and_leaves_out_the_unpublished_folder
         rendered(&workspace, "docs/index.md"),
         workspace.read_text("docs/root/index.md")
     );
-    let mut written: Vec<String> = walk(&workspace.path().join(SOURCE).join("docs"));
+    let mut written: Vec<String> = walk(&workspace.path().join(SOURCE).join("docs"))
+        .into_iter()
+        .filter(|path| !path.contains("/reference/"))
+        .collect();
     written.sort();
     assert_eq!(
         written,
@@ -131,7 +134,13 @@ fn render_copies_the_root_pages_as_written_and_leaves_out_the_unpublished_folder
 fn render_lists_each_sections_sidebar_with_collies_pages_under_collies_heading_in_foxhounds() {
     let workspace = rendered_workspace();
 
-    let sidebars: Value = serde_json::from_str(&rendered(&workspace, "sidebars.json")).unwrap();
+    let mut sidebars: Value = serde_json::from_str(&rendered(&workspace, "sidebars.json")).unwrap();
+    for key in ["collie", "foxhound"] {
+        let items = sidebars[key].as_array_mut().unwrap();
+        let had_reference = items.iter().any(|item| item["label"] == "Reference");
+        assert!(had_reference, "{key} sidebar includes generated Reference");
+        items.retain(|item| item["label"] != "Reference");
+    }
 
     assert_eq!(
         sidebars,

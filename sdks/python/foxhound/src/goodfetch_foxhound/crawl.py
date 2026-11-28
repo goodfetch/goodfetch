@@ -75,7 +75,14 @@ from goodfetch_foxhound.generated.operations import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Iterable, Sequence
+    from collections.abc import (
+        AsyncIterable,
+        Awaitable,
+        Callable,
+        Iterable,
+        Mapping,
+        Sequence,
+    )
 
     from goodfetch_collie_client.generated.handles import (
         AsyncLocator,
@@ -179,6 +186,11 @@ class DatasetRecord(WireDatasetRecord, Generic[R]):
     """The Record, of its Dataset's own type."""
 
 
+def _empty_headers() -> dict[str, str]:
+    """An empty header map for a `CrawlRequest` without extra headers."""
+    return {}
+
+
 @final
 @dataclass(frozen=True)
 class CrawlRequest(Generic[P]):
@@ -197,6 +209,8 @@ class CrawlRequest(Generic[P]):
     """Its HTTP method, `GET` unless its enqueue named another."""
     payload: P
     """The Payload its program attached, typed by its Label."""
+    headers: Mapping[str, str] = field(default_factory=_empty_headers)
+    """Extra request headers carried from its seed or enqueue (ADR 0093)."""
 
 
 @dataclass(frozen=True)
@@ -432,6 +446,33 @@ class AsyncCommittedReads(Protocol):
         """The rejected Records of `dataset` committed when it is sent, past `after`."""
         ...
 
+    async def add_seed(self, candidate: RequestSeed | SitemapSeed) -> Enqueued:
+        """Adds one seed staged with this attempt (`run.add_seed`)."""
+        ...
+
+    def add_seeds(
+        self,
+        seeds: Iterable[RequestSeed | SitemapSeed]
+        | AsyncIterable[RequestSeed | SitemapSeed],
+    ) -> AsyncSequence[Enqueued]:
+        """Streams seeds staged with this attempt (`run.add_seeds`)."""
+        ...
+
+    def build_seed(
+        self,
+        seed_or_url: RequestSeed | SitemapSeed | str,
+        label: Label[Any] | str | None,
+        payload: object,
+        method: str | None,
+        body: bytes | None,
+        headers: Mapping[str, str] | None,
+        priority: int | None,
+        forefront: bool | None,
+        key: str | None,
+    ) -> RequestSeed | SitemapSeed:
+        """Builds and validates one seed against this crawl."""
+        ...
+
 
 class CommittedReads(Protocol):
     """What an `AttemptRun` reads its Run's committed Records through.
@@ -450,6 +491,31 @@ class CommittedReads(Protocol):
         self, dataset: Dataset[Any], after: int | None
     ) -> ReadSequence[RejectedRecord]:
         """The rejected Records of `dataset` committed when it is sent, past `after`."""
+        ...
+
+    def add_seed(self, candidate: RequestSeed | SitemapSeed) -> Enqueued:
+        """Adds one seed staged with this attempt (`run.add_seed`)."""
+        ...
+
+    def add_seeds(
+        self, seeds: Iterable[RequestSeed | SitemapSeed]
+    ) -> ReadSequence[Enqueued]:
+        """Streams seeds staged with this attempt (`run.add_seeds`)."""
+        ...
+
+    def build_seed(
+        self,
+        seed_or_url: RequestSeed | SitemapSeed | str,
+        label: Label[Any] | str | None,
+        payload: object,
+        method: str | None,
+        body: bytes | None,
+        headers: Mapping[str, str] | None,
+        priority: int | None,
+        forefront: bool | None,
+        key: str | None,
+    ) -> RequestSeed | SitemapSeed:
+        """Builds and validates one seed against this crawl."""
         ...
 
 
@@ -534,6 +600,116 @@ class AsyncAttemptRun:
         """
         return self._reads.rejected_records(dataset, after)
 
+    @overload
+    async def add_seed(self, seed_or_url: RequestSeed | SitemapSeed) -> Enqueued: ...
+    @overload
+    async def add_seed(
+        self,
+        seed_or_url: str,
+        label: Label[None] | str,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued: ...
+    @overload
+    async def add_seed(
+        self,
+        seed_or_url: str,
+        label: Label[M],
+        payload: M,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued: ...
+    @overload
+    async def add_seed(
+        self,
+        seed_or_url: str,
+        label: Label[JSONObject],
+        payload: JSONObject,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued: ...
+    async def add_seed(
+        self,
+        seed_or_url: RequestSeed | SitemapSeed | str,
+        label: Label[Any] | str | None = None,
+        payload: object = None,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued:
+        """Adds one seed staged with this attempt (`run.add_seed`, ADR 0093).
+
+        Adds one seed to a running crawl, `run.addSeed`, admitted and answered
+        as soon as the Run state accepts it (written with the next Run-state
+        batch at the default durability, or committed before answering at
+        `full`), and answers as an enqueue does: added, with its crawl request's
+        ID and its URL as parsed, or not added, with its reason (`duplicate`,
+        `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is
+        `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on.
+        Through a handler's context, naming its `attempt`, it is staged with
+        that attempt: once the attempt ended it fails with `attempt_ended`. A
+        Run this engine does not run as a live crawl, or a crawl already ending
+        its Run, fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        candidate = self._reads.build_seed(
+            seed_or_url,
+            label,
+            payload,
+            method,
+            body,
+            headers,
+            priority,
+            forefront,
+            key,
+        )
+        return await self._reads.add_seed(candidate)
+
+    def add_seeds(
+        self,
+        seeds: Iterable[RequestSeed | SitemapSeed]
+        | AsyncIterable[RequestSeed | SitemapSeed],
+    ) -> AsyncSequence[Enqueued]:
+        """Streams seeds staged with this attempt (`run.add_seeds`, ADRs 0024 and 0093).
+
+        Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers
+        each as `run.add_seed` does, in order, so a million seeds never sit in
+        memory. The engine grants the call 256 credits with `$/credit`, one seed
+        each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches,
+        never more than its credits, and the engine admits each batch (staged
+        with `attempt` when named, or written with the next Run-state batch at
+        default durability), sends its answers in one `$/enqueued {id, answers}`
+        and grants as many credits again. Once it answered the batch marked
+        `end`, the call answers how many seeds were added and how many were not.
+        Cancelling it keeps the seeds already answered. A batch beyond the
+        credits granted, or a seed that is no seed, fails the call with
+        `invalid_params`; a Run this engine does not run as a live crawl, or a
+        crawl already ending its Run, fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return self._reads.add_seeds(seeds)
+
 
 @final
 class AttemptRun:
@@ -595,6 +771,114 @@ class AttemptRun:
         once.
         """
         return self._reads.rejected_records(dataset, after)
+
+    @overload
+    def add_seed(self, seed_or_url: RequestSeed | SitemapSeed) -> Enqueued: ...
+    @overload
+    def add_seed(
+        self,
+        seed_or_url: str,
+        label: Label[None] | str,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued: ...
+    @overload
+    def add_seed(
+        self,
+        seed_or_url: str,
+        label: Label[M],
+        payload: M,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued: ...
+    @overload
+    def add_seed(
+        self,
+        seed_or_url: str,
+        label: Label[JSONObject],
+        payload: JSONObject,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued: ...
+    def add_seed(
+        self,
+        seed_or_url: RequestSeed | SitemapSeed | str,
+        label: Label[Any] | str | None = None,
+        payload: object = None,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued:
+        """Adds one seed staged with this attempt (`run.add_seed`, ADR 0093).
+
+        Adds one seed to a running crawl, `run.addSeed`, admitted and answered
+        as soon as the Run state accepts it (written with the next Run-state
+        batch at the default durability, or committed before answering at
+        `full`), and answers as an enqueue does: added, with its crawl request's
+        ID and its URL as parsed, or not added, with its reason (`duplicate`,
+        `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is
+        `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on.
+        Through a handler's context, naming its `attempt`, it is staged with
+        that attempt: once the attempt ended it fails with `attempt_ended`. A
+        Run this engine does not run as a live crawl, or a crawl already ending
+        its Run, fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        candidate = self._reads.build_seed(
+            seed_or_url,
+            label,
+            payload,
+            method,
+            body,
+            headers,
+            priority,
+            forefront,
+            key,
+        )
+        return self._reads.add_seed(candidate)
+
+    def add_seeds(
+        self, seeds: Iterable[RequestSeed | SitemapSeed]
+    ) -> ReadSequence[Enqueued]:
+        """Streams seeds staged with this attempt (`run.add_seeds`, ADRs 0024 and 0093).
+
+        Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers
+        each as `run.add_seed` does, in order, so a million seeds never sit in
+        memory. The engine grants the call 256 credits with `$/credit`, one seed
+        each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches,
+        never more than its credits, and the engine admits each batch (staged
+        with `attempt` when named, or written with the next Run-state batch at
+        default durability), sends its answers in one `$/enqueued {id, answers}`
+        and grants as many credits again. Once it answered the batch marked
+        `end`, the call answers how many seeds were added and how many were not.
+        Cancelling it keeps the seeds already answered. A batch beyond the
+        credits granted, or a seed that is no seed, fails the call with
+        `invalid_params`; a Run this engine does not run as a live crawl, or a
+        crawl already ending its Run, fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return self._reads.add_seeds(seeds)
 
 
 @final
@@ -660,6 +944,7 @@ class AsyncCrawlContext(Generic[P]):
         *,
         method: str | None = None,
         body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
         priority: int | None = None,
         forefront: bool | None = None,
         key: str | None = None,
@@ -673,6 +958,7 @@ class AsyncCrawlContext(Generic[P]):
         *,
         method: str | None = None,
         body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
         priority: int | None = None,
         forefront: bool | None = None,
         key: str | None = None,
@@ -686,6 +972,7 @@ class AsyncCrawlContext(Generic[P]):
         *,
         method: str | None = None,
         body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
         priority: int | None = None,
         forefront: bool | None = None,
         key: str | None = None,
@@ -698,6 +985,7 @@ class AsyncCrawlContext(Generic[P]):
         *,
         method: str | None = None,
         body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
         priority: int | None = None,
         forefront: bool | None = None,
         key: str | None = None,
@@ -721,7 +1009,11 @@ class AsyncCrawlContext(Generic[P]):
         lease no longer holds fails with `attempt_ended`.
 
         The request goes under `label`, and its Payload comes after the
-        Label only when the Label has one (ADR 0082).
+        Label only when the Label has one (ADR 0082). `headers` are sent on
+        that request's fetch across every tier; forbidden headers (`Host`,
+        `Cookie`, `Authorization`, `Proxy-*` and `X-HTTP-Method-Override`
+        aliases) fail with `header_forbidden`, and headers do not enter
+        request deduplication.
 
         Experimental: outside semver until it is promoted (ADR 0030).
 
@@ -733,7 +1025,7 @@ class AsyncCrawlContext(Generic[P]):
         warn_entry(
             "crawl_request.enqueue", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS
         )
-        options = _request_options(method, body, priority, forefront, key)
+        options = _request_options(method, body, headers, priority, forefront, key)
         params = self._attempt.enqueue_params(url, label, payload, options)
         return await self._operations.crawl_request_enqueue(params)
 
@@ -950,6 +1242,7 @@ class CrawlContext(Generic[P]):
         *,
         method: str | None = None,
         body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
         priority: int | None = None,
         forefront: bool | None = None,
         key: str | None = None,
@@ -963,6 +1256,7 @@ class CrawlContext(Generic[P]):
         *,
         method: str | None = None,
         body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
         priority: int | None = None,
         forefront: bool | None = None,
         key: str | None = None,
@@ -976,6 +1270,7 @@ class CrawlContext(Generic[P]):
         *,
         method: str | None = None,
         body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
         priority: int | None = None,
         forefront: bool | None = None,
         key: str | None = None,
@@ -988,6 +1283,7 @@ class CrawlContext(Generic[P]):
         *,
         method: str | None = None,
         body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
         priority: int | None = None,
         forefront: bool | None = None,
         key: str | None = None,
@@ -1020,7 +1316,7 @@ class CrawlContext(Generic[P]):
         warn_entry(
             "crawl_request.enqueue", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS
         )
-        options = _request_options(method, body, priority, forefront, key)
+        options = _request_options(method, body, headers, priority, forefront, key)
         params = self._attempt.enqueue_params(url, label, payload, options)
         return self._operations.crawl_request_enqueue(params)
 
@@ -1187,6 +1483,9 @@ class _Crawl:
 
     labels: dict[str, _Declared] = field(default_factory=dict[str, _Declared])
     datasets: list[DatasetDeclaration] = field(default_factory=list[DatasetDeclaration])
+    defined_module: str | None = None
+    defined_file: str | None = None
+    defined_at_module: bool = False
 
     def declared(self, label: Label[Any]) -> _Declared:
         """The declaration of `label`, the very Label this crawl's `label` returned.
@@ -1227,7 +1526,27 @@ class _Declaration:
     """What `AsyncCrawl` and `Crawl` declare alike: Labels and Datasets."""
 
     def __init__(self) -> None:
-        _crawls[self] = _Crawl()
+        defined_module: str | None = None
+        defined_file: str | None = None
+        defined_at_module = False
+        frame = inspect.currentframe()
+        try:
+            caller = None if frame is None else frame.f_back
+            if caller is not None:
+                mod = caller.f_globals.get("__name__")
+                if isinstance(mod, str):
+                    defined_module = mod
+                filename = caller.f_globals.get("__file__")
+                if isinstance(filename, str):
+                    defined_file = filename
+                defined_at_module = caller.f_code.co_name == "<module>"
+        finally:
+            del frame
+        _crawls[self] = _Crawl(
+            defined_module=defined_module,
+            defined_file=defined_file,
+            defined_at_module=defined_at_module,
+        )
 
     @overload
     def label(
@@ -1434,6 +1753,7 @@ def seed(
     *,
     method: str | None = None,
     body: bytes | None = None,
+    headers: Mapping[str, str] | None = None,
     priority: int | None = None,
     forefront: bool | None = None,
     key: str | None = None,
@@ -1446,6 +1766,7 @@ def seed(
     *,
     method: str | None = None,
     body: bytes | None = None,
+    headers: Mapping[str, str] | None = None,
     priority: int | None = None,
     forefront: bool | None = None,
     key: str | None = None,
@@ -1458,6 +1779,7 @@ def seed(
     *,
     method: str | None = None,
     body: bytes | None = None,
+    headers: Mapping[str, str] | None = None,
     priority: int | None = None,
     forefront: bool | None = None,
     key: str | None = None,
@@ -1469,6 +1791,7 @@ def seed(
     *,
     method: str | None = None,
     body: bytes | None = None,
+    headers: Mapping[str, str] | None = None,
     priority: int | None = None,
     forefront: bool | None = None,
     key: str | None = None,
@@ -1477,11 +1800,12 @@ def seed(
 
     A code-free crawl's seed names its Label by name, a string, since the
     program holds no `Label` of it. A Label with a Payload takes one, after
-    it (ADR 0082). `method` is
-    `GET` when left out, `body` is sent with it, a higher `priority` is
-    fetched first, `forefront` puts it ahead of the requests of its
-    priority, and `key` names it in place of its method, URL and body, so
-    another of the same key is a duplicate.
+    it (ADR 0082). `method` is `GET` when left out, `body` is sent with it,
+    `headers` are sent on its fetch across every tier (forbidden headers
+    fail with `header_forbidden` and headers do not enter deduplication), a
+    higher `priority` is fetched first, `forefront` puts it ahead of the
+    requests of its priority, and `key` names it in place of its method,
+    URL and body, so another of the same key is a duplicate.
 
     Raises:
         PayloadInvalidError: `payload` is not JSON, or its Label's model
@@ -1493,7 +1817,7 @@ def seed(
         "url": url,
         "label": label if isinstance(label, str) else label.name,
         **({} if isinstance(label, str) else _payload_field(label, payload)),
-        **_request_options(method, body, priority, forefront, key),
+        **_request_options(method, body, headers, priority, forefront, key),
     }
     return RequestSeed.model_validate(fields)
 
@@ -1602,6 +1926,7 @@ def _payload_refused(label: str, issues: list[dict[str, str]]) -> PayloadInvalid
 def _request_options(
     method: str | None,
     body: bytes | None,
+    headers: Mapping[str, str] | None,
     priority: int | None,
     forefront: bool | None,
     key: str | None,
@@ -1612,6 +1937,8 @@ def _request_options(
         options["method"] = method
     if body is not None:
         options["body"] = base64.b64encode(body).decode("ascii")
+    if headers is not None and len(headers) > 0:
+        options["headers"] = dict(headers)
     if priority is not None:
         options["priority"] = priority
     if forefront is not None:
@@ -1672,6 +1999,42 @@ def check_startable(
                 raise declared.unknown(name)
 
 
+def build_seed_for_crawl(
+    crawl: AsyncCrawl | Crawl | None,
+    seed_or_url: RequestSeed | SitemapSeed | str,
+    label: Label[Any] | str | None,
+    payload: object,
+    method: str | None,
+    body: bytes | None,
+    headers: Mapping[str, str] | None,
+    priority: int | None,
+    forefront: bool | None,
+    key: str | None,
+) -> RequestSeed | SitemapSeed:
+    """Validates and constructs one seed for `run.add_seed`."""
+    if not isinstance(seed_or_url, str):
+        if crawl is not None:
+            check_startable(crawl, [seed_or_url])
+        return seed_or_url
+    if label is None:
+        message = "add_seed(url, label, ...) requires a Label or label name"
+        raise TypeError(message)
+    if crawl is not None and isinstance(label, Label):
+        name = declared_label(crawl, label)
+    else:
+        name = label if isinstance(label, str) else label.name
+    fields: dict[str, object] = {
+        "url": seed_or_url,
+        "label": name,
+        **({} if isinstance(label, str) else _payload_field(label, payload)),
+        **_request_options(method, body, headers, priority, forefront, key),
+    }
+    built = RequestSeed.model_validate(fields)
+    if crawl is not None:
+        check_startable(crawl, [built])
+    return built
+
+
 def declared_label(crawl: AsyncCrawl | Crawl, label: Label[Any]) -> str:
     """The name of `label`, which `crawl` must declare.
 
@@ -1685,6 +2048,24 @@ def handler_of(crawl: AsyncCrawl | Crawl, label: str) -> Callable[..., object] |
     """The handler attached to the Label named `label` in `crawl`, if any."""
     declared = _crawls[crawl].labels.get(label)
     return None if declared is None else declared.handler
+
+
+def crawl_origin(
+    crawl: AsyncCrawl | Crawl,
+) -> tuple[str | None, str | None, bool, tuple[Callable[..., object], ...]]:
+    """Where `crawl` was created and its attached handler callables."""
+    state = _crawls[crawl]
+    handlers = tuple(
+        declared.handler
+        for declared in state.labels.values()
+        if declared.handler is not None
+    )
+    return (
+        state.defined_module,
+        state.defined_file,
+        state.defined_at_module,
+        handlers,
+    )
 
 
 def payload_of(crawl: AsyncCrawl | Crawl, label: str, payload: JSONValue) -> object:

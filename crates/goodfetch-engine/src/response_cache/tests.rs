@@ -177,6 +177,7 @@ async fn a_fresh_entry_is_served_from_one_lookup_and_one_body_file() {
                 ]),
             },
             body: body(),
+            fetched_at: start(),
             run_id: Some(RunId::parse("first").unwrap()),
         }
     );
@@ -241,6 +242,7 @@ async fn a_replayed_form_post_is_served_as_stored_for_its_fields_and_variant() {
         Some(Hit {
             head: answer,
             body: body(),
+            fetched_at: start(),
             run_id: None,
         })
     );
@@ -942,4 +944,410 @@ async fn the_index_opens_once_for_its_writes_and_once_for_its_lookups_through_it
     }
 
     assert_eq!(vfs.opens(), 2);
+}
+
+/// Nothing is shared across persons, proxy exit countries, languages or
+/// device classes, even for public responses (ADR 0046).
+/// Covers: story:6-39
+#[tokio::test]
+async fn different_persons_countries_languages_and_devices_never_share_an_entry() {
+    let env = TestEnv::new();
+    let cache = cache(&env);
+    let page = get("/geo", &[]);
+    let base = Partition {
+        keeper: None,
+        person: "ada".to_owned(),
+        country: "US".to_owned(),
+        language: "en-US".to_owned(),
+        device: "desktop".to_owned(),
+    };
+    assert!(
+        cache
+            .store(
+                &base,
+                &page,
+                &minute(),
+                Bytes::from_static(b"us-en-desktop"),
+                None,
+                start()
+            )
+            .await
+    );
+
+    let others = [
+        Partition {
+            person: "bob".to_owned(),
+            ..base.clone()
+        },
+        Partition {
+            country: "DE".to_owned(),
+            ..base.clone()
+        },
+        Partition {
+            language: "fr-FR".to_owned(),
+            ..base.clone()
+        },
+        Partition {
+            device: "mobile".to_owned(),
+            ..base.clone()
+        },
+    ];
+    for other in &others {
+        assert_eq!(served_to(&cache, other, &page).await, None, "{other:?}");
+    }
+    assert_eq!(
+        served_to(&cache, &base, &page).await,
+        Some(Bytes::from_static(b"us-en-desktop"))
+    );
+}
+
+/// A response setting a cookie is kept for the life of a Session with no
+/// Saved identity, never served to another Session or an anonymous lookup,
+/// and gone when the Session ends (ADR 0046).
+/// Covers: story:6-39
+#[tokio::test]
+async fn a_set_cookie_response_lives_only_for_its_session() {
+    use goodfetch_protocol::response_cache::CacheMode;
+
+    use crate::clock::Clock;
+    use crate::response_cache::{Caching, ResponseSource};
+
+    let env = TestEnv::new();
+    let cache = cache(&env);
+    let run_id = RunId::parse("run-session-cookie").unwrap();
+    let source = ResponseSource::of(&cache, CacheMode::Revalidate);
+    let root = Caching::of(source, "ada", run_id, Clock::paused(start())).unwrap();
+    let session_a = SessionId("s-a".to_owned());
+    let session_b = SessionId("s-b".to_owned());
+    let a = root.of_session(&session_a);
+    let b = root.of_session(&session_b);
+
+    let req = get("/login-landing", &[]);
+    let set_cookie_head = ResponseHead {
+        status: 200,
+        headers: pairs(&[
+            ("cache-control", "max-age=60"),
+            ("set-cookie", "sid=abc; Path=/"),
+        ]),
+    };
+    assert!(
+        a.store(&req, &set_cookie_head, Bytes::from_static(b"welcome-a"))
+            .await
+    );
+    assert!(
+        matches!(a.source(&req, None).await, super::Source::Fresh(hit) if hit.body == "welcome-a")
+    );
+    assert!(matches!(b.source(&req, None).await, super::Source::Network));
+    assert!(matches!(
+        root.source(&req, None).await,
+        super::Source::Network
+    ));
+
+    root.forget(&session_a).await;
+    assert!(matches!(a.source(&req, None).await, super::Source::Network));
+}
+
+/// A request carrying a resolved secret in its URL, headers or body is never
+/// stored in `revalidate` or `replay`, and searching the cache's bodies and
+/// SQLite index with Secret canaries (ADR 0067, #379) finds none.
+/// Covers: story:6-40
+#[tokio::test]
+async fn a_request_carrying_a_resolved_secret_leaves_no_canary_in_cache_bodies_or_index() {
+    use goodfetch_protocol::response_cache::CacheMode;
+    use goodfetch_test_support::{Canaries, Output, SecretKind};
+    use secrecy::SecretString;
+
+    use crate::clock::Clock;
+    use crate::mask::{Masks, Reach, Redaction};
+    use crate::response_cache::{Caching, ResponseSource};
+
+    let env = TestEnv::new();
+    let cache = cache(&env);
+    let mut canaries = Canaries::new(env.seed());
+    let token = canaries.plant(SecretKind::EndpointToken).value().to_owned();
+    let header_val = canaries.plant(SecretKind::HeaderValue).value().to_owned();
+    let password = canaries.plant(SecretKind::TypedPassword).value().to_owned();
+
+    let masks = Masks::default();
+    let mask = masks.for_run(Redaction::On);
+    mask.join(
+        "api_token",
+        &SecretString::from(token.clone()),
+        Reach::Value,
+    );
+    mask.join(
+        "api_header",
+        &SecretString::from(header_val.clone()),
+        Reach::Value,
+    );
+    mask.join(
+        "user_pass",
+        &SecretString::from(password.clone()),
+        Reach::Value,
+    );
+
+    let run_id = RunId::parse("run-secret-canary").unwrap();
+    let source = ResponseSource::of(&cache, CacheMode::Replay);
+    let caching = Caching::of(source, "ada", run_id, Clock::paused(start()))
+        .unwrap()
+        .with_masks(masks.clone());
+
+    // Store one clean public entry so the cache index and bodies folder exist on disk.
+    let clean = get("/public", &[]);
+    assert!(
+        caching
+            .store(&clean, &minute(), Bytes::from_static(b"clean body"))
+            .await
+    );
+
+    // Three requests carrying resolved secrets (URL query, header, POST body), whose
+    // responses echo the secrets back: none may be stored.
+    let url_secret = get(&format!("/secret?token={token}"), &[]);
+    let header_secret = get("/secret-header", &[("x-api-key", &header_val)]);
+    let body_secret = request(
+        "POST",
+        "/secret-body",
+        &[("content-type", "text/plain")],
+        &password,
+    );
+    for (req, echoed) in [
+        (&url_secret, format!("echo {token}")),
+        (&header_secret, format!("echo {header_val}")),
+        (&body_secret, format!("echo {password}")),
+    ] {
+        assert!(!caching.may_store(req, None));
+        assert!(!caching.stores(req, &minute(), None));
+        assert!(!caching.store(req, &minute(), Bytes::from(echoed)).await);
+    }
+
+    let cache_dir = folder(&env);
+    let mut outputs = vec![cache_dir.join("index.sqlite")];
+    let bodies_dir = cache_dir.join("bodies");
+    if bodies_dir.exists() {
+        for entry in std::fs::read_dir(&bodies_dir).unwrap() {
+            outputs.push(entry.unwrap().path());
+        }
+    }
+    let refs: Vec<Output<'_>> = outputs.iter().map(|path| Output::Path(path)).collect();
+    let leaks = canaries.leaks(&refs).unwrap();
+    assert!(
+        leaks.is_empty(),
+        "secret canary leaked into Response cache: {leaks:?}"
+    );
+    drop(mask);
+}
+
+/// An entry fetched under a Wall allowance is tagged with its domain and served
+/// only to Runs whose `wall.domains` cover it; a refetched entry carries its
+/// own tag and is served only when `wall.refetch_domains` also covers it; none
+/// is served for a denied domain (even under `*`); and a refetch never reads
+/// the cache (ADR 0052, issue 803).
+/// Covers: story:6-47
+#[tokio::test]
+async fn wall_allowance_entries_are_scoped_denied_domains_blocked_and_refetch_never_reads_cache() {
+    use goodfetch_protocol::response_cache::CacheMode;
+
+    use crate::response_cache::{EntryScope, ResponseSource, Source, WallAllowance};
+
+    let env = TestEnv::new();
+    let cache = cache(&env);
+    let now = start();
+    let run_id = RunId::parse("run-wall-1").unwrap();
+    let req = get("/article", &[]);
+    let head = minute();
+
+    // Store an entry fetched under Wall allowance for news.test.
+    assert!(
+        cache
+            .store_scoped(
+                &ada(),
+                &req,
+                &head,
+                Bytes::from_static(b"wall-served"),
+                &EntryScope::wall("news.test"),
+                Some(&run_id),
+                now,
+            )
+            .await
+    );
+
+    // Run without news.test in wall.domains misses.
+    let no_wall = WallAllowance::default();
+    assert!(matches!(
+        cache
+            .lookup_scoped(&ada(), &req, &no_wall, false, now)
+            .await,
+        Lookup::Miss
+    ));
+
+    // Run with news.test in wall.domains gets the hit with fetched_at and run_id.
+    let allowed = WallAllowance::from_lists(&["news.test"], &[], &[]);
+    let Lookup::Fresh(hit) = cache
+        .lookup_scoped(&ada(), &req, &allowed, false, now)
+        .await
+    else {
+        panic!("expected Fresh hit for allowed wall domain");
+    };
+    assert_eq!(hit.body, Bytes::from_static(b"wall-served"));
+    assert_eq!(hit.fetched_at, now);
+    assert_eq!(hit.run_id, Some(run_id.clone()));
+
+    // Denied domain is never served, even when wall.domains has `*`.
+    let denied = WallAllowance::from_lists(&["*"], &["*"], &["news.test"]);
+    assert!(matches!(
+        cache.lookup_scoped(&ada(), &req, &denied, false, now).await,
+        Lookup::Miss
+    ));
+
+    // A refetch never reads the cache, even when the domain is allowed.
+    let refetch_allowed = WallAllowance::from_lists(&["news.test"], &["news.test"], &[]);
+    assert!(matches!(
+        cache
+            .lookup_scoped(&ada(), &req, &refetch_allowed, true, now)
+            .await,
+        Lookup::Miss
+    ));
+    let source =
+        ResponseSource::of(&cache, CacheMode::Revalidate).wall_allowance(refetch_allowed.clone());
+    assert!(matches!(
+        source
+            .source_for_refetch(None, &ada(), &req, None, now)
+            .await,
+        Source::Network
+    ));
+
+    // Store a refetched entry: requires BOTH wall.domains and wall.refetch_domains.
+    let refetch_req = get("/metered", &[]);
+    assert!(
+        cache
+            .store_scoped(
+                &ada(),
+                &refetch_req,
+                &head,
+                Bytes::from_static(b"refetched-body"),
+                &EntryScope::wall_refetch("news.test"),
+                Some(&run_id),
+                now,
+            )
+            .await
+    );
+    assert!(matches!(
+        cache
+            .lookup_scoped(&ada(), &refetch_req, &allowed, false, now)
+            .await,
+        Lookup::Miss
+    ));
+    let Lookup::Fresh(refetch_hit) = cache
+        .lookup_scoped(&ada(), &refetch_req, &refetch_allowed, false, now)
+        .await
+    else {
+        panic!("expected Fresh hit for allowed wall_refetch domain");
+    };
+    assert_eq!(refetch_hit.body, Bytes::from_static(b"refetched-body"));
+    assert!(matches!(
+        cache
+            .lookup_scoped(&ada(), &refetch_req, &denied, false, now)
+            .await,
+        Lookup::Miss
+    ));
+}
+
+/// Saving an identity drops from its partition the entries fetched under a
+/// consent acceptance outside the saving Run's `consent.domains` (and Wall
+/// entries outside its Wall allowance) and keeps the others (ADRs 0048 and
+/// 0052, issue 803).
+/// Covers: story:6-48
+#[tokio::test]
+async fn saving_identity_drops_unapproved_consent_entries_and_keeps_others() {
+    use serde_json::json;
+
+    use crate::response_cache::{DomainList, EntryScope, Keeper, WallAllowance};
+
+    let env = TestEnv::new();
+    let cache = cache(&env);
+    let now = start();
+    let run_id = RunId::parse("run-consent-1").unwrap();
+    let identity_partition = Partition {
+        keeper: Some(Keeper::SavedIdentity("work".to_owned())),
+        ..ada()
+    };
+    let head = ResponseHead {
+        status: 200,
+        headers: vec![
+            ("cache-control".to_owned(), "private, max-age=60".to_owned()),
+            ("set-cookie".to_owned(), "sid=1".to_owned()),
+        ],
+    };
+
+    let unapproved_req = get("/consent-other", &[("cookie", "sid=1")]);
+    let approved_req = get("/consent-allowed", &[("cookie", "sid=1")]);
+    let ordinary_req = get("/ordinary", &[("cookie", "sid=1")]);
+
+    assert!(
+        cache
+            .store_scoped(
+                &identity_partition,
+                &unapproved_req,
+                &head,
+                Bytes::from_static(b"other-site"),
+                &EntryScope::consent("other.test"),
+                Some(&run_id),
+                now,
+            )
+            .await
+    );
+    assert!(
+        cache
+            .store_scoped(
+                &identity_partition,
+                &approved_req,
+                &head,
+                Bytes::from_static(b"allowed-site"),
+                &EntryScope::consent("allowed.test"),
+                Some(&run_id),
+                now,
+            )
+            .await
+    );
+    assert!(
+        cache
+            .store_scoped(
+                &identity_partition,
+                &ordinary_req,
+                &head,
+                Bytes::from_static(b"ordinary-site"),
+                &EntryScope::default(),
+                Some(&run_id),
+                now,
+            )
+            .await
+    );
+
+    let saving_consent = DomainList::of(&json!(["allowed.test"]));
+    let dropped = cache
+        .drop_unapproved_for_saved_identity(
+            &identity_partition.person,
+            "work",
+            &saving_consent,
+            &WallAllowance::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(dropped, 1);
+
+    // Unapproved consent entry is gone; approved and ordinary entries stay.
+    assert!(matches!(
+        cache
+            .lookup(&identity_partition, &unapproved_req, now)
+            .await,
+        Lookup::Miss
+    ));
+    assert!(matches!(
+        cache.lookup(&identity_partition, &approved_req, now).await,
+        Lookup::Fresh(_)
+    ));
+    assert!(matches!(
+        cache.lookup(&identity_partition, &ordinary_req, now).await,
+        Lookup::Fresh(_)
+    ));
 }

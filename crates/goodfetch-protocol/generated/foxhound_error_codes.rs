@@ -15,6 +15,11 @@ pub const BROWSER_REQUIRED: ErrorCode = ErrorCode::from_static("browser_required
 /// The Connection the attempt's request went on ended before its handler answered: the program or one of its `workers=N` handler processes ended, or its Connection dropped. Not the handler's own failure (`handler_failed`): the attempt committed nothing and is retried, on another Connection that serves the crawl, under `crawl.retry.max`.
 pub const CLIENT_GONE: ErrorCode = ErrorCode::from_static("client_gone");
 
+/// `crawl_not_importable`, in the `program` group, not retryable.
+///
+/// A crawl started with `workers > 1` cannot be imported by an extra worker process: it was defined inside a function rather than at module level, no module was named, or the named module or export does not yield a `Crawl`. Nothing was started. Define the `Crawl` at module level or name `module`.
+pub const CRAWL_NOT_IMPORTABLE: ErrorCode = ErrorCode::from_static("crawl_not_importable");
+
 /// `dataset_duplicate`, in the `program` group, not retryable.
 ///
 /// The crawl declares a second Dataset of a name it already declares, so it was not started. The details name the Dataset. Give each Dataset its own name.
@@ -155,10 +160,15 @@ pub const SAMPLE_CRAWL_REFUSED: ErrorCode = ErrorCode::from_static("sample_crawl
 /// An XLSX Export's one sheet would hold more than Excel opens: more than 1,048,576 rows, the header row included, more than 16,384 columns, or a cell, a column's name included, longer than 32,767 characters, counted in UTF-16 code units as Excel counts them. Nothing was written, and no file is left in the Run's folder. The details name the Dataset, the capacity passed (`rows`, `columns` or `cell_length`), the Dataset's figure and the most a sheet holds. Export the Dataset as `csv`, `jsonl` or `parquet`, which hold any number of rows, columns and characters.
 pub const SHEET_CAPACITY_EXCEEDED: ErrorCode = ErrorCode::from_static("sheet_capacity_exceeded");
 
+/// `sink_guarantee_unmet`, in the `refused` group, not retryable.
+///
+/// A Sink of a crawl's Run proved a weaker Guarantee class than the Run's `crawl.min_sink_guarantee`, or its probe failed, so the Run was refused at its start and did no work. The details name the Sink, the class required, the class its probe proved, if any, and the cause of a failed probe. Deliver to a destination that proves the class, such as a Fenced SQLite Sink, or lower `crawl.min_sink_guarantee`.
+pub const SINK_GUARANTEE_UNMET: ErrorCode = ErrorCode::from_static("sink_guarantee_unmet");
+
 /// `staging_full`, in the `program` group, not retryable.
 ///
 /// The call would stage one more admission (an enqueue, an `enqueueLinks` call or a seed added through `ctx.run`) with an attempt that already staged `crawl.max_staged_enqueues` of them, which the attempt holds in the engine's memory until it commits. Nothing was staged. Enqueue many links with one `enqueueLinks` call, or raise the setting, which `limit` names.
 pub const STAGING_FULL: ErrorCode = ErrorCode::from_static("staging_full");
 
 /// Every Error code only Foxhound's catalog carries, in the catalog's order.
-pub const ALL: &[ErrorCode] = &[ATTEMPT_ENDED, BROWSER_REQUIRED, CLIENT_GONE, DATASET_DUPLICATE, DATASET_KEY_INVALID, DATASET_UNKNOWN, EFFECT_STAGING_REFUSED, HANDLER_FAILED, HANDLER_LOST, HOOK_DUPLICATE, HOOK_INEFFECTIVE, HOOK_UNDECLARED, HOOK_UNKNOWN, LABEL_DUPLICATE, LABEL_UNHANDLED, LABEL_UNKNOWN, LEASE_LOST, PARTITIONS_EXCEED_GROUP_MEMBERS, PARTITIONS_NEED_GROUP, PAYLOAD_INVALID, PAYLOAD_SCHEMA_CHANGED, QUERY_FAILED, QUERY_INVALID, QUERY_MEMORY_EXCEEDED, RECORD_INVALID, RESPONSE_NOT_DOCUMENT, RESPONSE_NOT_OK, RESPONSE_UNAVAILABLE, RETRY_REQUESTED, SAMPLE_CRAWL_REFUSED, SHEET_CAPACITY_EXCEEDED, STAGING_FULL];
+pub const ALL: &[ErrorCode] = &[ATTEMPT_ENDED, BROWSER_REQUIRED, CLIENT_GONE, CRAWL_NOT_IMPORTABLE, DATASET_DUPLICATE, DATASET_KEY_INVALID, DATASET_UNKNOWN, EFFECT_STAGING_REFUSED, HANDLER_FAILED, HANDLER_LOST, HOOK_DUPLICATE, HOOK_INEFFECTIVE, HOOK_UNDECLARED, HOOK_UNKNOWN, LABEL_DUPLICATE, LABEL_UNHANDLED, LABEL_UNKNOWN, LEASE_LOST, PARTITIONS_EXCEED_GROUP_MEMBERS, PARTITIONS_NEED_GROUP, PAYLOAD_INVALID, PAYLOAD_SCHEMA_CHANGED, QUERY_FAILED, QUERY_INVALID, QUERY_MEMORY_EXCEEDED, RECORD_INVALID, RESPONSE_NOT_DOCUMENT, RESPONSE_NOT_OK, RESPONSE_UNAVAILABLE, RETRY_REQUESTED, SAMPLE_CRAWL_REFUSED, SHEET_CAPACITY_EXCEEDED, SINK_GUARANTEE_UNMET, STAGING_FULL];

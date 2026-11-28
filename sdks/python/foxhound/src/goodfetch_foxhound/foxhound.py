@@ -123,6 +123,11 @@ Collie's variable is another Product's and is never read here.
 """
 
 
+def product_package() -> ProductPackage:
+    """Returns Foxhound's internal `ProductPackage` for worker processes."""
+    return _FOXHOUND
+
+
 class AsyncFoxhound(AsyncConnection):
     """A Connection to a Foxhound engine: the entry point of the async API.
 
@@ -344,6 +349,7 @@ class AsyncFoxhound(AsyncConnection):
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
         settings: CrawlSettings | None = None,
+        workers: int = 1,
     ) -> AsyncCrawlRun: ...
     @overload
     async def start_crawl(
@@ -367,6 +373,7 @@ class AsyncFoxhound(AsyncConnection):
         limits: Limits | None = None,
         settings: CrawlSettings | None = None,
         detached: bool = False,
+        workers: int = 1,
     ) -> AsyncCrawlRun:
         """Starts `crawl` from `seeds`, at least one, and serves its handlers.
 
@@ -376,6 +383,32 @@ class AsyncFoxhound(AsyncConnection):
         every work item is done, or, with `crawl.keep_alive`, once
         `run.finish` lets it and every work item is done. A Run ID works as
         `run.start`'s.
+
+        With nothing set, a crawl obeys `robots.txt`, keeps one request in
+        flight per domain (`politeness.domain.concurrency: 1`) and waits at
+        least one second between starts (`politeness.domain.delay: 1000`);
+        pressing harder is set explicitly and recorded in the Run report's
+        `weakened` and a warning (ADR 0086).
+
+        In a service, close the Run on `SIGINT` and `SIGTERM`: the SDK
+        installs no signal handler, and a signal that ends the process at
+        once leaves in-flight attempts counted as `handler_lost` against
+        `crawl.retry.max` on resume, whereas `close()` returns them
+        uncounted (ADRs 0078, 0093).
+
+        Args:
+            crawl: The crawl to run, or a code-free crawl declaration or
+                extraction.
+            seeds: Initial requests or sitemap seeds, at least one.
+            run_id: Names the Run for good: a start with an existing Run ID
+                resumes the Run if it was interrupted, or returns it as it
+                ended (`started_as` says which); the engine generates one
+                when it is left out (ADR 0102).
+            tags: Opaque Run tags (at most 16, each at most 64 characters).
+            limits: The Run's own Limits (ADR 0080).
+            settings: The Run's own settings, Collie's and Foxhound's.
+            detached: On a Daemon, lets a code-free crawl outlive its program.
+            workers: Total handler processes serving the crawl (default 1, ADR 0024).
 
         Each work item goes to the handler of its Label, as a task beside
         this Connection's (ADR 0093). A seed is a `seed` request, or a
@@ -413,6 +446,7 @@ class AsyncFoxhound(AsyncConnection):
             limits=limits,
             settings=settings,
             detached=detached,
+            workers=workers,
         )
 
     async def open_run(self, run_id: str) -> AsyncRunView:
@@ -727,6 +761,7 @@ class Foxhound(Connection):
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
         settings: CrawlSettings | None = None,
+        workers: int = 1,
     ) -> CrawlRun: ...
     @overload
     def start_crawl(
@@ -750,6 +785,7 @@ class Foxhound(Connection):
         limits: Limits | None = None,
         settings: CrawlSettings | None = None,
         detached: bool = False,
+        workers: int = 1,
     ) -> CrawlRun:
         """Starts `crawl` from `seeds`, at least one, and serves its handlers.
 
@@ -759,6 +795,32 @@ class Foxhound(Connection):
         every work item is done, or, with `crawl.keep_alive`, once
         `run.finish` lets it and every work item is done. A Run ID works as
         `run.start`'s.
+
+        With nothing set, a crawl obeys `robots.txt`, keeps one request in
+        flight per domain (`politeness.domain.concurrency: 1`) and waits at
+        least one second between starts (`politeness.domain.delay: 1000`);
+        pressing harder is set explicitly and recorded in the Run report's
+        `weakened` and a warning (ADR 0086).
+
+        In a service, close the Run on `SIGINT` and `SIGTERM`: the SDK
+        installs no signal handler, and a signal that ends the process at
+        once leaves in-flight attempts counted as `handler_lost` against
+        `crawl.retry.max` on resume, whereas `close()` returns them
+        uncounted (ADRs 0078, 0093).
+
+        Args:
+            crawl: The crawl to run, or a code-free crawl declaration or
+                extraction.
+            seeds: Initial requests or sitemap seeds, at least one.
+            run_id: Names the Run for good: a start with an existing Run ID
+                resumes the Run if it was interrupted, or returns it as it
+                ended (`started_as` says which); the engine generates one
+                when it is left out (ADR 0102).
+            tags: Opaque Run tags (at most 16, each at most 64 characters).
+            limits: The Run's own Limits (ADR 0080).
+            settings: The Run's own settings, Collie's and Foxhound's.
+            detached: On a Daemon, lets a code-free crawl outlive its program.
+            workers: Total handler processes serving the crawl (default 1, ADR 0024).
 
         As `AsyncFoxhound.start_crawl`, except that each work item's handler,
         a plain function, runs on the Connection's thread pool, so a handler
@@ -784,6 +846,7 @@ class Foxhound(Connection):
             limits=limits,
             settings=settings,
             detached=detached,
+            workers=workers,
         )
         try:
             return self._loop.call(starting)
@@ -797,7 +860,7 @@ class Foxhound(Connection):
             view = self._loop.call(opening)
         except LoopStopped:
             raise closed_error("open_run") from None
-        return RunView(view)
+        return RunView(self._loop, view)
 
     def call(
         self,

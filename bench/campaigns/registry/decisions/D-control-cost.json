@@ -1,0 +1,44 @@
+{
+  "id": "D-control-cost",
+  "title": "Cost and savings of every switchable control (ADRs 0023, 0042, 0047, 0048)",
+  "question": "What are the latency cost and byte savings of each switchable control including TLS relay, Filter-list blocking, Consent prompts and live_hiding?",
+  "status": "evidence-pending",
+  "declared_at": "2026-11-28T00:00:00.000Z",
+  "options": [
+    {
+      "id": "collie-all-on",
+      "description": "Collie with all controls on",
+      "adapter": "collie-all-on"
+    },
+    {
+      "id": "collie-live-hiding-off",
+      "description": "Collie with live_hiding = off",
+      "adapter": "collie-live-hiding-off"
+    },
+    {
+      "id": "collie-filter-lists-off",
+      "description": "Collie with Filter-list blocking switched off",
+      "adapter": "collie-filter-lists-off"
+    },
+    {
+      "id": "collie-consent-off",
+      "description": "Collie with Consent prompt handling switched off",
+      "adapter": "collie-consent-off"
+    },
+    {
+      "id": "collie-tls-relay",
+      "description": "Collie with TLS relay active for certificate exceptions (ADR 0042)",
+      "adapter": "collie-tls-relay"
+    }
+  ],
+  "baseline": "collie-live-hiding-off",
+  "primary_metric": "task_p50_ms_verified",
+  "secondary_metrics": ["cpu_ms_per_verified_task"],
+  "contract_gates": ["oracle_exact", "false_success_count"],
+  "delta": 0.1,
+  "rule": { "kind": "non-inferiority", "alpha": 0.05, "power": 0.8, "noisy_blocks": "exclude" },
+  "host_class": { "decision": "local-controlled", "publication": "local-controlled" },
+  "evidence": [],
+  "depends_on": [],
+  "notes": "Declared before measuring (ADR 0025, issue 188)."
+}

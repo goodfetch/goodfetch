@@ -57,7 +57,7 @@ use super::hops;
 use super::lookups::Lookups;
 use super::routes::Route;
 use super::steps::{self, Blocking, Overrides, Stopped, entries};
-use super::{PageState, RunPowers, lock};
+use super::{PageState, RunPowers, is_safe_discovery_method, lock};
 use crate::cdp::driver::{PageDriver, cdp_response};
 use crate::cdp::{
     AuthChallenge, CdpPage, ContinueRequest, Fulfill, Header, InterceptionEvent,
@@ -139,6 +139,9 @@ pub(super) struct PageContext {
     /// cache, by the interception's ID: a request that fails first, or a
     /// target that goes, drops it.
     storing: Mutex<BTreeMap<PausedId, cached::Storing>>,
+    /// Recorded response sequence numbers keyed by network ID so a late
+    /// `LoadingFailed` after a disconnect marks the recorded response cut.
+    recorded_responses: Mutex<BTreeMap<String, u64>>,
     /// A service worker's requests that carry a page's navigation, sent on
     /// with their response paused for the gate to judge, by the
     /// interception's ID: the page each carries a navigation of.
@@ -229,6 +232,7 @@ impl PageContext {
             refusals,
             responses: Mutex::new(BTreeMap::new()),
             storing: Mutex::new(BTreeMap::new()),
+            recorded_responses: Mutex::new(BTreeMap::new()),
             carried: Mutex::new(BTreeMap::new()),
             document: Mutex::new(Arc::from("")),
             authenticated: Mutex::new(Authenticated::default()),
@@ -281,6 +285,7 @@ pub(super) async fn dispatch(mut events: InterceptionEvents, context: Arc<PageCo
                     // The navigation's last hop ends with the page's `load`.
                     drop(lock(&context.permit).take());
                     drop(lock(&context.proxy_permit).take());
+                    context.clear_recorded_responses();
                     context.state.navigation.ended();
                 }
             }
@@ -302,6 +307,9 @@ pub(super) async fn dispatch(mut events: InterceptionEvents, context: Arc<PageCo
                 context.scheduled(&frame, &url);
             }
             InterceptionEvent::LoadingFailed(failed) => context.loading_failed(&failed),
+            InterceptionEvent::ResponseSetCookie { network_id, values } => {
+                context.state.note_set_cookie(network_id, values);
+            }
             InterceptionEvent::WebSocketCreated { url } => context.web_socket(&url),
             InterceptionEvent::AuthRequired(required) => {
                 let waits = context.authentication_waits(&required);
@@ -315,6 +323,7 @@ pub(super) async fn dispatch(mut events: InterceptionEvents, context: Arc<PageCo
     // the reader answers itself ends as the browser fails its answers.
     lock(&context.responses).clear();
     lock(&context.storing).clear();
+    context.clear_recorded_responses();
     while answering.answers.next().await.is_some() {}
 }
 
@@ -526,6 +535,12 @@ impl PageContext {
     /// navigation gate or its proxy's Permit, on a hop of the main frame's
     /// navigation or a service worker's request that may carry one.
     fn request_waits(&self, paused: &PausedRequest) -> bool {
+        if self
+            .state
+            .discovery_handles(paused.method(), self.main_document(paused))
+        {
+            return false;
+        }
         let url = paused.url();
         if self.state.routes.matches_any(url) || self.state.session.matches_any(url) {
             return true;
@@ -572,6 +587,20 @@ impl PageContext {
     /// Runs one paused request through the pipeline.
     async fn intercept(&self, paused: PausedRequest) {
         let navigation = self.main_document(&paused);
+        if let Some(slot) = self.state.discovery_slot() {
+            let method = paused.method();
+            let url = paused.url();
+            if !is_safe_discovery_method(method) {
+                slot.capture.record_aborted(method, url, slot.is_popup);
+                let _ = self.cdp.fail(paused.id(), AbortReason::Aborted).await;
+                return;
+            }
+            if navigation {
+                slot.capture.record_url(url, slot.is_popup);
+                let _ = self.cdp.fail(paused.id(), AbortReason::Aborted).await;
+                return;
+            }
+        }
         let mut held = Held {
             paused,
             overrides: Overrides::default(),
@@ -584,7 +613,7 @@ impl PageContext {
         // request it is (issue 2471).
         if held.navigation
             && !held.paused.redirected()
-            && let Some(own) = self.state.own(held.paused.url())
+            && let Some(own) = self.state.own(held.paused.url(), held.paused.headers())
         {
             held.apply(own);
         }
@@ -667,6 +696,9 @@ impl PageContext {
             }
             (Answer::Fetch(overrides), Stage::Unanswered) => {
                 held.apply(overrides);
+                if self.replays_url(held.url()) {
+                    return self.fetch_from_recording(held, stage).await;
+                }
                 let (response, responded) = oneshot::channel();
                 let network_id = held.paused.network_id().cloned();
                 lock(&self.responses).insert(
@@ -722,6 +754,7 @@ impl PageContext {
                 }
             }
             (Answer::Fulfill(fulfillment), _) => {
+                self.note_routed_document_date(held, &fulfillment).await;
                 self.fulfill(&id, fulfillment).await;
                 (Ok(Reply::Answered), Some(Routed::Ended))
             }
@@ -925,21 +958,16 @@ impl PageContext {
         } else {
             &self.blocking
         };
-        let signing = self.state.engine_requests.signing.as_deref();
-        let stepped = match steps::send_on(&paused, &self.policy, blocking, signing, fetch) {
-            Ok(steps::Sent::Continue(command)) => {
-                match self.judged_addresses(held.url(), paused.egress).await {
-                    Ok(()) => Ok(steps::Sent::Continue(command)),
-                    Err(refused) => Err(Stopped::Refused(refused)),
-                }
-            }
-            other => other,
-        };
+        let replaying = self.replays_url(held.url());
+        let stepped = self
+            .step_request(held, &paused, blocking, fetch, replaying)
+            .await;
         // Step 7's guard of the Session's cookies: none goes to a host the
         // egress relay terminates for a certificate exception (ADR 0042).
         // The browser adds them itself as the request leaves, so a request
         // that would carry one is failed instead.
-        if matches!(stepped, Ok(steps::Sent::Continue(_)))
+        if !replaying
+            && matches!(stepped, Ok(steps::Sent::Continue(_)))
             && let Some(withheld) = self.withhold_cookies(held).await
         {
             return Err(withheld);
@@ -948,10 +976,15 @@ impl PageContext {
         let mut gated: Option<Arc<PageState>> = None;
         let command = match stepped {
             Ok(steps::Sent::Continue(mut command)) => {
-                // Step 5: the Response cache, before the gate and the
-                // proxy, since a response it serves sends no request.
-                if !fetch && self.served_from_cache(held, &mut command).await {
-                    return Ok(());
+                // Step 5: the Response cache and a replaying Run's Response
+                // recording, before the gate and the proxy, since a response
+                // served here sends no request.
+                if !fetch {
+                    match self.served_from_cache(held, &mut command).await {
+                        Ok(true) => return Ok(()),
+                        Ok(false) => {}
+                        Err(error) => return Err(error),
+                    }
                 }
                 // Step 6: the page's navigation gate; its lease check is
                 // asked before the command that sends the request on.
@@ -1008,6 +1041,30 @@ impl PageContext {
             }
         };
         self.sent_on(held, command, fetch, gated.as_deref()).await
+    }
+
+    /// Runs steps 3 and 4 (and address lookup when not replaying) for `paused`.
+    async fn step_request(
+        &self,
+        held: &Held,
+        paused: &steps::Paused<'_>,
+        blocking: &steps::Blocking,
+        fetch: bool,
+        replaying: bool,
+    ) -> Result<steps::Sent, Stopped> {
+        let signing = self.state.engine_requests.signing.as_deref();
+        if replaying {
+            return steps::send_on_replaying(paused, &self.policy, blocking, signing, fetch);
+        }
+        match steps::send_on(paused, &self.policy, blocking, signing, fetch) {
+            Ok(steps::Sent::Continue(command)) => {
+                match self.judged_addresses(held.url(), paused.egress).await {
+                    Ok(()) => Ok(steps::Sent::Continue(command)),
+                    Err(refused) => Err(Stopped::Refused(refused)),
+                }
+            }
+            other => other,
+        }
     }
 
     /// Sends `held` on with `command`, a main-frame navigation's URL
@@ -1201,6 +1258,12 @@ impl PageContext {
             fetching.network_id.as_ref().map(NetworkId::as_str) != network_id
         });
         lock(&self.storing).retain(|_, storing| !storing.sent_as(failed.network_id()));
+        if let Some(sequence) = lock(&self.recorded_responses).remove(failed.network_id())
+            && crate::cdp::driver::cdp_response::cut_after_sent_on(&failed.error())
+            && let Some(caching) = self.state.caching.as_ref()
+        {
+            caching.mark_recorded_truncated(sequence);
+        }
         let mut permit = lock(&self.permit);
         if permit
             .as_ref()
@@ -1420,9 +1483,24 @@ impl PageContext {
         let navigation = self.main_document(paused);
         if self.sender.records_at_once() {
             self.record_refusal(paused.url(), paused.method(), refused.failure());
+        } else if let Sender::ServiceWorker { session, log } = &self.sender {
+            let failure = refused.failure();
+            record_outcome(self.run.identity(), &failure.code);
+            log.service_worker_request(&ServiceWorkerRequest {
+                session_id: session.clone(),
+                url: paused.url().to_owned(),
+                method: paused.method().to_owned(),
+                resource_type: paused.resource_type(),
+                failure: Some(RequestFailure {
+                    error_text: NetError::BlockedByClient.name().to_owned(),
+                    error: Some(failure),
+                }),
+            });
         } else if let Some(network_id) = paused.network_id() {
             self.refusals
                 .leave(network_id.as_str(), refused.failure(), !navigation);
+        } else {
+            self.record_refusal(paused.url(), paused.method(), refused.failure());
         }
         if navigation {
             self.state.leave(refused.error());
@@ -1701,6 +1779,8 @@ impl PageContext {
             // recorded too.
             let recorded = !held.navigation || !self.driver.navigation_waits();
             self.refusals.leave(network_id.as_str(), refusal, recorded);
+        } else {
+            self.record_refusal(held.url(), held.method(), refusal);
         }
     }
 
@@ -1753,6 +1833,9 @@ impl PageContext {
         let Sender::ServiceWorker { session, log } = &self.sender else {
             return;
         };
+        if let Some(error) = failure.as_ref().and_then(|failure| failure.error.as_ref()) {
+            record_outcome(self.run.identity(), &error.code);
+        }
         log.service_worker_request(&ServiceWorkerRequest {
             session_id: session.clone(),
             url: held.url().to_owned(),

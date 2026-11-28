@@ -22,6 +22,10 @@ workspace = true
 
 ### BEGIN HAKARI SECTION
 [dependencies]
+aead = { version = "0.6", default-features = false, features = ["rand_core"] }
+aes = { version = "0.9", default-features = false, features = ["zeroize"] }
+aes-gcm = { version = "0.11", default-features = false, features = ["aes", "zeroize"] }
+ahash = { version = "0.8", features = ["serde"] }
 aho-corasick = { version = "1" }
 anyhow = { version = "1", default-features = false, features = ["std"] }
 arrow-array = { version = "60", default-features = false, features = ["ffi"] }
@@ -31,23 +35,32 @@ base64 = { version = "0.23" }
 bit-set = { version = "0.8" }
 bitflags = { version = "2", default-features = false, features = ["serde"] }
 bstr = { version = "1" }
+byteorder = { version = "1" }
 bytes = { version = "1", features = ["serde"] }
-chrono = { version = "0.4" }
+chacha20 = { version = "0.10", default-features = false, features = ["legacy", "rng", "zeroize"] }
+chrono = { version = "0.4", features = ["serde"] }
+cipher = { version = "0.5", default-features = false, features = ["block-padding", "rand_core", "stream-wrapper"] }
 clap = { version = "4", default-features = false, features = ["derive", "error-context", "help", "std", "string", "usage"] }
 clap_builder = { version = "4", default-features = false, features = ["error-context", "help", "std", "string", "usage"] }
+const-oid = { version = "0.9", default-features = false, features = ["db", "std"] }
 crc32fast = { version = "1" }
+crypto-bigint = { version = "0.7", features = ["alloc", "getrandom", "hybrid-array", "subtle", "zeroize"] }
 crypto-common-6f8ce4dd05d13bba = { package = "crypto-common", version = "0.2", default-features = false, features = ["getrandom"] }
 crypto-common-c65f7effa3be6d31 = { package = "crypto-common", version = "0.1", default-features = false, features = ["std"] }
-ctutils = { version = "0.4", default-features = false, features = ["subtle"] }
 curve25519-dalek = { version = "4", default-features = false, features = ["alloc", "digest", "precomputed-tables", "zeroize"] }
 data-encoding = { version = "2" }
+der-c38e5c1d305a1b54 = { package = "der", version = "0.8", default-features = false, features = ["oid", "pem", "std"] }
+der-ca01ad9e24f5d932 = { package = "der", version = "0.7", default-features = false, features = ["derive", "flagset", "oid", "std", "zeroize"] }
 derive_more = { version = "2", features = ["add", "add_assign", "as_ref"] }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["mac", "std"] }
-digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid"] }
+digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid", "rand_core"] }
 dom_query = { version = "0.28", features = ["atomic", "mini_selector"] }
+duckdb = { version = "1", default-features = false, features = ["json", "vtab"] }
+ecdsa = { version = "0.17", features = ["algorithm", "getrandom", "pem", "std"] }
 ed25519 = { version = "2", default-features = false, features = ["alloc", "pkcs8", "std"] }
 ed25519-dalek = { version = "2", features = ["pkcs8"] }
 either = { version = "1", features = ["use_std"] }
+elliptic-curve = { version = "0.14", features = ["ecdh", "getrandom", "pem", "std"] }
 encoding_rs = { version = "0.8" }
 fastrand = { version = "2" }
 flatbuffers = { version = "25" }
@@ -58,12 +71,13 @@ futures-channel = { version = "0.3", features = ["sink"] }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
-getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng", "wasm_js"] }
+ghash = { version = "0.6", default-features = false, features = ["zeroize"] }
 hashbrown = { version = "0.17" }
 http = { version = "1" }
 http-body-util = { version = "0.1" }
 httparse = { version = "1" }
-hybrid-array = { version = "0.4", default-features = false, features = ["alloc", "subtle", "zeroize"] }
+hybrid-array = { version = "0.4", default-features = false, features = ["alloc", "ctutils", "extra-sizes", "subtle", "zeroize"] }
 hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["server-auto", "tokio"] }
 i18n-embed = { version = "0.15", features = ["fluent-system"] }
@@ -72,27 +86,35 @@ icu_provider = { version = "2", default-features = false, features = ["alloc", "
 idna = { version = "1" }
 jiff = { version = "0.2", default-features = false, features = ["serde", "tz-system", "tzdb-bundle-platform", "tzdb-zoneinfo"] }
 libc = { version = "0.2" }
+libduckdb-sys = { version = "1", default-features = false, features = ["capi-v1", "json"] }
 litemap = { version = "0.8", default-features = false, features = ["alloc"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
+mail-send = { version = "0.7", default-features = false, features = ["tls12"] }
 memchr = { version = "2" }
 minimal-lexical = { version = "0.2", default-features = false, features = ["std"] }
 moka = { version = "0.12", features = ["sync"] }
 nom = { version = "7" }
-num-bigint = { version = "0.4", features = ["serde"] }
+num-bigint-9fbad63c4bcf4a8f = { package = "num-bigint", version = "0.4", features = ["serde"] }
+num-bigint-d8f496e17d97b5cb = { package = "num-bigint", version = "0.5", features = ["rand_0_10"] }
 num-integer = { version = "0.1", features = ["i128"] }
 num-traits = { version = "0.2", features = ["i128", "libm"] }
 once_cell = { version = "1", features = ["critical-section"] }
 opentelemetry = { version = "0.33", default-features = false, features = ["internal-logs", "logs", "metrics", "trace"] }
 opentelemetry_sdk = { version = "0.33", default-features = false, features = ["experimental_metrics_custom_reader", "logs", "trace"] }
+p256 = { version = "0.14", features = ["ecdh"] }
 percent-encoding = { version = "2" }
 phf = { version = "0.13", features = ["macros"] }
 phf_shared = { version = "0.11", default-features = false, features = ["std"] }
+pkcs8 = { version = "0.11", default-features = false, features = ["encryption", "pem", "std"] }
+polyval = { version = "0.7", default-features = false, features = ["hazmat", "zeroize"] }
 postcard = { version = "1" }
 potential_utf = { version = "0.1", default-features = false, features = ["alloc", "zerovec"] }
+primeorder = { version = "0.14", default-features = false, features = ["basepoint-table", "std"] }
 proc-macro2 = { version = "1", default-features = false, features = ["span-locations"] }
 psl = { version = "2" }
-quick-xml = { version = "0.41" }
-rand = { version = "0.8" }
+quick-xml = { version = "0.41", features = ["overlapped-lists", "serialize"] }
+rand-93f6ce9d446188ac = { package = "rand", version = "0.10" }
+rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8" }
 rand_core = { version = "0.6", default-features = false, features = ["std"] }
 rcgen = { version = "0.14", default-features = false, features = ["pem", "ring"] }
 regex = { version = "1" }
@@ -100,15 +122,18 @@ regex-automata = { version = "0.4", default-features = false, features = ["dfa-b
 regex-syntax = { version = "0.8" }
 rusqlite = { version = "0.40", default-features = false, features = ["backup", "bundled", "cache", "hooks", "serialize", "trace"] }
 rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
+sec1 = { version = "0.8", features = ["ctutils", "pem", "std", "subtle"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", features = ["alloc", "rc"] }
 serde_json = { version = "1", features = ["alloc", "float_roundtrip", "raw_value", "unbounded_depth"] }
+sha1 = { version = "0.10" }
 sha2-93f6ce9d446188ac = { package = "sha2", version = "0.10" }
 sha2-a6292c17cd707f01 = { package = "sha2", version = "0.11" }
 signature = { version = "2", default-features = false, features = ["std"] }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new"] }
 socket2 = { version = "0.6", default-features = false, features = ["all"] }
+spki = { version = "0.8", default-features = false, features = ["pem", "std"] }
 stable_deref_trait = { version = "1" }
 string_cache = { version = "0.9", default-features = false, features = ["serde_support"] }
 subtle = { version = "2", features = ["const-generics"] }
@@ -119,6 +144,7 @@ time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
 tinystr = { version = "0.8", features = ["zerovec"] }
 tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "test-util"] }
 tokio-btls = { version = "0.5" }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-util = { version = "0.7", features = ["codec", "io", "rt", "time"] }
 toml = { version = "1" }
 toml_datetime = { version = "1", features = ["serde"] }
@@ -145,9 +171,9 @@ zstd-safe = { version = "8", default-features = false, features = ["arrays", "le
 zstd-sys = { version = "2", default-features = false, features = ["legacy", "std", "zdict_builder"] }
 
 [target.x86_64-unknown-linux-gnu.dependencies]
-ahash = { version = "0.8", features = ["serde"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 futures-io = { version = "0.3" }
+hyper-rustls = { version = "0.27", default-features = false, features = ["aws-lc-rs", "http1", "http2", "tls12"] }
 hyper-util = { version = "0.1", default-features = false, features = ["client-legacy", "client-proxy"] }
 ipnet = { version = "2", features = ["serde"] }
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
@@ -155,20 +181,27 @@ linux-raw-sys = { version = "0.12", default-features = false, features = ["auxve
 proc-macro2 = { version = "1" }
 quote = { version = "1" }
 rustix = { version = "1", features = ["fs", "net", "process", "system"] }
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
 simdutf8 = { version = "0.1", features = ["aarch64_neon", "public_imp"] }
 syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["extra-traits"] }
-tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["aws-lc-rs"] }
 
 [target.aarch64-apple-darwin.dependencies]
-ahash = { version = "0.8", features = ["serde"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 errno = { version = "0.3" }
+hyper-rustls = { version = "0.27", default-features = false, features = ["aws-lc-rs", "http1", "http2", "tls12"] }
 hyper-util = { version = "0.1", default-features = false, features = ["client-legacy", "client-proxy"] }
 ipnet = { version = "2", features = ["serde"] }
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
+nix = { version = "0.31", features = ["fs", "mman"] }
+objc2-core-foundation = { version = "0.3" }
+objc2-system-configuration = { version = "0.3", default-features = false, features = ["SCDynamicStore", "SCDynamicStoreCopySpecific", "SCNetworkConfiguration"] }
 rustix = { version = "1", features = ["fs", "system"] }
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
 security-framework-sys = { version = "2" }
 simdutf8 = { version = "0.1", features = ["aarch64_neon", "public_imp"] }
-tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["aws-lc-rs"] }
 
 ### END HAKARI SECTION

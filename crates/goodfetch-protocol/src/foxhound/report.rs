@@ -20,6 +20,7 @@ use super::frontier::{
 };
 use super::outcomes::DatasetRecords;
 use super::sink::GuaranteeClass;
+pub use super::sink::SinkStatus;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -174,22 +175,6 @@ pub struct SinkReport {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub undeclared_datasets: Vec<String>,
-}
-
-/// A Sink's delivery status (ADRs 0026 and 0103).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum SinkStatus {
-    /// Everything was delivered.
-    Complete,
-    /// Everything was delivered, some of it rejected.
-    CompleteWithRejections,
-    /// It is still delivering.
-    Behind,
-    /// It failed.
-    Failed,
-    /// It names none of the crawl's Datasets and delivers nothing.
-    Inactive,
 }
 
 /// A URL rule the Frontier learned from the pages it fetched (ADRs 0005

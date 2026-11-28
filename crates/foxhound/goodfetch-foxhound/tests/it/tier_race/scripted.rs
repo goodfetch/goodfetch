@@ -55,7 +55,7 @@ use goodfetch_protocol::page::{
 };
 use goodfetch_protocol::run::RunId;
 use goodfetch_test_client::Hello;
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{HeldAccess, HeldVfs, TestEnv};
 use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
@@ -103,6 +103,16 @@ struct Asked {
     prepared: usize,
 }
 
+/// Holds the run file during the race's navigation charge while browser-fetch
+/// for `path` is pending, so browser-fetch's win cancels the navigation inside
+/// its run-state write (issue 1747).
+struct HoldCharge {
+    path: &'static str,
+    vfs: HeldVfs,
+    run_file: PathBuf,
+    held: Arc<Mutex<Option<Arc<HeldAccess>>>>,
+}
+
 /// The scripted browser.
 struct Scripted {
     site: Site,
@@ -111,6 +121,7 @@ struct Scripted {
     unread: Option<Unread>,
     asked: Mutex<Asked>,
     pages: Mutex<u64>,
+    hold_charge: Option<HoldCharge>,
 }
 
 impl Scripted {
@@ -230,7 +241,16 @@ impl BrowserPages for Scripted {
                     body: FetchedBody::Whole(Vec::new()),
                 });
             };
-            tokio::time::sleep(answer.after).await;
+            if let Some(hold) = self.hold_charge.as_ref().filter(|hold| hold.path == path) {
+                let access = Arc::new(hold.vfs.hold_next(&hold.run_file));
+                *hold.held.lock().unwrap() = Some(Arc::clone(&access));
+                assert!(
+                    access.reached().await,
+                    "the race navigation's charge write never reached the run file"
+                );
+            } else {
+                tokio::time::sleep(answer.after).await;
+            }
             let mut headers = vec![(
                 "content-type".to_owned(),
                 "text/html; charset=utf-8".to_owned(),
@@ -314,6 +334,8 @@ impl Transport for Plain {
                 reused: false,
                 decoded: false,
                 certificate_exception: None,
+                custom_tls: false,
+                origin: None,
             })
         })
     }
@@ -427,6 +449,7 @@ fn crawl_started(env: &TestEnv, site: Site, unread: Option<Unread>, start: &Valu
         unread,
         asked: Mutex::new(Asked::default()),
         pages: Mutex::new(0),
+        hold_charge: None,
     });
     let tiers = FetchTiers::serving(Arc::new(Plain(Arc::clone(&scripted))));
     // The fetch tiers keep the first pages they are handed: Collie's, handed
@@ -951,5 +974,154 @@ fn a_race_of_a_label_on_browser_fetch_sends_its_first_request_from_the_navigatio
         ),
         (false, true, true, 1, Some(json!("finished"))),
         "{ended:?}"
+    );
+}
+
+/// Drives the JSON-RPC client for a race whose navigation charge is held on
+/// `release_path`: once `crawl_request.handle` arrives for that path (after
+/// `race()` dropped `cancel`), checks that the write is still held and lets
+/// it go.
+async fn talk_releasing_hold(
+    received: &mut Lines<BufReader<ConnectionReader>>,
+    writer: &mut ConnectionWriter,
+    release_path: &str,
+    held: &Mutex<Option<Arc<HeldAccess>>>,
+) -> (Option<Value>, bool) {
+    let mut cancelled_while_held = false;
+    while let Ok(Some(line)) = received.next_line().await {
+        let message: Value = serde_json::from_str(&line).unwrap();
+        if message["id"] == "start" {
+            assert!(message.get("result").is_some(), "{message}");
+            send(
+                writer,
+                r#"{"jsonrpc":"2.0","id":"finish","method":"run.finish","params":{"run_id":"race"}}"#,
+            )
+            .await;
+        } else if message["id"] == "finish" {
+            return (Some(message["result"].clone()), cancelled_while_held);
+        } else if message["method"] == "crawl_request.handle" {
+            let url = message["params"]["crawl_request"]["url"]
+                .as_str()
+                .unwrap_or_default();
+            if url.ends_with(release_path)
+                && let Some(access) = held.lock().unwrap().take()
+            {
+                cancelled_while_held = access.holding();
+                access.let_go();
+            }
+            answer(writer, &message).await;
+        }
+    }
+    (None, cancelled_while_held)
+}
+
+/// A race's navigation whose browser-fetch side wins while the navigation's
+/// Usage charge is held in the run-state write is never sent and never left
+/// charged in Usage (issue 1747): Usage `requests` matches the requests
+/// actually sent (`fetched` + `sent` + raced `opened`, excluding sample
+/// browser runs).
+///
+/// Covers: setting:fetch.tier_race
+#[test]
+fn a_race_navigation_cancelled_during_its_charge_write_is_not_charged_in_usage() {
+    let env = TestEnv::new();
+    let vfs = HeldVfs::register();
+    let version = ProductVersion::parse("1.4.0").unwrap();
+    let run_file = Home::new(env.home().to_owned())
+        .runs(&version)
+        .join("race")
+        .join("run.sqlite");
+    let held = Arc::new(Mutex::new(None::<Arc<HeldAccess>>));
+    let site = Site::from([
+        (LEARN, page("<p>learn</p>", Duration::ZERO)),
+        ("/raced", page("<p>raced</p>", Duration::ZERO)),
+    ]);
+    let scripted = Arc::new(Scripted {
+        site,
+        unread: None,
+        asked: Mutex::new(Asked::default()),
+        pages: Mutex::new(0),
+        hold_charge: Some(HoldCharge {
+            path: "/raced",
+            vfs: vfs.clone(),
+            run_file,
+            held: Arc::clone(&held),
+        }),
+    });
+    let tiers = FetchTiers::serving(Arc::new(Plain(Arc::clone(&scripted))));
+    tiers.opened(Arc::clone(&scripted) as Arc<dyn BrowserPages>);
+    let engine = engine(&tiers);
+    let start_call = start(
+        (&[seed(LEARN, "list"), seed("/raced", "list")], &labels()),
+        &json!({ "run_state": { "durability": "full" } }),
+    );
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let (finished, exited, cancelled_while_held) = runtime.block_on(async {
+        let clock = Clock::system();
+        let _subscriber =
+            tracing::subscriber::set_default(goodfetch_test_support::subscriber(move || {
+                clock.wall()
+            }));
+        let (network, dialer) = transport::in_memory();
+        let held_client = Arc::clone(&held);
+        let client = async move {
+            let (reader, mut writer) = dialer.connect().await.unwrap().split();
+            let mut lines = BufReader::new(reader).lines();
+            send(&mut writer, &hello()).await;
+            send(&mut writer, &start_call.to_string()).await;
+            let (finished, cancelled_while_held) =
+                talk_releasing_hold(&mut lines, &mut writer, "/raced", &held_client).await;
+            writer.shutdown().await.unwrap();
+            while let Ok(Some(_)) = lines.next_line().await {}
+            (finished, cancelled_while_held)
+        };
+        let dependencies = Dependencies {
+            environment: BTreeMap::new(),
+            keychain: goodfetch_engine::secrets::Keychain::absent(),
+            home: Home::new(env.home().to_owned()),
+            clock,
+            entropy: Entropy::seeded(env.seed()),
+            blocking: BlockingPolicy::Threads,
+            run_state_location: RunStateLocation::PerMajor,
+            run_state: RunStateOptions {
+                vfs: Some(vfs.name().to_owned()),
+                ..RunStateOptions::default()
+            },
+            politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
+        };
+        let served = tokio::time::timeout(
+            PATIENCE,
+            engine.run_attached(Network::InMemory(network), dependencies),
+        );
+        let (served, (finished, cancelled_while_held)) = tokio::join!(served, client);
+        (
+            finished,
+            served.is_ok_and(|served| served.is_ok()),
+            cancelled_while_held,
+        )
+    });
+    let asked = std::mem::take(&mut *scripted.asked.lock().unwrap());
+    let report = finished.expect("run.finish answered");
+    assert_eq!(
+        (
+            cancelled_while_held,
+            exited,
+            &report["lifecycle"],
+            asked.fetched.as_slice(),
+            asked.opened.as_slice(),
+            &report["usage"]["requests"],
+        ),
+        (
+            true,
+            true,
+            &json!("finished"),
+            &[LEARN.to_owned(), "/raced".to_owned()][..],
+            &[LEARN.to_owned()][..],
+            &json!(2),
+        ),
+        "usage requests must equal sent requests (2) when the race navigation is cancelled during its charge write; report={report}"
     );
 }

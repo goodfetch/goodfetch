@@ -114,8 +114,8 @@ pub use self::progress::{PartValue, PauseHeld, Progress, ProgressPart, TypedPart
 pub use self::reader::{RunFileOpener, RunReader};
 pub use self::reindex::{Reindexed, reindex};
 pub use self::report::{ReportPart, ReportWarnings};
-pub use self::send_window::RunSendWindow;
 pub(crate) use self::send_window::SendWindow;
+pub use self::send_window::{ActiveEffects, RunSendWindow};
 pub use self::writer::{Writer, test_writer};
 pub use crate::run_state::UnsupportedFolder;
 
@@ -1466,6 +1466,9 @@ pub struct Runs {
     /// What the engine gives its Runs.
     engine: EngineContext,
     connection: Option<ConnectionId>,
+    /// The Client of the Connection this handle serves, which answers `caller:`
+    /// Secret references for Runs started or resumed through it (ADR 0092).
+    caller: Option<crate::client::Client>,
     limits: Arc<Limits>,
     /// The Secret-provider driver, which each Run resolves through.
     secrets: Secrets,
@@ -1787,6 +1790,7 @@ impl Runs {
             commands,
             engine: setup.engine.clone(),
             connection: None,
+            caller: None,
             limits: Arc::new(limits),
             secrets: setup.secrets.clone(),
             clean_up: CleanUpRules::of(&setup),
@@ -1857,8 +1861,9 @@ impl Runs {
     /// The Secret-provider driver, and what a call outside any Run resolves
     /// through: the engine's providers, each bounded by `timeout.secret`'s
     /// default, its values masked. `signing_key.*` makes and reads keys
-    /// through them (ADR 0045).
-    pub(crate) fn outside_a_run(&self) -> (&Secrets, RunSecrets) {
+    /// through them (ADR 0045), and `sink.probe` resolves a Sink's
+    /// destination through them (ADR 0026).
+    pub fn outside_a_run(&self) -> (&Secrets, RunSecrets) {
         (&self.secrets, run_secrets(&self.secrets, None))
     }
 
@@ -2005,7 +2010,13 @@ impl Runs {
             .as_ref()
             .map(|settings| self.controls.switched_off(settings.resolved()))
             .unwrap_or_default();
-        if start.run_id.is_none() && switched.unchains() {
+        let needs_caller_id = self.caller.is_some()
+            && keys::layer_set_key_reference(start.settings.as_ref()).is_some_and(
+                |(reference, _)| {
+                    reference.provider() == goodfetch_protocol::secret_reference::Provider::Caller
+                },
+            );
+        if start.run_id.is_none() && (switched.unchains() || needs_caller_id) {
             let (answer, answered) = oneshot::channel();
             self.commands
                 .send(Command::GenerateId(answer))
@@ -2049,6 +2060,9 @@ impl Runs {
         extra_limit_scopes: Vec<LimitScope>,
     ) -> Result<Started, StartError> {
         let secrets = run_secrets(&self.secrets, start.settings.as_ref());
+        if let (Some(run_id), Some(client)) = (&start.run_id, &self.caller) {
+            secrets.answered_by(run_id.clone(), client.clone());
+        }
         // Only a reference a layer set resolves here: the default's item,
         // in the OS keychain or the encrypted local file, is the engine's
         // own, made when run state first wraps a data key with it (#617).
@@ -2078,7 +2092,13 @@ impl Runs {
             ))
             .await
             .map_err(|_| StartError::Stopped)?;
-        answered.await.map_err(|_| StartError::Stopped)?
+        let started = answered.await.map_err(|_| StartError::Stopped)??;
+        if let (Started::New(run), Some(client)) = (&started, &self.caller) {
+            run.keys
+                .secrets()
+                .answered_by(run.identity.id().clone(), client.clone());
+        }
+        Ok(started)
     }
 
     /// Lets the Run `run_id` finish, and answers its Run report once it
@@ -2401,6 +2421,9 @@ impl Runs {
     /// [`Runs::resume`] once its entries' chaining is set.
     async fn resume_unchained(&self, mut resume: Resume) -> Result<Resumed, RunError> {
         let secrets = run_secrets(&self.secrets, resume.settings.as_ref());
+        if let Some(client) = &self.caller {
+            secrets.answered_by(resume.run_id.clone(), client.clone());
+        }
         let mut _staged_checkpoint = None;
         if let Some(from) = &mut resume.checkpoint
             && let Some(raw) = from.path.to_str()
@@ -2705,6 +2728,43 @@ impl Runs {
             })
     }
 
+    /// Packages the Run `run_id`'s `trace/` folder into a whole ZIP copy in
+    /// the Run's folder (`trace-copies/<sha256>`), or answers `None` when the
+    /// Run keeps no trace files yet (ADRs 0102, 0116 and 0122). While the Run
+    /// folder's filesystem is at the `critical` storage level, fails at once
+    /// before writing anything.
+    ///
+    /// # Errors
+    ///
+    /// `Storage` when the folder cannot take the file or is at `critical`;
+    /// `State` never.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave a hidden temporary file beside the trace
+    /// copies, never a partial copy.
+    pub async fn keep_trace_copy(
+        &self,
+        run_id: RunId,
+    ) -> Result<Option<goodfetch_protocol::run_trace::RunTrace>, KeepError> {
+        let stopped = || KeepError::Storage {
+            reason: "other",
+            os_code: None,
+            message: "the engine's Runs have stopped".to_owned(),
+        };
+        let folder = self.folder(run_id.clone()).await.map_err(|_| stopped())?;
+        let (answer, answered) = oneshot::channel();
+        self.commands
+            .send(Command::Governor(answer))
+            .await
+            .map_err(|_| stopped())?;
+        let governor = answered.await.map_err(|_| stopped())?;
+        let owner = Arc::clone(&self.limits.owner);
+        owner
+            .blocking(move || build_trace_copy(&folder, &run_id, &governor))
+            .await
+    }
+
     /// A reader of the committed state of the Run `run_id`, which never
     /// takes its writer lock: it follows the Run while this engine's writer
     /// works it, and reads what is committed otherwise.
@@ -2984,11 +3044,46 @@ impl Runs {
         editing.edit(work).await
     }
 
+    /// Runs `work` in one transaction of the ended Run `run_id`'s state,
+    /// under its writer lock and a new run epoch, keeping its kept Exports
+    /// intact: for post-Run delivery bookkeeping such as removing retried
+    /// dead letters (ADR 0026).
+    ///
+    /// # Errors
+    ///
+    /// As [`Runs::edit`].
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave `work` committed.
+    pub async fn update_ended<T, F>(&self, run_id: RunId, work: F) -> Result<T, RunError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&rusqlite::Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        let (answer, answered) = oneshot::channel();
+        self.commands
+            .send(Command::Edit(run_id, answer))
+            .await
+            .map_err(|_| RunError::Stopped)?;
+        let editing = answered.await.map_err(|_| RunError::Stopped)??;
+        editing.update(work).await
+    }
+
     /// The same Runs, each Run started through them belonging to the
     /// Daemon's Connection `connection`.
     pub(crate) fn on_connection(&self, connection: ConnectionId) -> Self {
         Self {
             connection: Some(connection),
+            ..self.clone()
+        }
+    }
+
+    /// The same Runs, each Run started or resumed through them resolving
+    /// `caller:` Secret references through `client` (ADR 0092).
+    pub(crate) fn for_client(&self, client: crate::client::Client) -> Self {
+        Self {
+            caller: Some(client),
             ..self.clone()
         }
     }
@@ -4870,6 +4965,7 @@ impl Registry {
                 .expect("invariant: the registry runs while a handle sends to it"),
             engine: self.setup.engine.clone(),
             connection,
+            caller: None,
             limits: Arc::clone(&self.limits),
             secrets: self.setup.secrets.clone(),
             clean_up: CleanUpRules::of(&self.setup),
@@ -5970,6 +6066,7 @@ impl Closing {
             error,
             finished,
             no_trace_folder,
+            cache_mode: replay_cache_mode(&run.identity),
         };
         let (state, mask) = (run.state.clone(), run.shared.keys.secrets().mask().clone());
         let rolled_back = state.rolled_back();
@@ -6255,4 +6352,131 @@ fn holder_gone(folder: &Path, epoch: u64) -> bool {
         }
         Err(_) => false,
     }
+}
+
+/// Returns `Some("replay")` when the Run ran under `cache.mode: replay`
+/// (ADR 0046, issue 803); `None` otherwise.
+fn replay_cache_mode(identity: &RunIdentity) -> Option<String> {
+    identity
+        .settings()
+        .and_then(|settings| {
+            goodfetch_protocol::response_cache::CacheMode::parse(
+                settings
+                    .resolved()
+                    .get(&goodfetch_protocol::response_cache::CACHE_MODE),
+            )
+        })
+        .filter(|mode| *mode == goodfetch_protocol::response_cache::CacheMode::Replay)
+        .map(|mode| mode.as_str().to_owned())
+}
+
+/// Collects every regular file under `dir`, returning `(relative_posix_path, path)` sorted.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "runs on the Runs TaskOwner blocking policy"
+)]
+fn collect_trace_files(
+    root: &Path,
+    dir: &Path,
+    out: &mut Vec<(String, PathBuf)>,
+) -> std::io::Result<()> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            collect_trace_files(root, &path, out)?;
+        } else if file_type.is_file() {
+            let relative = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/");
+            out.push((relative, path));
+        }
+    }
+    Ok(())
+}
+
+/// Packages `<folder>/trace/` into a deterministic ZIP stored atomically under
+/// `<folder>/trace-copies/<sha256>`, or returns `Ok(None)` when no trace files exist.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "runs on the Runs TaskOwner blocking policy"
+)]
+fn build_trace_copy(
+    folder: &Path,
+    run_id: &RunId,
+    governor: &Governor,
+) -> Result<Option<goodfetch_protocol::run_trace::RunTrace>, KeepError> {
+    use std::io::{Cursor, Write as _};
+
+    let trace_dir = folder.join("trace");
+    let mut files = Vec::new();
+    collect_trace_files(&trace_dir, &trace_dir, &mut files)
+        .map_err(|error| KeepError::io(&error, "read the Run trace folder"))?;
+    if files.is_empty() {
+        return Ok(None);
+    }
+    if governor
+        .storage_at(folder)
+        .is_some_and(|filesystem| filesystem.is_critical())
+    {
+        return Err(KeepError::Storage {
+            reason: "storage_full",
+            os_code: None,
+            message: format!(
+                "the filesystem of `{}` is at the critical storage level",
+                folder.display()
+            ),
+        });
+    }
+    files.sort_by(|(left, _), (right, _)| left.cmp(right));
+    let mut buffer = Cursor::new(Vec::new());
+    {
+        let mut archive = zip::ZipWriter::new(&mut buffer);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .last_modified_time(zip::DateTime::default());
+        for (name, path) in files {
+            let bytes = std::fs::read(&path)
+                .map_err(|error| KeepError::io(&error, "read a Run trace file"))?;
+            archive
+                .start_file(name, options)
+                .map_err(|error| KeepError::Storage {
+                    reason: "other",
+                    os_code: None,
+                    message: format!("could not write the Run trace archive: {error}"),
+                })?;
+            archive
+                .write_all(&bytes)
+                .map_err(|error| KeepError::io(&error, "write the Run trace archive"))?;
+        }
+        archive.finish().map_err(|error| KeepError::Storage {
+            reason: "other",
+            os_code: None,
+            message: format!("could not finish the Run trace archive: {error}"),
+        })?;
+    }
+    let bytes = buffer.into_inner();
+    let mut cursor = Cursor::new(bytes);
+    let (digest, size) = run_files::store_trace(folder, &mut cursor)
+        .map_err(|error| KeepError::io(&error, "write the Run trace copy in the Run's folder"))?;
+    let location = run_files::trace_copy_file(folder, &digest)
+        .expect("invariant: store_trace returns a lowercase hex SHA-256")
+        .display()
+        .to_string();
+    Ok(Some(goodfetch_protocol::run_trace::RunTrace {
+        run_id: run_id.clone(),
+        location,
+        size,
+        digest,
+    }))
 }

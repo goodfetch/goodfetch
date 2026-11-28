@@ -26,7 +26,7 @@ fn sqlite_result_codes_become_delivery_failures(#[case] code: i32, #[case] expec
     let sink = SqliteSink::new(rusqlite::Connection::open_in_memory().unwrap(), "records");
     let error = rusqlite::Error::SqliteFailure(ffi::Error::new(code), None);
 
-    assert_eq!(sink.map_failure(error).kind(), expected);
+    assert_eq!(sink.map_failure(error.into()).kind(), expected);
 }
 
 #[test]
@@ -34,7 +34,19 @@ fn a_failure_that_is_not_sqlites_is_unrecognized() {
     let sink = SqliteSink::new(rusqlite::Connection::open_in_memory().unwrap(), "records");
 
     assert_eq!(
-        sink.map_failure(rusqlite::Error::InvalidQuery).kind(),
+        sink.map_failure(rusqlite::Error::InvalidQuery.into())
+            .kind(),
         FailureKind::Unrecognized
+    );
+}
+
+#[test]
+fn a_schema_freeze_refusal_maps_to_rejected_records() {
+    let sink = SqliteSink::new(rusqlite::Connection::open_in_memory().unwrap(), "records");
+
+    assert_eq!(
+        sink.map_failure(super::SqliteError::SchemaFrozen("extra".to_owned()))
+            .kind(),
+        FailureKind::RejectedRecords
     );
 }

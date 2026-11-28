@@ -1542,6 +1542,36 @@ words = ["verify", "webhook"]
 form = "read"
 
 [[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "SecretRequest"
+entry = "none"
+reason = "What the engine passes to `resolve_secret` for a `caller:<name>` Secret reference (ADR 0092)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["secret", "request"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "SecretResolver"
+entry = "none"
+reason = "Answers `caller:<name>` Secret references on the sync client (ADR 0092)."
+only = "A re-export, which Python lists where its package's `__all__` names it; Rust declares `ConnectOptions::resolve_secret()`."
+words = ["secret", "resolver"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "AsyncSecretResolver"
+entry = "none"
+reason = "Answers `caller:<name>` Secret references on the async client (ADR 0092)."
+only = "Python's async twin (ADR 0081): TypeScript is async only, and Rust declares `ConnectOptions::resolve_secret()`."
+words = ["async", "secret", "resolver"]
+form = "type"
+
+[[member]]
 package = "goodfetch_collie.testing"
 receiver = "(module)"
 member = "connect_over"
@@ -2242,6 +2272,136 @@ form = "opener"
 [[member]]
 package = "goodfetch_foxhound"
 receiver = "AsyncCrawlRun"
+member = "export"
+entry = "run.export"
+words = ["export"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRun"
+member = "outcomes"
+entry = "run.outcomes"
+words = ["outcomes"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRun"
+member = "failed_requests"
+entry = "run.failed_requests"
+words = ["failed", "requests"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRun"
+member = "retry_failed"
+entry = "run.retry_failed"
+words = ["retry", "failed"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "AsyncExport"
+entry = "none"
+reason = "A completed Dataset Export handle returned by `AsyncCrawlRun.export`, holding its descriptor with `save_as` and `stream` (ADRs 0103 and 0116)."
+only = "Python's async twin (ADR 0081): TypeScript is async only, and Rust's twin is in its `blocking` module."
+words = ["async", "export"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncExport"
+member = "id"
+entry = "none"
+reason = "The Export's ID."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncExport"
+member = "format"
+entry = "none"
+reason = "The Export's format."
+words = ["format"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncExport"
+member = "compression"
+entry = "none"
+reason = "The Export's compression."
+words = ["compression"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncExport"
+member = "records"
+entry = "none"
+reason = "How many Records the Export holds."
+words = ["records"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncExport"
+member = "last_number"
+entry = "none"
+reason = "The number of the last Record the Export holds, 0 when empty."
+words = ["last", "number"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncExport"
+member = "size"
+entry = "none"
+reason = "The Export's file size in bytes."
+words = ["size"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncExport"
+member = "sha256"
+entry = "none"
+reason = "The SHA-256 of the Export's bytes in lowercase hexadecimal."
+words = ["sha256"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncExport"
+member = "run_epoch"
+entry = "none"
+reason = "The run epoch of the Run's state the Export was written from (ADR 0003)."
+words = ["run", "epoch"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncExport"
+member = "save_as"
+entry = "export.save_as"
+words = ["save", "as"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncExport"
+member = "stream"
+entry = "export.stream"
+words = ["stream"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRun"
 member = "finish"
 entry = "run.finish"
 words = ["finish"]
@@ -2304,6 +2464,135 @@ receiver = "CrawlRun"
 member = "rejected_records"
 entry = "run.rejected_records"
 words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRun"
+member = "export"
+entry = "run.export"
+words = ["export"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRun"
+member = "outcomes"
+entry = "run.outcomes"
+words = ["outcomes"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRun"
+member = "failed_requests"
+entry = "run.failed_requests"
+words = ["failed", "requests"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRun"
+member = "retry_failed"
+entry = "run.retry_failed"
+words = ["retry", "failed"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "Export"
+entry = "none"
+reason = "A completed Dataset Export handle returned by `CrawlRun.export`, holding its descriptor with `save_as` and `stream` (ADRs 0103 and 0116)."
+words = ["export"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Export"
+member = "id"
+entry = "none"
+reason = "The Export's ID."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Export"
+member = "format"
+entry = "none"
+reason = "The Export's format."
+words = ["format"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Export"
+member = "compression"
+entry = "none"
+reason = "The Export's compression."
+words = ["compression"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Export"
+member = "records"
+entry = "none"
+reason = "How many Records the Export holds."
+words = ["records"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Export"
+member = "last_number"
+entry = "none"
+reason = "The number of the last Record the Export holds, 0 when empty."
+words = ["last", "number"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Export"
+member = "size"
+entry = "none"
+reason = "The Export's file size in bytes."
+words = ["size"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Export"
+member = "sha256"
+entry = "none"
+reason = "The SHA-256 of the Export's bytes in lowercase hexadecimal."
+words = ["sha256"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Export"
+member = "run_epoch"
+entry = "none"
+reason = "The run epoch of the Run's state the Export was written from (ADR 0003)."
+words = ["run", "epoch"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Export"
+member = "save_as"
+entry = "export.save_as"
+words = ["save", "as"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Export"
+member = "stream"
+entry = "export.stream"
+words = ["stream"]
 form = "opener"
 
 [[member]]
@@ -2696,6 +2985,15 @@ form = "runtime"
 
 [[member]]
 package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "worker_target"
+entry = "none"
+reason = "Describes the engine endpoint (Attached private endpoint, Daemon or remote) that extra worker processes connect to (ADR 0024)."
+words = ["worker", "target"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
 receiver = "(module)"
 member = "closed_error"
 entry = "none"
@@ -2778,6 +3076,15 @@ form = "runtime"
 [[member]]
 package = "goodfetch_collie_client.handle"
 receiver = "AsyncHandleHost"
+member = "connection"
+entry = "none"
+reason = "The Connection this handle's calls and Run copies reach the engine through."
+words = ["connection"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "AsyncHandleHost"
 member = "call"
 entry = "none"
 reason = "Sends one of the handle's calls and returns its result as the engine sent it, which a generated method reads into its model."
@@ -2854,6 +3161,24 @@ member = "id"
 entry = "none"
 reason = "The ID each of the handle's calls carries."
 words = ["id"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "HandleHost"
+member = "connection"
+entry = "none"
+reason = "The Connection this handle's calls and Run copies reach the engine through."
+words = ["connection"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "HandleHost"
+member = "loop"
+entry = "none"
+reason = "The private loop that drives this handle's async calls and Run copies."
+words = ["loop"]
 form = "runtime"
 
 [[member]]
@@ -3351,6 +3676,10 @@ entries = ["sample.echo", "sample.crawl"]
 reason = "The engine's sample operations, which tests and benchmarks call; no Product member serves them."
 
 [[unreached]]
+entries = ["sink.probe", "sink.list", "sink.deliver"]
+reason = "Operator Sink operations (issues 1128, 1146 and 1149); CLI and SDK views belong to area 11."
+
+[[unreached]]
 entries = ["connection.set_log_level"]
 reason = "The Connection sends it itself, following the `goodfetch.engine` logger's effective level (ADR 0078); no member sets it."
 
@@ -3384,28 +3713,574 @@ reason = "A Client that cannot read a page body's file streams it through `page.
 
 [[unreached]]
 entries = ["crawl.serve"]
-reason = "A handler process of `workers=N` offers its handler with it (ADR 0024), and the SDK starts none yet; issue 2804 adds Rust's `serve`."
+reason = "What each extra worker process started by `start_crawl(..., workers=N)` sends internally to offer its handlers (ADR 0024), so it has no separate member of its own."
 
 [[unreached]]
 entries = ["crawl_request.links"]
 reason = "What `enqueue_links` sends itself, before `crawl_request.enqueue_links`, when it is given a Payload function: the function reads each link it answers, so it has no member of its own."
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRun"
+member = "seeds"
+entry = "run.seeds"
+words = ["seeds"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRun"
+member = "add_seed"
+entry = "run.add_seed"
+words = ["add", "seed"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRun"
+member = "add_seeds"
+entry = "run.add_seeds"
+words = ["add", "seeds"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRun"
+member = "seeds"
+entry = "run.seeds"
+words = ["seeds"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRun"
+member = "add_seed"
+entry = "run.add_seed"
+words = ["add", "seed"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRun"
+member = "add_seeds"
+entry = "run.add_seeds"
+words = ["add", "seeds"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncAttemptRun"
+member = "add_seed"
+entry = "run.add_seed"
+words = ["add", "seed"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncAttemptRun"
+member = "add_seeds"
+entry = "run.add_seeds"
+words = ["add", "seeds"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AttemptRun"
+member = "add_seed"
+entry = "run.add_seed"
+words = ["add", "seed"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AttemptRun"
+member = "add_seeds"
+entry = "run.add_seeds"
+words = ["add", "seeds"]
+form = "round_trip"
 
 [[unreached]]
 entries = ["dataset.list", "dataset.page", "dataset.query", "dataset.search", "record.search"]
 reason = "No member reads a Run's Datasets yet."
 
 [[unreached]]
-entries = ["run.export", "export.save_as", "export.stream"]
-reason = "Issue 1488 adds `run.export`, whose `Export` has `save_as` and `stream`."
+entries = ["crawl_request.enqueue_links_by_clicking_elements"]
+reason = "Issue 1087 builds the engine operation; Foxhound's SDK surface adds `enqueue_links_by_clicking_elements` in area 11."
 
-[[unreached]]
-entries = ["run.seeds", "run.add_seed", "run.add_seeds"]
-reason = "Issue 1494 adds `seeds`, `add_seed` and `add_seeds` to a running crawl."
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "(module)"
+member = "AsyncCheckpoint"
+entry = "none"
+reason = "A completed Checkpoint of a Run in the async API with `save_as` and `stream` (ADRs 0102 and 0116)."
+only = "Python's async twin of `Checkpoint`."
+words = ["async", "checkpoint"]
+form = "type"
 
-[[unreached]]
-entries = ["run.outcomes", "run.failed_requests", "run.retry_failed"]
-reason = "Issue 1495 adds `outcomes`, `failed_requests` and `retry_failed`."
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "AsyncCheckpoint"
+member = "run_id"
+entry = "none"
+reason = "The Run ID the Checkpoint belongs to (ADR 0102)."
+words = ["run", "id"]
+form = "read"
 
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "AsyncCheckpoint"
+member = "location"
+entry = "none"
+reason = "The Checkpoint's path on the engine's machine (ADR 0102)."
+words = ["location"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "AsyncCheckpoint"
+member = "size"
+entry = "none"
+reason = "The Checkpoint's size in bytes (ADR 0102)."
+words = ["size"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "AsyncCheckpoint"
+member = "digest"
+entry = "none"
+reason = "The Checkpoint's SHA-256 digest (ADR 0102)."
+words = ["digest"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "AsyncCheckpoint"
+member = "run_epoch"
+entry = "none"
+reason = "The run epoch of the writer that took the Checkpoint (ADR 0003)."
+words = ["run", "epoch"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "AsyncCheckpoint"
+member = "journal_position"
+entry = "none"
+reason = "The Run journal position the Checkpoint holds (ADR 0102)."
+words = ["journal", "position"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "AsyncCheckpoint"
+member = "time"
+entry = "none"
+reason = "When the Checkpoint was taken (ADR 0102)."
+words = ["time"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "AsyncCheckpoint"
+member = "save_as"
+entry = "checkpoint.save_as"
+words = ["save", "as"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "AsyncCheckpoint"
+member = "stream"
+entry = "checkpoint.stream"
+words = ["stream"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "(module)"
+member = "Checkpoint"
+entry = "none"
+reason = "A completed Checkpoint of a Run in the sync API with `save_as` and `stream` (ADRs 0102 and 0116)."
+words = ["checkpoint"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "Checkpoint"
+member = "run_id"
+entry = "none"
+reason = "The Run ID the Checkpoint belongs to (ADR 0102)."
+words = ["run", "id"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "Checkpoint"
+member = "location"
+entry = "none"
+reason = "The Checkpoint's path on the engine's machine (ADR 0102)."
+words = ["location"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "Checkpoint"
+member = "size"
+entry = "none"
+reason = "The Checkpoint's size in bytes (ADR 0102)."
+words = ["size"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "Checkpoint"
+member = "digest"
+entry = "none"
+reason = "The Checkpoint's SHA-256 digest (ADR 0102)."
+words = ["digest"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "Checkpoint"
+member = "run_epoch"
+entry = "none"
+reason = "The run epoch of the writer that took the Checkpoint (ADR 0003)."
+words = ["run", "epoch"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "Checkpoint"
+member = "journal_position"
+entry = "none"
+reason = "The Run journal position the Checkpoint holds (ADR 0102)."
+words = ["journal", "position"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "Checkpoint"
+member = "time"
+entry = "none"
+reason = "When the Checkpoint was taken (ADR 0102)."
+words = ["time"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "Checkpoint"
+member = "save_as"
+entry = "checkpoint.save_as"
+words = ["save", "as"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "Checkpoint"
+member = "stream"
+entry = "checkpoint.stream"
+words = ["stream"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "(module)"
+member = "AsyncRunTrace"
+entry = "none"
+reason = "A Run's trace copy in the async API with `save_as` and `stream` (ADRs 0102 and 0116)."
+only = "Python's async twin of `RunTrace`."
+words = ["async", "run", "trace"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "AsyncRunTrace"
+member = "run_id"
+entry = "none"
+reason = "The Run ID the trace copy belongs to (ADR 0102)."
+words = ["run", "id"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "AsyncRunTrace"
+member = "location"
+entry = "none"
+reason = "The trace copy's path on the engine's machine (ADR 0102)."
+words = ["location"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "AsyncRunTrace"
+member = "size"
+entry = "none"
+reason = "The trace copy's size in bytes (ADR 0102)."
+words = ["size"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "AsyncRunTrace"
+member = "digest"
+entry = "none"
+reason = "The trace copy's SHA-256 digest (ADR 0102)."
+words = ["digest"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "AsyncRunTrace"
+member = "save_as"
+entry = "trace.save_as"
+words = ["save", "as"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "AsyncRunTrace"
+member = "stream"
+entry = "trace.stream"
+words = ["stream"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "(module)"
+member = "RunTrace"
+entry = "none"
+reason = "A Run's trace copy in the sync API with `save_as` and `stream` (ADRs 0102 and 0116)."
+words = ["run", "trace"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "RunTrace"
+member = "run_id"
+entry = "none"
+reason = "The Run ID the trace copy belongs to (ADR 0102)."
+words = ["run", "id"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "RunTrace"
+member = "location"
+entry = "none"
+reason = "The trace copy's path on the engine's machine (ADR 0102)."
+words = ["location"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "RunTrace"
+member = "size"
+entry = "none"
+reason = "The trace copy's size in bytes (ADR 0102)."
+words = ["size"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "RunTrace"
+member = "digest"
+entry = "none"
+reason = "The trace copy's SHA-256 digest (ADR 0102)."
+words = ["digest"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "RunTrace"
+member = "save_as"
+entry = "trace.save_as"
+words = ["save", "as"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "enable_empty_replay_by_default"
+entry = "none"
+reason = "Marks a TestEngine connection so Runs without `recording` replay an empty one (ADR 0105)."
+only = "Internal runtime helper for Product testing kits."
+words = ["enable", "empty", "replay", "by", "default"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run"
+receiver = "AsyncRun"
+member = "save_recording"
+entry = "recording.save_as"
+words = ["save", "recording"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.run"
+receiver = "Run"
+member = "save_recording"
+entry = "recording.save_as"
+words = ["save", "recording"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.run_view"
+receiver = "AsyncRunView"
+member = "save_recording"
+entry = "recording.save_as"
+words = ["save", "recording"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.run_view"
+receiver = "RunView"
+member = "save_recording"
+entry = "recording.save_as"
+words = ["save", "recording"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.run_copies"
+receiver = "RunTrace"
+member = "stream"
+entry = "trace.stream"
+words = ["stream"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.key_value_store"
+receiver = "(module)"
+member = "AsyncKeyValueStoreView"
+entry = "none"
+reason = "Read-only view of a Run's Key-value store in the async API (ADRs 0102 and 0103)."
+only = "Python's async twin of `KeyValueStoreView`."
+words = ["async", "key", "value", "store", "view"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.key_value_store"
+receiver = "AsyncKeyValueStoreView"
+member = "get"
+entry = "key_value_store.get"
+words = ["get"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.key_value_store"
+receiver = "AsyncKeyValueStoreView"
+member = "get_bytes"
+entry = "key_value_store.get_bytes"
+words = ["get", "bytes"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.key_value_store"
+receiver = "AsyncKeyValueStoreView"
+member = "keys"
+entry = "key_value_store.keys"
+words = ["keys"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.key_value_store"
+receiver = "(module)"
+member = "KeyValueStoreView"
+entry = "none"
+reason = "Read-only view of a Run's Key-value store in the sync API (ADRs 0102 and 0103)."
+words = ["key", "value", "store", "view"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.key_value_store"
+receiver = "KeyValueStoreView"
+member = "get"
+entry = "key_value_store.get"
+words = ["get"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.key_value_store"
+receiver = "KeyValueStoreView"
+member = "get_bytes"
+entry = "key_value_store.get_bytes"
+words = ["get", "bytes"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.key_value_store"
+receiver = "KeyValueStoreView"
+member = "keys"
+entry = "key_value_store.keys"
+words = ["keys"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_view"
+receiver = "AsyncRunView"
+member = "key_value_store"
+entry = "none"
+reason = "Read-only view of the Run's Key-value store (ADRs 0102 and 0103)."
+words = ["key", "value", "store"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_view"
+receiver = "AsyncRunView"
+member = "progress"
+entry = "run.progress"
+words = ["progress"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_view"
+receiver = "AsyncRunView"
+member = "report"
+entry = "run.report"
+words = ["report"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.run_view"
+receiver = "AsyncRunView"
+member = "trace"
+entry = "run.trace"
+words = ["trace"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.run_view"
+receiver = "RunView"
+member = "key_value_store"
+entry = "none"
+reason = "Read-only view of the Run's Key-value store (ADRs 0102 and 0103)."
+words = ["key", "value", "store"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_view"
+receiver = "RunView"
+member = "progress"
+entry = "run.progress"
+words = ["progress"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_view"
+receiver = "RunView"
+member = "report"
+entry = "run.report"
+words = ["report"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.run_view"
+receiver = "RunView"
+member = "trace"
+entry = "run.trace"
+words = ["trace"]
+form = "round_trip"
 [[logger]]
 package = "goodfetch-collie-client"
 name = "goodfetch"

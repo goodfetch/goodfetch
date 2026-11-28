@@ -2,7 +2,7 @@
 
 import { PageError, ProgramError, RefusedError, UnavailableError, detailsOf, isCollieError, isGoodfetchError, retryAfterOf } from "@goodfetch/collie-client/generated";
 import type { CollieError, ErrorClass, ErrorFields } from "@goodfetch/collie-client/generated";
-import type { BrowserRequiredDetails, DatasetDuplicateDetails, DatasetKeyInvalidDetails, DatasetUnknownDetails, HandlerFailedDetails, HookDuplicateDetails, HookIneffectiveDetails, HookUndeclaredDetails, HookUnknownDetails, LabelUnknownDetails, PayloadInvalidDetails, PayloadSchemaChangedDetails, QueryInvalidDetails, QueryMemoryExceededDetails, RecordInvalidDetails, ResponseNotDocumentDetails, ResponseUnavailableDetails, SheetCapacityExceededDetails, StagingFullDetails } from "./types.ts";
+import type { BrowserRequiredDetails, CrawlNotImportableDetails, DatasetDuplicateDetails, DatasetKeyInvalidDetails, DatasetUnknownDetails, HandlerFailedDetails, HookDuplicateDetails, HookIneffectiveDetails, HookUndeclaredDetails, HookUnknownDetails, LabelUnknownDetails, PayloadInvalidDetails, PayloadSchemaChangedDetails, QueryInvalidDetails, QueryMemoryExceededDetails, RecordInvalidDetails, ResponseNotDocumentDetails, ResponseUnavailableDetails, SheetCapacityExceededDetails, SinkGuaranteeUnmetDetails, StagingFullDetails } from "./types.ts";
 import { foxhoundWire } from "./wire.ts";
 
 /**
@@ -36,6 +36,22 @@ export class BrowserRequiredError extends ProgramError<"browser_required"> {
 export class ClientGoneError extends UnavailableError<"client_gone"> {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "ClientGoneError", code: "client_gone", group: "unavailable", retryable: true });
+  }
+}
+
+/**
+ * A crawl started with `workers > 1` cannot be imported by an extra worker process: it was defined inside a function rather than at module level, no module was named, or the named module or export does not yield a `Crawl`. Nothing was started. Define the `Crawl` at module level or name `module`.
+ */
+export class CrawlNotImportableError extends ProgramError<"crawl_not_importable"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<CrawlNotImportableDetails> | undefined;
+
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "CrawlNotImportableError", code: "crawl_not_importable", group: "program", retryable: false });
+    this.typedDetails = detailsOf<CrawlNotImportableDetails>(fields.details, []);
   }
 }
 
@@ -419,6 +435,22 @@ export class SheetCapacityExceededError extends ProgramError<"sheet_capacity_exc
 }
 
 /**
+ * A Sink of a crawl's Run proved a weaker Guarantee class than the Run's `crawl.min_sink_guarantee`, or its probe failed, so the Run was refused at its start and did no work. The details name the Sink, the class required, the class its probe proved, if any, and the cause of a failed probe. Deliver to a destination that proves the class, such as a Fenced SQLite Sink, or lower `crawl.min_sink_guarantee`.
+ */
+export class SinkGuaranteeUnmetError extends RefusedError<"sink_guarantee_unmet"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<SinkGuaranteeUnmetDetails> | undefined;
+
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "SinkGuaranteeUnmetError", code: "sink_guarantee_unmet", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<SinkGuaranteeUnmetDetails>(fields.details, ["sink", "required"]);
+  }
+}
+
+/**
  * The call would stage one more admission (an enqueue, an `enqueueLinks` call or a seed added through `ctx.run`) with an attempt that already staged `crawl.max_staged_enqueues` of them, which the attempt holds in the engine's memory until it commits. Nothing was staged. Enqueue many links with one `enqueueLinks` call, or raise the setting, which `limit` names.
  */
 export class StagingFullError extends ProgramError<"staging_full"> {
@@ -439,6 +471,7 @@ export const foxhoundErrorClasses: Readonly<Record<string, ErrorClass>> = {
   attempt_ended: AttemptEndedError,
   browser_required: BrowserRequiredError,
   client_gone: ClientGoneError,
+  crawl_not_importable: CrawlNotImportableError,
   dataset_duplicate: DatasetDuplicateError,
   dataset_key_invalid: DatasetKeyInvalidError,
   dataset_unknown: DatasetUnknownError,
@@ -467,6 +500,7 @@ export const foxhoundErrorClasses: Readonly<Record<string, ErrorClass>> = {
   retry_requested: RetryRequestedError,
   sample_crawl_refused: SampleCrawlRefusedError,
   sheet_capacity_exceeded: SheetCapacityExceededError,
+  sink_guarantee_unmet: SinkGuaranteeUnmetError,
   staging_full: StagingFullError,
 };
 
@@ -475,6 +509,7 @@ export type FoxhoundErrorCode =
   | "attempt_ended"
   | "browser_required"
   | "client_gone"
+  | "crawl_not_importable"
   | "dataset_duplicate"
   | "dataset_key_invalid"
   | "dataset_unknown"
@@ -503,9 +538,10 @@ export type FoxhoundErrorCode =
   | "retry_requested"
   | "sample_crawl_refused"
   | "sheet_capacity_exceeded"
+  | "sink_guarantee_unmet"
   | "staging_full";
 
-const foxhoundErrorCodes: ReadonlySet<string> = new Set<FoxhoundErrorCode>(["attempt_ended", "browser_required", "client_gone", "dataset_duplicate", "dataset_key_invalid", "dataset_unknown", "effect_staging_refused", "handler_failed", "handler_lost", "hook_duplicate", "hook_ineffective", "hook_undeclared", "hook_unknown", "label_duplicate", "label_unhandled", "label_unknown", "lease_lost", "partitions_exceed_group_members", "partitions_need_group", "payload_invalid", "payload_schema_changed", "query_failed", "query_invalid", "query_memory_exceeded", "record_invalid", "response_not_document", "response_not_ok", "response_unavailable", "retry_requested", "sample_crawl_refused", "sheet_capacity_exceeded", "staging_full"]);
+const foxhoundErrorCodes: ReadonlySet<string> = new Set<FoxhoundErrorCode>(["attempt_ended", "browser_required", "client_gone", "crawl_not_importable", "dataset_duplicate", "dataset_key_invalid", "dataset_unknown", "effect_staging_refused", "handler_failed", "handler_lost", "hook_duplicate", "hook_ineffective", "hook_undeclared", "hook_unknown", "label_duplicate", "label_unhandled", "label_unknown", "lease_lost", "partitions_exceed_group_members", "partitions_need_group", "payload_invalid", "payload_schema_changed", "query_failed", "query_invalid", "query_memory_exceeded", "record_invalid", "response_not_document", "response_not_ok", "response_unavailable", "retry_requested", "sample_crawl_refused", "sheet_capacity_exceeded", "sink_guarantee_unmet", "staging_full"]);
 
 /** An error with one of the Error codes Foxhound raises, which its `code` narrows to the code's class. */
 export type FoxhoundError =
@@ -513,6 +549,7 @@ export type FoxhoundError =
   | AttemptEndedError
   | BrowserRequiredError
   | ClientGoneError
+  | CrawlNotImportableError
   | DatasetDuplicateError
   | DatasetKeyInvalidError
   | DatasetUnknownError
@@ -541,6 +578,7 @@ export type FoxhoundError =
   | RetryRequestedError
   | SampleCrawlRefusedError
   | SheetCapacityExceededError
+  | SinkGuaranteeUnmetError
   | StagingFullError;
 
 /** Whether `value` is an error with one of the Error codes Foxhound raises, from any copy of the package. */

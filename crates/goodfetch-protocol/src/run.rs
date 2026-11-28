@@ -68,8 +68,9 @@ pub use self::report::{
 };
 pub use self::starts::{
     CATALOG_RUN_START, CatalogRunStartParams, CatalogTarget, DETACH_UNSUPPORTED,
-    DetachUnsupportedDetails, RECIPE_START, RECORDING_INVALID, RESPONSE_NOT_RECORDED,
-    RUN_TARGET_UNBUILT, RecipeStartParams, Recording, RecordingInvalidDetails, RecordingMode,
+    DetachUnsupportedDetails, RECIPE_START, RECORDING_INVALID, RECORDING_SAVE_AS,
+    RESPONSE_NOT_RECORDED, RUN_TARGET_UNBUILT, RecipeStartParams, Recording,
+    RecordingInvalidDetails, RecordingMode, RecordingSaveAsParams, RecordingSaved,
     ResponseNotRecordedDetails, RunTargetUnbuiltDetails,
 };
 
@@ -762,6 +763,12 @@ pub struct RunStartParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub recording: Option<Recording>,
+    /// The Response recording's bytes in Base64, when the SDK read the file on
+    /// the program's machine for `mode: "replay"` (ADR 0105); empty string for
+    /// a test engine's empty replay recording.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub recording_bytes: Option<String>,
     /// The third-party Plugins, by name, whose changed digest a start that
     /// resumes the Run accepts (ADR 0033), where it would otherwise refuse
     /// the resume.
@@ -1566,6 +1573,7 @@ pub const ENTRIES: Entries = Entries {
         RUN_LIST,
         RECIPE_START,
         CATALOG_RUN_START,
+        RECORDING_SAVE_AS,
     ],
     events: &[RUN_AXES_CHANGED, RUN_PROGRESS],
     handler_requests: &[],

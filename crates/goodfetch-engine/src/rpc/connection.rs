@@ -733,6 +733,7 @@ async fn serve_carried(
             () = stop_logging.cancelled() => {}
         }
     });
+    let runs = runs.for_client(client.clone());
     let connection = Arc::new(ConnectionContext {
         identity: Arc::clone(&dispatch.identity),
         client,
@@ -2551,7 +2552,7 @@ async fn http_connection_context(
     };
     let connection = Arc::new(ConnectionContext {
         identity: Arc::clone(&context.dispatch.identity),
-        client,
+        client: client.clone(),
         surface: OnceLock::from(accepted.surface),
         principal: OnceLock::from(Principal::of(carriage)),
         form: OnceLock::from(form),
@@ -2560,7 +2561,7 @@ async fn http_connection_context(
         registered: OnceLock::from(Map::new()),
         drivers: Arc::clone(&context.dispatch.drivers),
         attempt_stagings: Arc::clone(&context.dispatch.attempt_stagings),
-        runs: context.runs.clone(),
+        runs: context.runs.for_client(client),
         events: context.events.clone(),
         engine: context.engine.clone(),
         daemon: Some(Arc::clone(&context.daemon)),

@@ -43,6 +43,8 @@ pub enum Storage {
     Transcript,
     /// TOML documents, such as settings files.
     Toml,
+    /// WARC 1.1 files (ISO 28500:2017), plain and gzipped per record.
+    Warc,
 }
 
 impl Storage {
@@ -53,6 +55,7 @@ impl Storage {
             Self::Sqlite => "sqlite",
             Self::Transcript => "transcript",
             Self::Toml => "toml",
+            Self::Warc => "warc",
         }
     }
 }
@@ -529,6 +532,20 @@ pub const NOTIFICATION_PAYLOAD: Format = Format {
     schema: schema_of::<NotificationPayload>,
 };
 
+/// Goodfetch's WARC 1.1 profile (ISO 28500:2017; ADRs 0066, 0105 and 0118):
+/// the one WARC profile Response recordings and Foxhound's WARC output write.
+/// Its `head/` corpus holds every record kind the writer emits (`warcinfo`,
+/// `request`, `response`, `revisit`, and a truncated response), both plain
+/// and gzipped record by record.
+pub const WARC: Format = Format {
+    name: "warc",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Warc,
+    rule: Rule::Default,
+    hello_from: &[],
+    schema: schema_of::<Value>,
+};
+
 /// The signed Operation catalog file attached to every GitHub Release
 /// (`goodfetch-catalog.json`, ADRs 0030, 0032 and 0095; issue 1662): both
 /// Products' catalog entries with their marks, the protocol version, the
@@ -566,6 +583,7 @@ pub const FORMATS: &[&Format] = &[
     &PLUGIN_MANIFEST,
     &PEER_PROTOCOL,
     &NOTIFICATION_PAYLOAD,
+    &WARC,
     &PUBLISHED_CATALOG,
 ];
 

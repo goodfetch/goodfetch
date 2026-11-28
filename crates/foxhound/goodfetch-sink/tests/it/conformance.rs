@@ -142,7 +142,10 @@ fn a_retry_whose_write_had_landed_writes_nothing_twice() {
     );
 
     let behind = delivering.deliver(&records).unwrap();
-    let Status::Behind { failure, retry_in } = behind else {
+    let Status::Behind {
+        failure, retry_in, ..
+    } = behind
+    else {
         panic!("a lost answer leaves the Sink behind, not {behind:?}");
     };
     assert_eq!(failure.kind(), FailureKind::Transient);

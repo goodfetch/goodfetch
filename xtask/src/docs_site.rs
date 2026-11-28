@@ -26,14 +26,20 @@ use std::process::ExitCode;
 
 use anyhow::{Context as _, Result};
 use clap::Subcommand;
+use goodfetch_protocol::catalog::Product as ProtocolProduct;
+use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::deploy::DeployTarget;
 use serde_json::{Value, json};
 
 use crate::check::{self, Finding};
+use crate::deploy_templates;
 use crate::docs_samples::render::{self, Rendering};
 use crate::environment::Environment;
 use crate::output;
 use crate::products::Product;
 use crate::tree;
+
+mod reference;
 
 #[derive(Subcommand)]
 pub(crate) enum Command {
@@ -172,6 +178,7 @@ fn render(root: &Path) -> Result<ExitCode> {
         .iter()
         .map(|page| (page.source.as_str(), page.outputs()))
         .collect();
+    let mut deploy_version: Option<ProductVersion> = None;
     let mut files: Vec<(String, String)> = Vec::new();
     for page in &pages {
         match &page.content {
@@ -179,12 +186,27 @@ fn render(root: &Path) -> Result<ExitCode> {
             Content::Rendered(renderings) => {
                 for rendering in renderings {
                     let output = format!("{}/{}", rendering.product.key(), page.relative);
-                    let text = rendered(page, rendering, &output, &outputs);
+                    let text = rendered(
+                        root,
+                        page,
+                        rendering,
+                        &output,
+                        &outputs,
+                        &mut deploy_version,
+                        &mut findings,
+                    )?;
                     files.push((output, text));
                 }
             }
         }
     }
+    if !findings.is_empty() {
+        return Ok(check::report(&findings));
+    }
+    let collie_ref = reference::generate(Product::Collie);
+    let foxhound_ref = reference::generate(Product::Foxhound);
+    files.extend(collie_ref.files);
+    files.extend(foxhound_ref.files);
     let target = root.join(OUTPUT);
     if target.exists() {
         std::fs::remove_dir_all(&target)
@@ -194,19 +216,37 @@ fn render(root: &Path) -> Result<ExitCode> {
         write(&target.join("docs").join(path), text)?;
     }
     let sidebars =
-        serde_json::to_string_pretty(&sidebars(&pages)).context("writing the sidebars")?;
+        serde_json::to_string_pretty(&sidebars(&pages, collie_ref.sidebar, foxhound_ref.sidebar))
+            .context("writing the sidebars")?;
     write(&target.join("sidebars.json"), &format!("{sidebars}\n"))?;
     output::line(&format!("{} pages written to {OUTPUT}", files.len()));
     Ok(ExitCode::SUCCESS)
 }
 
+/// Parses a standalone deployment-template directive line `{/* deploy: <target> */}`.
+fn deploy_directive(line: &str) -> Option<&str> {
+    let comment = line.trim().strip_prefix("{/*")?.strip_suffix("*/}")?.trim();
+    let (kind, value) = comment.split_once(':')?;
+    (kind.trim() == "deploy").then(|| value.trim())
+}
+
+fn protocol_product(product: Product) -> ProtocolProduct {
+    match product {
+        Product::Collie => ProtocolProduct::Collie,
+        Product::Foxhound => ProtocolProduct::Foxhound,
+    }
+}
+
 /// The page's text in `rendering`'s section, written at `output`.
 fn rendered(
+    root: &Path,
     page: &Page,
     rendering: &Rendering,
     output: &str,
     outputs: &BTreeMap<&str, Vec<(Section, String)>>,
-) -> String {
+    deploy_version: &mut Option<ProductVersion>,
+    findings: &mut Vec<Finding>,
+) -> Result<String> {
     let section = Section::Of(rendering.product);
     let mut lines: Vec<String> = front_matter(&page.text);
     let body_start = lines.len();
@@ -222,6 +262,31 @@ fn rendered(
             lines.push(text.clone());
             continue;
         }
+        if let Some(target_name) = deploy_directive(text) {
+            let Some(target) = DeployTarget::named(target_name) else {
+                let subject = format!("{}:{}", page.source, line.source);
+                if !findings.iter().any(|finding| finding.subject == subject) {
+                    findings.push(Finding::new(
+                        "docs-site",
+                        subject,
+                        format!("`{target_name}` is no deployment target `docs-site` knows"),
+                    ));
+                }
+                continue;
+            };
+            let version = match deploy_version.as_ref() {
+                Some(version) => version,
+                None => deploy_version.insert(deploy_templates::workspace_version(root)?),
+            };
+            let block = deploy_templates::render_docs_blocks(
+                root,
+                protocol_product(rendering.product),
+                target,
+                version,
+            )?;
+            lines.extend(block.trim_end_matches('\n').lines().map(str::to_owned));
+            continue;
+        }
         lines.push(relinked(text, &page.source, section, output, outputs));
         if !noted && text.starts_with("# ") {
             lines.extend(COLLIE_NOTE.map(str::to_owned));
@@ -233,7 +298,7 @@ fn rendered(
     }
     let mut text = lines.join("\n");
     text.push('\n');
-    text
+    Ok(text)
 }
 
 /// The page's front matter, its fences included, without the `products`
@@ -366,7 +431,7 @@ fn relative_to(from: &str, to: &str) -> String {
 /// The root's sidebar and each Product's, by doc ID, each section's home
 /// first; Foxhound's lists its own pages, then Collie's under Collie's
 /// heading.
-fn sidebars(pages: &[Page]) -> Value {
+fn sidebars(pages: &[Page], collie_ref: Value, foxhound_ref: Value) -> Value {
     let id = |output: &str| {
         output
             .trim_end_matches(".mdx")
@@ -393,7 +458,8 @@ fn sidebars(pages: &[Page]) -> Value {
                 .collect(),
         )
     };
-    let collie = in_section(Section::Of(Product::Collie), &|_| true);
+    let mut collie = in_section(Section::Of(Product::Collie), &|_| true);
+    collie.push(collie_ref);
     let mut foxhound = in_section(Section::Of(Product::Foxhound), &|page| {
         page.is_home() || !page.is_collies()
     });
@@ -408,6 +474,7 @@ fn sidebars(pages: &[Page]) -> Value {
             "items": collies,
         }));
     }
+    foxhound.push(foxhound_ref);
     json!({
         "root": in_section(Section::Root, &|_| true),
         "collie": collie,

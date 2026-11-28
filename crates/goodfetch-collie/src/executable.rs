@@ -89,6 +89,7 @@ use identity::{Refused, identity, refuse};
 use output::{ColourChoice, ColourFlag, Human};
 use settings_flags::SettingsFlags;
 
+pub use crate::deploy_templates::{DeployFile, DeployTemplateError, DeployTemplates};
 pub use command_line::printed_command_line;
 pub use init::{StarterFile, Starters};
 pub use needs_you::{Confirmation, ItemAnswer, ItemPrompt};
@@ -437,6 +438,9 @@ pub struct Start {
     /// The starters it carries, which `init` writes: [`Starters::COLLIE`]
     /// for Collie's.
     pub starters: Starters,
+    /// The deployment templates it carries, which `init --deploy` writes:
+    /// [`DeployTemplates::COLLIE`] for Collie's.
+    pub deploy_templates: DeployTemplates,
     /// Its command line, as the OS gave it.
     pub arguments: Vec<OsString>,
     /// Its environment, which `main` reads once (ADR 0059).
@@ -448,7 +452,7 @@ pub struct Start {
 /// # Examples
 ///
 /// ```no_run
-/// use goodfetch_collie::executable::{OwnCommands, Skills, Start, Starters, main};
+/// use goodfetch_collie::executable::{DeployTemplates, OwnCommands, Skills, Start, Starters, main};
 /// use goodfetch_protocol::catalog::Product;
 ///
 /// let exit_code = main(&Start {
@@ -459,6 +463,7 @@ pub struct Start {
 ///     commands: OwnCommands::COLLIE,
 ///     skills: Skills::COLLIE,
 ///     starters: Starters::COLLIE,
+///     deploy_templates: DeployTemplates::COLLIE,
 ///     arguments: vec!["goodfetch-collie".into(), "--version".into()],
 ///     environment: Default::default(),
 /// });
@@ -571,7 +576,7 @@ pub fn main(start: &Start) -> ExitCode {
         parsed,
         (&engine, dependencies),
         &settings,
-        (start.commands, start.skills, start.starters),
+        start,
         &environment,
         &human,
     )
@@ -786,11 +791,15 @@ fn records_the_executable(parsed: &Parsed) -> bool {
 /// Runs the command `parsed` asks for on `engine`, once the executable is
 /// set up, among `own` commands, with the `skills` and `starters` it
 /// carries.
+#[expect(
+    clippy::too_many_lines,
+    reason = "top-level CLI subcommand dispatch table"
+)]
 fn run(
     parsed: Parsed,
     (engine, dependencies): (&Engine, Dependencies),
     settings: &Result<Resolved, SettingsError>,
-    (own, skills, starters): (OwnCommands, Skills, Starters),
+    start: &Start,
     environment: &BTreeMap<OsString, OsString>,
     human: &Human,
 ) -> ExitCode {
@@ -812,7 +821,9 @@ fn run(
     };
     match command {
         // Printed before the executable is set up (`main`).
-        Command::PrintedCommandLine { .. } => command_line::print(engine.identity().product, own),
+        Command::PrintedCommandLine { .. } => {
+            command_line::print(engine.identity().product, start.commands)
+        }
         Command::AttachedEngine { .. } => run_attached(engine, dependencies, &machine),
         Command::Browser {
             command: BrowserCommand::Install { names, json },
@@ -852,7 +863,13 @@ fn run(
         Command::Doctor {
             json, include_urls, ..
         } => doctor::doctor(&machine, json, include_urls),
-        Command::Init(arguments) => init::init(starters, arguments, engine.identity(), human),
+        Command::Init(arguments) => init::init(
+            start.starters,
+            start.deploy_templates,
+            arguments,
+            engine.identity(),
+            human,
+        ),
         Command::Daemon { command, .. } => {
             daemon_command(command, engine, dependencies, &machine, human)
         }
@@ -873,13 +890,13 @@ fn run(
             command,
             (engine, dependencies),
             &machine,
-            own.answers,
+            start.commands.answers,
             human,
         ),
         Command::Recipe { command, .. } => {
             recipe::run(command, engine, dependencies, &machine, human)
         }
-        Command::Skill { command, .. } => command.run(skills, environment, human),
+        Command::Skill { command, .. } => command.run(start.skills, environment, human),
         Command::UpgradeFiles { from, json, .. } => {
             upgrade::upgrade(engine.identity(), &home, from.as_deref(), json, human)
         }

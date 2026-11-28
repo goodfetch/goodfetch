@@ -105,6 +105,8 @@ impl Transport for Site {
                 reused: false,
                 decoded: false,
                 certificate_exception: None,
+                custom_tls: false,
+                origin: None,
             })
         })
     }
@@ -384,4 +386,455 @@ async fn a_run_with_the_cache_off_gets_no_cached_transport() {
     );
 
     assert!(caching.is_none());
+}
+
+/// The HTTP tier answers from a WARC recording without calling its
+/// underlying transport, refuses a missing request with
+/// `response_not_recorded` (not retryable), and fails a truncated recorded
+/// response with `response_truncated` (ADR 0105).
+///
+const REPLAY_WARC: &str = concat!(
+    "WARC/1.1\r\n",
+    "WARC-Type: warcinfo\r\n",
+    "WARC-Record-ID: <urn:uuid:00000000-0000-0000-0000-000000000001>\r\n",
+    "WARC-Date: 2026-01-05T09:00:00Z\r\n",
+    "Content-Type: application/warc-fields\r\n",
+    "Content-Length: 23\r\n\r\n",
+    "software: goodfetch/0.1\r\n\r\n",
+    "WARC/1.1\r\n",
+    "WARC-Type: response\r\n",
+    "WARC-Record-ID: <urn:uuid:00000000-0000-0000-0000-000000000002>\r\n",
+    "WARC-Date: 2026-01-05T09:00:01Z\r\n",
+    "WARC-Target-URI: https://cache.test/page\r\n",
+    "Content-Type: application/http; msgtype=response\r\n",
+    "Content-Length: 55\r\n\r\n",
+    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<p>warc</p>\r\n\r\n",
+    "WARC/1.1\r\n",
+    "WARC-Type: response\r\n",
+    "WARC-Record-ID: <urn:uuid:00000000-0000-0000-0000-000000000003>\r\n",
+    "WARC-Date: 2026-01-05T09:00:02Z\r\n",
+    "WARC-Target-URI: https://cache.test/cut\r\n",
+    "WARC-Truncated: disconnect\r\n",
+    "Content-Type: application/http; msgtype=response\r\n",
+    "Content-Length: 50\r\n\r\n",
+    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<p>cut\r\n\r\n",
+);
+
+/// Covers: story:6-52, story:6-53
+#[tokio::test(start_paused = true)]
+async fn a_replaying_http_tier_answers_recorded_fails_missing_and_truncates_cut() {
+    use goodfetch_engine::mask::Masks;
+    use goodfetch_engine::response_recording::Recordings;
+    use goodfetch_protocol::response_limits::DEFAULT_MAX_DECOMPRESSION_RATIO;
+
+    let env = TestEnv::new();
+    let warc_file = env.folder().join("site.warc");
+    std::fs::write(&warc_file, REPLAY_WARC.as_bytes()).unwrap();
+    let warc_path = warc_file.to_string_lossy().into_owned();
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let recordings = Recordings::default();
+    let replayed = recordings
+        .open_replay(
+            &warc_path,
+            Masks::new(),
+            DEFAULT_MAX_DECOMPRESSION_RATIO,
+            &owner,
+        )
+        .await
+        .unwrap();
+    let run_id = RunId::parse("replay-http").unwrap();
+    recordings.attach(run_id.clone(), replayed);
+
+    let site = Site::answering(vec![minute(b"<p>live</p>")]);
+    let caching = Caching::of(
+        ResponseSource::default().recording(recordings.get(&run_id).unwrap()),
+        "ada",
+        run_id.clone(),
+        Clock::paused(std::time::UNIX_EPOCH),
+    )
+    .unwrap();
+    let transport = super::over(&caching, Arc::clone(&site) as Arc<dyn Transport>);
+    let bounds = FetchBounds {
+        first_byte: Deadline::given(&TIMEOUT_FIRST_BYTE, 30_000, SettingsLayer::Run),
+        navigation: Deadline::given(&TIMEOUT_NAVIGATION, 30_000, SettingsLayer::Run),
+        limits: Limits::default(),
+    };
+    let clock = Clock::paused(std::time::UNIX_EPOCH);
+
+    let hit = crate::driver::fetch(
+        transport.as_ref(),
+        &Hop::get("https://cache.test/page".parse().unwrap()),
+        &bounds,
+        &clock,
+    )
+    .await
+    .unwrap();
+    assert_eq!(&hit.body[..], b"<p>warc</p>");
+    assert!(matches!(
+        hit.origin,
+        Some(goodfetch_protocol::foxhound::provenance::ResponseOrigin::ResponseRecording { .. })
+    ));
+
+    let missing = crate::driver::fetch(
+        transport.as_ref(),
+        &Hop::get("https://cache.test/page?extra=1".parse().unwrap()),
+        &bounds,
+        &clock,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(missing.error().code(), "response_not_recorded");
+    assert!(!missing.error().retryable());
+    assert_eq!(
+        missing.error().details().unwrap()["nearest"],
+        serde_json::json!(["https://cache.test/page"])
+    );
+
+    let truncated = crate::driver::fetch(
+        transport.as_ref(),
+        &Hop::get("https://cache.test/cut".parse().unwrap()),
+        &bounds,
+        &clock,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(truncated.error().code(), "response_truncated");
+
+    // The underlying live transport saw zero requests.
+    assert_eq!(site.received(), [] as [Vec<(String, String)>; 0]);
+
+    let report = recordings.take_report_of(&run_id).unwrap();
+    assert_eq!(report.mode, "replay");
+    assert_eq!(report.responses_used, 2);
+    assert_eq!(report.misses, vec!["GET https://cache.test/page?extra=1"]);
+}
+
+#[derive(Debug, Default)]
+struct CapturedList(Mutex<Vec<(String, bool, Bytes)>>);
+
+impl goodfetch_engine::response_cache::Capture for CapturedList {
+    fn capture(
+        &self,
+        request: goodfetch_engine::response_cache::CacheRequest,
+        _head: goodfetch_engine::response_cache::ResponseHead,
+        body: Bytes,
+        truncated: bool,
+        _now: std::time::SystemTime,
+    ) -> goodfetch_engine::response_cache::Capturing<'_> {
+        let mut guard = self.0.lock().unwrap();
+        guard.push((request.url, truncated, body));
+        let seq = guard.len() as u64;
+        Box::pin(async move { seq })
+    }
+
+    fn mark_truncated(&self, _sequence: u64) {}
+}
+
+fn recording_test_answers() -> Vec<Answer> {
+    vec![
+        Answer {
+            status: 200,
+            headers: vec![("content-type", "text/plain")],
+            body: b"live-0",
+            cut: false,
+        },
+        Answer {
+            status: 200,
+            headers: vec![("content-type", "text/plain")],
+            body: b"live-1",
+            cut: false,
+        },
+        Answer {
+            status: 200,
+            headers: vec![("content-length", "40")],
+            body: b"half",
+            cut: true,
+        },
+    ]
+}
+
+/// An HTTP tier in `mode: "record"` records both whole and cut responses,
+/// reads no cache entry while still storing into the cache (ADR 0105, #800).
+/// Covers: story:6-55, story:6-57
+#[tokio::test]
+async fn a_recording_http_tier_captures_whole_and_cut_responses_and_bypasses_cache_read() {
+    use goodfetch_engine::response_cache::Capture;
+
+    let env = TestEnv::new();
+    let cache = ResponseCache::of(
+        env.home().join("0.1").join("response-cache"),
+        None,
+        Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+        CountedWork::default(),
+    );
+    let clock = Clock::paused(
+        goodfetch_protocol::point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap(),
+    );
+    let captured = Arc::new(CapturedList::default());
+    let source = ResponseSource::of(&cache, CacheMode::Replay)
+        .capturing(Arc::clone(&captured) as Arc<dyn Capture>);
+    let caching = Caching::of(source, "ada", RunId::parse("record-http").unwrap(), clock).unwrap();
+
+    let site = Site::answering(recording_test_answers());
+    let transport = over(&caching, Arc::clone(&site) as Arc<dyn Transport>);
+    let bounds = FetchBounds {
+        first_byte: Deadline::given(&TIMEOUT_FIRST_BYTE, 30_000, SettingsLayer::Run),
+        navigation: Deadline::given(&TIMEOUT_NAVIGATION, 30_000, SettingsLayer::Run),
+        limits: Limits::default(),
+    };
+
+    let live_url: url::Url = "https://cache.test/live".parse().unwrap();
+    let first = fetch(
+        transport.as_ref(),
+        &Hop::get(live_url.clone()),
+        &bounds,
+        &clock,
+    )
+    .await
+    .unwrap();
+    assert_eq!(first.body.as_ref(), b"live-0");
+
+    // Second fetch in record mode bypasses the cache read and fetches live-1.
+    let second = fetch(
+        transport.as_ref(),
+        &Hop::get(live_url.clone()),
+        &bounds,
+        &clock,
+    )
+    .await
+    .unwrap();
+    assert_eq!(second.body.as_ref(), b"live-1");
+
+    // Cut response fails with response_truncated AND is recorded as truncated.
+    let cut_err = fetch(
+        transport.as_ref(),
+        &Hop::get("https://cache.test/cut".parse().unwrap()),
+        &bounds,
+        &clock,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(cut_err.error().code(), "response_truncated");
+
+    assert_eq!(
+        captured.0.lock().unwrap().clone(),
+        vec![
+            (
+                "https://cache.test/live".to_owned(),
+                false,
+                Bytes::from_static(b"live-0"),
+            ),
+            (
+                "https://cache.test/live".to_owned(),
+                false,
+                Bytes::from_static(b"live-1"),
+            ),
+            (
+                "https://cache.test/cut".to_owned(),
+                true,
+                Bytes::from_static(b"half"),
+            ),
+        ]
+    );
+
+    // Meanwhile, a subsequent cache-replay Run serves what the record Run stored.
+    let cache_only = Caching::of(
+        ResponseSource::of(&cache, CacheMode::Replay),
+        "ada",
+        RunId::parse("after-record").unwrap(),
+        clock,
+    )
+    .unwrap();
+    let cached_transport = over(&cache_only, Arc::clone(&site) as Arc<dyn Transport>);
+    let hit = fetch(
+        cached_transport.as_ref(),
+        &Hop::get(live_url),
+        &bounds,
+        &clock,
+    )
+    .await
+    .unwrap();
+    assert_eq!(hit.body.as_ref(), b"live-1");
+    assert_eq!(site.received().len(), 3);
+}
+
+/// A response fetched under `tls.trusted_cas`, `tls.client_certificates` or
+/// `tls.accept_invalid_certs` (`custom_tls == true`) is never stored in the
+/// Response cache, and a deferred store discarded after a Block cause or
+/// failed Page check never enters the cache while a committed one is served
+/// (ADRs 0006, 0046; issue 795).
+/// Covers: story:6-40
+#[tokio::test]
+async fn custom_tls_and_discarded_deferred_stores_never_enter_the_cache() {
+    use super::{DeferredStores, over_deferred};
+
+    struct CustomTlsSite(Arc<Site>);
+
+    impl Transport for CustomTlsSite {
+        fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent> {
+            Box::pin(async move {
+                let mut sent = self.0.send(hop, reuse).await?;
+                sent.custom_tls = true;
+                Ok(sent)
+            })
+        }
+    }
+
+    let env = TestEnv::new();
+    let cache = ResponseCache::of(
+        env.home().join("0.1").join("response-cache"),
+        None,
+        Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+        CountedWork::default(),
+    );
+    let clock = Clock::paused(
+        goodfetch_protocol::point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap(),
+    );
+    let bounds = FetchBounds {
+        first_byte: Deadline::given(&TIMEOUT_FIRST_BYTE, 30_000, SettingsLayer::Run),
+        navigation: Deadline::given(&TIMEOUT_NAVIGATION, 30_000, SettingsLayer::Run),
+        limits: Limits::default(),
+    };
+    let caching = Caching::of(
+        ResponseSource::of(&cache, CacheMode::Replay),
+        "ada",
+        RunId::parse("http-custom-tls").unwrap(),
+        clock,
+    )
+    .unwrap();
+
+    // Custom TLS (trusted_cas / client_certificates / accept_invalid_certs): never stored.
+    let tls_site = Site::answering(vec![minute(b"tls-1"), minute(b"tls-2")]);
+    let tls_transport = over(
+        &caching,
+        Arc::new(CustomTlsSite(Arc::clone(&tls_site))) as Arc<dyn Transport>,
+    );
+    let tls_url = Url::parse("https://cache.test/custom-tls").unwrap();
+    let first = fetch(
+        tls_transport.as_ref(),
+        &Hop::get(tls_url.clone()),
+        &bounds,
+        &clock,
+    )
+    .await
+    .unwrap();
+    let second = fetch(tls_transport.as_ref(), &Hop::get(tls_url), &bounds, &clock)
+        .await
+        .unwrap();
+    assert_eq!(
+        (first.body.as_ref(), second.body.as_ref()),
+        (b"tls-1".as_slice(), b"tls-2".as_slice())
+    );
+    assert_eq!(tls_site.received().len(), 2);
+
+    // Deferred store marked kept_out (e.g., Block cause or failed Page check): never stored.
+    let deferred_site = Site::answering(vec![minute(b"bad-page"), minute(b"good-page")]);
+    let kept_out_deferred = DeferredStores::default();
+    let deferred_transport = over_deferred(
+        &caching,
+        Arc::clone(&deferred_site) as Arc<dyn Transport>,
+        kept_out_deferred.clone(),
+    );
+    let deferred_url = Url::parse("https://cache.test/deferred-check").unwrap();
+    let first = fetch(
+        deferred_transport.as_ref(),
+        &Hop::get(deferred_url.clone()),
+        &bounds,
+        &clock,
+    )
+    .await
+    .unwrap();
+    assert_eq!(first.body.as_ref(), b"bad-page");
+    kept_out_deferred.keep_out();
+    kept_out_deferred.commit().await;
+
+    // Next fetch reaches the site and, once committed, is served from cache.
+    let ok_deferred = DeferredStores::default();
+    let ok_transport = over_deferred(
+        &caching,
+        Arc::clone(&deferred_site) as Arc<dyn Transport>,
+        ok_deferred.clone(),
+    );
+    let second = fetch(
+        ok_transport.as_ref(),
+        &Hop::get(deferred_url.clone()),
+        &bounds,
+        &clock,
+    )
+    .await
+    .unwrap();
+    assert_eq!(second.body.as_ref(), b"good-page");
+    ok_deferred.commit().await;
+
+    let third = fetch(
+        ok_transport.as_ref(),
+        &Hop::get(deferred_url),
+        &bounds,
+        &clock,
+    )
+    .await
+    .unwrap();
+    assert_eq!(third.body.as_ref(), b"good-page");
+    assert_eq!(deferred_site.received().len(), 2);
+}
+
+/// On the HTTP tier, a request carrying a resolved secret in its headers is
+/// never stored in the Response cache (ADRs 0016 and 0046; issue 795).
+/// Covers: story:6-40
+#[tokio::test]
+async fn an_http_request_carrying_a_resolved_secret_is_never_stored() {
+    use goodfetch_engine::mask::{Masks, Reach, Redaction};
+    use secrecy::SecretString;
+
+    let env = TestEnv::new();
+    let cache = ResponseCache::of(
+        env.home().join("0.1").join("response-cache"),
+        None,
+        Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+        CountedWork::default(),
+    );
+    let clock = Clock::paused(
+        goodfetch_protocol::point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap(),
+    );
+    let bounds = FetchBounds {
+        first_byte: Deadline::given(&TIMEOUT_FIRST_BYTE, 30_000, SettingsLayer::Run),
+        navigation: Deadline::given(&TIMEOUT_NAVIGATION, 30_000, SettingsLayer::Run),
+        limits: Limits::default(),
+    };
+    let masks = Masks::default();
+    let mask = masks.for_run(Redaction::On);
+    let secret = "gf-secret-token-for-http-tier-test";
+    mask.join(
+        "api_key",
+        &SecretString::from(secret.to_owned()),
+        Reach::Value,
+    );
+
+    let caching = Caching::of(
+        ResponseSource::of(&cache, CacheMode::Replay),
+        "ada",
+        RunId::parse("http-secret").unwrap(),
+        clock,
+    )
+    .unwrap()
+    .with_masks(masks);
+
+    let site = Site::answering(vec![minute(b"s1"), minute(b"s2")]);
+    let transport = over(&caching, Arc::clone(&site) as Arc<dyn Transport>);
+    let mut hop = Hop::get(Url::parse("https://cache.test/secret-api").unwrap());
+    hop.headers
+        .push(("x-api-key".to_owned(), secret.to_owned()));
+
+    let first = fetch(transport.as_ref(), &hop, &bounds, &clock)
+        .await
+        .unwrap();
+    let second = fetch(transport.as_ref(), &hop, &bounds, &clock)
+        .await
+        .unwrap();
+    assert_eq!(
+        (first.body.as_ref(), second.body.as_ref()),
+        (b"s1".as_slice(), b"s2".as_slice())
+    );
+    assert_eq!(site.received().len(), 2);
+    drop(mask);
 }

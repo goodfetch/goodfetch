@@ -28,14 +28,19 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use data_encoding::BASE64;
+use goodfetch_engine::CallError;
 use goodfetch_engine::mask::Scope;
 use goodfetch_engine::response_cache::{CacheRequest, KeptOut, ResponseHead, Source, Stale};
 use goodfetch_engine::response_limits::{Decoding, Limits};
+use goodfetch_engine::response_recording::not_recorded_error;
 use goodfetch_protocol::page::PageResponse;
+use goodfetch_protocol::page::route::{AbortReason, RouteFetched};
 
-use super::{COOKIE, Held, PageContext, Sender, lock};
+use super::super::answers::Reply;
+use super::{COOKIE, Held, PageContext, Routed, Sender, Stage, Taken, lock};
 use crate::cdp::driver::cdp_response;
 use crate::cdp::{ContinueRequest, Header, NetworkId, PausedId, PausedRequest};
+use crate::errors::{network_error, truncated};
 use crate::proxy::{self, PROXY_STATUS};
 
 /// The response header naming a body's content codings.
@@ -71,34 +76,259 @@ struct Asked {
 }
 
 impl PageContext {
+    /// Clears any recorded-response truncation tracking for this page.
+    pub(super) fn clear_recorded_responses(&self) {
+        lock(&self.recorded_responses).clear();
+    }
+
+    /// Tracks `network_id -> sequence` (bounded to 256 entries) so a later
+    /// disconnect can mark the recorded exchange truncated.
+    fn note_recorded_response(&self, network_id: &NetworkId, sequence: u64) {
+        let mut recorded = lock(&self.recorded_responses);
+        if recorded.len() >= 256
+            && let Some(oldest) = recorded.keys().next().cloned()
+        {
+            recorded.remove(&oldest);
+        }
+        recorded.insert(network_id.as_str().to_owned(), sequence);
+    }
+
+    /// Whether `url` is answered from the Run's Response recording rather than
+    /// reached live (ADR 0105, issue 801).
+    pub(super) fn replays_url(&self, url: &str) -> bool {
+        self.state
+            .caching
+            .as_ref()
+            .is_some_and(|caching| caching.replays_url(url))
+    }
+
+    /// Marks a response answered from the Response cache in Provenance (when
+    /// `provenance.log` is on, allocating nothing when off) and charges
+    /// `cache_hits` through `ledger::charging` from held Slices (ADRs 0046
+    /// and 0140, issue 803).
+    async fn record_cache_hit(
+        &self,
+        method: &str,
+        url: &str,
+        status: u16,
+        fetched_at: std::time::SystemTime,
+        run_id: Option<&goodfetch_protocol::run::RunId>,
+    ) {
+        if let Some(charging) = &self.run.charging {
+            let _ = charging
+                .charge(goodfetch_protocol::usage::CACHE_HITS, 1)
+                .await;
+        }
+        if !self.run.lists.trace.logs_provenance() {
+            return;
+        }
+        let mut origin = serde_json::json!({ "kind": "response_cache" });
+        if let Ok(ts) = goodfetch_protocol::point_in_time::to_rfc3339(fetched_at) {
+            origin["fetched_at"] = serde_json::json!(ts);
+        }
+        if let Some(run_id) = run_id {
+            origin["run_id"] = serde_json::json!(run_id.as_str());
+        }
+        let mut entry = serde_json::json!({
+            "action": "response_cache",
+            "method": method,
+            "url": url,
+            "status": status,
+            "origin": origin,
+        });
+        if let Some(page_id) = self.sender.page_id() {
+            entry["page_id"] = serde_json::json!(page_id);
+        }
+        crate::trace::provenance(&self.run.lists.trace, entry).await;
+    }
+
+    /// Serves a fresh cache hit and records its Usage and Provenance.
+    async fn serve_fresh_hit(
+        &self,
+        held: &Held,
+        hit: goodfetch_engine::response_cache::Hit,
+    ) -> bool {
+        let (status, fetched_at, run_id) = (hit.head.status, hit.fetched_at, hit.run_id);
+        let served = self.serve(held, hit.head, &hit.body).await;
+        if served {
+            if held.navigation {
+                self.state.mark_navigation_cache_hit();
+            }
+            self.record_cache_hit(
+                held.method(),
+                held.url(),
+                status,
+                fetched_at,
+                run_id.as_ref(),
+            )
+            .await;
+        }
+        served
+    }
+
+    /// Serves a 304-revalidated cache hit and records its Usage and Provenance.
+    async fn serve_revalidated_hit(
+        &self,
+        paused: &PausedRequest,
+        method: &str,
+        navigation: bool,
+        hit: goodfetch_engine::response_cache::Hit,
+    ) -> bool {
+        let (status, fetched_at, run_id) = (hit.head.status, hit.fetched_at, hit.run_id);
+        let answered = self
+            .answer(paused.id(), paused.url(), hit.head, &hit.body)
+            .await;
+        if answered {
+            if navigation {
+                self.state.mark_navigation_cache_hit();
+            }
+            self.record_cache_hit(method, paused.url(), status, fetched_at, run_id.as_ref())
+                .await;
+        }
+        answered
+    }
+
+    /// Marks a response answered from the Run's Response recording in the
+    /// Run trace's Provenance log when `provenance.log` is on, allocating
+    /// nothing when off (`E5.formatting_off`, ADRs 0105 and 0140, issue 802).
+    async fn record_recording_provenance(
+        &self,
+        held: &Held,
+        status: u16,
+        recorded_at: Option<std::time::SystemTime>,
+    ) {
+        if !self.run.lists.trace.logs_provenance() {
+            return;
+        }
+        let mut origin = serde_json::json!({ "kind": "response_recording" });
+        if let Some(at) = recorded_at
+            && let Ok(ts) = goodfetch_protocol::point_in_time::to_rfc3339(at)
+        {
+            origin["recorded_at"] = serde_json::json!(ts);
+        }
+        let mut entry = serde_json::json!({
+            "action": "response_recording",
+            "method": held.method(),
+            "url": held.url(),
+            "status": status,
+            "origin": origin,
+        });
+        if let Some(page_id) = self.sender.page_id() {
+            entry["page_id"] = serde_json::json!(page_id);
+        }
+        crate::trace::provenance(&self.run.lists.trace, entry).await;
+    }
+
+    /// When a fulfilling route answers a main-frame navigation on a replaying
+    /// Run with an HTTP `Date` header, registers that timestamp so the
+    /// document's `Date` starts from it (ADR 0105, issue 801).
+    pub(super) async fn note_routed_document_date(
+        &self,
+        held: &Held,
+        fulfillment: &super::Fulfillment,
+    ) {
+        if !held.navigation || !self.replays_url(held.url()) {
+            return;
+        }
+        let headers: Vec<(String, String)> = fulfillment
+            .headers
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        let Some(millis) = goodfetch_engine::response_recording::http_date_from_headers(&headers)
+            .and_then(goodfetch_engine::response_recording::system_time_millis)
+        else {
+            return;
+        };
+        let snippet = goodfetch_engine::response_recording::routed_date_script(held.url(), millis);
+        if let Err(failure) = self.cdp.add_init_script_opening(snippet).await {
+            tracing::debug!(%failure, "routed document Date init script was not installed");
+        }
+    }
+
     /// Answers `held`, which `command` sends on, from the Session's
     /// sources when one holds its response: whether it did. Else, when
     /// the cache holds it stale, `command` carries its conditions; and when
     /// its response may be stored, `command` pauses it on its way back.
+    ///
+    /// # Errors
+    ///
+    /// While replaying a Response recording: `response_not_recorded` for a
+    /// missing navigation, `response_truncated` for a recorded cut
+    /// navigation, or `navigation_failed` if a recorded body cannot be
+    /// decoded.
     pub(super) async fn served_from_cache(
         &self,
         held: &Held,
         command: &mut ContinueRequest,
-    ) -> bool {
-        if !self.consults_cache(held) {
-            return false;
-        }
+    ) -> Result<bool, CallError> {
         let Some(caching) = self.state.caching.clone() else {
-            return false;
+            return Ok(false);
         };
-        if !caching.takes(held.method()) {
-            return false;
+        let replaying = caching.replays_url(held.url());
+        let recording = caching.recording();
+        if !replaying && !recording && !self.consults_cache(held) {
+            return Ok(false);
         }
-        let Some(asked) = self.asked(held, command).await else {
-            return false;
+        if !caching.takes(held.method()) {
+            return Ok(false);
+        }
+        let Some(asked) = self.asked(held, Some(command), replaying).await else {
+            if replaying {
+                let error = network_error(held.url(), "net::ERR_FAILED");
+                if held.navigation {
+                    self.state.leave(error.clone());
+                }
+                self.fail(held.paused.id(), AbortReason::Failed).await;
+                return Err(error);
+            }
+            return Ok(false);
         };
         let stale = match caching.source(&asked.request, asked.kept_out).await {
-            Source::Routed(served) | Source::Recorded(served) => {
-                return self.serve(held, served.head, &served.body).await;
+            Source::Routed(served) => {
+                return Ok(self.serve(held, served.head, &served.body).await);
             }
-            Source::Fresh(hit) => return self.serve(held, hit.head, &hit.body).await,
+            Source::Recorded {
+                served,
+                recorded_at,
+            } => {
+                if self.serve(held, served.head.clone(), &served.body).await {
+                    self.record_recording_provenance(held, served.head.status, recorded_at)
+                        .await;
+                    return Ok(true);
+                }
+                let error = network_error(held.url(), "net::ERR_CONTENT_DECODING_FAILED");
+                if held.navigation {
+                    self.state.leave(error.clone());
+                }
+                self.fail(held.paused.id(), AbortReason::Failed).await;
+                return Err(error);
+            }
+            Source::RecordedCut(served) => {
+                let expected = header_content_length(&served.head.headers);
+                let received = u64::try_from(served.body.len()).unwrap_or(u64::MAX);
+                self.fail(held.paused.id(), AbortReason::Failed).await;
+                if held.navigation {
+                    let error = truncated(held.url(), received, expected);
+                    self.state.leave(error.clone());
+                    return Err(error);
+                }
+                return Ok(true);
+            }
+            Source::NotRecorded(miss) => {
+                if held.navigation {
+                    let error = not_recorded_error(&miss);
+                    self.state.leave(error.clone());
+                    self.fail(held.paused.id(), AbortReason::BlockedByClient)
+                        .await;
+                    return Err(error);
+                }
+                self.fail(held.paused.id(), AbortReason::Failed).await;
+                return Ok(true);
+            }
+            Source::Fresh(hit) => return Ok(self.serve_fresh_hit(held, hit).await),
             Source::Network if caching.may_store(&asked.request, asked.kept_out) => None,
-            Source::Network => return false,
+            Source::Network => return Ok(false),
             Source::Stale(stale) => {
                 command.headers = Some(conditional(sent(held, command), &stale.conditions));
                 Some(stale)
@@ -115,19 +345,109 @@ impl PageContext {
                 navigation: held.navigation,
             },
         );
-        false
+        Ok(false)
     }
 
-    /// Lets the response paused at `paused` go on, stored first when
-    /// `storing` waits for it and the cache stores it; a 304 answering a
-    /// stale entry's conditions is answered with the stored body instead.
+    /// Answers a route's `route.fetch()` from the Run's Response recording
+    /// when replaying, so even fetched routes never touch the network.
+    pub(super) async fn fetch_from_recording(
+        &self,
+        held: &Held,
+        stage: &mut Stage,
+    ) -> (Result<Reply, CallError>, Option<Routed>) {
+        let Some(caching) = self.state.caching.clone() else {
+            self.fail(held.paused.id(), AbortReason::Failed).await;
+            return (
+                Err(network_error(held.url(), "net::ERR_FAILED")),
+                Some(Routed::Ended),
+            );
+        };
+        let Some(asked) = self.asked(held, None, true).await else {
+            self.fail(held.paused.id(), AbortReason::Failed).await;
+            return (
+                Err(network_error(held.url(), "net::ERR_FAILED")),
+                Some(Routed::Ended),
+            );
+        };
+        match caching.source(&asked.request, asked.kept_out).await {
+            Source::Recorded {
+                served,
+                recorded_at,
+            } => {
+                self.record_recording_provenance(held, served.head.status, recorded_at)
+                    .await;
+                let Some((status, headers, decoded)) =
+                    self.decoded(held.url(), served.head.clone(), &served.body)
+                else {
+                    self.fail(held.paused.id(), AbortReason::Failed).await;
+                    return (
+                        Err(network_error(
+                            held.url(),
+                            "net::ERR_CONTENT_DECODING_FAILED",
+                        )),
+                        Some(Routed::Ended),
+                    );
+                };
+                let map = header_map(&headers);
+                let reply = Reply::Fetched(RouteFetched {
+                    status,
+                    status_text: String::new(),
+                    headers: map,
+                    body: BASE64.encode(&decoded),
+                });
+                *stage = Stage::Fetched(Taken::Body {
+                    status,
+                    headers,
+                    body: decoded,
+                });
+                (Ok(reply), None)
+            }
+            Source::RecordedCut(served) => {
+                let expected = header_content_length(&served.head.headers);
+                let received = u64::try_from(served.body.len()).unwrap_or(u64::MAX);
+                self.fail(held.paused.id(), AbortReason::Failed).await;
+                (
+                    Err(truncated(held.url(), received, expected)),
+                    Some(Routed::Ended),
+                )
+            }
+            Source::NotRecorded(miss) => {
+                self.fail(held.paused.id(), AbortReason::BlockedByClient)
+                    .await;
+                (Err(not_recorded_error(&miss)), Some(Routed::Ended))
+            }
+            _ => {
+                self.fail(held.paused.id(), AbortReason::Failed).await;
+                (
+                    Err(network_error(held.url(), "net::ERR_FAILED")),
+                    Some(Routed::Ended),
+                )
+            }
+        }
+    }
+
+    /// Lets the response paused at `paused` go on, stored and/or recorded
+    /// first when `storing` waits for it; a 304 answering a stale entry's
+    /// conditions is answered with the stored body instead.
     pub(super) async fn stored_or_sent_on(&self, paused: &PausedRequest, storing: Option<Storing>) {
-        let storing =
-            storing.filter(|_| paused.responded() && !cdp_response::redirects(paused.status()));
         if let Some(storing) = storing
-            && self.answered_from_store(paused, storing).await
+            && paused.responded()
         {
-            return;
+            if cdp_response::redirects(paused.status()) {
+                if let Some(caching) = self.state.caching.as_ref()
+                    && caching.recording()
+                {
+                    let head = ResponseHead {
+                        status: paused.status(),
+                        headers: paused.response_header_list(),
+                    };
+                    caching
+                        .record(storing.request, head, Bytes::new(), false)
+                        .await;
+                }
+            } else if self.answered_from_store(paused, storing).await {
+                return;
+            }
         }
         self.continue_response(paused.id()).await;
     }
@@ -145,39 +465,59 @@ impl PageContext {
 
     /// `held`, sent on with `command`, as the cache is asked about it, the
     /// cookies the browser adds for its URL included; none when its body
-    /// or the browser's cookies cannot be read.
-    async fn asked(&self, held: &Held, command: &ContinueRequest) -> Option<Asked> {
+    /// or (when not replaying) the browser's cookies cannot be read.
+    async fn asked(
+        &self,
+        held: &Held,
+        command: Option<&ContinueRequest>,
+        replaying: bool,
+    ) -> Option<Asked> {
         let url = url::Url::parse(held.url()).ok()?;
-        let body = match &command.post_data {
+        let body = match command.and_then(|command| command.post_data.as_ref()) {
             Some(encoded) => BASE64.decode(encoded.as_bytes()).ok()?,
-            None if held.paused.has_body() => held.paused.body()?,
-            None => Vec::new(),
+            None => match &held.overrides.post_data {
+                Some(encoded) => BASE64.decode(encoded.as_bytes()).ok()?,
+                None if held.paused.has_body() => held.paused.body()?,
+                None => Vec::new(),
+            },
         };
-        let cookies = match self.cdp.cookie_header(held.url()).await {
-            Ok(cookies) => cookies,
-            Err(failure) => {
-                tracing::debug!(
-                    ?failure,
-                    "the browser named no cookies, so the request goes on past the cache"
-                );
-                return None;
+        let cookies = if replaying {
+            String::new()
+        } else {
+            match self.cdp.cookie_header(held.url()).await {
+                Ok(cookies) => cookies,
+                Err(failure) => {
+                    tracing::debug!(
+                        ?failure,
+                        "the browser named no cookies, so the request goes on past the cache"
+                    );
+                    return None;
+                }
             }
         };
         let not_cookie = |name: &str| !name.eq_ignore_ascii_case(COOKIE);
-        let mut headers: Vec<(String, String)> = match &command.headers {
-            Some(sent) => sent
-                .iter()
-                .filter(|header| not_cookie(&header.name))
-                .map(|header| (header.name.clone(), header.value.clone()))
-                .collect(),
-            None => held
-                .paused
-                .headers()
-                .iter()
-                .filter(|(name, _)| not_cookie(name))
-                .map(|(name, value)| (name.to_owned(), value.to_owned()))
-                .collect(),
-        };
+        let mut headers: Vec<(String, String)> =
+            match command.and_then(|command| command.headers.as_ref()) {
+                Some(sent) => sent
+                    .iter()
+                    .filter(|header| not_cookie(&header.name))
+                    .map(|header| (header.name.clone(), header.value.clone()))
+                    .collect(),
+                None => match &held.overrides.headers {
+                    Some(sent) => sent
+                        .iter()
+                        .filter(|(name, _)| not_cookie(name))
+                        .map(|(name, value)| (name.clone(), value.clone()))
+                        .collect(),
+                    None => held
+                        .paused
+                        .headers()
+                        .iter()
+                        .filter(|(name, _)| not_cookie(name))
+                        .map(|(name, value)| (name.to_owned(), value.to_owned()))
+                        .collect(),
+                },
+            };
         if !cookies.is_empty() {
             headers.push((COOKIE.to_owned(), cookies));
         }
@@ -189,19 +529,23 @@ impl PageContext {
     }
 
     /// Why a response to the request to `url` with `headers` and `body`
-    /// is never stored: its host is reached through a certificate
-    /// exception, or it carries a resolved secret.
+    /// is never stored: a declared Effect's body is running, its host is
+    /// reached through a certificate exception, or it carries a resolved
+    /// secret.
     fn kept_out(
         &self,
         url: &url::Url,
         headers: &[(String, String)],
         body: &[u8],
     ) -> Option<KeptOut> {
+        if self.state.caching.as_ref().is_some_and(|c| c.in_effect()) {
+            return Some(KeptOut::Effect);
+        }
         let excepted = url.scheme() == "https"
             && url
                 .host_str()
                 .zip(self.driver.relay())
-                .is_some_and(|(host, relay)| relay.excepts(&host.to_ascii_lowercase()));
+                .is_some_and(|(host, relay)| relay.custom_tls(&host.to_ascii_lowercase()));
         if excepted {
             return Some(KeptOut::CertificateException);
         }
@@ -240,9 +584,21 @@ impl PageContext {
             return false;
         };
         let status = paused.status();
+        let mut response_headers = paused.response_header_list();
+        let has_set_cookie = response_headers
+            .iter()
+            .any(|(name, _)| name == "set-cookie");
+        if !has_set_cookie {
+            for value in self
+                .state
+                .take_set_cookie(storing.network_id.as_ref().map(NetworkId::as_str))
+            {
+                response_headers.push(("set-cookie".to_owned(), value));
+            }
+        }
         let head = ResponseHead {
             status,
-            headers: paused.response_header_list(),
+            headers: response_headers,
         };
         if status == 304
             && let Some(stale) = storing.stale
@@ -255,26 +611,73 @@ impl PageContext {
                 return false;
             };
             return self
-                .answer(paused.id(), paused.url(), hit.head, &hit.body)
+                .serve_revalidated_hit(paused, &storing.request.method, storing.navigation, hit)
                 .await;
         }
-        if !caching.stores(&storing.request, &head, storing.kept_out) {
+        let recording = caching.recording();
+        let store_in_cache = caching.stores(&storing.request, &head, storing.kept_out);
+        if !recording && !store_in_cache {
             return false;
         }
         // The browser gives the body decoded: the head stored says so.
-        if let Some(body) = cdp_response::body_if_whole(&self.driver, paused.id().as_str()).await {
-            if self.is_blocked(paused.url(), &head, &body, storing.navigation)
-                && !caching.stores(&storing.request, &head, Some(KeptOut::Blocked))
-            {
-                return false;
+        match cdp_response::body_if_whole(&self.driver, paused.id().as_str()).await {
+            Some(body) => {
+                let short = short_of_declared_length(&storing.request.method, &head, body.len());
+                let decoded_head = ResponseHead {
+                    status,
+                    headers: without_codings(head.headers.clone()),
+                };
+                let body_bytes = Bytes::from(body);
+                if recording {
+                    let recorded_head = if short {
+                        head.clone()
+                    } else {
+                        decoded_head.clone()
+                    };
+                    if let Some(sequence) = caching
+                        .record(
+                            storing.request.clone(),
+                            recorded_head,
+                            body_bytes.clone(),
+                            short,
+                        )
+                        .await
+                        && !short
+                        && let Some(network_id) = storing.network_id.as_ref()
+                    {
+                        self.note_recorded_response(network_id, sequence);
+                    }
+                }
+                if store_in_cache && !short {
+                    if self.is_blocked(paused.url(), &head, &body_bytes, storing.navigation)
+                        && !caching.stores(&storing.request, &head, Some(KeptOut::Blocked))
+                    {
+                        return false;
+                    }
+                    if storing.navigation {
+                        // Hold main-frame navigations until Block
+                        // classification, Page check and consent handling
+                        // pass so a failed page never enters the cache
+                        // (ADRs 0006, 0046, 0048).
+                        *lock(&self.state.pending_cache) = Some(super::super::PendingCacheStore {
+                            network_id: storing.network_id.map(|id| id.as_str().to_owned()),
+                            request: storing.request,
+                            head: decoded_head,
+                            body: body_bytes,
+                        });
+                    } else {
+                        caching
+                            .store(&storing.request, &decoded_head, body_bytes)
+                            .await;
+                    }
+                }
             }
-            let head = ResponseHead {
-                status,
-                headers: without_codings(head.headers),
-            };
-            caching
-                .store(&storing.request, &head, Bytes::from(body))
-                .await;
+            None if recording => {
+                caching
+                    .record(storing.request, head, Bytes::new(), true)
+                    .await;
+            }
+            None => {}
         }
         false
     }
@@ -422,6 +825,44 @@ fn contains_ascii_case_insensitive(haystack: &[u8], needle: &[u8]) -> bool {
     haystack
         .windows(needle.len())
         .any(|window| window.eq_ignore_ascii_case(needle))
+}
+
+/// Whether a decoded response with no `Content-Encoding` is shorter than its
+/// declared `Content-Length`, so it is recorded as truncated (ADR 0118).
+fn short_of_declared_length(method: &str, head: &ResponseHead, received: usize) -> bool {
+    if method.eq_ignore_ascii_case("HEAD") || matches!(head.status, 100..=199 | 204 | 304) {
+        return false;
+    }
+    let has_coding = head.headers.iter().any(|(name, value)| {
+        name.eq_ignore_ascii_case(CONTENT_ENCODING) && !value.trim().is_empty()
+    });
+    if has_coding {
+        return false;
+    }
+    header_content_length(&head.headers).is_some_and(|declared| (received as u64) < declared)
+}
+
+/// The numeric `Content-Length` declared in `headers`, if any.
+fn header_content_length(headers: &[(String, String)]) -> Option<u64> {
+    headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+        .and_then(|(_, value)| value.trim().parse().ok())
+}
+
+/// Joins `headers` into a lowercase-keyed map, repeated values separated by
+/// `\n`, as `RouteFetched` and `PageResponse` represent them.
+fn header_map(headers: &[Header]) -> BTreeMap<String, String> {
+    let mut map: BTreeMap<String, String> = BTreeMap::new();
+    for header in headers {
+        map.entry(header.name.to_ascii_lowercase())
+            .and_modify(|existing| {
+                existing.push('\n');
+                existing.push_str(&header.value);
+            })
+            .or_insert_with(|| header.value.clone());
+    }
+    map
 }
 
 #[cfg(test)]

@@ -85,6 +85,7 @@ pub(crate) fn enqueue(
     };
     let adding = Adding {
         method: &params.method,
+        headers: (!params.headers.is_empty()).then_some(&params.headers),
         body: params.body.as_ref(),
         label: &params.label,
         payload,
@@ -155,6 +156,32 @@ pub(crate) fn seeds(
     admit_seeds(connection, positions, (egress, invariants), &checked).map(Ok)
 }
 
+/// Admits each of `seeds` within the Run's `invariants` and under its
+/// domain policy `egress`, at its position from `positions`, while
+/// `attempt` holds its lease; `None` once that attempt ended.
+pub(crate) fn staged_seeds(
+    connection: &Connection,
+    positions: &mut Positions,
+    (egress, invariants, work): (&Policy, &Invariants, &CountedWork),
+    seeds: Vec<Seed>,
+    attempt: &SeedAttempt,
+) -> Answered<Vec<Enqueued>> {
+    if work_items::attempt(
+        connection,
+        AttemptKey::new(&attempt.crawl_request_id, attempt.lease_epoch),
+    )?
+    .is_none()
+    {
+        return Ok(None);
+    }
+    let checked = match work_items::check_seeds(invariants, seeds, work) {
+        Ok(checked) => checked,
+        Err(refused) => return Ok(Some(Err(refused))),
+    };
+    let answers = admit_seeds(connection, positions, (egress, invariants), &checked)?;
+    Ok(Some(Ok(answers)))
+}
+
 /// Admits each of `checked`, seeds whose Payloads were checked, within the
 /// Run's `invariants` and under its domain policy `egress`, at its position
 /// from `positions`, and answers each one's answer in order: the last step
@@ -185,6 +212,19 @@ pub(crate) struct LinksRequest {
 impl LinksRequest {
     /// What `params`'s admission reads of them.
     pub(crate) fn of(params: &CrawlRequestEnqueueLinksParams) -> Self {
+        Self {
+            crawl_request_id: params.crawl_request_id.clone(),
+            lease_epoch: params.lease_epoch,
+            label: params.label.clone(),
+            limit: params.limit,
+            priority: params.priority,
+        }
+    }
+
+    /// What discovery clicks' `params` admission reads of them (issue 1087).
+    pub(crate) fn of_clicking(
+        params: &goodfetch_protocol::foxhound::frontier::CrawlRequestEnqueueLinksByClickingElementsParams,
+    ) -> Self {
         Self {
             crawl_request_id: params.crawl_request_id.clone(),
             lease_epoch: params.lease_epoch,
@@ -347,6 +387,7 @@ pub(crate) fn links(
             } => {
                 let adding = Adding {
                     method: &method,
+                    headers: None,
                     body: None,
                     label: &params.label,
                     payload: payload.as_ref(),

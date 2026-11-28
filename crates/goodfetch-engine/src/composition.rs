@@ -373,6 +373,11 @@ impl CallContext {
         self.connection.daemon.as_ref()
     }
 
+    /// Whether this call is served by a Daemon rather than an Attached engine.
+    pub fn is_daemon(&self) -> bool {
+        self.connection.daemon.is_some()
+    }
+
     /// The person the call acts for, as the Audit log names them: the OS
     /// user, its own name on a single-user install (#826).
     pub(crate) fn person(&self) -> String {

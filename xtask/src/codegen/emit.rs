@@ -60,6 +60,7 @@ use goodfetch_protocol::connection::{CancelParams, HelloParams, HelloResult};
 use goodfetch_protocol::daemon::{
     DaemonHealthOutput, DaemonStatus, DaemonUninstallOutput, HttpListenerToken, TokenRotated,
 };
+use goodfetch_protocol::deploy::InitDeployResult;
 use goodfetch_protocol::doctor::DoctorReport;
 use goodfetch_protocol::entries::{KIND_PARTS, MODULES};
 use goodfetch_protocol::error_details::typed_details_of;
@@ -230,6 +231,7 @@ fn outputs(generator: &mut SchemaGenerator) -> Value {
         "daemon.uninstall": generator.subschema_for::<DaemonUninstallOutput>(),
         "doctor": generator.subschema_for::<DoctorReport>(),
         "init": generator.subschema_for::<InitResult>(),
+        "init.deploy": generator.subschema_for::<InitDeployResult>(),
         "recipe.digest": generator.subschema_for::<RecipeDigestOutput>(),
         "runs.adopt": generator.subschema_for::<RunsAdoptOutput>(),
         "runs.reindex": generator.subschema_for::<RunsReindexOutput>(),

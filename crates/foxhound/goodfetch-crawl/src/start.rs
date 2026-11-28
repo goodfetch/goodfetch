@@ -34,34 +34,42 @@
 //! `detach_unsupported`, before the Run begins; a code-free crawl started
 //! detached on a Daemon outlives its Connection.
 
-use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Arc, OnceLock};
 
 use goodfetch_dataset::{Began, Datasets};
 use goodfetch_engine::admission::Keys;
+use goodfetch_engine::audit::Origin;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run::{
     InProgram, StartLimits, checkpoint_interval, client_start, resume_run, run_error, run_id,
     run_layer, settings_error, start_error,
 };
 use goodfetch_engine::runs::{Driving, EndedBy, Initialize, RunError, Start, Started};
-use goodfetch_engine::settings::{Opening, RunSettings};
+use goodfetch_engine::settings::{Opening, Resolved, RunSettings};
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_fetch_tier::FetchTiers;
+use goodfetch_protocol::audit::Actor;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::foxhound::crawl::{
-    CRAWL_SERVE, CRAWL_START, CrawlStartParams, LabelDeclaration, Seed,
+    CRAWL_KEEP_ALIVE, CRAWL_SERVE, CRAWL_START, CrawlStartParams, CrawlStarted, LabelDeclaration,
+    Seed,
 };
-use goodfetch_protocol::foxhound::frontier::PAYLOAD_SCHEMA_CHANGED;
+use goodfetch_protocol::foxhound::frontier::{Enqueued, PAYLOAD_SCHEMA_CHANGED};
 use goodfetch_protocol::foxhound::hook::CrawlHookDeclaration;
 use goodfetch_protocol::foxhound::settings::{
     FEATURE_SWITCHED_OFF, PROVENANCE_LOG, SWITCHED_OFF_FEATURES,
 };
+use goodfetch_protocol::run::warning::PERSONAL_DATA_NOTICE as PERSONAL_DATA_WARNING;
 use goodfetch_protocol::run::{
     Lifecycle, RUN_NOT_FOUND, RunDetails, RunId, RunKind, RunParams, RunReport, RunStarted,
-    StartInput, StartedAs,
+    RunWarning, StartInput, StartedAs,
 };
 use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
+use goodfetch_protocol::site_preferences::{
+    PERSONAL_DATA_KEYWORD, PERSONAL_DATA_NOTICE as PERSONAL_DATA_AUDIT, SITE_PREFERENCES_PURPOSE,
+};
+use goodfetch_sink::Sinks;
 
 use crate::code_free::{self, CodeFree, CodeFreeCrawl};
 use crate::crawl_run::CrawlRun;
@@ -91,17 +99,19 @@ use crate::work_items::{self, CheckedSeed};
 pub struct CrawlRuntime {
     crawls: Crawls,
     tiers: FetchTiers,
+    sinks: Sinks,
     redeclared: Redeclared,
     pages: code_free::Pages,
 }
 
 impl CrawlRuntime {
-    /// Creates a new crawl runtime bound to `tiers`.
+    /// Creates a new crawl runtime bound to `tiers` and `sinks`.
     #[must_use]
-    pub fn new(tiers: FetchTiers) -> Self {
+    pub fn new(tiers: FetchTiers, sinks: Sinks) -> Self {
         Self {
             crawls: Crawls::default(),
             tiers,
+            sinks,
             redeclared: Redeclared::default(),
             pages: code_free::Pages::default(),
         }
@@ -121,17 +131,18 @@ impl CrawlRuntime {
         options: PartitionStartOptions,
         context: CallContext,
     ) -> Result<RunStarted, CallError> {
-        start_with_options(
+        Box::pin(start_with_options(
             params,
             Some(initial_seeds),
             Some(options),
             context,
             self.crawls.clone(),
-            self.tiers.clone(),
+            (self.tiers.clone(), self.sinks),
             self.redeclared.clone(),
             self.pages.clone(),
-        )
+        ))
         .await
+        .map(|started| started.started)
     }
 
     /// Admits links forwarded from another Partition through this Partition's
@@ -158,10 +169,10 @@ impl CrawlRuntime {
             ));
         };
         let count = seeds.len();
-        match live.asking.seeds(seeds).await {
-            Ok(Some(Ok(_))) => Ok(count),
-            Ok(Some(Err(refused))) => Err(refused),
-            Ok(None) => Ok(0),
+        match live.asking.seeds(seeds, None).await {
+            Ok(Some(Some(Ok(_)))) => Ok(count),
+            Ok(Some(Some(Err(refused)))) => Err(refused),
+            Ok(Some(None) | None) => Ok(0),
             Err(error) => Err(CallError::protocol(
                 goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
                 format!("failed to admit forwarded links into `{run_id}`: {error}"),
@@ -356,9 +367,11 @@ impl CrawlRuntime {
 /// record of each per-page feature a Run switches off (ADR 0138). Its crawl
 /// requests are fetched on the tiers of `tiers` (spec #579), the value
 /// Foxhound's composition also hands Collie's pages, and which finds the
-/// Run of a raw call naming a page they serve (ADR 0099).
-pub fn contribution(tiers: FetchTiers) -> Contribution {
-    contribution_with(&CrawlRuntime::new(tiers))
+/// Run of a raw call naming a page they serve (ADR 0099). Its crawls
+/// deliver their Records to the Sinks of `sinks` (ADR 0026), the value of
+/// Foxhound's composition.
+pub fn contribution(tiers: FetchTiers, sinks: Sinks) -> Contribution {
+    contribution_with(&CrawlRuntime::new(tiers, sinks))
 }
 
 /// Same as [`contribution`], sharing `runtime` with sibling Foxhound crates
@@ -366,6 +379,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
 pub fn contribution_with(runtime: &CrawlRuntime) -> Contribution {
     let crawls = runtime.crawls.clone();
     let tiers = runtime.tiers.clone();
+    let sinks = runtime.sinks;
     let starting = tiers.clone();
     let serving = crawls.clone();
     let enqueuing = crawls.clone();
@@ -378,7 +392,8 @@ pub fn contribution_with(runtime: &CrawlRuntime) -> Contribution {
     let pages = runtime.pages.clone();
     let [read_outcomes, read_failed_requests] = outcomes::handlers();
     let [add_seed, add_seeds] = seeding::handlers(&crawls);
-    let [read_links, enqueue_links] = enqueue::links::handlers(&crawls, &tiers);
+    let [read_links, enqueue_links, enqueue_links_by_clicking] =
+        enqueue::links::handlers(&crawls, &tiers);
     // A per-page feature switched off is recorded once per Run (ADR 0138).
     let contribution = SWITCHED_OFF_FEATURES.into_iter().fold(
         Contribution::new("goodfetch-crawl"),
@@ -392,7 +407,7 @@ pub fn contribution_with(runtime: &CrawlRuntime) -> Contribution {
                 params,
                 context,
                 crawls.clone(),
-                starting.clone(),
+                (starting.clone(), sinks),
                 redeclared.clone(),
                 pages.clone(),
             )
@@ -404,6 +419,7 @@ pub fn contribution_with(runtime: &CrawlRuntime) -> Contribution {
         .with_handler(push::handler(pushing))
         .with_handler(read_links)
         .with_handler(enqueue_links)
+        .with_handler(enqueue_links_by_clicking)
         .with_handler(add_seed)
         .with_handler(add_seeds)
         .with_handler(read_outcomes)
@@ -426,7 +442,18 @@ pub fn contribution_with(runtime: &CrawlRuntime) -> Contribution {
                 let (redeclared, crawls, tiers) =
                     (redeclaring.clone(), resuming.clone(), tiers.clone());
                 Box::pin(async move {
-                    let run = CrawlRun::of(&run, &context);
+                    // A resumed copy probes its Sinks again (ADR 0026): one
+                    // that no longer meets the Run's minimum ends it.
+                    let run =
+                        match CrawlRun::started(&run, &context, (sinks, settings.resolved()))
+                            .await
+                        {
+                            Ok(started) => started,
+                            Err(error) => {
+                                tracing::warn!(%error, run_id = %run.identity.id(), "the resumed crawl's Sinks were refused");
+                                return;
+                            }
+                        };
                     let hooks = redeclared.record(&run.identity, &run.state).await;
                     // Boxed: the resumed delivery's future is large.
                     Box::pin(delivery::resume(
@@ -502,24 +529,41 @@ fn in_program(params: &CrawlStartParams) -> Option<InProgram> {
     })
 }
 
-/// A start's inputs: its `seeds`.
-fn seed_inputs(seeds: &[Seed]) -> BTreeMap<StartInput, serde_json::Value> {
-    BTreeMap::from([(
+/// A start's inputs: its `seeds`, and its `recording` when given.
+fn seed_inputs(
+    seeds: &[Seed],
+    recording: Option<&goodfetch_protocol::run::Recording>,
+) -> BTreeMap<StartInput, serde_json::Value> {
+    let mut inputs = BTreeMap::from([(
         StartInput::Seeds,
         serde_json::to_value(seeds).expect("invariant: seeds encode as JSON"),
-    )])
+    )]);
+    if let Some(recording) = recording {
+        inputs.insert(
+            StartInput::Recording,
+            serde_json::to_value(recording).expect("invariant: a recording encodes as JSON"),
+        );
+    }
+    inputs
 }
 
 async fn start(
     params: CrawlStartParams,
     context: CallContext,
     crawls: Crawls,
-    tiers: FetchTiers,
+    tiers_and_sinks: (FetchTiers, Sinks),
     redeclared: Redeclared,
     pages: code_free::Pages,
-) -> Result<RunStarted, CallError> {
+) -> Result<CrawlStarted, CallError> {
     start_with_options(
-        params, None, None, context, crawls, tiers, redeclared, pages,
+        params,
+        None,
+        None,
+        context,
+        crawls,
+        tiers_and_sinks,
+        redeclared,
+        pages,
     )
     .await
 }
@@ -534,10 +578,10 @@ async fn start_with_options(
     partition_options: Option<PartitionStartOptions>,
     context: CallContext,
     crawls: Crawls,
-    tiers: FetchTiers,
+    (tiers, sinks): (FetchTiers, Sinks),
     redeclared: Redeclared,
     pages: code_free::Pages,
-) -> Result<RunStarted, CallError> {
+) -> Result<CrawlStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
     client_start(&params.tags, params.detached, in_program(&params), &context)?;
     let given = std::mem::take(&mut params.limits);
@@ -552,6 +596,7 @@ async fn start_with_options(
     labels.sends_from_login_pools(settings.resolved())?;
     let datasets = pages.map_or_else(|| Datasets::declare(&params.datasets), Ok)?;
     FetchTiers::check(settings.resolved(), &labels.settings)?;
+    sinks.check(settings.resolved(), datasets.declarations())?;
     let (extra_limit_scopes, partition_router, membership_writer, initial_held_domains) =
         match partition_options {
             Some(opts) => (
@@ -565,15 +610,22 @@ async fn start_with_options(
     let invariants = Invariants::of_settings(settings.resolved(), &params.labels, fragments)?
         .with_partition_router(partition_router.clone());
     let egress = domain_policy(settings.resolved())?;
-    let found = schema_unchanged(&context, run_id.as_ref(), &invariants, &datasets).await?;
+    let existing_seeds =
+        schema_unchanged(&context, run_id.as_ref(), &invariants, &datasets).await?;
     let seeding = egress.clone();
     // Each seed is keyed in the write that adds it, as its gate will key
     // it, so the crawl opens with no work item to key (#2168).
     let keys = context.runs().keys(settings.resolved());
     let seeds: Vec<Seed> = override_seeds.unwrap_or_else(|| params.seeds.iter().cloned().collect());
-    let inputs = seed_inputs(&seeds);
+    let record_path = params
+        .recording
+        .as_ref()
+        .filter(|r| r.mode == goodfetch_protocol::run::RecordingMode::Record)
+        .map(|r| r.path.clone());
+    let inputs = seed_inputs(&seeds, params.recording.as_ref());
+    let replayed = open_replay(params.recording.as_ref(), settings.resolved(), &context).await?;
     // A Run that exists goes on with its seeds admitted once (ADR 0102).
-    let checked = if found {
+    let checked = if existing_seeds.is_some() {
         Vec::new()
     } else {
         work_items::check_seeds(&invariants, seeds, &work)?
@@ -583,6 +635,7 @@ async fn start_with_options(
     let crawl = CodeFreeCrawl::of(params.extraction, params.declaration);
     let recording = crawl.clone();
     let hooks = params.hooks;
+    let new_answers: Arc<OnceLock<Vec<Enqueued>>> = Arc::default();
     let started = context
         .runs()
         .start_with_scopes(
@@ -600,6 +653,7 @@ async fn start_with_options(
                     seeding,
                     admitted,
                     membership_writer,
+                    Arc::clone(&new_answers),
                 )),
                 policy_version: settings.resolved().policy_version().map(str::to_owned),
                 weakened: settings.resolved().weakened(),
@@ -614,87 +668,327 @@ async fn start_with_options(
         )
         .await
         .map_err(start_error)?;
-    finish_start(
+    finish_started(
         started,
-        partition_router,
-        initial_held_domains,
-        (limits, settings, egress, serving, opening),
-        (declared, crawl, hooks, labels),
-        (crawls, tiers, redeclared, context),
+        (replayed, record_path),
+        (partition_router, initial_held_domains),
+        context,
+        crawls,
+        (tiers, sinks),
+        redeclared,
+        limits,
+        settings,
+        egress,
+        (opening, declared, serving, crawl, labels, hooks),
+        (new_answers, existing_seeds),
     )
     .await
 }
 
-async fn finish_start(
+async fn open_replay(
+    recording: Option<&goodfetch_protocol::run::Recording>,
+    settings: &goodfetch_engine::settings::Resolved,
+    context: &CallContext,
+) -> Result<Option<goodfetch_engine::response_recording::Replayed>, CallError> {
+    let Some(recording) =
+        recording.filter(|r| r.mode == goodfetch_protocol::run::RecordingMode::Replay)
+    else {
+        return Ok(None);
+    };
+    context
+        .engine()
+        .open_replay(&recording.path, settings)
+        .await
+        .map(Some)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "internal helper splitting start's post-RunStarted branch"
+)]
+async fn finish_started(
     started: Started,
-    partition_router: Option<Arc<dyn PartitionRouter>>,
-    initial_held_domains: Vec<String>,
-    (limits, settings, egress, serving, opening): (
-        StartLimits,
-        RunSettings,
-        Policy,
-        Invariants,
+    (replayed, record_path): (
+        Option<goodfetch_engine::response_recording::Replayed>,
+        Option<String>,
+    ),
+    partition: (Option<Arc<dyn PartitionRouter>>, Vec<String>),
+    context: CallContext,
+    crawls: Crawls,
+    (tiers, sinks): (FetchTiers, Sinks),
+    redeclared: Redeclared,
+    limits: StartLimits,
+    settings: RunSettings,
+    egress: Policy,
+    declarations: (
         Datasets,
-    ),
-    (declared, crawl, hooks, labels): (
         BTreeMap<String, LabelDeclaration>,
+        Invariants,
         Option<CodeFreeCrawl>,
-        Vec<CrawlHookDeclaration>,
         labels::Declared,
+        Vec<CrawlHookDeclaration>,
     ),
-    (crawls, tiers, redeclared, context): (Crawls, FetchTiers, Redeclared, CallContext),
-) -> Result<RunStarted, CallError> {
+    seeds: (Arc<OnceLock<Vec<Enqueued>>>, Option<Vec<Enqueued>>),
+) -> Result<CrawlStarted, CallError> {
+    let (opening, declared, serving, crawl, labels, hooks) = declarations;
+    let (new_answers, existing_seeds) = seeds;
+    let software = format!(
+        "{} {}",
+        context.identity().product.name(),
+        context.identity().product_version
+    );
     match started {
         Started::New(run) => {
-            if let Some(router) = partition_router {
-                crawls.register_router(run.identity.id().clone(), router);
+            if let Some(replayed) = replayed {
+                context
+                    .engine()
+                    .recordings()
+                    .attach(run.identity.id().clone(), replayed);
+            } else if let Some(path) = record_path {
+                let recorder = context.engine().new_recorder(
+                    path,
+                    run.identity.id().clone(),
+                    software,
+                    true,
+                    !context.is_daemon(),
+                );
+                recorder.attach_run_state(run.state.clone());
+                context
+                    .engine()
+                    .recordings()
+                    .attach_recorder(run.identity.id().clone(), recorder);
             }
-            let run = CrawlRun::of(&run, &context);
-            let started = RunStarted {
-                run_id: run.identity.id().clone(),
-                started_as: StartedAs::New,
-                lifecycle: Lifecycle::Running,
-                needs: Product::Foxhound,
-                partitions: Vec::new(),
-            };
-            // Its Limits hold it before its driver sends a request; a
-            // crawl they cannot hold ends `failed` rather than run unheld.
-            if let Err(error) = limits.give(&started, &context).await {
-                run.end.end(delivery::failed(&run.identity, &error)).await;
-                return Err(error);
-            }
-            let code_free = CodeFree::of(crawl, &crawls, &tiers, &run.identity);
-            run.identity.spawn(delivery::drive(
-                Arc::clone(&run),
-                context.clone(),
-                crawls
-                    .open_with_held(&run, egress, serving, opening, initial_held_domains)
-                    .await,
-                crawls,
-                settings,
-                (tiers, labels, TierChoices::default(), (code_free, hooks)),
-            ));
-            Ok(started)
+            start_new(
+                (run, &context),
+                (limits, settings, new_answers, sinks),
+                (crawls, egress, serving, opening, partition),
+                (tiers, labels, crawl, hooks),
+            )
+            .await
         }
         // An interrupted Run resumes under the declarations this start
         // checked (ADR 0102), its driver recording them.
         Started::Interrupted(run_id) => {
-            let kept = (opening, declared, serving.payloads().clone(), crawl);
-            // A crawl still ending the Run keeps nothing: the reopen is then
-            // checked as no start's (ADR 0104's note of #2912).
-            let kept = redeclared.keep(&run_id, kept, hooks, &crawls).await;
-            let timeout = settings.resolved().get(&TIMEOUT_RUN);
-            let resumed = resume_run(&context, run_id, None, settings, timeout, kept).await?;
-            limits.give(&resumed, &context).await?;
-            Ok(resumed)
+            if let Some(replayed) = replayed {
+                context
+                    .engine()
+                    .recordings()
+                    .attach(run_id.clone(), replayed);
+            } else if let Some(path) = record_path {
+                let recorder = context.engine().new_recorder(
+                    path,
+                    run_id.clone(),
+                    software,
+                    true,
+                    !context.is_daemon(),
+                );
+                context
+                    .engine()
+                    .recordings()
+                    .attach_recorder(run_id.clone(), recorder);
+            }
+            match resume_started(
+                (&context, run_id.clone()),
+                (settings, limits),
+                (redeclared, &crawls),
+                (opening, declared, serving.payloads().clone(), crawl),
+                hooks,
+                existing_seeds.unwrap_or_default(),
+            )
+            .await
+            {
+                Ok(resumed) => Ok(resumed),
+                Err(error) => {
+                    let _ = context.engine().recordings().take_report_of(&run_id);
+                    Err(error)
+                }
+            }
         }
         Started::Ended(ended) => {
             let kept = (opening, declared, serving.payloads().clone(), crawl);
             redeclared.keep(&ended.run_id, kept, hooks, &crawls).await;
             limits.give(&ended, &context).await?;
-            Ok(ended)
+            Ok(CrawlStarted {
+                started: ended,
+                seeds: existing_seeds.unwrap_or_default(),
+            })
         }
     }
+}
+
+/// Shows ADR 0016's advisory personal-data notice once for a new crawl whose
+/// declared Datasets mark one or more fields with `"x-goodfetch-personal":
+/// true`, and records one `personal_data_notice` Audit log entry. Never blocks
+/// or delays the Run.
+async fn notify_personal_data(
+    run: &CrawlRun,
+    datasets: &Datasets,
+    resolved: &Resolved,
+    context: &CallContext,
+) {
+    let per_dataset = datasets.personal_fields();
+    if per_dataset.is_empty() {
+        return;
+    }
+    let fields: Vec<String> = per_dataset
+        .iter()
+        .flat_map(|(_, fields)| fields.iter().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let purpose: &str = resolved.get(&SITE_PREFERENCES_PURPOSE);
+    let joined = fields.join(", ");
+    let notice = format!(
+        "The Run's schema marks personal-data field(s) {joined} (`\"{PERSONAL_DATA_KEYWORD}\": true`; Purpose: `{purpose}`): review your data-protection obligations (including the CNIL measures for AI training when Purpose is `ai-train`). The Run is not blocked (ADR 0016)."
+    );
+    tracing::warn!(
+        run_id = %run.identity.id(),
+        fields = %joined,
+        purpose = %purpose,
+        "{notice}"
+    );
+    let warning = RunWarning {
+        code: PERSONAL_DATA_WARNING.to_owned(),
+        message: notice,
+        sessions: Vec::new(),
+        folder: None,
+    };
+    if let Err(error) = run.warnings.warn_once(warning).await {
+        tracing::warn!(
+            %error,
+            run_id = %run.identity.id(),
+            "the personal-data notice warning was not kept"
+        );
+    }
+    let datasets_json: Vec<serde_json::Value> = per_dataset
+        .into_iter()
+        .map(|(dataset, fields)| serde_json::json!({ "dataset": dataset, "fields": fields }))
+        .collect();
+    let origin = Origin {
+        actor: Actor::Engine,
+        surface: Some(context.surface()),
+        layer: None,
+        run_id: Some(run.identity.id().clone()),
+    };
+    if let Err(error) = context
+        .engine()
+        .audit()
+        .record(
+            &origin,
+            &PERSONAL_DATA_AUDIT,
+            serde_json::json!({
+                "fields": fields,
+                "datasets": datasets_json,
+                "purpose": purpose,
+            }),
+            run.identity.clock().timestamp(),
+        )
+        .await
+    {
+        tracing::error!(
+            %error,
+            run_id = %run.identity.id(),
+            "the personal-data notice was not recorded in the Audit log"
+        );
+    }
+}
+
+/// Starts delivery for a newly created crawl Run after applying its Limits.
+async fn start_new(
+    (run, context): (goodfetch_engine::runs::RunParts, &CallContext),
+    (limits, settings, new_answers, sinks): (
+        StartLimits,
+        RunSettings,
+        Arc<OnceLock<Vec<Enqueued>>>,
+        Sinks,
+    ),
+    (crawls, egress, serving, opening, (partition_router, initial_held_domains)): (
+        Crawls,
+        Policy,
+        Invariants,
+        Datasets,
+        (Option<Arc<dyn PartitionRouter>>, Vec<String>),
+    ),
+    (tiers, labels, crawl, hooks): (
+        FetchTiers,
+        labels::Declared,
+        Option<CodeFreeCrawl>,
+        Vec<CrawlHookDeclaration>,
+    ),
+) -> Result<CrawlStarted, CallError> {
+    if let Some(router) = partition_router {
+        crawls.register_router(run.identity.id().clone(), router);
+    }
+    // A Sink below the Run's `crawl.min_sink_guarantee` refuses it
+    // before it does any work (ADR 0026).
+    let run = CrawlRun::started(&run, context, (sinks, settings.resolved())).await?;
+    notify_personal_data(&run, &opening, settings.resolved(), context).await;
+    let started = RunStarted {
+        run_id: run.identity.id().clone(),
+        started_as: StartedAs::New,
+        lifecycle: Lifecycle::Running,
+        needs: Product::Foxhound,
+        partitions: Vec::new(),
+    };
+    // Its Limits hold it before its driver sends a request; a
+    // crawl they cannot hold ends `failed` rather than run unheld.
+    if let Err(error) = limits.give(&started, context).await {
+        run.end(delivery::failed(&run.identity, &error)).await;
+        return Err(error);
+    }
+    let seeds = new_answers.get().cloned().unwrap_or_default();
+    mark_initial_idle(&run, &settings, &seeds);
+    let code_free = CodeFree::of(crawl, &crawls, &tiers, &run.identity);
+    run.identity.spawn(delivery::drive(
+        Arc::clone(&run),
+        context.clone(),
+        crawls
+            .open_with_held(&run, egress, serving, opening, initial_held_domains)
+            .await,
+        crawls,
+        settings,
+        (tiers, labels, TierChoices::default(), (code_free, hooks)),
+    ));
+    Ok(CrawlStarted { started, seeds })
+}
+
+/// Marks a newly started keep-alive crawl `idle: true` before its delivery task
+/// runs when every initial seed was refused, so an immediate `run.progress()`
+/// read sees `idle: true`.
+fn mark_initial_idle(run: &CrawlRun, settings: &RunSettings, seeds: &[Enqueued]) {
+    if settings.resolved().get::<bool>(&CRAWL_KEEP_ALIVE)
+        && seeds
+            .iter()
+            .all(|answer| !matches!(answer, Enqueued::Added { .. }))
+    {
+        crate::progress::show_idle(run, true);
+    }
+}
+
+/// Resumes an interrupted crawl under the declarations checked by `crawl.start`.
+async fn resume_started(
+    (context, run_id): (&CallContext, RunId),
+    (settings, limits): (RunSettings, StartLimits),
+    (redeclared, crawls): (Redeclared, &Crawls),
+    kept: (
+        Datasets,
+        BTreeMap<String, LabelDeclaration>,
+        goodfetch_frontier::payload::PayloadRules,
+        Option<CodeFreeCrawl>,
+    ),
+    hooks: Vec<CrawlHookDeclaration>,
+    seeds: Vec<Enqueued>,
+) -> Result<CrawlStarted, CallError> {
+    // A crawl still ending the Run keeps nothing: the reopen is then
+    // checked as no start's (ADR 0104's note of #2912).
+    let kept = redeclared.keep(&run_id, kept, hooks, crawls).await;
+    let timeout = settings.resolved().get(&TIMEOUT_RUN);
+    let resumed = resume_run(context, run_id, None, settings, timeout, kept).await?;
+    limits.give(&resumed, context).await?;
+    Ok(CrawlStarted {
+        started: resumed,
+        seeds,
+    })
 }
 
 /// The crawl's settings, opened as a Foxhound Run's from the start's
@@ -737,6 +1031,7 @@ fn initialize(
     seeding: Policy,
     admitted: Vec<CheckedSeed>,
     membership_writer: Option<MembershipWriter>,
+    kept_answers: Arc<OnceLock<Vec<Enqueued>>>,
 ) -> Initialize {
     Box::new(move |connection| {
         invariants.record(connection)?;
@@ -757,13 +1052,15 @@ fn initialize(
             (&seeding, &invariants),
             &admitted,
         )?;
-        goodfetch_frontier::seeds::answered(connection, &answers)
+        goodfetch_frontier::seeds::answered(connection, &answers)?;
+        let _ = kept_answers.set(answers);
+        Ok(())
     })
 }
 
-/// Whether a Run `run_id` exists (never when the start names none), which
-/// a start under its ID goes on with (ADR 0102), its seeds not admitted
-/// again, once it may go on under the
+/// Whether a Run `run_id` exists (never when the start names none), returning
+/// its original seed answers when it does, which a start under its ID goes on
+/// with (ADR 0102), its seeds not admitted again, once it may go on under the
 /// crawl's `invariants`: refused with `label_unknown` before any work when
 /// a pending request names a Label the crawl no longer declares (ADR
 /// 0102), with `payload_schema_changed` when a declared Label's Payload
@@ -778,39 +1075,40 @@ async fn schema_unchanged(
     run_id: Option<&RunId>,
     invariants: &Invariants,
     datasets: &Datasets,
-) -> Result<bool, CallError> {
+) -> Result<Option<Vec<Enqueued>>, CallError> {
     let Some(run_id) = run_id else {
-        return Ok(false);
+        return Ok(None);
     };
     let declared = invariants.payloads().clone();
     let failed = |error: RunError| run_error(error, context);
     let mut reader = match context.runs().reader(run_id.clone()).await {
         Ok(reader) => reader,
-        Err(RunError::NotFound(_)) => return Ok(false),
+        Err(RunError::NotFound(_)) => return Ok(None),
         Err(error) => return Err(failed(error)),
     };
-    let changed = match reader
+    let (changed, seeds) = match reader
         .read(move |connection| {
             let began = labels::Fragments::read(connection)?;
             let pending = work_items::pending_labels(connection)?;
             let changed = declared.schema_changed(connection, |label| {
                 work_items::pending_of(connection, label)
             })?;
-            Ok((began, Began::read(connection)?, pending, changed))
+            let seeds = goodfetch_frontier::seeds::read(connection)?;
+            Ok((began, Began::read(connection)?, pending, changed, seeds))
         })
         .await
     {
-        Ok((began, began_with, pending, changed)) => {
+        Ok((began, began_with, pending, changed, seeds)) => {
             invariants.payloads().resumes(&pending, run_id.as_str())?;
             invariants.fragments().unchanged(&began, run_id)?;
             datasets.resumes(&began_with, run_id.as_str())?;
-            changed
+            (changed, seeds)
         }
-        Err(RunError::NotFound(_)) => return Ok(false),
+        Err(RunError::NotFound(_)) => return Ok(None),
         Err(error) => return Err(failed(error)),
     };
     match changed {
-        None => Ok(true),
+        None => Ok(Some(seeds)),
         Some(changed) => Err(CallError::new(
             &PAYLOAD_SCHEMA_CHANGED,
             format!(

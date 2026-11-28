@@ -14,7 +14,7 @@ use goodfetch_protocol::schedule::{
 };
 
 use crate::call::Call;
-use crate::connection::ClientConnection;
+use crate::connection::{ClientConnection, Core};
 use crate::generated::handles::Schedule;
 use crate::host::ConnectionHost;
 
@@ -23,7 +23,7 @@ use crate::host::ConnectionHost;
 /// [`Schedule`]'s own members do. Cloning it is cheap.
 #[derive(Clone, Debug)]
 pub struct Schedules {
-    connection: ClientConnection,
+    connection: Core,
 }
 
 /// What [`Schedules::create`] answers: the created Schedule, and what its
@@ -68,7 +68,7 @@ impl ClientConnection {
     #[must_use]
     pub fn schedules(&self) -> Schedules {
         Schedules {
-            connection: self.clone(),
+            connection: self.core().clone(),
         }
     }
 }
@@ -218,7 +218,7 @@ preview_call_options!(Call);
 
 /// The handle of the Schedule `id` names, whose calls go through
 /// `connection`.
-fn schedule(connection: ClientConnection, id: ScheduleId) -> Schedule {
+fn schedule(connection: Core, id: ScheduleId) -> Schedule {
     Schedule {
         host: ConnectionHost::new(connection, id),
     }

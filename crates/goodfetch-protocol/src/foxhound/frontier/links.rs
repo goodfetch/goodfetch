@@ -194,3 +194,120 @@ pub const CRAWL_REQUEST_ENQUEUE_LINKS: Operation = Operation {
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// What `crawl_request.enqueue_links_by_clicking_elements` takes: a locator on
+/// the attempt's browser page whose matched elements are clicked in document
+/// order through the guard to discover script-only links (ADR 0093; issue 1087).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CrawlRequestEnqueueLinksByClickingElementsParams {
+    /// The crawl's Run.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// The ID of the crawl request whose attempt enqueues.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub crawl_request_id: String,
+    /// The attempt's lease epoch, as `crawl_request.handle` gave it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lease_epoch: u64,
+    /// The locator, on the browser page `crawl_request.handle` gave.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub locator: Locator,
+    /// Their Label.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub label: String,
+    /// The one Payload every discovered link takes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub payload: Option<Value>,
+    /// URL patterns, globs as `crawl.scope.include`'s, of which a link must
+    /// match one when there are any, besides the crawl's scope, which they
+    /// only narrow.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub include: Vec<String>,
+    /// URL patterns a link must match none of, besides the crawl's scope.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub exclude: Vec<String>,
+    /// At most this many links are added; once they are, each later
+    /// discovered URL the Frontier would judge is not added, with
+    /// `link_limit`. None for no limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limit: Option<u64>,
+    /// Their priority among the requests of their domain, as
+    /// `crawl_request.enqueue`'s; 0 by default.
+    #[serde(default)]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub priority: i64,
+}
+
+/// An unsafe network request aborted unsent during a discovery click (issue
+/// 1087): any method other than `GET`, `HEAD` or `OPTIONS`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AbortedDiscoveryRequest {
+    /// A request with an unsafe HTTP method was aborted before leaving the
+    /// browser so discovery clicks never place an order or mutate a site.
+    UnsafeRequestAborted {
+        /// The aborted request's HTTP method, such as `POST`.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        method: String,
+        /// The aborted request's URL.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        url: String,
+    },
+}
+
+/// A matched element whose discovery click the guard refused (issue 1087).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DiscoveryClickRefusal {
+    /// Zero-based index of the matched element in document order.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub index: u64,
+    /// The guard's Error code (for example `deadline_exceeded`).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub code: String,
+    /// Why the guard refused the click.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub message: String,
+}
+
+/// What `crawl_request.enqueue_links_by_clicking_elements` answers: what
+/// became of each discovered link, each unsafe request aborted unsent, and
+/// any matched element whose click the guard refused (issue 1087).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct EnqueuedLinksByClickingElements {
+    /// Each discovered link's admission answer, as `crawl_request.enqueue_links`
+    /// answers.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub links: Vec<EnqueuedLink>,
+    /// Requests with a method other than `GET`, `HEAD` or `OPTIONS` aborted
+    /// unsent during the clicks.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub aborted: Vec<AbortedDiscoveryRequest>,
+    /// Matched elements whose click the guard refused.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub refused: Vec<DiscoveryClickRefusal>,
+}
+
+/// `crawl_request.enqueue_links_by_clicking_elements`.
+pub const CRAWL_REQUEST_ENQUEUE_LINKS_BY_CLICKING_ELEMENTS: Operation = Operation {
+    name: "crawl_request.enqueue_links_by_clicking_elements",
+    description: "Finds links that exist only in scripts by clicking each element a locator matches on the attempt's browser page in document order through the guard (a handler context's `enqueueLinksByClickingElements`). Main-frame navigations and popup first requests started by each click are recorded and aborted before leaving the browser, History API URL changes (`pushState`/`replaceState`) are recorded, and any request with a method other than `GET`, `HEAD` or `OPTIONS` is aborted unsent and reported as `unsafe_request_aborted` with its method and URL. Each recorded URL is admitted as an enqueue under `label`, `payload`, `include`, `exclude`, `limit` and `priority`; a guard refusal stops that click and is reported in `refused`. On a non-browser tier it escalates under `fetch.tier: auto` and fails with `browser_required` under a forced tier. Because clicks change the page's state, call it last in a handler.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::SdkOnly,
+    params: schema_of::<CrawlRequestEnqueueLinksByClickingElementsParams>,
+    result: schema_of::<EnqueuedLinksByClickingElements>,
+    events: &[],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};

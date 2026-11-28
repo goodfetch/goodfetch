@@ -351,6 +351,13 @@ impl RunTrace {
             .await
     }
 
+    /// Whether the Run writes its Provenance log (`provenance.log`): callers
+    /// check this before building an entry so `E5.formatting_off` stays zero
+    /// when off (ADR 0140).
+    pub fn logs_provenance(&self) -> bool {
+        self.0.logs_provenance
+    }
+
     /// Appends `entry`, one Provenance entry, as a line of the log, masked
     /// by the Run's `Mask`, and returns once it is written. With the Run's
     /// `provenance.log` off, the entry is neither masked, encoded nor written.

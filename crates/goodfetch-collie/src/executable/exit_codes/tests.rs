@@ -110,6 +110,7 @@ fn report(lifecycle: Lifecycle, verdict: Verdict) -> RunReport {
         plugins: None,
         warnings: Vec::new(),
         recording: None,
+        cache_mode: None,
         checkpoint: None,
         nothing_done: None,
         uncertain_effects: None,

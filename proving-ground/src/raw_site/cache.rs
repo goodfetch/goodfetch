@@ -106,6 +106,25 @@ pub(super) fn answer(request: &Request, earlier: u64) -> Answer {
                 .with("cache-control", "no-store"),
         );
     }
+    if let Some(name) = path.strip_prefix("/set-cookie/") {
+        return Answer::Page(
+            page(path, answer, "")
+                .with("cache-control", "max-age=3600")
+                .with("set-cookie", format!("sid={name}; Path=/")),
+        );
+    }
+    if path.starts_with("/blocked/") {
+        return Answer::Page(
+            Page::html(
+                403,
+                format!(
+                    "<!doctype html><html><head><meta charset=\"utf-8\"><title>Just a moment...</title></head><body><main><p>Answer {answer} of {path}.</p></main></body></html>"
+                ),
+            )
+            .with("cache-control", "max-age=3600")
+            .with("cf-mitigated", "challenge"),
+        );
+    }
     Answer::Page(Page::text(404, "not found"))
 }
 

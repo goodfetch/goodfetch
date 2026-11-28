@@ -31,6 +31,10 @@ export type CollieWireType =
   | "CertsListed"
   | "Checkpoint"
   | "CheckpointBehindDetails"
+  | "CheckpointSaveAsParams"
+  | "CheckpointSaved"
+  | "CheckpointStreamParams"
+  | "CheckpointStreamed"
   | "ClickParams"
   | "Concurrency"
   | "ConfigExplainParams"
@@ -161,6 +165,7 @@ export type CollieWireType =
   | "RecordProvenance"
   | "RecordRead"
   | "RecordingReport"
+  | "RecordingSaveAsParams"
   | "RedoneReport"
   | "RequestFailure"
   | "ResourcesExhaustedDetails"
@@ -203,6 +208,8 @@ export type CollieWireType =
   | "RunStopParams"
   | "RunStopping"
   | "RunStorage"
+  | "RunTrace"
+  | "RunTraceResult"
   | "RunUsage"
   | "ScheduleCapExceededDetails"
   | "ScheduleCreateParams"
@@ -218,6 +225,7 @@ export type CollieWireType =
   | "SchedulePreviewParams"
   | "ScheduleTrigger"
   | "SchemaValidatorFailedDetails"
+  | "SecretsResolveParams"
   | "SessionOnParams"
   | "SessionOpened"
   | "SessionParams"
@@ -237,6 +245,8 @@ export type CollieWireType =
   | "ThinNotification"
   | "TierProvenance"
   | "TimeRange"
+  | "TraceSaveAsParams"
+  | "TraceStreamParams"
   | "TransformProvenance"
   | "TriggerDescription"
   | "UncertainEffect"
@@ -272,7 +282,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "CacheDamage": { fields: { "body_sha256": "bodySha256", "run_id": "runId" } },
     "CacheStats": { fields: { "body_bytes": "bodyBytes", "held_bytes": "heldBytes" } },
     "CacheVerified": { fields: { "damaged": ["damaged", { items: { type: "CacheDamage" } }] } },
-    "CatalogRunStartParams": { fields: { "group_member": "groupMember", "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId", "target": ["target", { type: "CatalogTarget" }] } },
+    "CatalogRunStartParams": { fields: { "group_member": "groupMember", "limits": ["limits", { items: { type: "RunLimit" } }], "recording_bytes": "recordingBytes", "run_id": "runId", "target": ["target", { type: "CatalogTarget" }] } },
     "CatalogTarget": { fields: { "max_steps": "maxSteps" } },
     "CdpUrlNotBrowserDetails": { fields: { "browser_url": "browserURL" } },
     "CertificateChangedDetails": { fields: { "pinned_spki_sha256": "pinnedSpkiSha256", "presented_spki_sha256": "presentedSpkiSha256" } },
@@ -282,6 +292,10 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "CertsListed": { fields: { "pins": ["pins", { items: { type: "CertificatePin" } }] } },
     "Checkpoint": { fields: { "journal_position": "journalPosition", "run_epoch": "runEpoch", "run_id": "runId", "time": ["time", "time"] } },
     "CheckpointBehindDetails": { fields: { "checkpoint": ["checkpoint", { type: "RunStatePosition" }], "run_file": ["runFile", { type: "RunStatePosition" }] } },
+    "CheckpointSaveAsParams": { fields: { "run_id": "runId" } },
+    "CheckpointSaved": { fields: { "run_epoch": "runEpoch" } },
+    "CheckpointStreamParams": { fields: { "run_id": "runId" } },
+    "CheckpointStreamed": { fields: { "run_epoch": "runEpoch" } },
     "ClickParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
     "Concurrency": { fields: { "browser_page": ["browserPage", { type: "KindConcurrency" }], "http": ["http", { type: "KindConcurrency" }], "model_call": ["modelCall", { type: "KindConcurrency" }] } },
     "ConfigExplainParams": { fields: { "missing_project": "missingProject", "run_id": "runId" } },
@@ -408,15 +422,16 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "PrivateEndpoint": { fields: { "token_file": "tokenFile" } },
     "ProtocolVersionUnsupportedDetails": { fields: { "client_protocol_version": "clientProtocolVersion", "engine_protocol_version": "engineProtocolVersion" } },
     "ReachedLimit": { fields: { "period": ["period", { type: "Period" }], "resets_at": ["resetsAt", "time"], "usage_kind": "usageKind" } },
-    "RecipeStartParams": { fields: { "group_member": "groupMember", "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId" } },
+    "RecipeStartParams": { fields: { "group_member": "groupMember", "limits": ["limits", { items: { type: "RunLimit" } }], "recording_bytes": "recordingBytes", "run_id": "runId" } },
     "RecordProvenance": { fields: { "certificate_exception": ["certificateException", { type: "CertificateExceptionMark" }], "clean_up_rules": "cleanUpRules", "origin": ["origin", { type: "ResponseOrigin" }], "payment": ["payment", { type: "PaymentMark" }], "request_id": "requestId", "robots_txt": "robotsTxt", "tier": ["tier", { type: "TierProvenance" }], "unread_fields": "unreadFields", "value_transforms": ["valueTransforms", { items: { type: "TransformProvenance" } }] } },
     "RecordRead": { fields: { "record": ["record", { type: "DatasetRecord" }] } },
     "RecordingReport": { fields: { "recorded_from": ["recordedFrom", "time"], "recorded_to": ["recordedTo", "time"], "responses_used": "responsesUsed", "written_by": "writtenBy" } },
+    "RecordingSaveAsParams": { fields: { "run_id": "runId" } },
     "RedoneReport": { fields: { "batch_writes": "batchWrites" } },
     "RequestFailure": { fields: { "error_text": "errorText" } },
     "ResourcesExhaustedDetails": { fields: { "free_bytes": "freeBytes" } },
     "ResponseBodyParams": { fields: { "page_id": "pageId", "request_id": "requestId" } },
-    "ResponseOrigin": { fields: { "fetched_at": ["fetchedAt", "time"], "recorded_at": ["recordedAt", "time"] } },
+    "ResponseOrigin": { fields: { "fetched_at": ["fetchedAt", "time"], "recorded_at": ["recordedAt", "time"], "run_id": "runId" } },
     "Resync": { fields: { "needs_you": ["needsYou", { items: { type: "NeedsYouItem" } }], "runs": ["runs", { items: { type: "RunAxes" } }] } },
     "RouteAbortParams": { fields: { "error_code": "errorCode", "route_id": "routeId" } },
     "RouteAlreadyHandledDetails": { fields: { "route_id": "routeId" } },
@@ -444,17 +459,19 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "RunParams": { fields: { "run_id": "runId" } },
     "RunProgress": { fields: { "at": ["at", "time"], "checkpoint_at": ["checkpointAt", "time"], "pauses": ["pauses", { items: { type: "HumanPause" } }], "run_id": "runId", "stop_reason": ["stopReason", { type: "StopReason" }], "storage": ["storage", { type: "RunStorage" }] } },
     "RunProgressParams": { fields: { "run_id": "runId" } },
-    "RunReport": { fields: { "checkpoint": ["checkpoint", { type: "Checkpoint" }], "completeness_reasons": ["completenessReasons", { items: { type: "AxisReason" } }], "ended_at": ["endedAt", "time"], "nothing_done": ["nothingDone", { type: "NothingDone" }], "plan": ["plan", { type: "PlanReport" }], "plugins": ["plugins", { items: { type: "PluginRun" } }], "policy_version": "policyVersion", "recording": ["recording", { type: "RecordingReport" }], "redone": ["redone", { type: "RedoneReport" }], "run_id": "runId", "settings": ["settings", { items: { type: "ExplainedSetting" } }], "started_at": ["startedAt", "time"], "stop_reason": ["stopReason", { type: "StopReason" }], "uncertain_effects": ["uncertainEffects", { items: { type: "UncertainEffect" } }], "usage": ["usage", { type: "RunUsage" }], "verdict_reasons": ["verdictReasons", { items: { type: "AxisReason" } }] } },
+    "RunReport": { fields: { "cache_mode": "cacheMode", "checkpoint": ["checkpoint", { type: "Checkpoint" }], "completeness_reasons": ["completenessReasons", { items: { type: "AxisReason" } }], "ended_at": ["endedAt", "time"], "nothing_done": ["nothingDone", { type: "NothingDone" }], "plan": ["plan", { type: "PlanReport" }], "plugins": ["plugins", { items: { type: "PluginRun" } }], "policy_version": "policyVersion", "recording": ["recording", { type: "RecordingReport" }], "redone": ["redone", { type: "RedoneReport" }], "run_id": "runId", "settings": ["settings", { items: { type: "ExplainedSetting" } }], "started_at": ["startedAt", "time"], "stop_reason": ["stopReason", { type: "StopReason" }], "uncertain_effects": ["uncertainEffects", { items: { type: "UncertainEffect" } }], "usage": ["usage", { type: "RunUsage" }], "verdict_reasons": ["verdictReasons", { items: { type: "AxisReason" } }] } },
     "RunResumeParams": { fields: { "group_member": "groupMember", "run_id": "runId" } },
     "RunSetProgressMessageParams": { fields: { "run_id": "runId" } },
-    "RunStartParams": { fields: { "accept_plugin_change": "acceptPluginChange", "group_member": "groupMember", "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId" } },
+    "RunStartParams": { fields: { "accept_plugin_change": "acceptPluginChange", "group_member": "groupMember", "limits": ["limits", { items: { type: "RunLimit" } }], "recording_bytes": "recordingBytes", "run_id": "runId" } },
     "RunStarted": { fields: { "partitions": ["partitions", { items: { type: "StartedPartition" } }], "run_id": "runId", "started_as": "startedAs" } },
     "RunStartedAs": { fields: { "started_as": "startedAs" } },
     "RunStatePosition": { fields: { "journal_position": "journalPosition", "run_epoch": "runEpoch" } },
     "RunStopParams": { fields: { "run_id": "runId" } },
     "RunStopping": { fields: { "cause": ["cause", { type: "StopReason" }], "run_id": "runId" } },
     "RunStorage": { fields: { "free_bytes": "freeBytes" } },
-    "RunUsage": { fields: { "browser_time": "browserTime", "limits": ["limits", { items: { type: "AppliedLimit" } }], "model": ["model", { type: "ModelUsage" }], "model_allowance": ["modelAllowance", { items: { type: "ModelAllowance" } }], "other": ["other", { items: { type: "KindUsage" } }], "paid_fetches": "paidFetches", "paid_solves": "paidSolves", "proxy_bytes": "proxyBytes", "proxy_bytes_by_kind": "proxyBytesByKind", "proxy_price": "proxyPrice" } },
+    "RunTrace": { fields: { "run_id": "runId" } },
+    "RunTraceResult": { fields: { "trace": ["trace", { type: "RunTrace" }] } },
+    "RunUsage": { fields: { "browser_time": "browserTime", "cache_hits": "cacheHits", "limits": ["limits", { items: { type: "AppliedLimit" } }], "model": ["model", { type: "ModelUsage" }], "model_allowance": ["modelAllowance", { items: { type: "ModelAllowance" } }], "other": ["other", { items: { type: "KindUsage" } }], "paid_fetches": "paidFetches", "paid_solves": "paidSolves", "proxy_bytes": "proxyBytes", "proxy_bytes_by_kind": "proxyBytesByKind", "proxy_price": "proxyPrice" } },
     "ScheduleCapExceededDetails": { fields: { "policy_version": "policyVersion" } },
     "ScheduleCreateParams": { fields: { "definition": ["definition", { type: "ScheduleDefinition" }] } },
     "ScheduleCreated": { fields: { "schedule_id": "scheduleId" } },
@@ -469,6 +486,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "SchedulePreviewParams": { fields: { "after": ["after", "time"], "time_zone": "timeZone", "trigger": ["trigger", { type: "ScheduleTrigger" }] } },
     "ScheduleTrigger": { type: "EveryTrigger" },
     "SchemaValidatorFailedDetails": { fields: { "exception_message": "exceptionMessage", "exception_type": "exceptionType" } },
+    "SecretsResolveParams": { fields: { "run_id": "runId" } },
     "SessionOnParams": { fields: { "session_id": "sessionId" } },
     "SessionOpened": { fields: { "session_id": "sessionId" } },
     "SessionParams": { fields: { "session_id": "sessionId" } },
@@ -488,6 +506,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "ThinNotification": { fields: { "event_id": "eventId", "run_id": "runId", "schedule_id": "scheduleId" } },
     "TierProvenance": { fields: { "calls_sent_on": "callsSentOn", "forced_by": "forcedBy" } },
     "TimeRange": { fields: { "from": ["from", "time"], "until": ["until", "time"] } },
+    "TraceSaveAsParams": { fields: { "run_id": "runId" } },
+    "TraceStreamParams": { fields: { "run_id": "runId" } },
     "TransformProvenance": { fields: { "anchor": ["anchor", "time"], "time_zone": "timeZone" } },
     "TriggerDescription": { fields: { "structured": ["structured", { type: "StructuredTriggerDescription" }] } },
     "UncertainEffect": { fields: { "crawl_request": "crawlRequest", "first_command": "firstCommand", "since": ["since", "time"] } },
@@ -508,6 +528,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
   params: {
     "cache.clear": { type: "CacheClearParams" },
     "catalog_run.start": { type: "CatalogRunStartParams" },
+    "checkpoint.save_as": { type: "CheckpointSaveAsParams" },
+    "checkpoint.stream": { type: "CheckpointStreamParams" },
     "config.explain": { type: "ConfigExplainParams" },
     "connection.set_log_level": { type: "SetLogLevelParams" },
     "dialog.accept": { type: "DialogAcceptParams" },
@@ -553,6 +575,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "page.wait_for_response": { type: "WaitForExchangeParams" },
     "page.wait_for_url": { type: "WaitForUrlParams" },
     "recipe.start": { type: "RecipeStartParams" },
+    "recording.save_as": { type: "RecordingSaveAsParams" },
     "response.body": { type: "ResponseBodyParams" },
     "route.abort": { type: "RouteAbortParams" },
     "route.continue": { type: "RouteOverridesParams" },
@@ -575,6 +598,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "run.start": { type: "RunStartParams" },
     "run.started_as": { type: "RunParams" },
     "run.stop": { type: "RunStopParams" },
+    "run.trace": { type: "RunParams" },
     "run.usage": { type: "RunParams" },
     "schedule.create": { type: "ScheduleCreateParams" },
     "schedule.delete": { type: "ScheduleParams" },
@@ -587,6 +611,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "session.route": { type: "SessionRouteParams" },
     "signing_key.create": { type: "SigningKeyCreateParams" },
     "signing_key.directory": { type: "SigningKeyDirectoryParams" },
+    "trace.save_as": { type: "TraceSaveAsParams" },
+    "trace.stream": { type: "TraceStreamParams" },
     "usage.set": { type: "UsageSetParams" },
   },
   results: {
@@ -596,6 +622,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "cache.verify": { type: "CacheVerified" },
     "catalog_run.start": { type: "RunStarted" },
     "certs.list": { type: "CertsListed" },
+    "checkpoint.save_as": { type: "CheckpointSaved" },
+    "checkpoint.stream": { type: "CheckpointStreamed" },
     "config.explain": { type: "SettingsExplanation" },
     "daemon.status": { type: "DaemonState" },
     "daemon.stop": { type: "DaemonStopping" },
@@ -638,6 +666,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "run.start": { type: "RunStarted" },
     "run.started_as": { type: "RunStartedAs" },
     "run.stop": { type: "RunReport" },
+    "run.trace": { type: "RunTraceResult" },
     "run.usage": { type: "RunUsage" },
     "schedule.create": { type: "ScheduleCreated" },
     "schedule.get": { type: "ScheduleInfo" },

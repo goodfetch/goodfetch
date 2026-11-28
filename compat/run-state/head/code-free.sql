@@ -177,6 +177,7 @@ INSERT INTO "record_search_data" VALUES(1,X'');
 INSERT INTO "record_search_data" VALUES(10,X'00000000FF000001000000');
 CREATE TABLE 'record_search_docsize'(id INTEGER PRIMARY KEY, sz BLOB, origin INTEGER);
 CREATE TABLE 'record_search_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID;
+CREATE TABLE recorded_responses ( position INTEGER PRIMARY KEY AUTOINCREMENT, recorded_at TEXT NOT NULL, method TEXT NOT NULL, url TEXT NOT NULL, request_headers TEXT NOT NULL, request_body BLOB NOT NULL, status INTEGER NOT NULL, response_headers TEXT NOT NULL, response_body BLOB NOT NULL, truncated INTEGER NOT NULL CHECK (truncated IN (0, 1)) ) STRICT;
 CREATE TABLE records (
             dataset TEXT NOT NULL,
             number INTEGER NOT NULL,
@@ -314,7 +315,7 @@ CREATE TABLE run (
         report TEXT,
         charges TEXT NOT NULL DEFAULT 'synced' CHECK (charges IN ('synced', 'deferred', 'unsynced'))
     ) STRICT;
-INSERT INTO "run" VALUES('code-free','crawl','foxhound','os_user',1,'{"seeds":[{"label":"page","url":"https://shop.test/more/more/more/"}]}','finished',NULL,'verified','unverified','2026-01-05T09:00:04Z','2026-01-05T09:00:04Z','sha256:0227dc879fda140d','[]',2,NULL,'sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9','{"crawl.keep_url_fragment":false,"crawl.scope.exclude":[],"crawl.scope.include":[],"crawl.scope.strategy":"same_hostname"}','{"fetch.tier":"a321f717224d7f734e098a468af88534a4b8e212f49fd254a9a8475dc3b248f3","network.resolve":"06f5be6d842aa7e34b596c0656c8cde06f867f0c378f182baf86022b7c584946"}',0,NULL,NULL,NULL,'{"run_id":"code-free","lifecycle":"finished","verdict":"verified","completeness":"unverified","completeness_reasons":[{"code":"crawl.max_segment_repeats","message":"`crawl.max_segment_repeats` refused 1 URL the crawl would otherwise have admitted.","count":1}],"started_at":"2026-01-05T09:00:04Z","ended_at":"2026-01-05T09:00:04Z","usage":{"model":{"calls":0,"tokens":0,"input_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"output_tokens":0,"reasoning_tokens":0,"price":null},"browser_time":0,"proxy_bytes":0,"requests":0,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":983,"set_by":"client"}]},"policy_version":"sha256:0227dc879fda140d","nothing_done":{"reason":"no_seed_handled","seeds":[{"reason":"max_segment_repeats","count":1}]},"learned_rules":[],"records":[],"requests":{"blocked":0,"failed":0,"pending":0,"skipped":0,"succeeded":0}}','unsynced');
+INSERT INTO "run" VALUES('code-free','crawl','foxhound','os_user',1,'{"seeds":[{"label":"page","url":"https://shop.test/more/more/more/"}]}','finished',NULL,'verified','unverified','2026-01-05T09:00:51.361Z','2026-01-05T09:00:51.361Z','sha256:0227dc879fda140d','[]',2,NULL,'sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9','{"crawl.keep_url_fragment":false,"crawl.scope.exclude":[],"crawl.scope.include":[],"crawl.scope.strategy":"same_hostname"}','{"fetch.tier":"a321f717224d7f734e098a468af88534a4b8e212f49fd254a9a8475dc3b248f3","network.resolve":"06f5be6d842aa7e34b596c0656c8cde06f867f0c378f182baf86022b7c584946"}',0,NULL,NULL,NULL,'{"run_id":"code-free","lifecycle":"finished","verdict":"verified","completeness":"unverified","completeness_reasons":[{"code":"crawl.max_segment_repeats","message":"`crawl.max_segment_repeats` refused 1 URL the crawl would otherwise have admitted.","count":1}],"started_at":"2026-01-05T09:00:51.361Z","ended_at":"2026-01-05T09:00:51.361Z","usage":{"model":{"calls":0,"tokens":0,"input_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"output_tokens":0,"reasoning_tokens":0,"price":null},"browser_time":0,"proxy_bytes":0,"requests":0,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":983,"set_by":"client"}]},"policy_version":"sha256:0227dc879fda140d","nothing_done":{"reason":"no_seed_handled","seeds":[{"reason":"max_segment_repeats","count":1}]},"learned_rules":[],"records":[],"requests":{"blocked":0,"failed":0,"pending":0,"skipped":0,"succeeded":0}}','unsynced');
 CREATE TABLE run_file_chunks (sha256 TEXT NOT NULL, offset INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (sha256, offset)) STRICT;
 CREATE TABLE run_files (position INTEGER NOT NULL PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL) STRICT;
 CREATE TABLE run_key (
@@ -341,6 +342,34 @@ CREATE TABLE seeds (
             answer TEXT NOT NULL
         ) STRICT;
 INSERT INTO "seeds" VALUES(1,'{"kind":"not_added","reason":"max_segment_repeats","url":"https://shop.test/more/more/more/"}');
+CREATE TABLE sink_dead_letters (
+            sink TEXT NOT NULL,
+            delivery_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            run_epoch INTEGER NOT NULL,
+            dataset TEXT NOT NULL,
+            record_number INTEGER NOT NULL,
+            committed_at TEXT NOT NULL,
+            record TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            attempts INTEGER NOT NULL,
+            PRIMARY KEY (sink, delivery_id)
+        ) STRICT, WITHOUT ROWID;
+CREATE TABLE sink_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sink TEXT NOT NULL,
+            event TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            occurred_at TEXT NOT NULL
+        ) STRICT;
+CREATE TABLE sink_state (
+            sink TEXT NOT NULL PRIMARY KEY,
+            guarantee_class TEXT NOT NULL,
+            status TEXT NOT NULL,
+            paused_reason TEXT,
+            outside_dedup_window INTEGER NOT NULL,
+            undeclared_datasets TEXT NOT NULL
+        ) STRICT, WITHOUT ROWID;
 CREATE TABLE sitemap_entries (
             work_item TEXT NOT NULL,
             reason TEXT NOT NULL,
@@ -417,6 +446,7 @@ CREATE TABLE work_items (
             position INTEGER NOT NULL UNIQUE,
             url TEXT NOT NULL,
             method TEXT NOT NULL,
+            headers TEXT,
             body BLOB,
             label TEXT NOT NULL,
             depth INTEGER NOT NULL,

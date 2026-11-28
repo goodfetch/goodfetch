@@ -140,6 +140,14 @@ pub struct Sent {
     /// host was reached through (ADR 0042); none when its certificate
     /// verified, or it came over plain HTTP.
     pub certificate_exception: Option<ExceptionUsed>,
+    /// Whether the hop was fetched under any custom TLS policy
+    /// (`tls.trusted_cas`, `tls.client_certificates` or
+    /// `tls.accept_invalid_certs`), keeping it out of the Response cache
+    /// (ADR 0046).
+    pub custom_tls: bool,
+    /// The Response recording or Response cache that answered in place of
+    /// the network (ADRs 0046 and 0105, issue 802).
+    pub origin: Option<goodfetch_protocol::foxhound::provenance::ResponseOrigin>,
 }
 
 impl std::fmt::Debug for Sent {
@@ -151,6 +159,7 @@ impl std::fmt::Debug for Sent {
             .field("reused", &self.reused)
             .field("decoded", &self.decoded)
             .field("certificate_exception", &self.certificate_exception)
+            .field("custom_tls", &self.custom_tls)
             .finish_non_exhaustive()
     }
 }
@@ -289,6 +298,9 @@ pub enum TransportFailure {
     /// (ADR 0020): the browser resends and decodes itself, so it is never
     /// sent again.
     Browser(BrowserFailure),
+    /// A replaying Run's Response recording lacked the request: refused as
+    /// `response_not_recorded`, never retried and never sent (ADR 0105).
+    Recorded(CallFailure),
     /// Any other failure: the generic case (ADR 0118; `net::ERR_FAILED`).
     Other,
 }
@@ -381,7 +393,7 @@ impl TransportFailure {
     /// The network error Chrome names the same failure with.
     pub fn network_error(&self) -> &'static str {
         match self {
-            Self::Egress(_) => "net::ERR_BLOCKED_BY_CLIENT",
+            Self::Egress(_) | Self::Recorded(_) => "net::ERR_BLOCKED_BY_CLIENT",
             Self::NameNotResolved => "net::ERR_NAME_NOT_RESOLVED",
             Self::AddressFamily { .. } => "net::ERR_ADDRESS_UNREACHABLE",
             Self::ConnectionRefused => "net::ERR_CONNECTION_REFUSED",
@@ -416,7 +428,9 @@ impl TransportFailure {
         match self {
             Self::Egress(refused) => return refused.error(),
             Self::Browser(failure) => return failure.0.clone(),
-            Self::ClientCertificate(failure) | Self::Proxy(failure) => return failure.0.clone(),
+            Self::ClientCertificate(failure) | Self::Proxy(failure) | Self::Recorded(failure) => {
+                return failure.0.clone();
+            }
             Self::CertificateChanged(changed) => return changed.error(),
             Self::CertificateInvalid(failure) => {
                 let host = Url::parse(url)
@@ -502,6 +516,10 @@ pub struct Fetched {
     /// The invalid-certificate exception its host was reached through (ADR
     /// 0042, pitfall H03), which the Provenance of its Records marks.
     pub certificate_exception: Option<ExceptionUsed>,
+    /// The Response recording or Response cache that answered in place of
+    /// the network, which the Provenance of its Records marks (ADRs 0046 and
+    /// 0105, issue 802).
+    pub origin: Option<goodfetch_protocol::foxhound::provenance::ResponseOrigin>,
     /// What was read of the text of a crawl request's own document, which
     /// its `Content-Type` typed as one, as its bytes arrived (issue 2187):
     /// none for any other body, or when its encoding was still to find.
@@ -741,6 +759,7 @@ async fn fetch_on(
                 body: Bytes::new(),
                 unaccepted: Some(refused),
                 certificate_exception: sent.certificate_exception,
+                origin: sent.origin,
                 text: None,
                 pass: None,
             });
@@ -775,6 +794,7 @@ async fn fetch_on(
                     body: Bytes::new(),
                     unaccepted: Some(refused),
                     certificate_exception: sent.certificate_exception,
+                    origin: sent.origin,
                     text: None,
                     pass: None,
                 });
@@ -802,6 +822,7 @@ async fn fetch_on(
             },
             unaccepted,
             certificate_exception: sent.certificate_exception,
+            origin: sent.origin,
             text,
             pass,
         })

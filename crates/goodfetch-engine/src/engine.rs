@@ -52,6 +52,7 @@ use crate::needs_you::{NeedsYou, NeedsYouSource, SourceContext};
 use crate::ops::{self, Health, OpsOptions};
 use crate::politeness::{PolitenessOptions, PolitenessTables};
 use crate::product::Identity;
+use crate::response_recording::Recordings;
 use crate::rpc::{self, Access, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{RunStateOptions, RunStateTables};
@@ -361,6 +362,12 @@ impl Engine {
     /// loop stopped waiting for a panic, as it stopped: then
     /// [`DaemonEnd::Panicked`], which exits 1 like any other such panic
     /// (ADR 0148). A handover keeps its end, the next Daemon serving on.
+    fn run_tables(&self) -> Vec<RunStateTables> {
+        let mut tables = self.tables.clone();
+        tables.push(crate::response_recording::TABLES);
+        tables
+    }
+
     fn late_panic(&self, owner: &TaskOwner, ended: DaemonEnd) -> DaemonEnd {
         match ended {
             DaemonEnd::Idle
@@ -474,6 +481,8 @@ impl Engine {
             settings: settings.clone(),
         });
         let daemon = self.to_the_daemon(reached_at.as_ref(), &forwarder);
+        let mut report_parts = self.report_parts.clone();
+        report_parts.push(Arc::new(RecordingReportPart(stores.recordings().clone())));
         let (context, secrets) = self.engine_context(
             &mut dependencies,
             settings,
@@ -518,6 +527,8 @@ impl Engine {
         governor: Governor,
         owner: &TaskOwner,
     ) -> Runs {
+        let mut report_parts = self.report_parts.clone();
+        report_parts.push(Arc::new(RecordingReportPart(context.recordings().clone())));
         Runs::start_registry(
             RunsSetup {
                 engine: context.clone(),
@@ -535,9 +546,9 @@ impl Engine {
                     None => dependencies.run_state,
                 },
                 install: install.map(Arc::new),
-                tables: self.tables.clone(),
+                tables: self.run_tables(),
                 driving: self.driving.clone(),
-                report_parts: self.report_parts.clone(),
+                report_parts,
                 progress_parts: self.progress_parts.clone(),
                 limit_scope_readers: Arc::clone(&self.limit_scope_readers),
                 clean_up: self.clean_up.clone(),
@@ -648,6 +659,7 @@ impl Engine {
                 group_membership_hooks: Arc::clone(&self.group_membership_hooks),
                 notifier: self.notification_dispatcher.clone(),
                 secrets: self.driver_slot.clone(),
+                masks: self.dispatch.masks.clone(),
             },
         );
         let secrets = Secrets::new(
@@ -1199,6 +1211,20 @@ async fn accept_private_connections(
             }
             its_owner.stop().await;
         });
+    }
+}
+
+/// Adds the Run's Response recording summary to its report when it ends
+/// (ADR 0105).
+struct RecordingReportPart(Recordings);
+
+impl ReportPart for RecordingReportPart {
+    fn fill(
+        &self,
+        connection: &rusqlite::Connection,
+        report: &mut goodfetch_protocol::run::RunReport,
+    ) -> rusqlite::Result<()> {
+        self.0.apply_to_report(connection, report)
     }
 }
 

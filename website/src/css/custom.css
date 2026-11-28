@@ -1,0 +1,61 @@
+/* The docs site's theme over Infima (ADR 0097). Colours meet WCAG 2.2 AA
+   contrast in both themes (ADR 0073). */
+:root {
+  --ifm-color-primary: #1f5fae;
+  --ifm-color-primary-dark: #1c569d;
+  --ifm-color-primary-darker: #1a5194;
+  --ifm-color-primary-darkest: #15427a;
+  --ifm-color-primary-light: #2268bf;
+  --ifm-color-primary-lighter: #246dc8;
+  --ifm-color-primary-lightest: #3a7fd6;
+  --ifm-code-font-size: 95%;
+  /* The search box's placeholder and shortcut hint: Infima's emphasis-500
+     falls under 4.5:1 on the box; emphasis-700 meets it in both themes. */
+  --ifm-navbar-search-input-placeholder-color: var(--ifm-color-emphasis-700);
+}
+
+/* A link in running text is underlined, not told apart by its colour
+   alone (WCAG 1.4.1). */
+.markdown a,
+.mdx-page main article a {
+  text-decoration: underline;
+}
+
+[data-theme="dark"] {
+  --ifm-color-primary: #7fb2f0;
+  --ifm-color-primary-dark: #62a0ec;
+  --ifm-color-primary-darker: #5397ea;
+  --ifm-color-primary-darkest: #267ce3;
+  --ifm-color-primary-light: #9cc4f4;
+  --ifm-color-primary-lighter: #abcdf6;
+  --ifm-color-primary-lightest: #d6e7fb;
+}
+
+/* A table scrolls sideways in its focusable region (src/theme/MDXComponents),
+   not on its own. */
+.table-scroll {
+  overflow-x: auto;
+  margin-bottom: var(--ifm-spacing-vertical);
+}
+
+.table-scroll > table {
+  display: table;
+  margin-bottom: 0;
+}
+
+/* The search box's clear button is a 24 by 24 pixel target at least
+   (WCAG 2.5.8). */
+.navbar__search button {
+  min-width: 24px;
+  min-height: 24px;
+}
+
+.product-switcher {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.product-switcher__link[aria-current="page"] {
+  color: var(--ifm-navbar-link-hover-color);
+  font-weight: var(--ifm-font-weight-semibold);
+}

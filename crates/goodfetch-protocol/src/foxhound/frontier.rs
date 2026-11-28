@@ -26,6 +26,7 @@
 //! answers and the settings that bound it, each a flat declaration.
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::fmt;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
@@ -46,8 +47,11 @@ use crate::run::RunId;
 mod links;
 
 pub use links::{
-    CRAWL_REQUEST_ENQUEUE_LINKS, CRAWL_REQUEST_LINKS, CrawlRequestEnqueueLinksParams,
-    CrawlRequestLinks, CrawlRequestLinksParams, EnqueuedLink, EnqueuedLinks, MatchedLink,
+    AbortedDiscoveryRequest, CRAWL_REQUEST_ENQUEUE_LINKS,
+    CRAWL_REQUEST_ENQUEUE_LINKS_BY_CLICKING_ELEMENTS, CRAWL_REQUEST_LINKS,
+    CrawlRequestEnqueueLinksByClickingElementsParams, CrawlRequestEnqueueLinksParams,
+    CrawlRequestLinks, CrawlRequestLinksParams, DiscoveryClickRefusal, EnqueuedLink, EnqueuedLinks,
+    EnqueuedLinksByClickingElements, MatchedLink,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -370,6 +374,12 @@ pub struct CrawlRequestEnqueueParams {
     #[serde(default, skip_serializing_if = "HttpMethod::is_get")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub method: HttpMethod,
+    /// Extra request headers sent with the request (ADR 0093). Forbidden
+    /// headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method
+    /// overrides; ADR 0033) are refused with `header_forbidden`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub headers: BTreeMap<String, String>,
     /// The body it is sent with, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -444,6 +454,12 @@ pub struct RunAddSeedsParams {
     /// The crawl's Run.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub run_id: RunId,
+    /// The attempt that adds them, when a handler streams seeds through its
+    /// context's `run`; absent, the program streams them from outside any
+    /// attempt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub attempt: Option<SeedAttempt>,
 }
 
 /// What `$/seeds` carries: the next seeds a Client streams to a
@@ -501,7 +517,7 @@ pub struct RunSeedsAdded {
 /// `run.add_seed`.
 pub const RUN_ADD_SEED: Operation = Operation {
     name: "run.add_seed",
-    description: "Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.",
+    description: "Adds one seed to a running crawl, `run.addSeed`, admitted and answered as soon as the Run state accepts it (written with the next Run-state batch at the default durability, or committed before answering at `full`), and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is staged with that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
@@ -519,7 +535,7 @@ pub const RUN_ADD_SEED: Operation = Operation {
 /// `run.add_seeds`.
 pub const RUN_ADD_SEEDS: Operation = Operation {
     name: "run.add_seeds",
-    description: "Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine commits each batch, sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.",
+    description: "Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine admits each batch (staged with `attempt` when named, or written with the next Run-state batch at default durability), sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::Sequence,
     reach: Reach::AllSurfaces,
@@ -997,6 +1013,7 @@ pub const ENTRIES: Entries = Entries {
         CRAWL_REQUEST_ENQUEUE,
         CRAWL_REQUEST_LINKS,
         CRAWL_REQUEST_ENQUEUE_LINKS,
+        CRAWL_REQUEST_ENQUEUE_LINKS_BY_CLICKING_ELEMENTS,
     ],
     events: &[],
     handler_requests: &[],

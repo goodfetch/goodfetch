@@ -627,6 +627,15 @@ impl SessionProxy {
         }
     }
 
+    /// The exit country the Proxy provider declared for this Session's
+    /// proxy, if any (ADR 0046).
+    pub(crate) fn country(&self) -> Option<&str> {
+        self.provided
+            .as_ref()
+            .and_then(|provided| provided.chosen.country.as_ref())
+            .map(CountryCode::as_str)
+    }
+
     /// A Permit for one navigation hop through the proxy, once its limits
     /// admit it; none when it has no limits, and goes unlimited.
     pub(crate) async fn permit(&self) -> Option<ProxyPermit> {

@@ -27,6 +27,7 @@ fn main() -> ExitCode {
         commands: goodfetch_foxhound::executable::COMMANDS,
         skills: goodfetch_foxhound::executable::SKILLS,
         starters: goodfetch_foxhound::executable::STARTERS,
+        deploy_templates: goodfetch_foxhound::executable::DEPLOY_TEMPLATES,
         arguments: std::env::args_os().collect(),
         environment: std::env::vars_os().collect(),
     })

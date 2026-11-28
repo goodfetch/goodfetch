@@ -72,6 +72,21 @@ not_journey = "actor"
 status = "active"
 
 [[story]]
+id = 62
+title = "As a developer, I want the same program to reach an Exposed Daemon or a gateway when I set `GOODFETCH_URL` and `GOODFETCH_TOKEN`, with no code change when my program leaves `engine` at `auto`, so that moving off my laptop is configuration (ADRs 0049, 0078, 0083; CL-06)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 63
+title = "As a developer, I want the connection's `engine` value (`EngineInfo`) to report `kind: \"remote\"`, the address reached (`url`), the engine's Product, Product version and protocol version, never `GOODFETCH_TOKEN`, so that I can tell where my program ran (ADRs 0078, 0083, 0092, 0095; the sketch's `EngineInfo`)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 73
 title = "As Goodfetch Cloud's maintainers, I want to run the Cloud-readiness conformance suite from my private repository against my gateway, writing area 2's result document, so that my gateway proves the same cases as the Stub gateway (ADRs 0068, 0096)."
 milestone = "M4 Everything else"

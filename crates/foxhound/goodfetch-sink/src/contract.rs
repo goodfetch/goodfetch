@@ -4,8 +4,10 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
+use goodfetch_engine::mask::{Masks, Scope};
+use goodfetch_engine::retry_after::{self, RetryAfter};
 use serde_json::Value;
 
 /// One copy of a Run: the Run, and the run epoch its lease gave this copy
@@ -37,6 +39,12 @@ impl DeliveryId {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Reconstructs a stored delivery ID from its text.
+    #[must_use]
+    pub(crate) fn from_stored(text: String) -> Self {
+        Self(text)
+    }
 }
 
 impl fmt::Display for DeliveryId {
@@ -56,6 +64,10 @@ pub struct Delivered {
     pub committed_at: String,
     /// The Record.
     pub value: Value,
+    /// Under a keyed write mode, the values of its key's fields, in the
+    /// key's order, as a JSON array: what identifies it among its
+    /// Dataset's Records (ADR 0026). None under `append`.
+    pub key: Option<Value>,
 }
 
 impl Delivered {
@@ -76,6 +88,7 @@ impl Delivered {
             number,
             committed_at,
             value,
+            key: None,
         }
     }
 }
@@ -87,6 +100,9 @@ pub struct Batch {
     pub run: RunCopy,
     /// Their Dataset.
     pub dataset: String,
+    /// The Dataset's declared JSON Schema, when the crawl declared one
+    /// (ADR 0026: declared schema comes first, else inferred).
+    pub declared_schema: Option<Value>,
     /// The Records, in number order with no gap.
     pub records: Vec<Delivered>,
 }
@@ -124,26 +140,36 @@ pub enum Written {
 pub enum FailureKind {
     /// It may pass later: retried on the delivery schedule.
     Transient,
+    /// The destination's rate or quota limit was reached: reported as
+    /// `behind`, never `failed` (ADR 0026).
+    QuotaExhausted,
     /// The destination refused some of the batch's Records.
     RejectedRecords,
     /// The destination refused the engine's credentials or access.
     Auth,
-    /// The destination no longer exists.
+    /// The destination no longer exists (e.g. HTTP 410): pauses the Sink.
     Gone,
+    /// A non-retried permanent failure (e.g. HTTP 404, 405): fails the Sink
+    /// without retrying.
+    Permanent,
     /// The Sink's translation point did not recognize it: counted as
     /// transient and logged at `warn` (ADR 0127).
     Unrecognized,
 }
 
 /// A Sink's failure, as its translation point (ADR 0127) turned its
-/// destination's own: the kind the driver acts on, and the destination's
-/// text, kept for diagnosis. Two failures are equal when their kinds are:
-/// no code compares the text.
+/// destination's own: the kind the driver acts on, an optional `Retry-After`
+/// wait the destination asked for, and the destination's text, kept for
+/// diagnosis. Two failures are equal when their kinds are: no code compares
+/// the text.
 #[derive(Clone, Debug, thiserror::Error)]
 #[error("a Sink's write failed: {kind:?}")]
 #[non_exhaustive]
 pub struct Failure {
     kind: FailureKind,
+    retry_after: Option<Duration>,
+    rate_limited: bool,
+    timed_out: bool,
     text: PartyText,
 }
 
@@ -173,14 +199,121 @@ impl Failure {
     pub fn new(kind: FailureKind, text: impl Into<String>) -> Self {
         Self {
             kind,
+            retry_after: None,
+            rate_limited: kind == FailureKind::QuotaExhausted,
+            timed_out: false,
             text: PartyText(text.into()),
         }
+    }
+
+    /// A write that exceeded `timeout.sink_write` (`deadline_exceeded`,
+    /// ADRs 0026 and 0080): retried as transient and lowers adaptive
+    /// concurrency.
+    #[must_use]
+    pub fn deadline_exceeded(timeout: Duration) -> Self {
+        Self {
+            kind: FailureKind::Transient,
+            retry_after: None,
+            rate_limited: false,
+            timed_out: true,
+            text: PartyText(format!(
+                "Sink write exceeded `timeout.sink_write` ({} ms): deadline_exceeded",
+                timeout.as_millis()
+            )),
+        }
+    }
+
+    /// Attaches a `Retry-After` wait asked by the destination (ADR 0026).
+    #[must_use]
+    pub fn with_retry_after(mut self, wait: Duration) -> Self {
+        self.retry_after = Some(wait);
+        self
+    }
+
+    /// Classifies an HTTP status code from a destination (ADR 0026): only
+    /// 408, 429 and 5xx are retried (`Transient`, honouring `retry_after`);
+    /// 410 pauses (`Gone`); 401/403 fail with `Auth`; 400/422 split and
+    /// dead-letter (`RejectedRecords`); other 4xx fail as `Permanent`.
+    #[must_use]
+    pub fn from_http_status(
+        status: u16,
+        retry_after: Option<Duration>,
+        detail: impl Into<String>,
+    ) -> Self {
+        let kind = match status {
+            408 | 429 | 500..=599 => FailureKind::Transient,
+            410 => FailureKind::Gone,
+            401 | 403 => FailureKind::Auth,
+            400 | 422 => FailureKind::RejectedRecords,
+            _ => FailureKind::Permanent,
+        };
+        let mut failure = Self::new(kind, detail);
+        if status == 429 {
+            failure.rate_limited = true;
+        }
+        if status == 408 {
+            failure.timed_out = true;
+        }
+        match (kind, retry_after) {
+            (FailureKind::Transient, Some(wait)) => failure.with_retry_after(wait),
+            _ => failure,
+        }
+    }
+
+    /// Classifies an HTTP status code along with its raw `Retry-After` and
+    /// `Date` headers, parsed through [`goodfetch_engine::retry_after::read`]
+    /// relative to `received` (ADRs 0026 and 0118).
+    #[must_use]
+    pub fn from_http_response(
+        status: u16,
+        retry_after_header: Option<&str>,
+        date_header: Option<&str>,
+        received: SystemTime,
+        detail: impl Into<String>,
+    ) -> Self {
+        let wait = retry_after_header.and_then(|value| {
+            match retry_after::read(value, date_header, received) {
+                RetryAfter::Until(until) => {
+                    Some(until.duration_since(received).unwrap_or_default())
+                }
+                RetryAfter::NoWait => Some(Duration::ZERO),
+                RetryAfter::Unparsable => None,
+            }
+        });
+        Self::from_http_status(status, wait, detail)
     }
 
     /// Its kind.
     #[must_use]
     pub fn kind(&self) -> FailureKind {
         self.kind
+    }
+
+    /// The `Retry-After` wait asked by the destination, when it sent one.
+    #[must_use]
+    pub fn retry_after(&self) -> Option<Duration> {
+        self.retry_after
+    }
+
+    /// Whether the failure signals rate limiting or quota exhaustion (HTTP 429
+    /// or [`FailureKind::QuotaExhausted`]), lowering adaptive concurrency.
+    #[must_use]
+    pub fn is_rate_limited(&self) -> bool {
+        self.rate_limited
+    }
+
+    /// Whether the failure was a write timeout (`timeout.sink_write` or HTTP
+    /// 408), lowering adaptive concurrency.
+    #[must_use]
+    pub fn is_timeout(&self) -> bool {
+        self.timed_out
+    }
+
+    /// The destination's text, masked at [`Scope::Kept`] for a dead-letter
+    /// reason: no code reads the raw text (ADRs 0067 and 0127).
+    #[must_use]
+    pub(crate) fn masked_reason(&self, masks: &Masks) -> String {
+        masks.apply(&self.text.0, Scope::Kept).into_owned()
     }
 }
 
@@ -208,6 +341,84 @@ pub trait Primitives {
     /// lost.
     fn write(&mut self, batch: &Batch) -> Result<Written, Self::Error>;
 
+    /// Writes `batch` bounded by `timeout` (`timeout.sink_write`, ADRs 0026
+    /// and 0080). Sinks whose underlying client or connection accepts a
+    /// per-write timeout override this; others fall back to [`Self::write`].
+    ///
+    /// # Errors
+    ///
+    /// The destination's, when the batch did not land or timed out.
+    fn write_with_timeout(
+        &mut self,
+        batch: &Batch,
+        timeout: Duration,
+    ) -> Result<Written, Self::Error> {
+        let _ = timeout;
+        self.write(batch)
+    }
+
+    /// Ends the delivery of the copy `run` of a Run that finished, once its
+    /// last batch is written: a Sink that writes a finished Run's Records
+    /// apart, as `replace` does, swaps them in here, unless the destination
+    /// holds a later copy of the Run. Nothing otherwise.
+    ///
+    /// # Errors
+    ///
+    /// The destination's, when the swap did not land or its answer was
+    /// lost.
+    fn finish(&mut self, run: &RunCopy) -> Result<Written, Self::Error> {
+        let _ = run;
+        Ok(Written::Delivered)
+    }
+
+    /// Flushes any buffered data whose age limit (e.g. `files.part.max_age`)
+    /// has elapsed without waiting for another Record to arrive.
+    ///
+    /// # Errors
+    ///
+    /// The destination's, when the flush did not land.
+    fn flush_expired(&mut self, run: &RunCopy) -> Result<Written, Self::Error> {
+        let _ = run;
+        Ok(Written::Delivered)
+    }
+
+    /// Duration until the earliest open buffered part expires and needs a
+    /// [`Self::flush_expired`] call, if any.
+    fn next_flush_after(&self) -> Option<Duration> {
+        None
+    }
+
+    /// The destination's deduplication window, when its guarantee is keyed
+    /// only within a finite window (e.g. a 5-minute FIFO queue); a delivery
+    /// arriving later than this window after commit is counted in
+    /// `outside_dedup_window` (ADR 0026). `None` when deduplication has no
+    /// time window (e.g. fenced row stores).
+    fn dedup_window(&self) -> Option<Duration> {
+        None
+    }
+
     /// The Sink's translation point (ADR 0127): `error` as a [`Failure`].
     fn map_failure(&self, error: Self::Error) -> Failure;
+}
+
+/// Percent-decodes an RFC 3986 percent-encoded URL component (such as a
+/// username or password in `sftp://`, `ftp://`, or `smtp://` URLs).
+pub(crate) fn percent_decode(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let Ok(hex) = std::str::from_utf8(&bytes[i + 1..i + 3])
+            && let Ok(val) = u8::from_str_radix(hex, 16)
+        {
+            out.push(val);
+            i += 3;
+            continue;
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }

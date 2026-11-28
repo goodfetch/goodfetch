@@ -15,6 +15,7 @@ from goodfetch_collie_client.handle import AsyncHandleHost, HandleHost, AsyncLis
 from goodfetch_collie_client.markers import warn_deprecated_settings, warn_entry, warn_experimental
 from goodfetch_collie_client.raw_call import AsyncHandle, Handle
 from goodfetch_collie_client.response import AsyncResponse, Response
+from goodfetch_collie_client.run_copies import AsyncCheckpoint, AsyncRunTrace, Checkpoint, RunTrace
 from goodfetch_collie_client.settings import settings_on_wire
 
 from . import models
@@ -52,13 +53,13 @@ class AsyncRun(AsyncHandle):
             params.forwarded = forwarded
         return result_of(models.RunReport, await self._host.call("run.abort", params))
 
-    async def checkpoint(self) -> models.Checkpoint:
+    async def checkpoint(self) -> AsyncCheckpoint:
         """Writes a Checkpoint of a live Run now, through SQLite's online backup, where the engine keeps the Run's Checkpoints, or where `location` says, a path on the engine's machine that only the catalog's caller gives, an SDK's `checkpoint()` taking none, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.checkpoint")
-        return result_of(models.Checkpoint, await self._host.call("run.checkpoint", models.RunCheckpointParams(run_id=self._host.id)))
+        return AsyncCheckpoint(self._host.connection, result_of(models.Checkpoint, await self._host.call("run.checkpoint", models.RunCheckpointParams(run_id=self._host.id))))
 
     async def discard(self) -> models.RunId:
         """Discards a Run that ended or was interrupted, for good, so that nothing of it is left behind (ADRs 0001, 0002, 0015 and 0036): its wrapped data key is overwritten and its run folder removed, with its run file, page bodies, browser profiles and the Checkpoints written there; in the per-install layout its rows are deleted from the install database with `secure_delete` on, then `wal_checkpoint(TRUNCATE)`, so neither the database nor its `-wal` and `-shm` files hold its bytes. Its Run index row stays, marked `erased`, without its tags or status line. A Profile directory it used in place and a Borrowed browser are the person's own and are never touched (ADR 0056), nor are Checkpoints written elsewhere. A later `run.start` under its Run ID starts a new Run; discarding a Run already discarded changes nothing. A Run this engine runs fails with `run_live`, one whose writer lock another engine holds with `run_in_use`, and a Run ID no Run has with `run_not_found`.
@@ -157,6 +158,15 @@ class AsyncRun(AsyncHandle):
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.close")
         return result_of(models.RunReport, await self._host.call("run.stop", params, timeout_setting="timeout.close"))
+
+    async def trace(self) -> AsyncRunTrace | None:
+        """Reads a Run's trace copy as recorded so far, or null when the Run keeps no trace (ADRs 0102 and 0116). Returns only once the copy is whole, with its size and SHA-256 digest; a write the engine cannot make fails with `file_write_failed`, side `engine`, and leaves no unfinished file. Takes no writer lock, so a view reads a Run no program holds without resuming it. A Run ID the Run index does not list fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("run.trace")
+        response = result_of(models.RunTraceResult, await self._host.call("run.trace", models.RunParams(run_id=self._host.id))).trace
+        return None if response is None else AsyncRunTrace(self._host.connection, response)
 
     async def usage(self) -> models.RunUsage:
         """Answers what a Run used, as the Usage ledger charged it: its model calls and tokens, browser time, proxy bytes, requests, paid solves and Paid fetches, each Limit that applies to it with what is left of it, and whether it is uncapped. An ended Run answers its report's Usage.
@@ -711,13 +721,13 @@ class Run(Handle):
             params.forwarded = forwarded
         return result_of(models.RunReport, self._host.call("run.abort", params))
 
-    def checkpoint(self) -> models.Checkpoint:
+    def checkpoint(self) -> Checkpoint:
         """Writes a Checkpoint of a live Run now, through SQLite's online backup, where the engine keeps the Run's Checkpoints, or where `location` says, a path on the engine's machine that only the catalog's caller gives, an SDK's `checkpoint()` taking none, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.checkpoint")
-        return result_of(models.Checkpoint, self._host.call("run.checkpoint", models.RunCheckpointParams(run_id=self._host.id)))
+        return Checkpoint(self._host.loop, AsyncCheckpoint(self._host.connection, result_of(models.Checkpoint, self._host.call("run.checkpoint", models.RunCheckpointParams(run_id=self._host.id)))))
 
     def discard(self) -> models.RunId:
         """Discards a Run that ended or was interrupted, for good, so that nothing of it is left behind (ADRs 0001, 0002, 0015 and 0036): its wrapped data key is overwritten and its run folder removed, with its run file, page bodies, browser profiles and the Checkpoints written there; in the per-install layout its rows are deleted from the install database with `secure_delete` on, then `wal_checkpoint(TRUNCATE)`, so neither the database nor its `-wal` and `-shm` files hold its bytes. Its Run index row stays, marked `erased`, without its tags or status line. A Profile directory it used in place and a Borrowed browser are the person's own and are never touched (ADR 0056), nor are Checkpoints written elsewhere. A later `run.start` under its Run ID starts a new Run; discarding a Run already discarded changes nothing. A Run this engine runs fails with `run_live`, one whose writer lock another engine holds with `run_in_use`, and a Run ID no Run has with `run_not_found`.
@@ -816,6 +826,15 @@ class Run(Handle):
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.close")
         return result_of(models.RunReport, self._host.call("run.stop", params, timeout_setting="timeout.close"))
+
+    def trace(self) -> RunTrace | None:
+        """Reads a Run's trace copy as recorded so far, or null when the Run keeps no trace (ADRs 0102 and 0116). Returns only once the copy is whole, with its size and SHA-256 digest; a write the engine cannot make fails with `file_write_failed`, side `engine`, and leaves no unfinished file. Takes no writer lock, so a view reads a Run no program holds without resuming it. A Run ID the Run index does not list fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("run.trace")
+        response = result_of(models.RunTraceResult, self._host.call("run.trace", models.RunParams(run_id=self._host.id))).trace
+        return None if response is None else RunTrace(self._host.loop, AsyncRunTrace(self._host.connection, response))
 
     def usage(self) -> models.RunUsage:
         """Answers what a Run used, as the Usage ledger charged it: its model calls and tokens, browser time, proxy bytes, requests, paid solves and Paid fetches, each Limit that applies to it with what is left of it, and whether it is uncapped. An ended Run answers its report's Usage.

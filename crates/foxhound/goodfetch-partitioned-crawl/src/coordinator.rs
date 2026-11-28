@@ -695,8 +695,13 @@ fn build_crawl_start_guard(crawl_start_state: Arc<State>) -> Guard {
             let state = Arc::clone(&crawl_start_state);
             let context = context.clone();
             return Some(Box::pin(async move {
-                let started =
-                    start_prepared_partition(state, prepared, params, context.clone()).await?;
+                let started = Box::pin(start_prepared_partition(
+                    state,
+                    prepared,
+                    params,
+                    context.clone(),
+                ))
+                .await?;
                 Answered::encode(&context, &started)
             }));
         }

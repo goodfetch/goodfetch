@@ -50,6 +50,8 @@ mod held_clock;
 #[cfg(target_os = "linux")]
 mod lazyfs;
 mod ledger_look;
+#[cfg(target_os = "linux")]
+mod local_device;
 // B3's message scenario, which `counted_messages` checks.
 #[path = "../../benches/messages.rs"]
 #[expect(

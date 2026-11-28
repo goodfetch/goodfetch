@@ -409,6 +409,7 @@ fn a_work_item_left_with_no_domain_key_is_keyed_once_its_crawl_is_idle_and_its_k
                     work_items::Adding {
                         method: &get,
                         body: None,
+                        headers: None,
                         label: "page",
                         payload: None,
                         priority: 0,

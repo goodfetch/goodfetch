@@ -98,9 +98,34 @@ count = 3
 how = "holds no value: Session pool entries: identities, counts and local-address positions, and the address blocks blocked on a domain, settings by reference"
 
 [[writer]]
-path = "crates/foxhound/goodfetch-sink/src/sqlite.rs"
+path = "crates/foxhound/goodfetch-sink/src/dead_letters.rs"
+count = 1
+how = "masked: `sink_dead_letters` stores the rejected Record JSON and destination error reason after masking both through `Masks` at `Scope::Kept` (`Failure::masked_reason`, ADR 0127)"
+
+[[writer]]
+path = "crates/foxhound/goodfetch-sink/src/duckdb_sink.rs"
+count = 4
+how = "masked: the DuckDB Sink's target and staging tables hold committed Records masked as `Scope::Kept` by `goodfetch-dataset`; `_goodfetch_deliveries`, `_goodfetch_delivery_log` and `_goodfetch_swaps` hold only target/dataset names, Run ID, run epoch, delivery ID and record number"
+
+[[writer]]
+path = "crates/foxhound/goodfetch-sink/src/mysql.rs"
+count = 4
+how = "masked: the MySQL/MariaDB Sink's target and staging tables hold committed Records masked as `Scope::Kept` by `goodfetch-dataset`; `_goodfetch_deliveries`, `_goodfetch_delivery_log` and `_goodfetch_swaps` hold only target/dataset names, Run ID, run epoch, delivery ID and record number"
+
+[[writer]]
+path = "crates/foxhound/goodfetch-sink/src/postgres.rs"
+count = 4
+how = "masked: the PostgreSQL/Supabase Sink's target and staging tables hold committed Records masked as `Scope::Kept` by `goodfetch-dataset`; `_goodfetch_deliveries`, `_goodfetch_delivery_log` and `_goodfetch_swaps` hold only target/dataset names, Run ID, run epoch, delivery ID and record number"
+
+[[writer]]
+path = "crates/foxhound/goodfetch-sink/src/report.rs"
 count = 2
-how = "masked: the SQLite Sink's target table holds the Records the run file holds, masked as `Scope::Kept` when the crawl committed them (`goodfetch-dataset`'s `records.rs`, #972), with their Run's ID, run epoch, Dataset, number and commit time; its delivery log `_goodfetch_deliveries` holds only target and Dataset names, a Run's ID, its run epoch and a number"
+how = "masked: `sink_state` holds only Sink name, status enum, guarantee class and integer counts; `sink_notifications` holds only Sink name, event kind and reason masked through `Masks` at `Scope::Kept`"
+
+[[writer]]
+path = "crates/foxhound/goodfetch-sink/src/sqlite.rs"
+count = 4
+how = "masked: the SQLite Sink's target and staging tables hold the Records the run file holds, masked as `Scope::Kept` when the crawl committed them (`goodfetch-dataset`'s `records.rs`, #972), with their Run's ID, run epoch, Dataset, number and commit time; its delivery log `_goodfetch_deliveries` and `_goodfetch_swaps` hold only target and Dataset names, a Run's ID, its run epoch and a number"
 
 [[writer]]
 path = "crates/goodfetch-collie/src/executable/init.rs"
@@ -226,6 +251,11 @@ how = "holds no value: per-domain Politeness state, and each domain key's Delega
 path = "crates/goodfetch-engine/src/response_cache.rs"
 count = 5
 how = "holds no resolved value: the cache's index table, its bodies folder and each body file hold only public responses fetched with no cookie or credential, never a response a Secret was sent for; its `bodies` and `held` tables hold only each body's SHA-256, size and holder count, and the bytes the bodies hold"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/response_recording/record.rs"
+count = 1
+how = "masked: `recording_exchanges` stages `mode: \"record\"` exchanges for crash-resume after dropping `Cookie`, `Authorization` and `Proxy-Authorization`, masking `Set-Cookie` values, and applying `Masks` at `Scope::Kept` to every URL, header and body before staging or writing the WARC"
 
 [[writer]]
 path = "crates/goodfetch-engine/src/robots_txt.rs"

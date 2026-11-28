@@ -44,6 +44,8 @@ goodfetch-fetch-tier.workspace = true
 futures-util = { workspace = true, features = ["alloc", "std"] }
 goodfetch-protocol.workspace = true
 goodfetch-session-pool.workspace = true
+# The Sinks its crawls deliver their Records to (ADR 0026).
+goodfetch-sink.workspace = true
 goodfetch-sql-tab.workspace = true
 mimalloc = { workspace = true, optional = true }
 # The params' JSON Schemas `crawl start`'s flags take their values from.

@@ -19,36 +19,123 @@
 //! Proxy and Identity profile give them. The Run's `Caching` is the
 //! engine's, which the browser's interception asks alike, so an entry one
 //! tier stored is served to the other.
+#![expect(
+    clippy::disallowed_types,
+    reason = "DeferredStores locks its state only to push, mark or drain in one step, never across an `.await` or under another lock, so there is no lock order to test under loom (ADR 0060)"
+)]
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use bytes::{Bytes, BytesMut};
 use goodfetch_engine::response_cache::{CacheRequest, Caching, KeptOut, ResponseHead, Source};
+use goodfetch_engine::response_recording::not_recorded_error;
 use goodfetch_protocol::foxhound::fetch::FetchTier;
+use goodfetch_protocol::foxhound::provenance::ResponseOrigin;
 use url::Url;
 
-use crate::driver::{Body, Hop, Reuse, Sending, Sent, Transport};
+use crate::driver::{Body, CallFailure, Hop, Reuse, Sending, Sent, Transport, TransportFailure};
+
+/// One completed HTTP response held in memory until Block classification and
+/// Page check pass (ADRs 0006 and 0046, issue 795).
+struct PendingStore {
+    caching: Arc<Caching>,
+    request: CacheRequest,
+    head: ResponseHead,
+    body: Bytes,
+}
+
+/// Deferred Response cache entries and kept-out flag for one document fetch.
+#[derive(Default)]
+struct DeferredState {
+    pending: Vec<PendingStore>,
+    kept_out: bool,
+}
+
+/// Completed responses of one document fetch waiting for post-load checks
+/// before entering the Response cache (ADRs 0006 and 0046, issue 795).
+#[derive(Clone, Default)]
+pub(crate) struct DeferredStores(Arc<Mutex<DeferredState>>);
+
+impl DeferredStores {
+    fn push(&self, pending: PendingStore) {
+        let mut state = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if !state.kept_out {
+            state.pending.push(pending);
+        }
+    }
+
+    /// Marks the document kept out (Block cause or failed Page check) and
+    /// drops any held responses so they never enter the Response cache.
+    pub(crate) fn keep_out(&self) {
+        let mut state = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        state.kept_out = true;
+        state.pending.clear();
+    }
+
+    /// Commits every held response to the Response cache unless marked kept
+    /// out by Block classification or Page check.
+    pub(crate) async fn commit(&self) {
+        let pending = {
+            let mut state = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+            if state.kept_out {
+                state.pending.clear();
+                return;
+            }
+            std::mem::take(&mut state.pending)
+        };
+        for entry in pending {
+            entry
+                .caching
+                .store(&entry.request, &entry.head, entry.body)
+                .await;
+        }
+    }
+}
 
 /// `transport` answering from `caching`'s sources first.
-pub(crate) fn over(caching: &Arc<Caching>, transport: Arc<dyn Transport>) -> Arc<dyn Transport> {
+pub fn over(caching: &Arc<Caching>, transport: Arc<dyn Transport>) -> Arc<dyn Transport> {
     Arc::new(Cached {
         transport,
         caching: Arc::clone(caching),
+        deferred: None,
+    })
+}
+
+/// `transport` answering from `caching`'s sources first, holding completed
+/// responses in `deferred` until the caller commits them after Block
+/// classification and Page check pass (ADRs 0006 and 0046, issue 795).
+pub(crate) fn over_deferred(
+    caching: &Arc<Caching>,
+    transport: Arc<dyn Transport>,
+    deferred: DeferredStores,
+) -> Arc<dyn Transport> {
+    Arc::new(Cached {
+        transport,
+        caching: Arc::clone(caching),
+        deferred: Some(deferred),
     })
 }
 
 /// `sent`, the answer to `request`, its body kept as it is read and stored
-/// in `caching` once it ended whole when the cache stores it.
-fn kept(caching: &Arc<Caching>, request: CacheRequest, sent: Sent) -> Sent {
+/// in `caching` (and/or recorded when in `mode: "record"`) once it ends.
+fn kept(
+    caching: &Arc<Caching>,
+    deferred: Option<&DeferredStores>,
+    request: CacheRequest,
+    sent: Sent,
+    in_effect: bool,
+) -> Sent {
     let head = ResponseHead {
         status: sent.status,
         headers: sent.headers.clone(),
     };
-    let kept_out = sent
-        .certificate_exception
-        .is_some()
-        .then_some(KeptOut::CertificateException);
-    if sent.decoded || !caching.stores(&request, &head, kept_out) {
+    let kept_out = in_effect.then_some(KeptOut::Effect).or_else(|| {
+        (sent.certificate_exception.is_some() || sent.custom_tls)
+            .then_some(KeptOut::CertificateException)
+    });
+    let store_in_cache = !sent.decoded && caching.stores(&request, &head, kept_out);
+    let record_live = caching.recording();
+    if !store_in_cache && !record_live {
         return sent;
     }
     Sent {
@@ -57,8 +144,11 @@ fn kept(caching: &Arc<Caching>, request: CacheRequest, sent: Sent) -> Sent {
             read: BytesMut::new(),
             storing: Some(Storing {
                 caching: Arc::clone(caching),
+                deferred: deferred.cloned(),
                 request,
                 head,
+                store_in_cache,
+                record_live,
             }),
         }),
         ..sent
@@ -69,6 +159,7 @@ fn kept(caching: &Arc<Caching>, request: CacheRequest, sent: Sent) -> Sent {
 struct Cached {
     transport: Arc<dyn Transport>,
     caching: Arc<Caching>,
+    deferred: Option<DeferredStores>,
 }
 
 impl Transport for Cached {
@@ -87,20 +178,55 @@ impl Transport for Cached {
     fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent> {
         Box::pin(async move {
             let caching = &self.caching;
+            let in_effect = caching.in_effect();
             let request = CacheRequest::new(
                 hop.method.as_str(),
                 &hop.url,
                 &hop.headers,
                 hop.body.clone().unwrap_or_default(),
             );
-            let stale = match caching.source(&request, None).await {
-                Source::Routed(served) | Source::Recorded(served) => {
-                    return Ok(whole(served.head, served.body));
+            let stale = match caching
+                .source(&request, in_effect.then_some(KeptOut::Effect))
+                .await
+            {
+                Source::Routed(served) => {
+                    return Ok(whole(served.head, served.body, None));
                 }
-                Source::Fresh(hit) => return Ok(whole(hit.head, hit.body)),
+                Source::Recorded {
+                    served,
+                    recorded_at,
+                } => {
+                    let origin = recorded_at
+                        .map(|recorded_at| ResponseOrigin::ResponseRecording { recorded_at });
+                    return Ok(whole(served.head.clone(), served.body.clone(), origin));
+                }
+                Source::RecordedCut(served) => {
+                    return Ok(cut_body(served.head.clone(), served.body.clone()));
+                }
+                Source::NotRecorded(miss) => {
+                    return Err(TransportFailure::Recorded(CallFailure(not_recorded_error(
+                        &miss,
+                    ))));
+                }
+                Source::Fresh(hit) => {
+                    return Ok(whole(
+                        hit.head,
+                        hit.body,
+                        Some(ResponseOrigin::ResponseCache {
+                            fetched_at: hit.fetched_at,
+                            run_id: hit.run_id,
+                        }),
+                    ));
+                }
                 Source::Network => {
                     let sent = self.transport.send(hop, reuse).await?;
-                    return Ok(kept(caching, request, sent));
+                    return Ok(kept(
+                        caching,
+                        self.deferred.as_ref(),
+                        request,
+                        sent,
+                        in_effect,
+                    ));
                 }
                 Source::Stale(stale) => stale,
             };
@@ -114,7 +240,13 @@ impl Transport for Cached {
             conditional.headers.extend(stale.conditions.iter().cloned());
             let sent = self.transport.send(&conditional, reuse).await?;
             if sent.status != 304 {
-                return Ok(kept(caching, request, sent));
+                return Ok(kept(
+                    caching,
+                    self.deferred.as_ref(),
+                    request,
+                    sent,
+                    in_effect,
+                ));
             }
             let head = ResponseHead {
                 status: sent.status,
@@ -123,20 +255,33 @@ impl Transport for Cached {
             if let Some(hit) = caching.revalidated(stale, &request, &head).await {
                 return Ok(Sent {
                     reused: sent.reused,
-                    ..whole(hit.head, hit.body)
+                    ..whole(
+                        hit.head,
+                        hit.body,
+                        Some(ResponseOrigin::ResponseCache {
+                            fetched_at: hit.fetched_at,
+                            run_id: hit.run_id,
+                        }),
+                    )
                 });
             }
             // The entry or its body is gone: the request is sent again
             // without the conditions, as the site was asked.
             drop(sent);
             let sent = self.transport.send(hop, reuse).await?;
-            Ok(kept(caching, request, sent))
+            Ok(kept(
+                caching,
+                self.deferred.as_ref(),
+                request,
+                sent,
+                in_effect,
+            ))
         })
     }
 }
 
 /// `head` and `body` as a hop's answer, its body whole.
-fn whole(head: ResponseHead, body: Bytes) -> Sent {
+fn whole(head: ResponseHead, body: Bytes, origin: Option<ResponseOrigin>) -> Sent {
     Sent {
         status: head.status,
         headers: head.headers,
@@ -144,6 +289,24 @@ fn whole(head: ResponseHead, body: Bytes) -> Sent {
         reused: false,
         decoded: false,
         certificate_exception: None,
+        custom_tls: false,
+        origin,
+    }
+}
+
+/// `head` and `body` as a hop's answer whose body broke off: yields its
+/// recorded bytes, then fails with `ConnectionClosed` so the driver reports
+/// `response_truncated` (ADR 0118).
+fn cut_body(head: ResponseHead, body: Bytes) -> Sent {
+    Sent {
+        status: head.status,
+        headers: head.headers,
+        body: Box::new(Cut(Some(body).filter(|body| !body.is_empty()))),
+        reused: false,
+        decoded: false,
+        certificate_exception: None,
+        custom_tls: false,
+        origin: None,
     }
 }
 
@@ -157,16 +320,35 @@ impl Body for Whole {
     }
 }
 
-/// What a body stores once it ended whole.
-struct Storing {
-    caching: Arc<Caching>,
-    request: CacheRequest,
-    head: ResponseHead,
+/// A recorded body marked truncated: yields any partial bytes then reports
+/// a closed connection.
+struct Cut(Option<Bytes>);
+
+impl Body for Cut {
+    fn chunk(&mut self) -> Sending<'_, Option<Bytes>> {
+        let next = self.0.take();
+        Box::pin(async move {
+            match next {
+                Some(bytes) => Ok(Some(bytes)),
+                None => Err(TransportFailure::ConnectionClosed),
+            }
+        })
+    }
 }
 
-/// A body read on, its bytes kept until it ends whole, when they are
-/// stored; dropped unended, as a cut or a read stopped early leaves it,
-/// it stores nothing.
+/// What a body stores and/or records once it ends.
+struct Storing {
+    caching: Arc<Caching>,
+    deferred: Option<DeferredStores>,
+    request: CacheRequest,
+    head: ResponseHead,
+    store_in_cache: bool,
+    record_live: bool,
+}
+
+/// A body read on, its bytes kept until it ends whole (when they are stored
+/// and/or recorded) or breaks off (when a recording Run records the cut
+/// response with `WARC-Truncated: disconnect` and the cache stores nothing).
 struct Teed {
     body: Box<dyn Body>,
     read: BytesMut,
@@ -176,23 +358,56 @@ struct Teed {
 impl Body for Teed {
     fn chunk(&mut self) -> Sending<'_, Option<Bytes>> {
         Box::pin(async move {
-            let next = self.body.chunk().await?;
-            match &next {
-                Some(chunk) => self.read.extend_from_slice(chunk),
-                None => {
+            match self.body.chunk().await {
+                Ok(Some(chunk)) => {
+                    self.read.extend_from_slice(&chunk);
+                    Ok(Some(chunk))
+                }
+                Ok(None) => {
                     if let Some(storing) = self.storing.take() {
+                        let body = std::mem::take(&mut self.read).freeze();
+                        if storing.record_live {
+                            storing
+                                .caching
+                                .record(
+                                    storing.request.clone(),
+                                    storing.head.clone(),
+                                    body.clone(),
+                                    false,
+                                )
+                                .await;
+                        }
+                        if storing.store_in_cache {
+                            if let Some(deferred) = storing.deferred {
+                                deferred.push(PendingStore {
+                                    caching: storing.caching,
+                                    request: storing.request,
+                                    head: storing.head,
+                                    body,
+                                });
+                            } else {
+                                storing
+                                    .caching
+                                    .store(&storing.request, &storing.head, body)
+                                    .await;
+                            }
+                        }
+                    }
+                    Ok(None)
+                }
+                Err(error) => {
+                    if let Some(storing) = self.storing.take()
+                        && storing.record_live
+                    {
+                        let body = std::mem::take(&mut self.read).freeze();
                         storing
                             .caching
-                            .store(
-                                &storing.request,
-                                &storing.head,
-                                std::mem::take(&mut self.read).freeze(),
-                            )
+                            .record(storing.request, storing.head, body, true)
                             .await;
                     }
+                    Err(error)
                 }
             }
-            Ok(next)
         })
     }
 }

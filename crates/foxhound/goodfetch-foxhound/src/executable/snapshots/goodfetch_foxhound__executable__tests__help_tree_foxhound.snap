@@ -13,7 +13,7 @@ Commands:
   certs            Lists, accepts and forgets the certificate pins of the user's known-certificates store
   config           Shows the settings and where each value comes from
   doctor           Checks the installation: Goodfetch home, the installed executables, the Daemon, the version it runs and the browser build a Run launches, with a fix for each finding not in order, and writes a bug-report file to attach to an issue, which it sends nowhere. Exits 0 whatever it finds
-  init             Writes a starter project this executable carries, which runs and tests itself, in TypeScript, Python or Rust, never replacing a file already there
+  init             Writes a starter project this executable carries, which runs and tests itself, in TypeScript, Python or Rust, or deployment files for a Supported target with `--deploy`, never replacing a file already there
   daemon           Starts, stops and shows the Daemon of this executable's major, which both Products share
   needs-you        Lists what waits for a person, and takes them through it
   recipe           Starts a Recipe and prints the digest that names a version of one
@@ -37,6 +37,7 @@ Commands:
   group            Calls the catalog's `group` operations
   crawl            Calls the catalog's `crawl` operations
   dataset          Calls the catalog's `dataset` operations
+  sink             Calls the catalog's `sink` operations
   record           Calls the catalog's `record` operations
 
 Options:
@@ -234,7 +235,7 @@ Options:
   -h, --help          Print help
 
 $ goodfetch-foxhound init --help
-Writes a starter project this executable carries, which runs and tests itself, in TypeScript, Python or Rust, never replacing a file already there
+Writes a starter project this executable carries, which runs and tests itself, in TypeScript, Python or Rust, or deployment files for a Supported target with `--deploy`, never replacing a file already there
 
 Usage: goodfetch-foxhound init [OPTIONS] [DIRECTORY]
 
@@ -244,6 +245,7 @@ Arguments:
 Options:
       --starter <NAME>   The starter to write, such as `browser`; asked on a terminal when not given
       --lang <LANGUAGE>  Its language; asked on a terminal when not given [possible values: typescript, python, rust]
+      --deploy <TARGET>  Adds deployment files for a Supported target, such as `compose`
       --json             Prints the result as JSON
       --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help             Print help
@@ -460,22 +462,40 @@ Starts a Recipe's run, a Run with no handler in the program, and answers once it
 Usage: goodfetch-foxhound recipe start [OPTIONS] --recipe <RECIPE>
 
 Options:
-      --detached                     Whether the Run outlives the program (ADR 0102): closing its value then frees only the value, `run.finish` waits for its end and `run.stop` stops it
-      --group-member <GROUP_MEMBER>  Optional Group member pin in a Daemon group (ADR 0055)
-      --limit <KIND=AMOUNT>          Holds the Run to AMOUNT of the Usage kind KIND: a count, such as `requests=500`, or a price with its currency, such as `paid_fetch=0.50USD`; repeatable, and a start that names the Run again only lowers a Limit
-      --project <PROJECT>            The project configuration the Client found, layer 3 (ADR 0083)
-      --recipe <RECIPE>              The Recipe: an installed Recipe's name, or the path to its manifest
-      --recording <RECORDING>        The Response recording the Run replays or records (ADR 0105)
-      --color <WHEN>                 When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-      --run-id <RUN_ID>              The Run's ID, as `run.start`'s
-      --set <KEY=VALUE>              Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
-      --settings <FILE|->            Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
-      --tags <TAGS>                  The Run's opaque tags
-      --timeout <DURATION>           How long the Run may last, in milliseconds, at least 1, as `timeout.run` for this Run: absent for the setting's value, `null` for none
-      --json                         Prints the result as JSON
-      --attached                     Runs the call on an Attached engine in this process, even when a Daemon runs
-      --daemon                       Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
-  -h, --help                         Print help
+      --detached
+          Whether the Run outlives the program (ADR 0102): closing its value then frees only the value, `run.finish` waits for its end and `run.stop` stops it
+      --group-member <GROUP_MEMBER>
+          Optional Group member pin in a Daemon group (ADR 0055)
+      --limit <KIND=AMOUNT>
+          Holds the Run to AMOUNT of the Usage kind KIND: a count, such as `requests=500`, or a price with its currency, such as `paid_fetch=0.50USD`; repeatable, and a start that names the Run again only lowers a Limit
+      --project <PROJECT>
+          The project configuration the Client found, layer 3 (ADR 0083)
+      --recipe <RECIPE>
+          The Recipe: an installed Recipe's name, or the path to its manifest
+      --recording <RECORDING>
+          The Response recording the Run replays or records (ADR 0105)
+      --color <WHEN>
+          When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --recording-bytes <RECORDING_BYTES>
+          The Response recording's bytes in Base64, when the SDK read the file on the program's machine for `mode: "replay"` (ADR 0105); empty string for a test engine's empty replay recording
+      --run-id <RUN_ID>
+          The Run's ID, as `run.start`'s
+      --set <KEY=VALUE>
+          Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
+      --settings <FILE|->
+          Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
+      --tags <TAGS>
+          The Run's opaque tags
+      --timeout <DURATION>
+          How long the Run may last, in milliseconds, at least 1, as `timeout.run` for this Run: absent for the setting's value, `null` for none
+      --json
+          Prints the result as JSON
+      --attached
+          Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon
+          Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help
+          Print help
 
 $ goodfetch-foxhound recipe digest --help
 Prints the digest of the Recipe whose package's root is DIRECTORY, which names that version of the Recipe on every system: SHA-256 over the files the package holds, by their paths in Unicode NFC and their bytes as they are. It starts no engine
@@ -757,8 +777,8 @@ Commands:
   migrate           Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint
   resume            Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, a Checkpoint of a format version this engine cannot read with `format_version_unsupported`, and a Checkpoint behind the Run's run file on this machine with `checkpoint_behind`, or with the error that file's read gives when it cannot be read, unless `rollback` replaces that file, as the Audit log records
   seeds             Lists each seed's answer, in the order the crawl's start gave them, as the Frontier answered it when the Run began: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`, since nothing gives it a base. So a crawl that does nothing says why. Read from the Run's committed state, so it works on a Run no program holds
-  add-seed          Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`
-  add-seeds         Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine commits each batch, sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`
+  add-seed          Adds one seed to a running crawl, `run.addSeed`, admitted and answered as soon as the Run state accepts it (written with the next Run-state batch at the default durability, or committed before answering at `full`), and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is staged with that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`
+  add-seeds         Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine admits each batch (staged with `attempt` when named, or written with the next Run-state batch at default durability), sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`
   records           Reads the committed Records of one Dataset of a crawl's Run in number order, from the first, or after the number `after`, which resumes a reader from the last Record it handled. Each Record goes in a `$/record` notification with its number, its value, its request's ID and URL and when it was committed, one per credit granted with `$/credit`. While the Run is live it follows the Run, sending each Record once it commits; once the Run has ended, or has no live writer, and every Record is sent, it answers how many it sent and the last one's number. With `through`, such as the number `dataset.page` answers as the last committed, it reads no Record numbered past it and answers once it sent every Record through it, a live Run's included. Records are read from the Run's committed state on a connection of their own, so a reader that grants no credit never slows the crawl. With `wall` set to `true` it reads only the Records whose page was read past a Wall, which their Provenance marks, and with `false` only the others (ADR 0052). A Dataset the crawl does not declare fails with `dataset_unknown`
   export            Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named, as its `format` value says: a table (`csv`, `xlsx`, `html_table`, `markdown`, and typed, `parquet`, `avro` and `arrow_ipc`) has one column per field seen in any of its Records, in first-seen order, and one row per Record. Every text Export is UTF-8 with no BOM unless `export.csv.bom` puts one on CSV, characters written as themselves (a character XML 1.0 cannot hold as U+FFFD in XML and feeds) and each value as it was committed: a table cell holds a string as its text, a number, `true` or `false` as JSON writes it, nothing for `null` or a field its Record lacks, and an object or array as its JSON text, or, in CSV under `export.csv.nested: flatten`, an object's fields in dotted columns. A Record whose page was read past a Wall carries its Wall marker, `{kind, vendor?}` as its Provenance holds it, as a `#wall` field in every format but the feeds, where it is a category of the scheme `urn:goodfetch:wall` naming its kind; `wall` set to `true` writes only those Records, `false` only the others. `compression` `gzip` or `zstd` compresses the whole file. Its `settings` and `project` are the run layer and the project configuration its `export.*` settings resolve under; a value the format cannot take fails with `setting_invalid`. Answers the Export, with its Record count, its last Record's number, its size, its SHA-256 and the run epoch of the Run's state it was written from, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`; an `xlsx` sheet past Excel's limits, with `sheet_capacity_exceeded`
   outcomes          Reads a crawl's outcomes from its committed state, in commit order: from the first, after a position, or with `after: "now"` from the next commit. Its filters, `kinds`, `labels` and `codes` (an Error code any of the request's failed attempts failed with), run in the engine. While the Run is live and nothing new matches, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and nothing more matches. A reader never slows the Run. A request `run.retry_failed` re-admits ends again, and its later outcome supersedes the earlier one by `request.id`
@@ -827,6 +847,8 @@ Options:
           When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
       --recording <RECORDING>
           The Response recording the Run replays or records (ADR 0105): an input of the Run, as `plan` is
+      --recording-bytes <RECORDING_BYTES>
+          The Response recording's bytes in Base64, when the SDK read the file on the program's machine for `mode: "replay"` (ADR 0105); empty string for a test engine's empty replay recording
       --run-id <RUN_ID>
           The Run's ID; the engine generates a lowercase ULID when it is absent. An existing ID reaches that Run when the caller and the inputs match, as `run.start` says, and fails with `run_conflict` otherwise
       --set <KEY=VALUE>
@@ -980,7 +1002,7 @@ Arguments:
   <RUN_ID>  The Run's ID
 
 Options:
-      --location <LOCATION>  Where to write the Checkpoint, a path on the engine's machine; by default where the engine keeps the Run's Checkpoints, its own folder. The catalog's caller alone gives it, such as Goodfetch Cloud: an SDK's `checkpoint()` takes no path, which would break on a Daemon or Goodfetch Cloud (ADR 0102)
+      --location <LOCATION>  Where to write the Checkpoint, a path on the engine's machine or an object-storage URL (`s3://`, `gs://`, `az://`); by default where the engine keeps the Run's Checkpoints, its own folder. The catalog's caller alone gives it, such as Goodfetch Cloud: an SDK's `checkpoint()` takes no path, which would break on a Daemon or Goodfetch Cloud (ADR 0102)
       --json                 Prints the result as JSON
       --attached             Runs the call on an Attached engine in this process, even when a Daemon runs
       --daemon               Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
@@ -1012,7 +1034,7 @@ Arguments:
   <RUN_ID>  The Run's ID
 
 Options:
-      --location <LOCATION>  Where to write the Checkpoint the Run is resumed from, a path on the engine's machine; by default where the engine keeps the Run's Checkpoints, its own folder
+      --location <LOCATION>  Where to write the Checkpoint the Run is resumed from, a path on the engine's machine or an object-storage URL (`s3://`, `gs://`, `az://`); by default where the engine keeps the Run's Checkpoints, its own folder
       --json                 Prints the result as JSON
       --attached             Runs the call on an Attached engine in this process, even when a Daemon runs
       --daemon               Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
@@ -1029,7 +1051,7 @@ Arguments:
   <RUN_ID>  The Run's ID
 
 Options:
-      --checkpoint <CHECKPOINT>      A Checkpoint to resume from, a path on the engine's machine, which becomes the Run's state in this engine's run folder; by default the Run resumes from its run file on this machine
+      --checkpoint <CHECKPOINT>      A Checkpoint to resume from, a path on the engine's machine or an object-storage URL (`s3://`, `gs://`, `az://`), which becomes the Run's state in this engine's run folder; by default the Run resumes from its run file on this machine
       --group-member <GROUP_MEMBER>  Optional Group member pin in a Daemon group (ADR 0055)
       --project <PROJECT>            The project configuration the Client found, layer 3 (ADR 0083)
       --rollback                     Whether a `checkpoint` behind the Run's run file on this machine, or given where that file cannot be read, replaces it all the same, rolling the Run back to the Checkpoint, as the Audit log records; by default such a Checkpoint is refused, with `checkpoint_behind` or the error the file's read gave. Without `checkpoint` it changes nothing
@@ -1057,7 +1079,7 @@ Options:
   -h, --help          Print help
 
 $ goodfetch-foxhound run add-seed --help
-Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`
+Adds one seed to a running crawl, `run.addSeed`, admitted and answered as soon as the Run state accepts it (written with the next Run-state batch at the default durability, or committed before answering at `full`), and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is staged with that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`
 
 Usage: goodfetch-foxhound run add-seed [OPTIONS] --seed <SEED> <RUN_ID>
 
@@ -1074,7 +1096,7 @@ Options:
   -h, --help               Print help
 
 $ goodfetch-foxhound run add-seeds --help
-Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine commits each batch, sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`
+Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine admits each batch (staged with `attempt` when named, or written with the next Run-state batch at default durability), sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`
 
 Usage: goodfetch-foxhound run add-seeds [OPTIONS] <RUN_ID>
 
@@ -1082,11 +1104,12 @@ Arguments:
   <RUN_ID>  The crawl's Run
 
 Options:
-      --json          Prints what the call answers each batch of stdin's lines with as one JSON object per line
-      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
-      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
-      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help          Print help
+      --attempt <ATTEMPT>  The attempt that adds them, when a handler streams seeds through its context's `run`; absent, the program streams them from outside any attempt
+      --json               Prints what the call answers each batch of stdin's lines with as one JSON object per line
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
 
 $ goodfetch-foxhound run records --help
 Reads the committed Records of one Dataset of a crawl's Run in number order, from the first, or after the number `after`, which resumes a reader from the last Record it handled. Each Record goes in a `$/record` notification with its number, its value, its request's ID and URL and when it was committed, one per credit granted with `$/credit`. While the Run is live it follows the Run, sending each Record once it commits; once the Run has ended, or has no live writer, and every Record is sent, it answers how many it sent and the last one's number. With `through`, such as the number `dataset.page` answers as the last committed, it reads no Record numbered past it and answers once it sent every Record through it, a live Run's included. Records are read from the Run's committed state on a connection of their own, so a reader that grants no credit never slows the crawl. With `wall` set to `true` it reads only the Records whose page was read past a Wall, which their Provenance marks, and with `false` only the others (ADR 0052). A Dataset the crawl does not declare fails with `dataset_unknown`
@@ -1552,22 +1575,40 @@ Starts a code-free catalog run, a Run with no handler in the program whose verbs
 Usage: goodfetch-foxhound catalog-run start [OPTIONS] --target <TARGET>
 
 Options:
-      --detached                     Whether the Run outlives the program (ADR 0102): closing its value then frees only the value, `run.finish` waits for its end and `run.stop` stops it
-      --group-member <GROUP_MEMBER>  Optional Group member pin in a Daemon group (ADR 0055)
-      --limit <KIND=AMOUNT>          Holds the Run to AMOUNT of the Usage kind KIND: a count, such as `requests=500`, or a price with its currency, such as `paid_fetch=0.50USD`; repeatable, and a start that names the Run again only lowers a Limit
-      --project <PROJECT>            The project configuration the Client found, layer 3 (ADR 0083)
-      --recording <RECORDING>        The Response recording the Run replays or records (ADR 0105)
-      --run-id <RUN_ID>              The Run's ID, as `run.start`'s
-      --color <WHEN>                 When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-      --set <KEY=VALUE>              Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
-      --settings <FILE|->            Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
-      --tags <TAGS>                  The Run's opaque tags
-      --target <TARGET>              What the Run does
-      --timeout <DURATION>           How long the Run may last, in milliseconds, at least 1, as `timeout.run` for this Run: absent for the setting's value, `null` for none
-      --json                         Prints the result as JSON
-      --attached                     Runs the call on an Attached engine in this process, even when a Daemon runs
-      --daemon                       Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
-  -h, --help                         Print help
+      --detached
+          Whether the Run outlives the program (ADR 0102): closing its value then frees only the value, `run.finish` waits for its end and `run.stop` stops it
+      --group-member <GROUP_MEMBER>
+          Optional Group member pin in a Daemon group (ADR 0055)
+      --limit <KIND=AMOUNT>
+          Holds the Run to AMOUNT of the Usage kind KIND: a count, such as `requests=500`, or a price with its currency, such as `paid_fetch=0.50USD`; repeatable, and a start that names the Run again only lowers a Limit
+      --project <PROJECT>
+          The project configuration the Client found, layer 3 (ADR 0083)
+      --recording <RECORDING>
+          The Response recording the Run replays or records (ADR 0105)
+      --recording-bytes <RECORDING_BYTES>
+          The Response recording's bytes in Base64, when the SDK read the file on the program's machine for `mode: "replay"` (ADR 0105); empty string for a test engine's empty replay recording
+      --color <WHEN>
+          When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --run-id <RUN_ID>
+          The Run's ID, as `run.start`'s
+      --set <KEY=VALUE>
+          Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
+      --settings <FILE|->
+          Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
+      --tags <TAGS>
+          The Run's opaque tags
+      --target <TARGET>
+          What the Run does
+      --timeout <DURATION>
+          How long the Run may last, in milliseconds, at least 1, as `timeout.run` for this Run: absent for the setting's value, `null` for none
+      --json
+          Prints the result as JSON
+      --attached
+          Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon
+          Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help
+          Print help
 
 $ goodfetch-foxhound key-value-store --help
 Calls the catalog's `key_value_store` operations
@@ -1947,18 +1988,19 @@ Arguments:
   [URL]...  A seed of the crawl, its URL; repeatable
 
 Options:
-      --declaration <DECLARATION>    The crawl as data (ADR 0103): its Labels, what each of their pages follows and extracts, its Datasets, settings and more seeds, which the engine handles itself as it does `extraction`, its one-Label shorthand. Such a start declares no Label and no Dataset of its own, else it fails with `invalid_params`, and names no `extraction`, else it fails with `setting_invalid`
       --detached                     Whether the Run outlives the Connection that started it (ADR 0102), as a Recipe's run does: only a code-free crawl with no Hook, started on a Daemon, detaches, and any other such start fails with `detach_unsupported`
       --group-member <GROUP_MEMBER>  Optional Group member pin in a Daemon group (ADR 0055)
       --labels <LABELS>              The crawl's Labels, by name, each with its Payload's JSON Schema or none, and its own settings (ADRs 0082 and 0093): a scope between the Run and its requests. A Payload of a declared schema is checked against it at every enqueue. A seed, a sitemap rule or an enqueue naming a Label the crawl does not declare fails with `label_unknown`, and so does a start under the ID of a Run with pending requests of a Label no longer declared, before any work; a code-free crawl declares its own Label
       --limit <KIND=AMOUNT>          Holds the Run to AMOUNT of the Usage kind KIND: a count, such as `requests=500`, or a price with its currency, such as `paid_fetch=0.50USD`; repeatable, and a start that names the Run again only lowers a Limit
       --partitions <PARTITIONS>      Partition count for a Partitioned crawl (ADR 0054): a positive integer or `"auto"` for one Partition per eligible Group member
-      --color <WHEN>                 When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
       --project <PROJECT>            The project configuration the Client found, layer 3 (ADR 0083)
+      --color <WHEN>                 When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --recording <RECORDING>        The Response recording the crawl replays or records (ADR 0105)
       --run-id <RUN_ID>              The Run's ID, as `run.start` takes it
       --set <KEY=VALUE>              Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
       --settings <FILE|->            Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
       --tags <TAGS>                  The Run's opaque tags
+      --declaration <FILE|->         Reads a reviewed CrawlDeclaration as one JSON object in FILE, or from standard input for `-`; naming it with `--format`, `--field`, `--fields` or `--links` is refused with `setting_invalid`
       --format <NAME>                A format each page's Record holds, as `page.formats` gives it; repeatable; `markdown` when neither a format nor a field is given [possible values: contacts, html, images, links, markdown, media, metadata, tables, text]
       --field <NAME=LOCATOR>         A named field each page's Record holds: the text of the first element a CSS selector, or an XPath expression after `xpath:`, finds; repeatable
       --fields <FILE|->              Reads named fields, each with its locator and its Value transform, as one JSON object by name in FILE, or from standard input for `-`; `--field` beats it
@@ -2064,6 +2106,70 @@ Options:
       --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
       --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-foxhound sink --help
+Calls the catalog's `sink` operations
+
+Usage: goodfetch-foxhound sink [OPTIONS] <COMMAND>
+
+Commands:
+  probe    Probes one Sink now, by its name among the `sinks` the connection's settings and the call's `settings` resolve to, as a crawl's Run would, and answers the Guarantee class its destination proves: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). A probe may create what the Sink writes to, such as a SQLite Sink's table. A probe that fails answers `failed` with its cause, such as a destination that did not resolve or open; a Sink the settings do not name answers `failed` naming those they do. A Sink this engine does not deliver to yet fails with `capability_unavailable`. A crawl's Run probes each of its Sinks again at its start
+  list     Lists each Sink with its Guarantee class, its dead-letter count and its deliveries outside the destination's deduplication window (ADR 0026). With `run_id`, reads the Sinks that applied to that Run; without `run_id`, resolves `sinks` from the connection's and call's settings, probes each deliverable Sink and aggregates its dead letters and late deliveries across Runs
+  deliver  Delivers committed Records or dead letters of a Run to a configured Sink after the Run (ADR 0026): `redeliver` resends one delivery by its `delivery_id`, `recover` retries dead letters committed since an RFC 3339 timestamp, `replay` delivers Records not yet at the destination, and `backfill` delivers every committed Record of a past Run to any Sink (including one configured after the Run ended)
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound sink probe --help
+Probes one Sink now, by its name among the `sinks` the connection's settings and the call's `settings` resolve to, as a crawl's Run would, and answers the Guarantee class its destination proves: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). A probe may create what the Sink writes to, such as a SQLite Sink's table. A probe that fails answers `failed` with its cause, such as a destination that did not resolve or open; a Sink the settings do not name answers `failed` naming those they do. A Sink this engine does not deliver to yet fails with `capability_unavailable`. A crawl's Run probes each of its Sinks again at its start
+
+Usage: goodfetch-foxhound sink probe [OPTIONS] --sink <SINK>
+
+Options:
+      --project <PROJECT>  The project configuration the Client found, layer 3 (ADR 0083)
+      --set <KEY=VALUE>    Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
+      --settings <FILE|->  Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
+      --sink <SINK>        The Sink's name, its key under `sinks`
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help               Print help
+
+$ goodfetch-foxhound sink list --help
+Lists each Sink with its Guarantee class, its dead-letter count and its deliveries outside the destination's deduplication window (ADR 0026). With `run_id`, reads the Sinks that applied to that Run; without `run_id`, resolves `sinks` from the connection's and call's settings, probes each deliverable Sink and aggregates its dead letters and late deliveries across Runs
+
+Usage: goodfetch-foxhound sink list [OPTIONS]
+
+Options:
+      --project <PROJECT>  The project configuration the Client found, layer 3 (ADR 0083)
+      --run-id <RUN_ID>    When set, lists the Sinks that applied to this Run with its Run-scoped class, status, dead letters and deliveries outside the deduplication window. When absent, lists the Sinks configured in `settings` and aggregates their dead letters and late deliveries across Runs
+      --set <KEY=VALUE>    Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
+      --settings <FILE|->  Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help               Print help
+
+$ goodfetch-foxhound sink deliver --help
+Delivers committed Records or dead letters of a Run to a configured Sink after the Run (ADR 0026): `redeliver` resends one delivery by its `delivery_id`, `recover` retries dead letters committed since an RFC 3339 timestamp, `replay` delivers Records not yet at the destination, and `backfill` delivers every committed Record of a past Run to any Sink (including one configured after the Run ended)
+
+Usage: goodfetch-foxhound sink deliver [OPTIONS] --action <ACTION> --run-id <RUN_ID> --sink <SINK>
+
+Options:
+      --action <ACTION>    Which delivery operation to run (`redeliver`, `recover`, `replay` or `backfill`)
+      --project <PROJECT>  The project configuration the Client found, layer 3 (ADR 0083)
+      --run-id <RUN_ID>    The Run whose Records or dead letters to deliver
+      --set <KEY=VALUE>    Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
+      --settings <FILE|->  Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
+      --sink <SINK>        The Sink's name, its key under `sinks`
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
   -h, --help               Print help
 
 $ goodfetch-foxhound record --help

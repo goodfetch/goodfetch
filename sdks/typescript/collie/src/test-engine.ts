@@ -12,7 +12,7 @@ import {
   partsOf,
   removeHome,
 } from "@goodfetch/collie-client/runtime";
-import { Collie } from "./collie.ts";
+import { Collie, connectTestEngine } from "./collie.ts";
 
 /**
  * A real Collie engine for a test: an Attached engine in a temporary
@@ -37,7 +37,7 @@ export class TestEngine implements ProductTestEngine<Collie> {
     const home = await makeHome();
     try {
       const parts = partsOf(options, home, COLLIE_ENGINE_PATH_VARIABLE);
-      const connection = await Collie.connect({
+      const connection = await connectTestEngine({
         env: parts.env,
         engine: "attached",
         settings: parts.settings,

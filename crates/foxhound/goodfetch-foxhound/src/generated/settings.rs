@@ -165,6 +165,30 @@ pub mod crawl {
         ],
     );
 
+    /// The weakest Guarantee class a crawl's Run accepts of each of its Sinks, from the strongest: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). Each Sink is probed at the Run's start, and a Sink whose probe proves a weaker class, or fails, refuses the start with `sink_guarantee_unmet` before the Run does any work. None by default: any class is accepted, and a Sink whose probe fails delivers nothing; `null` clears it.
+    ///
+    /// `crawl.min_sink_guarantee`. `None` clears it.
+    pub const MIN_SINK_GUARANTEE: crate::settings::Setting<Option<MinSinkGuarantee>> =
+        crate::settings::Setting::new(
+            "crawl.min_sink_guarantee",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+
+    /// Whether collection goes on when a Sink fails (`continue`, the default) or stops at the next safe point (`stop`), so a destination's outage never stops a crawl unasked (ADR 0026).
+    ///
+    /// `crawl.on_sink_failure`.
+    pub const ON_SINK_FAILURE: crate::settings::Setting<OnSinkFailure> =
+        crate::settings::Setting::new(
+            "crawl.on_sink_failure",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+
     /// Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.
     ///
     /// `crawl.path_budgets`.
@@ -203,6 +227,48 @@ pub mod crawl {
             match self {
                 Self::FewestInFlight => "fewest_in_flight",
                 Self::RoundRobin => "round_robin",
+            }
+        }
+    }
+
+    /// A word a setting of this module takes, as the catalog spells it.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub enum MinSinkGuarantee {
+        /// `fenced`.
+        Fenced,
+        /// `record_fenced`.
+        RecordFenced,
+        /// `keyed`.
+        Keyed,
+        /// `at_least_once`.
+        AtLeastOnce,
+    }
+
+    impl ::goodfetch_protocol::catalog::SettingWord for MinSinkGuarantee {
+        fn word(&self) -> &'static str {
+            match self {
+                Self::Fenced => "fenced",
+                Self::RecordFenced => "record_fenced",
+                Self::Keyed => "keyed",
+                Self::AtLeastOnce => "at_least_once",
+            }
+        }
+    }
+
+    /// A word a setting of this module takes, as the catalog spells it.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub enum OnSinkFailure {
+        /// `continue`.
+        Continue,
+        /// `stop`.
+        Stop,
+    }
+
+    impl ::goodfetch_protocol::catalog::SettingWord for OnSinkFailure {
+        fn word(&self) -> &'static str {
+            match self {
+                Self::Continue => "continue",
+                Self::Stop => "stop",
             }
         }
     }
@@ -939,7 +1005,7 @@ pub mod politeness {
             ],
         );
 
-        /// How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1. A value above 1 is listed in the run's result as one that presses a site harder.
+        /// How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder.
         ///
         /// `politeness.domain.concurrency`. `None` clears it.
         pub const CONCURRENCY: crate::settings::Setting<Option<u64>> =
@@ -951,7 +1017,7 @@ pub mod politeness {
                 ],
             );
 
-        /// How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s. A value below 1 s is listed in the run's result as one that presses a site harder.
+        /// How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder.
         ///
         /// `politeness.domain.delay`. `None` clears it.
         pub const DELAY: crate::settings::Setting<Option<::std::time::Duration>> =
@@ -973,6 +1039,22 @@ pub mod politeness {
                 ::goodfetch_protocol::catalog::SettingScope::Run,
             ],
         );
+    }
+
+    /// The `politeness.ip.*` settings.
+    pub mod ip {
+
+        /// How many crawl requests may be in flight at once to one resolved IP address, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. At least 1; none by default, for no per-IP cap.
+        ///
+        /// `politeness.ip.concurrency`. `None` clears it.
+        pub const CONCURRENCY: crate::settings::Setting<Option<u64>> =
+            crate::settings::Setting::new(
+                "politeness.ip.concurrency",
+                &[
+                    ::goodfetch_protocol::catalog::SettingScope::Connection,
+                    ::goodfetch_protocol::catalog::SettingScope::Run,
+                ],
+            );
     }
 
     /// The `politeness.retry_after.*` settings.

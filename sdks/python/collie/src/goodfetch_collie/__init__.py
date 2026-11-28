@@ -102,6 +102,7 @@ from goodfetch_collie_client.generated.errors import (
     GroupMemberExistsError,
     GroupMemberUnknownError,
     GroupPolitenessUnsharedError,
+    HeaderForbiddenError,
     HeaderValueInvalidError,
     HookFailedError,
     InternalError,
@@ -204,11 +205,13 @@ from goodfetch_collie_client.generated.errors import (
     WebhookInvalidError,
 )
 from goodfetch_collie_client.generated.models import (
+    CheckpointSaved,
     ExplainedSetting,
     NotificationPayload,
     Product,
     Recording,
     RecordingMode,
+    RecordingSaved,
     RunOrigin,
     RunProgress,
     RunReport,
@@ -221,6 +224,7 @@ from goodfetch_collie_client.generated.models import (
     SettingsFile,
     SettingsLayer,
     StartedAs,
+    TraceSaved,
 )
 from goodfetch_collie_client.generated.settings import (
     PageSettings,
@@ -239,13 +243,21 @@ from goodfetch_collie_client.handlerless import (
 from goodfetch_collie_client.json_values import JSONObject, JSONValue
 from goodfetch_collie_client.key_value_store import (
     AsyncKeyValueStore,
+    AsyncKeyValueStoreView,
     KeyValueStore,
+    KeyValueStoreView,
     StoredBytes,
 )
 from goodfetch_collie_client.limits import Limits, Money, Prices
 from goodfetch_collie_client.markers import ExperimentalWarning
 from goodfetch_collie_client.response import AsyncResponse, Response
 from goodfetch_collie_client.run import AsyncRun, Run
+from goodfetch_collie_client.run_copies import (
+    AsyncCheckpoint,
+    AsyncRunTrace,
+    Checkpoint,
+    RunTrace,
+)
 from goodfetch_collie_client.run_view import AsyncRunView, RunView
 from goodfetch_collie_client.schedules import (
     AsyncSchedule,
@@ -255,6 +267,11 @@ from goodfetch_collie_client.schedules import (
     Schedules,
 )
 from goodfetch_collie_client.schema import JSONSchema
+from goodfetch_collie_client.secrets import (
+    AsyncSecretResolver,
+    SecretRequest,
+    SecretResolver,
+)
 from goodfetch_collie_client.sequence import AsyncSequence, Sequence
 from goodfetch_collie_client.webhook import verify_webhook
 
@@ -266,14 +283,18 @@ __all__ = [
     "AgentTarget",
     "ArtifactDownloadFailedError",
     "ArtifactUnavailableOfflineError",
+    "AsyncCheckpoint",
     "AsyncCollie",
     "AsyncConnection",
     "AsyncKeyValueStore",
+    "AsyncKeyValueStoreView",
     "AsyncResponse",
     "AsyncRun",
+    "AsyncRunTrace",
     "AsyncRunView",
     "AsyncSchedule",
     "AsyncSchedules",
+    "AsyncSecretResolver",
     "AsyncSequence",
     "AuthorityKeyMismatchError",
     "BlockedError",
@@ -296,7 +317,9 @@ __all__ = [
     "CertificateChangedError",
     "CertificateInvalidError",
     "ChallengeUnsolvedError",
+    "Checkpoint",
     "CheckpointBehindError",
+    "CheckpointSaved",
     "Claim",
     "ClosedError",
     "Collie",
@@ -342,6 +365,7 @@ __all__ = [
     "GroupMemberExistsError",
     "GroupMemberUnknownError",
     "GroupPolitenessUnsharedError",
+    "HeaderForbiddenError",
     "HeaderValueInvalidError",
     "HookFailedError",
     "InternalError",
@@ -350,6 +374,7 @@ __all__ = [
     "JSONValue",
     "JoinTokenRefusedError",
     "KeyValueStore",
+    "KeyValueStoreView",
     "LeadCannotLeaveError",
     "LeadEpochStaleError",
     "LeadUnconfirmedError",
@@ -408,6 +433,7 @@ __all__ = [
     "Recording",
     "RecordingInvalidError",
     "RecordingMode",
+    "RecordingSaved",
     "RefusedError",
     "RemoteDaemon",
     "ReplayNotAllowedError",
@@ -439,6 +465,7 @@ __all__ = [
     "RunStateFilesystemUnsupportedError",
     "RunStateUnavailableError",
     "RunTargetUnbuiltError",
+    "RunTrace",
     "RunView",
     "SampleRefusedError",
     "Schedule",
@@ -454,6 +481,8 @@ __all__ = [
     "SchemaValidatorFailedError",
     "SecretDomainNotAllowedError",
     "SecretInputRefusedError",
+    "SecretRequest",
+    "SecretResolver",
     "SecretUnavailableError",
     "SecretUnboundError",
     "Sequence",
@@ -477,6 +506,7 @@ __all__ = [
     "TargetNotUniqueError",
     "TooManyCallsError",
     "TooManyRedirectsError",
+    "TraceSaved",
     "UnavailableError",
     "UpgradeSourceUnsupportedError",
     "ValueInvalidError",

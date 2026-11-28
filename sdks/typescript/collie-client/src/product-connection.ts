@@ -5,6 +5,7 @@
 // with exactly the program's environment map; finishes `hello`, naming the
 // Product; and logs the engine reached at info. The other Product's
 // variable is never read here.
+import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { AttachedEngine } from "./attached-engine.ts";
@@ -13,10 +14,14 @@ import {
   connectLimit,
   type EngineInfo,
   type Reached,
+  type WorkerTarget,
 } from "./client-connection.ts";
 import { checkDeploymentVariables } from "./deployment-variables.ts";
+import { refuseHandlersOnEdge } from "./edge-runtime.ts";
 import {
   handedOverTo,
+  openEndpoint,
+  openRemoteTransport,
   reachEngine,
   type DaemonReach,
   type EngineChoice,
@@ -30,6 +35,7 @@ import {
   type OperationNames,
 } from "./goodfetch-error.ts";
 import {
+  DaemonUnreachableError,
   EngineNotFoundError,
   PRODUCT_VERSION,
   SettingInvalidError,
@@ -53,6 +59,7 @@ import {
   type OperationClasses,
   type Transport,
 } from "./rpc.ts";
+import type { SecretResolver } from "./secrets.ts";
 import type { SettingsOnWire } from "./settings.ts";
 
 /**
@@ -103,6 +110,13 @@ export interface ConnectOverOptions<S = Settings> {
    * SDK is silent and the engine sends no log events.
    */
   readonly logger?: Logger | undefined;
+  /**
+   * Answers `caller:<name>` Secret references at the moment of use, for Runs
+   * this Connection opened (ADRs 0092 and 0104). The value goes straight to
+   * the engine; the SDK keeps no copy and logs nothing. Without it, a
+   * `caller:` reference fails with `secret_unavailable` naming this option.
+   */
+  readonly resolveSecret?: SecretResolver | undefined;
 }
 
 /** Options of `connect()`, with `S`, the settings it takes. */
@@ -409,9 +423,14 @@ function openDaemon<S>(
   common: Opening,
   connectStartedAt: number,
 ): Promise<ClientConnection> {
+  const workerTarget: WorkerTarget =
+    reach.kind === "remote"
+      ? { kind: "remote", url: reach.url, token: reach.token }
+      : { kind: "daemon", address: reach.endpoint, token: reach.token };
   return ClientConnection.open({
     transport: reach.transport,
     reached: { kind: reach.kind, home: reach.home, url: reach.url },
+    workerTarget,
     daemon: { token: reach.token, closedAtHello: reach.closedAtHello },
     // A remote Daemon is reached again once its link drops (spec 606); this
     // machine's ends the Connection, as an Attached engine's exit does.
@@ -445,6 +464,56 @@ function reachedText<S>(product: ProductPackage<S>, engine: EngineInfo): string 
 }
 
 /**
+ * Opens a worker process's Connection to the Attached engine's private
+ * endpoint or Daemon `target` names (ADR 0024).
+ */
+export async function openWorkerConnection<S>(
+  product: ProductPackage<S>,
+  target: WorkerTarget,
+  options: { readonly signal?: AbortSignal | undefined } = {},
+): Promise<ClientConnection> {
+  let transport: Transport;
+  let token: string;
+  let reached: Reached;
+  if (target.kind === "private") {
+    token = (await readFile(target.tokenFile, "utf8")).trim();
+    transport = await openEndpoint(target.address, options.signal);
+    reached = { kind: "attached", home: null, url: null };
+  } else if (target.kind === "daemon") {
+    token = target.token;
+    transport = await openEndpoint(target.address, options.signal);
+    const url = "unix" in target.address ? target.address.unix : target.address.tcp;
+    reached = { kind: "daemon", home: null, url };
+  } else {
+    token = target.token;
+    transport = await openRemoteTransport(target.url, options.signal);
+    reached = { kind: "remote", home: null, url: target.url };
+  }
+  return ClientConnection.open({
+    transport,
+    reached,
+    workerTarget: target,
+    daemon: {
+      token,
+      closedAtHello: () =>
+        new DaemonUnreachableError(
+          "The engine closed the worker Connection before answering hello",
+          {
+            fix: "Check that the engine or Daemon that started the crawl is still running.",
+            details: {
+              fix: "Check that the engine or Daemon that started the crawl is still running.",
+            },
+          },
+        ),
+    },
+    needs: product.needs,
+    errorClasses: product.errorClasses,
+    operationNames: product.operationNames,
+    signal: options.signal,
+  });
+}
+
+/**
  * Finishes `hello`, naming `product`, over `transport`, such as the
  * Scripted engine's in-memory player (ADR 0069): `connect()`'s Connection
  * with no process behind it.
@@ -472,6 +541,7 @@ interface Opening {
   readonly settings: SettingsOnWire | undefined;
   readonly timeout: number | null | undefined;
   readonly logger: Logger | undefined;
+  readonly resolveSecret: SecretResolver | undefined;
   /** The project file `connect()` read, which a Connection over a transport a test holds has none of. */
   readonly project?: ProjectFile | undefined;
 }
@@ -485,7 +555,14 @@ interface Opening {
  * is 0, negative, fractional or not finite.
  */
 function opening<S>(product: ProductPackage<S>, options: ConnectOverOptions<S>): Opening {
-  const { signal, logger } = options;
+  const { signal, logger, resolveSecret } = options;
+  if (resolveSecret !== undefined) {
+    refuseHandlersOnEdge({
+      operation: "hello",
+      names: product.operationNames,
+      handlers: "resolveSecret",
+    });
+  }
   const settings = product.settingsOnWire(options.settings);
   const own = clientBounds(settings);
   return {
@@ -499,6 +576,7 @@ function opening<S>(product: ProductPackage<S>, options: ConnectOverOptions<S>):
     settings,
     timeout: timeoutOf(options.timeout, TIMEOUT_CONNECT),
     logger,
+    resolveSecret,
   };
 }
 

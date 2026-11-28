@@ -63,6 +63,7 @@ mod pacing;
 mod page_load;
 mod pages;
 mod parameters;
+mod payments;
 mod plain_hosts;
 mod portal;
 mod printing;

@@ -91,7 +91,10 @@ fn planting(kind: SecretKind) -> Planting {
             file: "request_secrets.rs",
             test: "a_placeholder_in_a_header_or_a_json_string_reaches_its_bound_domain_alone",
         },
-        SecretKind::CallerAnswer => Planting::Pending { ticket: 652 },
+        SecretKind::CallerAnswer => Planting::By {
+            file: "proxy.rs",
+            test: "a_proxy_password_the_runs_client_answers_reaches_the_proxy_and_no_file",
+        },
         SecretKind::ModelApiKey => Planting::Pending { ticket: 934 },
         SecretKind::WebhookSigningSecret => Planting::Pending { ticket: 666 },
         SecretKind::SinkCredential => Planting::Foxhound,

@@ -600,6 +600,40 @@ class CertsListParams(BaseModel):
     )
 
 
+class CheckpointSaved(BaseModel):
+    """What `checkpoint.save_as` answers once the file is whole."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    run_epoch: Annotated[int, Field(ge=0)]
+    """The run epoch of the writer that took the Checkpoint (ADR 0003)."""
+    size: Annotated[int, Field(ge=0)]
+    """The file's size in bytes."""
+    written: bool
+    """
+    Whether the engine wrote the program's path itself; when not, the
+    `$/chunk` notifications before this answer carried every byte, and
+    the SDK writes the path.
+    """
+
+
+class CheckpointStreamed(BaseModel):
+    """What `checkpoint.stream` answers once it sent every byte."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    run_epoch: Annotated[int, Field(ge=0)]
+    """The run epoch of the writer that took the Checkpoint (ADR 0003)."""
+    size: Annotated[int, Field(ge=0)]
+    """The file's size in bytes."""
+
+
 class ChromeChannel(StrEnum):
     """
     A channel of Google Chrome (ADR 0024: an installed Chrome can be named by
@@ -1663,6 +1697,16 @@ class HeaderCharacter(StrEnum):
     """A line feed, U+000A."""
     nul = "nul"
     """A NUL, U+0000."""
+
+
+class HeaderForbiddenDetails(BaseModel):
+    """What `header_forbidden` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    name: str
+    """The forbidden header name, as given."""
 
 
 class HeaderValueInvalidDetails(BaseModel):
@@ -3490,6 +3534,24 @@ class RecordingReport(BaseModel):
     """The engine that wrote them."""
 
 
+class RecordingSaved(BaseModel):
+    """What `recording.save_as` answers once the file is whole (ADRs 0105 and 0116)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    size: Annotated[int, Field(ge=0)]
+    """The file's size in bytes."""
+    written: bool
+    """
+    Whether the engine wrote the program's path itself; when not, the
+    `$/chunk` notifications before this answer carried every byte, and
+    the SDK writes the path.
+    """
+
+
 class RedirectLimit1(BaseModel):
     """
     The browser's own count, 20 requests in a navigation's chain, its
@@ -3633,6 +3695,12 @@ class RequestSeed(BaseModel):
     whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
     such requests, the later goes first; `false` by default.
     """
+    headers: dict[str, str] | None = None
+    """
+    Extra request headers sent with the request (ADR 0093). Forbidden
+    headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method
+    overrides; ADR 0033) are refused with `header_forbidden`.
+    """
     key: str | None = None
     """
     Its identity in the Frontier, declared by the program in place of
@@ -3732,18 +3800,6 @@ class ResponseNotRecordedDetails(BaseModel):
     """The Response recording's path, as the start named it."""
 
 
-class ResponseOrigin1(BaseModel):
-    """The Response cache (ADR 0046)."""
-
-    model_config = ConfigDict(
-        extra="allow",
-        arbitrary_types_allowed=True,
-    )
-    fetched_at: PointInTime
-    """When the cached response was fetched."""
-    kind: Literal["response_cache"]
-
-
 class ResponseOrigin2(BaseModel):
     """A Response recording (ADR 0105)."""
 
@@ -3754,11 +3810,6 @@ class ResponseOrigin2(BaseModel):
     kind: Literal["response_recording"]
     recorded_at: PointInTime
     """When the recorded response was received."""
-
-
-class ResponseOrigin(RootModel[ResponseOrigin1 | ResponseOrigin2]):
-    root: ResponseOrigin1 | ResponseOrigin2
-    """What answered a Record's request in place of the network."""
 
 
 class ResponseTruncatedDetails(BaseModel):
@@ -4269,6 +4320,35 @@ class RunTargetUnbuiltDetails(BaseModel):
     )
 
 
+class RunTrace(BaseModel):
+    """A Run's trace copy, kept on the engine's machine (ADRs 0102 and 0116)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    location: str
+    """Where it is: the trace file's path on the engine's machine."""
+    run_id: RunId
+    """The Run's ID."""
+    size: Annotated[int, Field(ge=0)]
+    """Its size in bytes."""
+
+
+class RunTraceResult(BaseModel):
+    """
+    What `run.trace` answers: the Run's trace copy, or none when the Run keeps
+    no trace.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    trace: RunTrace | None = None
+    """The Run's trace copy, or null when the Run keeps no trace."""
+
+
 class RunTrigger(StrEnum):
     """
     What fired a Schedule's occurrence (ADR 0036), as its run's reserved
@@ -4674,6 +4754,16 @@ class SecretInputRefusedReason(StrEnum):
     """
 
 
+class SecretResolved(BaseModel):
+    """What `resolveSecret` answers: the value. Its `Debug` leaves it out."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    value: str
+    """The value."""
+
+
 class SecretUnavailableDetails(BaseModel):
     """What `secret_unavailable` details."""
 
@@ -4703,6 +4793,20 @@ class SecretUnboundDetails(BaseModel):
     """The placeholders the scopes bind, never a value."""
     placeholder: str
     """The placeholder no scope binds."""
+
+
+class SecretsResolveParams(BaseModel):
+    """What `secrets.resolve` gives the program's `resolveSecret`."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    domain: str | None = None
+    """The host the value is sent to, where the use has one."""
+    name: str
+    """The reference's name, what follows `caller:`."""
+    run_id: RunId
+    """The Run that uses it, which this Connection opened."""
 
 
 class SeedsKept(BaseModel):
@@ -5741,6 +5845,66 @@ class TooManyRedirectsDetails(BaseModel):
     """The count it went past, and what set it."""
 
 
+class TraceSaveAsParams(BaseModel):
+    """What `trace.save_as` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    location: str
+    """Where the trace copy is on the engine's machine, as `run.trace` answered."""
+    path: str | None = None
+    """
+    The program's path, absolute, which an Attached engine writes
+    itself; any other engine leaves it to the SDK and sends the file's
+    bytes instead.
+    """
+    run_id: RunId
+    """The Run's ID."""
+
+
+class TraceSaved(BaseModel):
+    """What `trace.save_as` answers once the file is whole."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    size: Annotated[int, Field(ge=0)]
+    """The file's size in bytes."""
+    written: bool
+    """
+    Whether the engine wrote the program's path itself; when not, the
+    `$/chunk` notifications before this answer carried every byte, and
+    the SDK writes the path.
+    """
+
+
+class TraceStreamParams(BaseModel):
+    """What `trace.stream` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    location: str
+    """Where the trace copy is on the engine's machine, as `run.trace` answered."""
+    run_id: RunId
+    """The Run's ID."""
+
+
+class TraceStreamed(BaseModel):
+    """What `trace.stream` answers once it sent every byte."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    size: Annotated[int, Field(ge=0)]
+    """The file's size in bytes."""
+
+
 class TriggerDescription(BaseModel):
     """
     The plain-words description of a trigger (ADR 0073): a structured form
@@ -6624,6 +6788,36 @@ class CheckpointBehindDetails(BaseModel):
     """Where the Checkpoint stands."""
     run_file: RunStatePosition
     """Where the run file on this machine stands, past the Checkpoint."""
+
+
+class CheckpointSaveAsParams(BaseModel):
+    """What `checkpoint.save_as` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    location: str
+    """Where the Checkpoint is on the engine's machine, as `run.checkpoint` answered."""
+    path: str | None = None
+    """
+    The program's path, absolute, which an Attached engine writes
+    itself; any other engine leaves it to the SDK and sends the file's
+    bytes instead.
+    """
+    run_id: RunId
+    """The Run's ID."""
+
+
+class CheckpointStreamParams(BaseModel):
+    """What `checkpoint.stream` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    location: str
+    """Where the Checkpoint is on the engine's machine, as `run.checkpoint` answered."""
+    run_id: RunId
+    """The Run's ID."""
 
 
 class Chunk(BaseModel):
@@ -8534,6 +8728,27 @@ class Recording(BaseModel):
     """
 
 
+class RecordingSaveAsParams(BaseModel):
+    """What `recording.save_as` takes (ADRs 0105 and 0116)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filename: str | None = None
+    """
+    The recording's file name (such as `site.warc.gz`), used for `warcinfo`
+    and `.gz` per-record gzip detection when `path` is absent.
+    """
+    path: str | None = None
+    """
+    The program's path, absolute, which an Attached engine writes
+    itself; any other engine leaves it to the SDK and sends the file's
+    bytes in `$/chunk` notifications instead.
+    """
+    run_id: RunId
+    """The Run's ID."""
+
+
 class RefetchDomainRemoved(BaseModel):
     """What `needs_you.remove_refetch_domain` answers."""
 
@@ -8555,6 +8770,25 @@ class RefetchDomainRemoved(BaseModel):
     nor the Operator policy lists it, which then changed nothing and
     recorded nothing.
     """
+
+
+class ResponseOrigin1(BaseModel):
+    """The Response cache (ADR 0046)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    fetched_at: PointInTime
+    """When the cached response was fetched."""
+    kind: Literal["response_cache"]
+    run_id: RunId | None = None
+    """The Run that fetched the cached response, when fetched in a Run."""
+
+
+class ResponseOrigin(RootModel[ResponseOrigin1 | ResponseOrigin2]):
+    root: ResponseOrigin1 | ResponseOrigin2
+    """What answered a Record's request in place of the network."""
 
 
 class RouteAbortParams(BaseModel):
@@ -8857,6 +9091,12 @@ class RunStartParams(BaseModel):
     """
     The Response recording the Run replays or records (ADR 0105): an
     input of the Run, as `plan` is.
+    """
+    recording_bytes: str | None = None
+    """
+    The Response recording's bytes in Base64, when the SDK read the file on
+    the program's machine for `mode: "replay"` (ADR 0105); empty string for
+    a test engine's empty replay recording.
     """
     run_id: Annotated[
         str | None, Field(pattern="^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$")
@@ -9750,6 +9990,12 @@ class CatalogRunStartParams(BaseModel):
     """The project configuration the Client found, layer 3 (ADR 0083)."""
     recording: Recording | None = None
     """The Response recording the Run replays or records (ADR 0105)."""
+    recording_bytes: str | None = None
+    """
+    The Response recording's bytes in Base64, when the SDK read the file on
+    the program's machine for `mode: "replay"` (ADR 0105); empty string for
+    a test engine's empty replay recording.
+    """
     run_id: Annotated[
         str | None, Field(pattern="^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$")
     ] = None
@@ -10308,6 +10554,12 @@ class RecipeStartParams(BaseModel):
     """
     recording: Recording | None = None
     """The Response recording the Run replays or records (ADR 0105)."""
+    recording_bytes: str | None = None
+    """
+    The Response recording's bytes in Base64, when the SDK read the file on
+    the program's machine for `mode: "replay"` (ADR 0105); empty string for
+    a test engine's empty replay recording.
+    """
     run_id: Annotated[
         str | None, Field(pattern="^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$")
     ] = None
@@ -10544,6 +10796,11 @@ class RunUsage(BaseModel):
     )
     browser_time: Duration
     """How long it held a browser."""
+    cache_hits: Annotated[int | None, Field(ge=0)] = None
+    """
+    The requests answered from the Response cache, counted apart from
+    `requests` (ADR 0046).
+    """
     limits: list[AppliedLimit] | None = None
     """Each Limit that applies to it, with what is left of it."""
     model: ModelUsage
@@ -10700,6 +10957,11 @@ class RunReport(BaseModel):
         extra="allow",
         arbitrary_types_allowed=True,
     )
+    cache_mode: str | None = None
+    """
+    Set to `"replay"` when the Run used `cache.mode: "replay"` (ADR 0046);
+    absent otherwise.
+    """
     checkpoint: Checkpoint | None = None
     """The last Checkpoint written of it in this engine, when one was."""
     completeness: Completeness

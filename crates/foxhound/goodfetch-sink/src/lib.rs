@@ -3,16 +3,62 @@
 //! given and answers, the delivery driver holds what every Sink shares
 //! (ADR 0129: order by record number per Dataset, the delivery ID and run
 //! epoch of ADR 0008, the retry schedule and what each failure leads to),
-//! and each Sink fills only the primitives `probe`, `write` and
-//! `map_failure`. The in-binary SQLite Sink is the first.
+//! and each Sink fills only the primitives `probe`, `write`, `finish` and
+//! `map_failure`; the driver also gives each Record its key under a keyed
+//! write mode (ADR 0103). The in-binary SQLite Sink is the first, in every
+//! write mode. [`Sinks`] is the crate's composition value, which the
+//! crawl's Run asks to check its `sinks` at the start, to probe them
+//! against its `crawl.min_sink_guarantee`, to deliver to them while it goes
+//! and to finish them at its end; [`contribution`] answers `sink.probe`.
 
 mod contract;
+pub mod dead_letters;
 mod driver;
+pub mod duckdb_sink;
+pub mod files;
+pub mod ftp;
+mod guarantee;
+pub mod mysql;
+pub mod object_store_sink;
+pub mod postgres;
+pub mod report;
+mod run;
+pub mod schedule;
+pub mod schema;
+pub mod sftp;
+pub mod smtp_sink;
 mod sqlite;
+mod sync;
+pub mod throughput;
+pub mod webhook;
 
 pub use contract::{
     Batch, Delivered, DeliveryId, Failure, FailureKind, GuaranteeClass, Primitives, Probe, RunCopy,
     Written,
 };
-pub use driver::{Driver, Status};
-pub use sqlite::SqliteSink;
+pub use driver::{DeliverySideEffects, Driver, RedeliverOutcome, RetryOutcome, Status};
+pub use duckdb_sink::{DEFAULT_DUCKDB_TARGET, DuckDbError, DuckDbSink, map_duckdb_error};
+pub use files::{
+    DEFAULT_MAX_AGE, DEFAULT_MAX_BYTES, DEFAULT_MAX_RECORDS, FileDestination, FileProbe,
+    FilesConfig, FilesError, FilesSink, ParsedPartKey, PutOutcome, format_part_key, parse_part_key,
+    part_extension,
+};
+pub use ftp::{FtpDestination, FtpSinkError, map_ftp_error};
+pub use guarantee::{meets, require};
+pub use mysql::{DEFAULT_MYSQL_TARGET, MySqlError, MySqlSink, map_mysql_error};
+pub use object_store_sink::{ObjectStoreBackend, ObjectStoreDestination, ObjectStoreError};
+pub use postgres::{DEFAULT_POSTGRES_TARGET, PostgresError, PostgresSink, map_postgres_error};
+pub use report::{SinkReportPart, SinkStateRow};
+pub use run::{Delivery, Sinks, contribution};
+pub use schedule::{
+    PAUSE_AFTER, PauseReason, RetryDecision, RetryState, SCHEDULE, SinkNotification,
+    SinkNotificationEvent, next_retry,
+};
+pub use sftp::{SftpDestination, SftpError, map_sftp_error};
+pub use smtp_sink::{SmtpError, SmtpSink, map_smtp_error};
+pub use sqlite::{SqliteError, SqliteSink};
+pub use throughput::{
+    AdaptiveConcurrency, BatchPolicy, DEFAULT_WRITE_TIMEOUT, Preset, RateLimit, Throughput,
+    TokenBucket, write_bounded,
+};
+pub use webhook::{DEFAULT_MAX_BATCH_BYTES, WebhookConfig, WebhookError, WebhookSink};

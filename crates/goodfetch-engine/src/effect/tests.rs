@@ -33,15 +33,19 @@ fn entries(bodies: &[Body]) -> Vec<i64> {
 /// takes only the bodies it marked, not one declared meanwhile.
 #[test]
 fn a_late_close_leaves_a_body_being_judged_alone() {
-    let mut book = Book {
-        bodies: vec![body(1)],
-        answered: Vec::new(),
-    };
+    use crate::runs::ActiveEffects;
+
+    let active = ActiveEffects::default();
+    let mut book = Book::new(active.clone());
+    book.push_body(body(1));
+    assert_eq!(active.count(), 1);
 
     let judging = book.judging();
     let late_close = book.running(1);
-    book.bodies.push(body(2));
+    book.push_body(body(2));
+    assert_eq!(active.count(), 2);
     let cut = book.judged(&judging);
+    assert_eq!(active.count(), 1);
 
     assert_eq!(
         (judging, late_close, entries(&cut), entries(&book.bodies)),

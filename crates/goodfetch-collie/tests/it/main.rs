@@ -94,6 +94,7 @@ mod lazyfs;
 mod live_view;
 mod locator;
 mod log;
+mod mcp;
 mod navigation_egress;
 mod needs_you;
 #[cfg(all(

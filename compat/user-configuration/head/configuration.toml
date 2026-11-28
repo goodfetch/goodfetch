@@ -53,6 +53,13 @@ traces_endpoint = "example"
 logs_endpoint = "example"
 metrics_endpoint = "example"
 
+[settings.mcp]
+profile = "browser"
+
+[settings.mcp.oauth]
+issuer = "example"
+audience = "example"
+
 [settings.daemon]
 idle_timeout = 30000
 address = "example"

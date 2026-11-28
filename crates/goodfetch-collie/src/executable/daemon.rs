@@ -89,7 +89,7 @@ mod reaper;
 mod remote;
 #[cfg(test)]
 mod tests;
-mod tls;
+pub(super) mod tls;
 
 pub(super) use for_attached::DaemonOfTheMajor;
 use launched::launch;
@@ -625,6 +625,22 @@ impl Machine<'_> {
             "the Daemon of major {} went away {ATTEMPTS} times while this Client connected",
             self.major()
         ))))
+    }
+
+    /// Finds the Daemon for an MCP server: a running or configured remote
+    /// Daemon, starting the major's pick only when `start` is true (`--daemon`).
+    pub(super) fn daemon_for_mcp(
+        &self,
+        start: bool,
+    ) -> Result<Option<(DaemonEndpoint, DaemonToken)>, Failure> {
+        let wanted = Wanted {
+            start,
+            remote: true,
+            needs: self.identity.product,
+        };
+        Ok(self
+            .find(&wanted)?
+            .map(|found| (found.endpoint, found.token)))
     }
 
     /// The Daemon `wanted` asks for: the remote one `GOODFETCH_URL` names,

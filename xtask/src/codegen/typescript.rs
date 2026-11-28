@@ -30,6 +30,7 @@ mod holders;
 mod intersections;
 mod listeners;
 mod markers;
+mod mcp_tools;
 mod operation;
 mod settings;
 mod signature;
@@ -93,6 +94,9 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
     }
     if !handles.is_empty() {
         files.push(("handles.ts", handle_classes(layer, &handles)?));
+    }
+    if layer.product == Product::Collie {
+        files.push(("mcp-tools.ts", mcp_tools::file()?));
     }
     // Collie's client package types each scope's `settings` (ADR 0083);
     // Foxhound's types a crawl's and a Label's (ADR 0093).

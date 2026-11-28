@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::catalog::{
-    Authority, Entries, ProtocolVersion, Setting, SharedType, SharedTypeValue, ValueKind,
-    ValueShape,
+    Authority, Entries, Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Setting,
+    SharedType, SharedTypeValue, Stability, ValueKind, ValueShape, schema_of,
 };
 use crate::inline_value::{open_schema, open_value_type};
 use crate::run::{Completeness, Lifecycle, RunAxes, Verdict};
@@ -618,11 +618,95 @@ impl ChannelSettings {
     }
 }
 
-/// Notifications' entries: their settings, Collie's events and the error
+/// What `notification.subscribe` takes (ADR 0027; spec #608, issue 1403):
+/// registers a `webhook` channel named for an Integration's trigger with a
+/// thin payload and a signing secret returned once.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationSubscribeParams {
+    /// The webhook channel name (named for the Integration's trigger).
+    pub channel: String,
+    /// The webhook destination URL; checked against ADR 0017's endpoint rule.
+    pub url: String,
+    /// The Notification events this subscription receives; attention set when omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub events: Option<Vec<NotificationEvent>>,
+}
+
+/// What `notification.subscribe` answers (ADR 0027; spec #608, issue 1403).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationSubscribeResult {
+    /// The subscribed channel name.
+    pub channel: String,
+    /// Whether this call created a new subscription (`false` on idempotent repeat).
+    pub created: bool,
+    /// The Standard Webhooks `whsec_` signing secret, returned once when `created` is `true`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub secret: Option<String>,
+}
+
+/// What `notification.unsubscribe` takes (ADR 0027; spec #608, issue 1403).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationUnsubscribeParams {
+    /// The webhook channel name to remove.
+    pub channel: String,
+}
+
+/// What `notification.unsubscribe` answers (ADR 0027; spec #608, issue 1403).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationUnsubscribeResult {
+    /// The channel name.
+    pub channel: String,
+    /// Whether a subscription was removed (`false` when already absent).
+    pub removed: bool,
+}
+
+/// `notification.subscribe` (ADR 0027; spec #608, issue 1403).
+pub const NOTIFICATION_SUBSCRIBE: Operation = Operation {
+    name: "notification.subscribe",
+    description: "Registers a `webhook` Notification channel named for an Integration's trigger with a thin payload and a Standard Webhooks signing secret returned once on creation. Idempotent when called again for the same channel; the destination URL passes ADR 0017's endpoint rule, so `egress.no_private_endpoints` refuses a private address. Offered on the HTTP listener and the CLI, and kept off every agent surface.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<NotificationSubscribeParams>,
+    result: schema_of::<NotificationSubscribeResult>,
+    events: &[],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Stable,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `notification.unsubscribe` (ADR 0027; spec #608, issue 1403).
+pub const NOTIFICATION_UNSUBSCRIBE: Operation = Operation {
+    name: "notification.unsubscribe",
+    description: "Removes a `webhook` Notification channel registered by `notification.subscribe`. Idempotent when the channel is already absent. Offered on the HTTP listener and the CLI, and kept off every agent surface.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<NotificationUnsubscribeParams>,
+    result: schema_of::<NotificationUnsubscribeResult>,
+    events: &[],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Stable,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// Notifications' entries: their settings, operations, Collie's events and the error
 /// a verification helper raises.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[],
+    operations: &[NOTIFICATION_SUBSCRIBE, NOTIFICATION_UNSUBSCRIBE],
     events: &[],
     handler_requests: &[],
     error_codes: &[WEBHOOK_INVALID],

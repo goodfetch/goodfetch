@@ -128,6 +128,7 @@ pub(super) const DATAMODEL_CODEGEN_OPTIONS: [&str; 19] = [
 mod durations;
 mod enum_members;
 mod handle_classes;
+mod mcp_tools;
 pub(super) mod model_defaults;
 mod points_in_time;
 mod settings;
@@ -211,6 +212,9 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
         Product::Foxhound => settings::foxhound_settings_module(&layer.settings)?,
     };
     files.push(("settings.py", settings_module));
+    if layer.product == Product::Collie {
+        files.push(("mcp_tools.py", mcp_tools::file()?));
+    }
     Ok(Generated {
         files,
         types: TypesFile {

@@ -113,7 +113,9 @@ fn terminating(
 }
 
 /// Reads and opens `daemon.tls.*` from `settings`.
-pub(super) fn open_termination(settings: &Resolved) -> Result<Termination, SettingsError> {
+pub(in crate::executable) fn open_termination(
+    settings: &Resolved,
+) -> Result<Termination, SettingsError> {
     read_termination(settings)?.open()
 }
 

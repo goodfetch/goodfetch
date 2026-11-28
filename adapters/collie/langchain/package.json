@@ -1,0 +1,32 @@
+{
+  "name": "@goodfetch/collie-langchain",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Collie's LangChain and LangGraph framework adapter for TypeScript (ADRs 0011, 0070, 0095 and 0099).",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@goodfetch/collie": "workspace:*",
+    "@goodfetch/collie-client": "workspace:*"
+  },
+  "devDependencies": {
+    "@goodfetch/test-support": "workspace:*",
+    "@langchain/core": "1.5.1",
+    "@langchain/langgraph": "1.7.5",
+    "@types/node": "catalog:",
+    "langchain": "1.6.8",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "@langchain/core": "^1.1.8"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

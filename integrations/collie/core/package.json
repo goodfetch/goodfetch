@@ -1,0 +1,27 @@
+{
+  "name": "@goodfetch/collie-integrations-core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Shared generated Integration layer for Collie workflow tools (ADRs 0027, 0056, 0070, 0095; spec #608, issue 1403).",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@goodfetch/collie-client": "workspace:*"
+  },
+  "devDependencies": {
+    "@goodfetch/n8n-nodes-collie": "workspace:*",
+    "@goodfetch/test-support": "workspace:*",
+    "@types/node": "catalog:",
+    "n8n-workflow": "2.49.6",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

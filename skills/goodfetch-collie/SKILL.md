@@ -11,6 +11,7 @@ description: "Drives a real browser with {{executable}}: start a Run, open pages
 | Task | Where |
 |---|---|
 | Drive a browser from a shell: start a Run, open a page, act on it, read it | The `{{executable}}-cli` skill |
+| Drive a browser from an MCP host over stdio | The `{{executable}}-mcp` skill |
 | Check what a Run used and what its Limits leave | `{{executable}} run usage <run-id>` |
 | See what waits for a person across every Run | `{{executable}} needs-you list` |
 | Check whether the Daemon runs, and as which Product | `{{executable}} daemon status` |

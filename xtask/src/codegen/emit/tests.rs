@@ -535,7 +535,7 @@ fn every_requests_params_may_hold_its_trace_context_and_raw_mark_in_meta() {
         .keys()
         .collect();
     keys.sort();
-    assert_eq!(keys, ["raw", "traceparent", "tracestate"]);
+    assert_eq!(keys, ["form", "raw", "traceparent", "tracestate"]);
     assert_eq!(request_meta.get("required"), None);
 }
 

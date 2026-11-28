@@ -6,6 +6,7 @@
 //! whose params no read went through whole, as one its handler refuses,
 //! has them read here, where they are.
 
+use goodfetch_protocol::connection::Form;
 use goodfetch_protocol::jsonrpc::{META, ProtocolFailure, RequestMeta, TraceContext};
 use serde::Deserializer as _;
 use serde::de::IgnoredAny;
@@ -23,6 +24,8 @@ pub(crate) struct Preamble<'a> {
     /// Whether their `_meta` marks the call raw (ADR 0099): made through
     /// its SDK's raw `call`, which the Run trace records.
     pub(crate) raw: bool,
+    /// Optional per-call naming form override from `_meta.form` (ADR 0099).
+    pub(crate) form: Option<Form>,
     /// Their Run ID and Session ID.
     pub(crate) ids: trace::Ids<'a>,
 }
@@ -88,16 +91,18 @@ impl<'a> Found<'a> {
     /// `invalid_params` when their `_meta` holds a key other than
     /// `traceparent`, `tracestate` and `raw`, or a value of another type.
     pub(super) fn checked(self) -> Result<Preamble<'a>, CallError> {
-        let (meta, raw) = match self.meta.map(request_meta).transpose()? {
+        let (meta, raw, form) = match self.meta.map(request_meta).transpose()? {
             Some(meta) => {
                 let raw = meta.raw;
-                (Some(meta.trace_context()), raw)
+                let form = meta.form;
+                (Some(meta.trace_context()), raw, form)
             }
-            None => (None, false),
+            None => (None, false, None),
         };
         Ok(Preamble {
             meta,
             raw,
+            form,
             ids: self.ids,
         })
     }

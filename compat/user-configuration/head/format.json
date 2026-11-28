@@ -1547,6 +1547,50 @@
             },
             "type": "object"
           },
+          "mcp": {
+            "additionalProperties": false,
+            "properties": {
+              "oauth": {
+                "additionalProperties": false,
+                "properties": {
+                  "audience": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The expected OAuth 2.1 audience (`aud` claim and RFC 9728 `resource` identifier) a remote Streamable HTTP MCP server requires on incoming bearer tokens. Unset by default; required alongside `mcp.oauth.issuer` and TLS (`daemon.tls.*`) whenever `mcp --http` binds a non-loopback address. Tokens with another audience are refused and never passed to the engine or a Daemon. Set in user configuration or an Operator policy only."
+                  },
+                  "issuer": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The OAuth 2.1 authorization server issuer URL (`https://…`; plain `http://` only for a loopback test stub) a remote Streamable HTTP MCP server trusts and publishes in its RFC 9728 protected-resource metadata (`authorization_servers`). Unset by default; required alongside `mcp.oauth.audience` and TLS (`daemon.tls.*`) whenever `mcp --http` binds a non-loopback address. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
+              "profile": {
+                "description": "Which tool profile `mcp` serves when `--profile` is not passed: `browser` (the default), `agent`, `run`, `code` or `full`. A Collie profile offers the same tools in both Collie and Foxhound executables.",
+                "enum": [
+                  "browser",
+                  "agent",
+                  "run",
+                  "code",
+                  "full"
+                ]
+              }
+            },
+            "type": "object"
+          },
           "network": {
             "additionalProperties": false,
             "properties": {

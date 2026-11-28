@@ -1,0 +1,36 @@
+#:schema ./journey.schema.json
+id = "J-048"
+title = "Expose a remote MCP server over TLS with OAuth 2.1 audience enforcement"
+goal = """
+An operator exposes `goodfetch-collie mcp --http` on a non-loopback address \
+with `daemon.tls.*`, `mcp.oauth.issuer`, and `mcp.oauth.audience` configured. \
+The server MUST refuse to start without TLS or the OAuth settings, publish \
+RFC 9728 protected-resource metadata naming the issuer, refuse tokens that \
+are missing, expired, or for another issuer or audience, accept a valid \
+audience-bound OAuth 2.1 bearer token over HTTPS, and never pass the bearer \
+token through to the engine (ADRs 0017, 0049, 0067, 0070; spec #608)."""
+area = 11
+product = "collie"
+status = "active"
+covers = ["story:11-221"]
+
+[surfaces]
+mcp-http = "M2"
+
+[[steps]]
+text = "Try starting `goodfetch-collie mcp --http 0.0.0.0:0 --attached` without TLS or OAuth settings and verify refusal with `setting_invalid`"
+
+[[steps]]
+text = "Configure `daemon.tls.cert_file`, `daemon.tls.key_file`, `mcp.oauth.issuer`, and `mcp.oauth.audience` pointing at a local authorization server stub and start `goodfetch-collie mcp --http 0.0.0.0:0 --attached`"
+
+[[steps]]
+text = "Fetch RFC 9728 protected-resource metadata over HTTPS, verify wrong-audience and expired tokens are refused with 401, and connect an `rmcp` Streamable HTTP client with a valid audience-bound OAuth 2.1 token to call `run_start`"
+
+[[expect]]
+text = "Starting on a non-loopback address without TLS or OAuth settings exits non-zero with `setting_invalid` naming the missing key"
+
+[[expect]]
+text = "The remote startup record announces an `https://` URL and omits any shared-secret `token` field"
+
+[[expect]]
+text = "Protected-resource metadata names `mcp.oauth.issuer` and `mcp.oauth.audience`, wrong-audience and expired tokens receive HTTP 401, and the valid OAuth 2.1 token succeeds via `rmcp`"

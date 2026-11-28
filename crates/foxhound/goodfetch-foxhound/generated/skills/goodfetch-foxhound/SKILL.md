@@ -11,6 +11,7 @@ description: "Drives a real browser with goodfetch-foxhound: start a Run, open p
 | Task | Where |
 |---|---|
 | Drive a browser from a shell: start a Run, open a page, act on it, read it | The `goodfetch-foxhound-cli` skill |
+| Drive a browser from an MCP host over stdio | The `goodfetch-foxhound-mcp` skill |
 | Check what a Run used and what its Limits leave | `goodfetch-foxhound run usage <run-id>` |
 | See what waits for a person across every Run | `goodfetch-foxhound needs-you list` |
 | Check whether the Daemon runs, and as which Product | `goodfetch-foxhound daemon status` |

@@ -1,6 +1,39 @@
 {
   "features": [
     {
+      "id": "adapter:ai-sdk",
+      "kind": "adapter",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "adapter:langchain",
+      "kind": "adapter",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "adapter:mastra",
+      "kind": "adapter",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "block-cause:captcha",
       "kind": "block-cause",
       "area": 8,
@@ -555,6 +588,17 @@
       ]
     },
     {
+      "id": "command:mcp",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:needs-you.answer",
       "kind": "command",
       "area": 12,
@@ -580,6 +624,28 @@
       "id": "command:needs-you.list",
       "kind": "command",
       "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:notification.subscribe",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:notification.unsubscribe",
+      "kind": "command",
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [
@@ -3818,6 +3884,171 @@
       ]
     },
     {
+      "id": "integration:activepieces/get-run-progress",
+      "kind": "integration",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "integration:activepieces/get-run-report",
+      "kind": "integration",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "integration:activepieces/notification",
+      "kind": "integration",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "integration:activepieces/start-catalog-run",
+      "kind": "integration",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "integration:activepieces/start-recipe",
+      "kind": "integration",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "integration:n8n/get-run-progress",
+      "kind": "integration",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "integration:n8n/get-run-report",
+      "kind": "integration",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "integration:n8n/notification",
+      "kind": "integration",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "integration:n8n/start-catalog-run",
+      "kind": "integration",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "integration:n8n/start-recipe",
+      "kind": "integration",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "mcp-profile:agent",
+      "kind": "mcp-profile",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "mcp-profile:browser",
+      "kind": "mcp-profile",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "mcp-profile:code",
+      "kind": "mcp-profile",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "mcp-profile:full",
+      "kind": "mcp-profile",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "mcp-profile:run",
+      "kind": "mcp-profile",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:audit.export",
       "kind": "operation",
       "area": 4,
@@ -4445,6 +4676,28 @@
       "id": "operation:needs_you.remove_refetch_domain",
       "kind": "operation",
       "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:notification.subscribe",
+      "kind": "operation",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:notification.unsubscribe",
+      "kind": "operation",
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [
@@ -10868,6 +11121,39 @@
       ]
     },
     {
+      "id": "setting:mcp.oauth.audience",
+      "kind": "setting",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:mcp.oauth.issuer",
+      "kind": "setting",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:mcp.profile",
+      "kind": "setting",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:network.max_body_size",
       "kind": "setting",
       "area": 4,
@@ -12555,6 +12841,17 @@
     },
     {
       "id": "skill:goodfetch-collie-cli",
+      "kind": "skill",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "skill:goodfetch-collie-mcp",
       "kind": "skill",
       "area": 11,
       "milestone": null,

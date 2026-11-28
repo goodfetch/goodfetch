@@ -3232,6 +3232,10 @@ reason = "Issue 1287 adds `run.effect`, which declares an Effect through them."
 entries = ["page.body"]
 reason = "A Client that cannot read a page body's file streams it through `page.body`; no member streams it yet (issue 1404)."
 
+[[unreached]]
+entries = ["notification.subscribe", "notification.unsubscribe"]
+reason = "Offered on the HTTP listener and the CLI for Integration triggers, not as an SDK method (ADR 0027; issue 1403)."
+
 [[member]]
 package = "goodfetch-collie-client"
 receiver = "(crate)"

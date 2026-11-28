@@ -54,8 +54,10 @@ dev = [
 # no free-threaded build, so the free-threaded lines leave it out with
 # `--no-group langchain` (issue 3738).
 langchain = [
+  "goodfetch-collie-langchain",
   "goodfetch-test-support[langchain]",
   "langchain>=1.5.2",
+  "langchain-tests==1.2.0",
 ]
 
 [tool.uv]
@@ -65,6 +67,7 @@ default-groups = ["dev", "langchain"]
 
 [tool.uv.workspace]
 members = [
+  "adapters/collie/langchain",
   "sdks/python/collie",
   "sdks/python/collie-client",
   # The library Collie's tests use (story 11-180), a member so that uv
@@ -78,6 +81,7 @@ members = [
 connection-library = { workspace = true }
 goodfetch-collie = { workspace = true }
 goodfetch-collie-client = { workspace = true }
+goodfetch-collie-langchain = { workspace = true }
 goodfetch-foxhound = { workspace = true }
 goodfetch-test-support = { workspace = true }
 

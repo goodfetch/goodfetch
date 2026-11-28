@@ -59,7 +59,11 @@ fn skill_install_writes_foxhounds_skills() {
     assert_eq!(
         (names, files(&folder)),
         (
-            vec!["goodfetch-foxhound", "goodfetch-foxhound-cli"],
+            vec![
+                "goodfetch-foxhound",
+                "goodfetch-foxhound-cli",
+                "goodfetch-foxhound-mcp"
+            ],
             files(Path::new(RENDERINGS)),
         ),
         "{}",

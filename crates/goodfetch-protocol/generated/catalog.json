@@ -4377,6 +4377,44 @@
     },
     {
       "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Registers a `webhook` Notification channel named for an Integration's trigger with a thin payload and a Standard Webhooks signing secret returned once on creation. Idempotent when called again for the same channel; the destination URL passes ADR 0017's endpoint rule, so `egress.no_private_endpoints` refuses a private address. Offered on the HTTP listener and the CLI, and kept off every agent surface.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "notification.subscribe",
+      "params": {
+        "$ref": "#/$defs/NotificationSubscribeParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/NotificationSubscribeResult"
+      },
+      "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Removes a `webhook` Notification channel registered by `notification.subscribe`. Idempotent when the channel is already absent. Offered on the HTTP listener and the CLI, and kept off every agent surface.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "notification.unsubscribe",
+      "params": {
+        "$ref": "#/$defs/NotificationUnsubscribeParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/NotificationUnsubscribeResult"
+      },
+      "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
@@ -10124,6 +10162,75 @@
           "stdout",
           "file",
           "none"
+        ]
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "The expected OAuth 2.1 audience (`aud` claim and RFC 9728 `resource` identifier) a remote Streamable HTTP MCP server requires on incoming bearer tokens. Unset by default; required alongside `mcp.oauth.issuer` and TLS (`daemon.tls.*`) whenever `mcp --http` binds a non-loopback address. Tokens with another audience are refused and never passed to the engine or a Daemon. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "mcp.oauth.audience",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "The OAuth 2.1 authorization server issuer URL (`https://…`; plain `http://` only for a loopback test stub) a remote Streamable HTTP MCP server trusts and publishes in its RFC 9728 protected-resource metadata (`authorization_servers`). Unset by default; required alongside `mcp.oauth.audience` and TLS (`daemon.tls.*`) whenever `mcp --http` binds a non-loopback address. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "mcp.oauth.issuer",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "configuration",
+      "clearable": false,
+      "default": "browser",
+      "deprecated": null,
+      "description": "Which tool profile `mcp` serves when `--profile` is not passed: `browser` (the default), `agent`, `run`, `code` or `full`. A Collie profile offers the same tools in both Collie and Foxhound executables.",
+      "fixed_for_run": false,
+      "name": "mcp.profile",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "enum": [
+          "browser",
+          "agent",
+          "run",
+          "code",
+          "full"
         ]
       },
       "weakening": null,
@@ -15960,6 +16067,13 @@
   "shared_type_values": [
     {
       "arrived_in": "0.1",
+      "description": "The `browser` MCP profile plus `page_agent`.",
+      "name": "agent",
+      "product": "collie",
+      "type": "mcp_profile"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A Run waits for a person's approval.",
       "name": "approval_requested",
       "product": "collie",
@@ -15999,6 +16113,13 @@
       "name": "block_resources_visible",
       "product": "collie",
       "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Collie's default MCP profile: Run lifecycle, Session and page opening/closing, navigation and reading, locator actions, and Saved identity listing.",
+      "name": "browser",
+      "product": "collie",
+      "type": "mcp_profile"
     },
     {
       "arrived_in": "0.1",
@@ -16118,6 +16239,13 @@
       "name": "clean_up_rules_stale",
       "product": "collie",
       "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Code mode (`code_mode_run`) and product documentation resources, with no per-operation tools.",
+      "name": "code",
+      "product": "collie",
+      "type": "mcp_profile"
     },
     {
       "arrived_in": "0.1",
@@ -16356,6 +16484,13 @@
       "name": "fingerprint_none",
       "product": "collie",
       "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every agent-surface operation of the Product, excluding person-only and granting operations.",
+      "name": "full",
+      "product": "collie",
+      "type": "mcp_profile"
     },
     {
       "arrived_in": "0.1",
@@ -16678,6 +16813,13 @@
       "name": "response_unavailable",
       "product": "foxhound",
       "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Runs, Run reports, `recipe_start`, `catalog_run_start`, `schedule_*`, `usage_*`, and Run index reads, with no page tools.",
+      "name": "run",
+      "product": "collie",
+      "type": "mcp_profile"
     },
     {
       "arrived_in": "0.1",

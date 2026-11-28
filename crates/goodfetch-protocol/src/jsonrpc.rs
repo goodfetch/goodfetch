@@ -105,6 +105,12 @@ pub struct RequestMeta {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub raw: bool,
+    /// Optional per-call naming form override (ADR 0099): a Framework adapter
+    /// riding on an SDK's Connection sends `tool` here so the engine renders
+    /// names in error messages and `fix` hints in tool form.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub form: Option<crate::catalog::Form>,
 }
 
 impl RequestMeta {

@@ -39,6 +39,7 @@ pub(crate) fn value(figure: Figure, value: u64) -> String {
         | Figure::TotalAllocations
         | Figure::TotalBytes
         | Figure::GlobalMaximumBytes
+        | Figure::WireBytes
         | Figure::ResidentMemory => value.to_string(),
     }
 }

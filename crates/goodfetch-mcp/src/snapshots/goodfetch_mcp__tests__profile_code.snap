@@ -1,0 +1,9 @@
+---
+source: crates/goodfetch-mcp/src/tests.rs
+expression: "serde_json::to_string_pretty(&snapshot_value).unwrap()"
+---
+{
+  "profile": "code",
+  "tools": [],
+  "tools_list_bytes": 36
+}

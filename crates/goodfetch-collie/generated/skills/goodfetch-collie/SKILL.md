@@ -11,6 +11,7 @@ description: "Drives a real browser with goodfetch-collie: start a Run, open pag
 | Task | Where |
 |---|---|
 | Drive a browser from a shell: start a Run, open a page, act on it, read it | The `goodfetch-collie-cli` skill |
+| Drive a browser from an MCP host over stdio | The `goodfetch-collie-mcp` skill |
 | Check what a Run used and what its Limits leave | `goodfetch-collie run usage <run-id>` |
 | See what waits for a person across every Run | `goodfetch-collie needs-you list` |
 | Check whether the Daemon runs, and as which Product | `goodfetch-collie daemon status` |

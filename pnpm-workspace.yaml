@@ -3,6 +3,7 @@
 packages:
   - sdks/typescript/*
   - adapters/*/*
+  - adapters/*/*/tests/lowest-version
   - integrations/*/*
   - bench
   - website
@@ -43,6 +44,26 @@ overrides:
   "serialize-javascript@<7.0.3": 7.1.4
   "@docusaurus/core>tinypool": 2.2.0
   "uuid@<14.0.0": 14.0.3
+  # Framework adapter and integration devDependencies pull older transitive
+  # versions with OSV advisories: @mastra/core (1.0.0/1.35.0) and ai@6/7.0.0
+  # pull @ai-sdk/provider-utils <3.0.28/<4.0.33/<5.0.1 (GHSA-866g-f22w-33x8);
+  # @activepieces/shared@0.95.1 pins expr-eval@2.0.2 (GHSA-q9v2-7m5w-4693 et al.,
+  # no upstream fix -> MIT drop-in expr-eval-fork), deepmerge-ts@7.1.0
+  # (GHSA-ggr8-5vv4-36mx) and nanoid@3.3.8 (GHSA-28wg-ghj8-5hjv et al.);
+  # n8n-workflow, @activepieces/pieces-framework and @mastra/core@1.0.0 pull
+  # zod <4.6.6 (GHSA-mrhx-c7xc-m3w5). Remove each once upstream upgrades.
+  "@ai-sdk/provider-utils@<3.0.28": 3.0.48
+  "@ai-sdk/provider-utils@>=4.0.0 <4.0.33": 4.0.69
+  "@ai-sdk/provider-utils@>=5.0.0 <5.0.1": 5.0.85
+  "@mastra/core>@ai-sdk/provider-utils-v5": npm:@ai-sdk/provider-utils@3.0.48
+  "@mastra/core>@ai-sdk/provider-utils-v6": npm:@ai-sdk/provider-utils@4.0.69
+  "undici@<7.0.0": 7.30.2
+  "@n8n/node-cli>handlebars": 4.7.10
+  "minimatch@<11.0.1": 11.0.3
+  "@activepieces/shared>expr-eval": npm:expr-eval-fork@3.0.3
+  "@activepieces/shared>deepmerge-ts": 8.0.2
+  "@activepieces/shared>nanoid": 3.3.20
+  "zod@<4.6.6": 4.6.7
 
 # One version of each shared tool for every package. Playwright's entry is
 # shared by Playwright Test and Vitest's browser provider (ADR 0068).
@@ -68,11 +89,20 @@ allowBuilds:
   esbuild: false
   # Docusaurus's core-js (website/) only prints a funding notice.
   core-js: false
+  # Transitive optional/dev dependencies of `@n8n/node-cli` (lint-only) and
+  # `@activepieces/pieces-framework`: no native install script runs.
+  cpu-features: false
+  eslint-plugin-n8n-nodes-base: false
+  isolated-vm: false
+  ssh2: false
 
 # Fixes to dependencies, each upstreamable; remove one once a release has it.
 # The local search (website/src/search.ts) builds a section's index with the
 # root pages, and matches a section in its version (ADR 0097); its search bar
 # and search page pass axe (ADR 0073).
+# n8n-workflow@2.49.6 uses Zod v3 APIs (`z.string().ip()`), so it imports from
+# `zod/v3` while the workspace overrides zod to 4.6.7 (GHSA-mrhx-c7xc-m3w5).
 patchedDependencies:
   "@easyops-cn/autocomplete.js@0.38.1": patches/@easyops-cn__autocomplete.js@0.38.1.patch
   "@easyops-cn/docusaurus-search-local@0.55.3": patches/@easyops-cn__docusaurus-search-local@0.55.3.patch
+  n8n-workflow@2.49.6: patches/n8n-workflow@2.49.6.patch

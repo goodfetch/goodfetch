@@ -1106,6 +1106,24 @@ fn key_mismatch(run_id: RunId, reference: &SecretReference, wrapped_by: String) 
     )
 }
 
+/// Where run-layer values from `surface` come from (ADR 0083; issue 1403):
+/// an Integration reaching the HTTP listener supplies values from its form;
+/// every other surface supplies values from its `settings` option.
+pub(crate) fn run_origin(surface: goodfetch_protocol::connection::Surface) -> RunOrigin {
+    match surface {
+        goodfetch_protocol::connection::Surface::HttpListener => RunOrigin::Form,
+        goodfetch_protocol::connection::Surface::SdkTypescript
+        | goodfetch_protocol::connection::Surface::SdkPython
+        | goodfetch_protocol::connection::Surface::Rust
+        | goodfetch_protocol::connection::Surface::Cli
+        | goodfetch_protocol::connection::Surface::Mcp
+        | goodfetch_protocol::connection::Surface::Kennel
+        | goodfetch_protocol::connection::Surface::Cloud
+        | goodfetch_protocol::connection::Surface::BrowserHost
+        | goodfetch_protocol::connection::Surface::Worker => RunOrigin::Settings,
+    }
+}
+
 async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
     client_tags(&params.tags)?;
@@ -1131,7 +1149,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             project: params.project,
             recipe: None,
             settings: run_layer(&params.settings, &context)?,
-            origin: Some(RunOrigin::Settings),
+            origin: Some(run_origin(context.surface())),
             registered: context.registered_settings().clone(),
             acting_for_model: context.surface().acts_for_model(),
             exposed: context.exposed(),
@@ -1483,7 +1501,7 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
             project: params.project,
             recipe: None,
             settings: run_layer(&params.settings, &context)?,
-            origin: Some(RunOrigin::Settings),
+            origin: Some(run_origin(context.surface())),
             registered: context.registered_settings().clone(),
             acting_for_model: context.surface().acts_for_model(),
             exposed: context.exposed(),

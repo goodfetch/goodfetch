@@ -1,0 +1,200 @@
+diff --git a/dist/cjs/from-ai-parse-utils.d.ts b/dist/cjs/from-ai-parse-utils.d.ts
+index 5d6ad996a0c14b6c8c0474bd281ff7e5d0148d3f..2ff89ede5ddba255aef18551e702385dacf1affa 100644
+--- a/dist/cjs/from-ai-parse-utils.d.ts
++++ b/dist/cjs/from-ai-parse-utils.d.ts
+@@ -1,4 +1,4 @@
+-import { z } from 'zod';
++import { z } from 'zod/v3';
+ import type { INodeProperties } from './interfaces';
+ /**
+  * This file contains the logic for parsing node parameters and extracting $fromAI calls
+diff --git a/dist/cjs/from-ai-parse-utils.js b/dist/cjs/from-ai-parse-utils.js
+index 5b6165e228cf274fd5e221f1aa9571fc8e9c1af4..08dda48e842aeae6f1cc3dbe78ec970bf3bac2f7 100644
+--- a/dist/cjs/from-ai-parse-utils.js
++++ b/dist/cjs/from-ai-parse-utils.js
+@@ -7,7 +7,7 @@ exports.traverseNodeParametersWithParamNames = traverseNodeParametersWithParamNa
+ exports.isFromAIOnlyExpression = isFromAIOnlyExpression;
+ exports.collectExpressionDefaults = collectExpressionDefaults;
+ exports.findDisallowedChatToolExpressions = findDisallowedChatToolExpressions;
+-const zod_1 = require("zod");
++const zod_1 = require("zod/v3");
+ const constants_1 = require("./constants");
+ const expression_helpers_1 = require("./expressions/expression-helpers");
+ const utils_1 = require("./utils");
+diff --git a/dist/cjs/message-event-bus.d.ts b/dist/cjs/message-event-bus.d.ts
+index 79a38db548d8ed804ff0d0df3912d96bc9da094d..4737d37ab59618f141c60588835f87c4ed49d523 100644
+--- a/dist/cjs/message-event-bus.d.ts
++++ b/dist/cjs/message-event-bus.d.ts
+@@ -1,5 +1,5 @@
+ import type { DateTime } from 'luxon';
+-import { z } from 'zod';
++import { z } from 'zod/v3';
+ import type { INodeCredentials } from './interfaces';
+ export declare const enum EventMessageTypeNames {
+     generic = "$$EventMessage",
+diff --git a/dist/cjs/message-event-bus.js b/dist/cjs/message-event-bus.js
+index afb4016dfb5ebad8ef6a62533d7c1e4854afc096..4b322ce209fd695e0d69103fe761c9c78fdc1b3c 100644
+--- a/dist/cjs/message-event-bus.js
++++ b/dist/cjs/message-event-bus.js
+@@ -1,7 +1,7 @@
+ "use strict";
+ Object.defineProperty(exports, "__esModule", { value: true });
+ exports.defaultMessageEventBusDestinationSentryOptions = exports.defaultMessageEventBusDestinationWebhookOptions = exports.defaultMessageEventBusDestinationSyslogOptions = exports.defaultMessageEventBusDestinationOptions = exports.MessageEventBusDestinationSyslogOptionsSchema = exports.MessageEventBusDestinationSentryOptionsSchema = exports.MessageEventBusDestinationWebhookOptionsSchema = exports.MessageEventBusDestinationOptionsSchema = exports.webhookParameterOptionsSchema = exports.circuitBreakerSchema = exports.storedDestinationHostSchemas = exports.messageEventBusDestinationTypeNames = exports.MessageEventBusDestinationTypeNames = exports.EventMessageTypeNames = void 0;
+-const zod_1 = require("zod");
++const zod_1 = require("zod/v3");
+ // ===============================
+ // General Enums And Interfaces
+ // ===============================
+diff --git a/dist/cjs/schemas.d.ts b/dist/cjs/schemas.d.ts
+index 94a77a48502234845459ed3bd7ec579895764440..2e8e7970fd1ee7129ce816b38d576a0fd780743e 100644
+--- a/dist/cjs/schemas.d.ts
++++ b/dist/cjs/schemas.d.ts
+@@ -1,5 +1,5 @@
+ import type { AssignmentCollectionValue, FilterValue, IconOrEmoji, INodeCredentials, INodeCredentialsDetails, INodeParameterResourceLocator, INodeParameters, NodeConnectionType, NodeParameterValueType, OnError, ResourceMapperValue, ResourceMapperField, FieldType, INodePropertyOptions, IDisplayOptions, INodePropertyRouting, FilterOptionsValue, FilterOperatorValue, FilterConditionValue, FilterOperatorType, AssignmentValue, DisplayCondition, INode, IN8nRequestOperations, IN8nRequestOperationPaginationGeneric, IDataObject, IN8nRequestOperationPaginationOffset, DeclarativeRestApiSettings, INodeRequestOutput, PostReceiveAction, IPostReceiveBinaryData, IPostReceiveFilter, IPostReceiveLimit, IPostReceiveRootProperty, IPostReceiveSet, IPostReceiveSetKeyValue, IPostReceiveSort, INodeRequestSend, GenericValue } from './interfaces';
+-import { z } from 'zod';
++import { z } from 'zod/v3';
+ export declare const INodeParameterResourceLocatorSchema: z.ZodType<INodeParameterResourceLocator>;
+ export declare const FieldTypeSchema: z.ZodType<FieldType>;
+ export declare const GenericValueSchema: z.ZodType<GenericValue>;
+diff --git a/dist/cjs/schemas.js b/dist/cjs/schemas.js
+index 1cec0abc663a2f10a3406067431b3eb402cb30dd..779e0c0f347bf267a1a9b7f5f0b0f643cdfd7dd4 100644
+--- a/dist/cjs/schemas.js
++++ b/dist/cjs/schemas.js
+@@ -2,7 +2,7 @@
+ Object.defineProperty(exports, "__esModule", { value: true });
+ exports.INodesSchema = exports.INodeSchema = exports.INodeCredentialsSchema = exports.INodeCredentialsDetailsSchema = exports.OnErrorSchema = exports.INodeParametersSchema = exports.NodeParameterValueTypeSchema = exports.IconOrEmojiSchema = exports.AssignmentCollectionValueSchema = exports.AssignmentValueSchema = exports.FilterValueSchema = exports.FilterTypeCombinatorSchema = exports.FilterConditionValueSchema = exports.FilterOperatorValueSchema = exports.FilterOperatorTypeSchema = exports.FilterOptionsValueSchema = exports.ResourceMapperValueSchema = exports.ResourceMapperFieldSchema = exports.INodePropertyOptionsSchema = exports.NodeConnectionTypeSchema = exports.IDisplayOptionsSchema = exports.DisplayConditionSchema = exports.NumberOrStringSchema = exports.INodePropertyRoutingSchema = exports.INodeRequestSendSchema = exports.HttpRequestOptionsSchema = exports.INodeRequestOutputSchema = exports.PostReceiveActionSchema = exports.IPostReceiveSortSchema = exports.IPostReceiveSetKeyValueSchema = exports.IPostReceiveSetSchema = exports.IPostReceiveRootPropertySchema = exports.IPostReceiveLimitSchema = exports.IPostReceiveFilterSchema = exports.IPostReceiveBinaryDataSchema = exports.IPostReceiveBaseSchema = exports.IN8nRequestOperationsSchema = exports.IN8nRequestOperationPaginationOffsetSchema = exports.IN8nRequestOperationPaginationGenericSchema = exports.IN8nRequestOperationPaginationBaseSchema = exports.IRequestOptionsSimplifiedAuthSchema = exports.IDataObjectSchema = exports.GenericValueSchema = exports.FieldTypeSchema = exports.INodeParameterResourceLocatorSchema = void 0;
+ exports.normalizeNodeShape = normalizeNodeShape;
+-const zod_1 = require("zod");
++const zod_1 = require("zod/v3");
+ exports.INodeParameterResourceLocatorSchema = zod_1.z.object({
+     __rl: zod_1.z.literal(true),
+     mode: zod_1.z.string(),
+diff --git a/dist/cjs/workflow-settings-scope.js b/dist/cjs/workflow-settings-scope.js
+index 82c8b73ce6ceabb57b1d4bafd9091f7a281d5ee2..ee723c14c15b50c22b3c0acb332ed44a1ba99de3 100644
+--- a/dist/cjs/workflow-settings-scope.js
++++ b/dist/cjs/workflow-settings-scope.js
+@@ -9,7 +9,7 @@ exports.omitVersionedSettings = omitVersionedSettings;
+ exports.compareWorkflowSettings = compareWorkflowSettings;
+ exports.applyVersionedSettings = applyVersionedSettings;
+ const isEqual_1 = __importDefault(require("lodash/isEqual"));
+-const zod_1 = require("zod");
++const zod_1 = require("zod/v3");
+ const constants_1 = require("./constants");
+ // Lists every setting, so a new setting without a scope does not compile.
+ const WORKFLOW_SETTINGS_SCOPE = {
+diff --git a/dist/cjs/workflow-structure-validation.d.ts b/dist/cjs/workflow-structure-validation.d.ts
+index b96e67df60c7f863b529b74411030e2bce1546d3..4f0686e029889fdde3b0d9e288836cf1972568d5 100644
+--- a/dist/cjs/workflow-structure-validation.d.ts
++++ b/dist/cjs/workflow-structure-validation.d.ts
+@@ -1,4 +1,4 @@
+-import { z } from 'zod';
++import { z } from 'zod/v3';
+ declare const workflowStructureSchema: z.ZodObject<{
+     nodes: z.ZodArray<z.ZodObject<{
+         name: z.ZodString;
+diff --git a/dist/cjs/workflow-structure-validation.js b/dist/cjs/workflow-structure-validation.js
+index 83a6cdd3edeedb56da9059350eb8514d633ccca6..7823ed7abbcde387be34af8ab69a16f4f5f7b24d 100644
+--- a/dist/cjs/workflow-structure-validation.js
++++ b/dist/cjs/workflow-structure-validation.js
+@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
+ exports.WorkflowStructureValidationError = exports.formatWorkflowStructureIssuePath = void 0;
+ exports.safeParseWorkflowStructure = safeParseWorkflowStructure;
+ exports.parseWorkflowStructure = parseWorkflowStructure;
+-const zod_1 = require("zod");
++const zod_1 = require("zod/v3");
+ const map_connections_by_destination_1 = require("./common/map-connections-by-destination");
+ /**
+  * Workflow Structure Validation
+diff --git a/dist/esm/from-ai-parse-utils.d.ts b/dist/esm/from-ai-parse-utils.d.ts
+index 5d6ad996a0c14b6c8c0474bd281ff7e5d0148d3f..2ff89ede5ddba255aef18551e702385dacf1affa 100644
+--- a/dist/esm/from-ai-parse-utils.d.ts
++++ b/dist/esm/from-ai-parse-utils.d.ts
+@@ -1,4 +1,4 @@
+-import { z } from 'zod';
++import { z } from 'zod/v3';
+ import type { INodeProperties } from './interfaces';
+ /**
+  * This file contains the logic for parsing node parameters and extracting $fromAI calls
+diff --git a/dist/esm/from-ai-parse-utils.js b/dist/esm/from-ai-parse-utils.js
+index 04c446bcbfc14523012390af189a878ab36a9d4f..52c69e08c597a3507578e357dcfbeca3717f8886 100644
+--- a/dist/esm/from-ai-parse-utils.js
++++ b/dist/esm/from-ai-parse-utils.js
+@@ -1,4 +1,4 @@
+-import { z } from 'zod';
++import { z } from 'zod/v3';
+ import { FROM_AI_AUTO_GENERATED_MARKER } from './constants';
+ import { isExpression } from './expressions/expression-helpers';
+ import { jsonParse } from './utils';
+diff --git a/dist/esm/message-event-bus.d.ts b/dist/esm/message-event-bus.d.ts
+index 79a38db548d8ed804ff0d0df3912d96bc9da094d..4737d37ab59618f141c60588835f87c4ed49d523 100644
+--- a/dist/esm/message-event-bus.d.ts
++++ b/dist/esm/message-event-bus.d.ts
+@@ -1,5 +1,5 @@
+ import type { DateTime } from 'luxon';
+-import { z } from 'zod';
++import { z } from 'zod/v3';
+ import type { INodeCredentials } from './interfaces';
+ export declare const enum EventMessageTypeNames {
+     generic = "$$EventMessage",
+diff --git a/dist/esm/message-event-bus.js b/dist/esm/message-event-bus.js
+index 2dba2a7a59508845f608e3f3e915b6c312a1927f..7ed79f98a0ebf88b04de3f87da339a331561ca5b 100644
+--- a/dist/esm/message-event-bus.js
++++ b/dist/esm/message-event-bus.js
+@@ -1,4 +1,4 @@
+-import { z } from 'zod';
++import { z } from 'zod/v3';
+ // ===============================
+ // General Enums And Interfaces
+ // ===============================
+diff --git a/dist/esm/schemas.d.ts b/dist/esm/schemas.d.ts
+index 94a77a48502234845459ed3bd7ec579895764440..2e8e7970fd1ee7129ce816b38d576a0fd780743e 100644
+--- a/dist/esm/schemas.d.ts
++++ b/dist/esm/schemas.d.ts
+@@ -1,5 +1,5 @@
+ import type { AssignmentCollectionValue, FilterValue, IconOrEmoji, INodeCredentials, INodeCredentialsDetails, INodeParameterResourceLocator, INodeParameters, NodeConnectionType, NodeParameterValueType, OnError, ResourceMapperValue, ResourceMapperField, FieldType, INodePropertyOptions, IDisplayOptions, INodePropertyRouting, FilterOptionsValue, FilterOperatorValue, FilterConditionValue, FilterOperatorType, AssignmentValue, DisplayCondition, INode, IN8nRequestOperations, IN8nRequestOperationPaginationGeneric, IDataObject, IN8nRequestOperationPaginationOffset, DeclarativeRestApiSettings, INodeRequestOutput, PostReceiveAction, IPostReceiveBinaryData, IPostReceiveFilter, IPostReceiveLimit, IPostReceiveRootProperty, IPostReceiveSet, IPostReceiveSetKeyValue, IPostReceiveSort, INodeRequestSend, GenericValue } from './interfaces';
+-import { z } from 'zod';
++import { z } from 'zod/v3';
+ export declare const INodeParameterResourceLocatorSchema: z.ZodType<INodeParameterResourceLocator>;
+ export declare const FieldTypeSchema: z.ZodType<FieldType>;
+ export declare const GenericValueSchema: z.ZodType<GenericValue>;
+diff --git a/dist/esm/schemas.js b/dist/esm/schemas.js
+index b81a1f1b058edd703b39c84521887dc6fd346ac4..42d38761e833e90549a4cb73533c94e0a77f1065 100644
+--- a/dist/esm/schemas.js
++++ b/dist/esm/schemas.js
+@@ -1,4 +1,4 @@
+-import { z } from 'zod';
++import { z } from 'zod/v3';
+ export const INodeParameterResourceLocatorSchema = z.object({
+     __rl: z.literal(true),
+     mode: z.string(),
+diff --git a/dist/esm/workflow-settings-scope.js b/dist/esm/workflow-settings-scope.js
+index f5b664d92a76d5f0843cafd6e455e66ac427c580..35da7e8f4bcf6637fbece51199303a213e44eb88 100644
+--- a/dist/esm/workflow-settings-scope.js
++++ b/dist/esm/workflow-settings-scope.js
+@@ -1,5 +1,5 @@
+ import isEqual from 'lodash/isEqual';
+-import { z } from 'zod';
++import { z } from 'zod/v3';
+ import { WORKFLOW_ENGINE_TYPES } from './constants';
+ // Lists every setting, so a new setting without a scope does not compile.
+ const WORKFLOW_SETTINGS_SCOPE = {
+diff --git a/dist/esm/workflow-structure-validation.d.ts b/dist/esm/workflow-structure-validation.d.ts
+index b96e67df60c7f863b529b74411030e2bce1546d3..4f0686e029889fdde3b0d9e288836cf1972568d5 100644
+--- a/dist/esm/workflow-structure-validation.d.ts
++++ b/dist/esm/workflow-structure-validation.d.ts
+@@ -1,4 +1,4 @@
+-import { z } from 'zod';
++import { z } from 'zod/v3';
+ declare const workflowStructureSchema: z.ZodObject<{
+     nodes: z.ZodArray<z.ZodObject<{
+         name: z.ZodString;
+diff --git a/dist/esm/workflow-structure-validation.js b/dist/esm/workflow-structure-validation.js
+index 291265b590653f38a7aee9e36921e9f750b7d874..1c2ff134fec2ac946a9cc141c9b7f8deafb977c4 100644
+--- a/dist/esm/workflow-structure-validation.js
++++ b/dist/esm/workflow-structure-validation.js
+@@ -1,4 +1,4 @@
+-import { z } from 'zod';
++import { z } from 'zod/v3';
+ import { MAX_CONNECTION_INDEX } from './common/map-connections-by-destination';
+ /**
+  * Workflow Structure Validation

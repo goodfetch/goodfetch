@@ -80,6 +80,7 @@ impl Transport for Coded {
                 certificate_exception: None,
                 custom_tls: false,
                 origin: None,
+                forwarded: false,
             })
         })
     }

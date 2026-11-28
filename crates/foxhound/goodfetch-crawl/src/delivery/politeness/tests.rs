@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 use tokio::time::Instant;
 
 use super::super::attempt::Answer;
-use super::super::document_answer;
+use super::super::document_answer::{self, Document};
 use super::super::failure::AttemptFailure;
 use super::domain_ending;
 
@@ -51,25 +51,28 @@ fn a_blocked_rate_limit_holds_its_domain_until_the_time_its_details_name() {
     ));
 
     assert_eq!(
-        domain_ending(&answer, None, false, now, wall()),
+        domain_ending(&answer, None, now, wall()),
         Ended::TooManyRequests(Some(now + Duration::from_secs(60)))
     );
 }
 
 /// The request's own document, answered `status` with `headers`, from
-/// `url`.
-fn document(url: &str, status: u16, headers: &[(&str, &str)]) -> PageResponse {
-    PageResponse {
-        url: url.to_owned(),
-        status,
-        status_text: String::new(),
-        headers: headers
-            .iter()
-            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
-            .collect(),
-        encoding: None,
-        request_id: "1".to_owned(),
-        from_service_worker: false,
+/// `url`, forwarded directly by an HTTP/HTTPS proxy when `forwarded`.
+fn document(url: &str, status: u16, headers: &[(&str, &str)], forwarded: bool) -> Document {
+    Document {
+        response: PageResponse {
+            url: url.to_owned(),
+            status,
+            status_text: String::new(),
+            headers: headers
+                .iter()
+                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+                .collect(),
+            encoding: None,
+            request_id: "1".to_owned(),
+            from_service_worker: false,
+        },
+        forwarded,
     }
 }
 
@@ -97,26 +100,31 @@ fn navigation_failed(error: &str) -> Answer {
 /// The class of answer the site's document gives its domain, whatever the
 /// handler made of the page: what the engine's own fetch met, on the
 /// `http` tier as on the `browser` tier (ADRs 0086 and 0118). A field
-/// naming an error over a tunnel is the site's own intermediary's.
+/// naming an error over a tunnel or on a direct `proxy.bypass` hop is the
+/// site's own intermediary's.
 ///
 /// Covers: story:5-132
 #[rstest]
-#[case::a_429(document("https://shop.test/1", 429, &[]), Ended::TooManyRequests(None))]
-#[case::a_502(document("https://shop.test/1", 502, &[]), Ended::BackOff(None))]
-#[case::a_503(document("https://shop.test/1", 503, &[]), Ended::BackOff(None))]
-#[case::a_504(document("https://shop.test/1", 504, &[]), Ended::BackOff(None))]
-#[case::a_500(document("https://shop.test/1", 500, &[]), Ended::Done)]
-#[case::a_200(document("https://shop.test/1", 200, &[("retry-after", "60")]), Ended::Done)]
+#[case::a_429(document("https://shop.test/1", 429, &[], false), Ended::TooManyRequests(None))]
+#[case::a_502(document("https://shop.test/1", 502, &[], false), Ended::BackOff(None))]
+#[case::a_503(document("https://shop.test/1", 503, &[], false), Ended::BackOff(None))]
+#[case::a_504(document("https://shop.test/1", 504, &[], false), Ended::BackOff(None))]
+#[case::a_500(document("https://shop.test/1", 500, &[], false), Ended::Done)]
+#[case::a_200(document("https://shop.test/1", 200, &[("retry-after", "60")], false), Ended::Done)]
 #[case::a_429_through_a_tunnel_naming_an_error(
-    document("https://shop.test/1", 429, &[("proxy-status", "cdn.test; error=http_request_denied")]),
+    document("https://shop.test/1", 429, &[("proxy-status", "cdn.test; error=http_request_denied")], false),
+    Ended::TooManyRequests(None)
+)]
+#[case::a_429_on_a_direct_http_hop_naming_an_error(
+    document("http://shop.test/1", 429, &[("proxy-status", "cdn.test; error=http_request_denied")], false),
     Ended::TooManyRequests(None)
 )]
 fn the_sites_answer_to_the_document_backs_its_domain_off(
-    #[case] response: PageResponse,
+    #[case] document: Document,
     #[case] expected: Ended,
 ) {
     assert_eq!(
-        domain_ending(&handled(), Some(&response), true, Instant::now(), wall()),
+        domain_ending(&handled(), Some(&document), Instant::now(), wall()),
         expected
     );
 }
@@ -140,11 +148,11 @@ fn the_sites_retry_after_holds_its_domain_until_the_time_it_names(
 ) {
     // The site's clock runs an hour behind the wall time.
     let now = Instant::now();
-    let response = document("https://shop.test/1", status, headers);
+    let document = document("https://shop.test/1", status, headers, false);
     let until = Some(now + Duration::from_secs(60));
 
     assert_eq!(
-        domain_ending(&handled(), Some(&response), false, now, wall()),
+        domain_ending(&handled(), Some(&document), now, wall()),
         ended(until)
     );
 }
@@ -157,14 +165,15 @@ fn the_sites_retry_after_holds_its_domain_until_the_time_it_names(
 #[case::its_own_429(429)]
 #[case::its_own_502(502)]
 fn a_forward_proxy_s_own_answer_backs_no_domain_off(#[case] status: u16) {
-    let response = document(
+    let document = document(
         "http://shop.test/1",
         status,
         &[("proxy-status", "proving-ground; error=http_request_denied")],
+        true,
     );
 
     assert_eq!(
-        domain_ending(&handled(), Some(&response), true, Instant::now(), wall()),
+        domain_ending(&handled(), Some(&document), Instant::now(), wall()),
         Ended::Done
     );
 }
@@ -176,16 +185,17 @@ fn a_forward_proxy_s_own_answer_backs_no_domain_off(#[case] status: u16) {
 /// Covers: story:3-159
 #[test]
 fn a_forward_proxy_s_own_retry_after_is_not_read() {
-    let response = document(
+    let document = document(
         "http://shop.test/1",
         503,
         &[
             ("proxy-status", "proving-ground; error=http_request_denied"),
             ("retry-after", "soon"),
         ],
+        true,
     );
 
-    let asked = document_answer::asked(&response, true, wall());
+    let asked = document_answer::asked(&document.response, document.forwarded, wall());
 
     assert_eq!(asked.retry_after, None);
 }
@@ -206,13 +216,7 @@ fn a_failed_fetch_backs_its_domain_off_by_its_network_error(
     #[case] expected: Ended,
 ) {
     assert_eq!(
-        domain_ending(
-            &navigation_failed(error),
-            None,
-            true,
-            Instant::now(),
-            wall()
-        ),
+        domain_ending(&navigation_failed(error), None, Instant::now(), wall()),
         expected
     );
 }

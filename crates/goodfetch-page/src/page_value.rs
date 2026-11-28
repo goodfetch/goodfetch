@@ -317,6 +317,13 @@ pub trait BrowserPages: Send + Sync {
             ))
         })
     }
+
+    /// Whether the browser page `page_id` sent a request to `url` directly
+    /// through an HTTP or HTTPS forward proxy (an `http:` URL not sent around
+    /// the proxy by `proxy.bypass` and not through a SOCKS proxy; ADR 0053).
+    fn forwarded<'a>(&'a self, _page_id: &'a PageId, _url: &'a str) -> Opening<'a, bool> {
+        Box::pin(async { false })
+    }
 }
 
 /// A request a Product sends from inside a Session's browser through
@@ -345,6 +352,9 @@ pub struct EngineFetched {
     pub headers: Vec<(String, String)>,
     /// Its body.
     pub body: FetchedBody,
+    /// Whether an HTTP or HTTPS forward proxy forwarded this response itself
+    /// (an `http:` URL not bypassed by `proxy.bypass` and not over SOCKS).
+    pub forwarded: bool,
 }
 
 /// A body [`BrowserPages::fetch`] read, as it arrived.

@@ -133,7 +133,7 @@ use goodfetch_session_pool::{Effect, PoolKey, PoolSettings, SendsFrom};
 use serde_json::{Map, Value};
 use tokio::sync::{Mutex, oneshot};
 
-use super::document_answer;
+use super::document_answer::{self, Document};
 use super::failure::{AttemptFailure, Why};
 use super::watch::{self, Watch};
 use crate::code_free::CodeFree;
@@ -560,7 +560,7 @@ pub(super) struct Attempt {
     /// The site's answer to its request's own document, when the engine
     /// fetched it, on any tier: its domain's Politeness reads it whatever
     /// the handler made of the page (the `backoff_classes` rule).
-    pub(super) document: Option<PageResponse>,
+    pub(super) document: Option<Document>,
     /// When its handler request last went out: the moment a handler's
     /// failure measures the time its site asked for against, so the time
     /// the handler and the engine took to report it never counts against
@@ -739,19 +739,17 @@ pub(super) async fn attempt(
 async fn note_unparsable_retry_after(
     run: &RunIdentity,
     hand_over: &HandOver,
-    document: Option<&PageResponse>,
+    document: Option<&Document>,
 ) {
-    let Some(response) = document.filter(|response| response.headers.contains_key("retry-after"))
+    let Some(document) =
+        document.filter(|document| document.response.headers.contains_key("retry-after"))
     else {
         return;
     };
-    let proxied = run
-        .settings()
-        .is_some_and(|settings| super::proxied(settings.resolved()));
-    let asked = document_answer::asked(response, proxied, run.clock().wall());
+    let asked = document_answer::asked(&document.response, document.forwarded, run.clock().wall());
     if let Some((value, RetryAfter::Unparsable)) = asked.retry_after {
         hand_over
-            .unparsable_retry_after(&response.url, response.status, value)
+            .unparsable_retry_after(&document.response.url, document.response.status, value)
             .await;
     }
 }
@@ -868,7 +866,7 @@ struct On<'a> {
     /// The site's answer to the request's own document, as the last run
     /// that fetched it met it, which its domain's Politeness reads (the
     /// `backoff_classes` rule).
-    document: &'a Mutex<Option<PageResponse>>,
+    document: &'a Mutex<Option<Document>>,
     /// When its handler request last went out ([`Attempt::handed_at`]).
     sent_at: &'a Mutex<Option<SystemTime>>,
     /// Whether a Challenge met on a tier short of the browser moved the
@@ -1419,7 +1417,10 @@ impl On<'_> {
         // as it drops, so the page never holds the Run's handles past the
         // Run.
         let page_id = served.page_id().clone();
-        *self.document.lock().await = facts.response.clone();
+        *self.document.lock().await = facts.response.clone().map(|response| Document {
+            response,
+            forwarded: facts.forwarded,
+        });
         // Its after-response Hooks see the response before anything judges
         // it; an attempt they end closes its page as `served` drops.
         let after = after_fetch(facts.response.is_some(), navigates);
@@ -1826,7 +1827,14 @@ impl On<'_> {
             forced: choice.forced.clone().filter(|_| how == Chosen::AsChosen),
         };
         let encoding = read_by_browser(tiers, &page_id, navigated.response.as_ref());
-        self.document.lock().await.clone_from(&navigated.response);
+        let forwarded = match &navigated.response {
+            Some(response) => tiers.browser_forwarded(&page_id, response).await,
+            None => false,
+        };
+        *self.document.lock().await = navigated.response.clone().map(|response| Document {
+            response,
+            forwarded,
+        });
         // A document the Session's egress relay reached under an
         // invalid-certificate exception marks its Records (ADR 0042).
         let certificate_exception = match &navigated.response {

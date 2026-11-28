@@ -12,11 +12,10 @@ use goodfetch_engine::runs::outcome::record_outcome;
 use goodfetch_frontier::backoff_classes::{Class, Met, class};
 use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::RESPONSE_UNAVAILABLE;
-use goodfetch_protocol::page::PageResponse;
 use tokio::time::Instant;
 
 use super::attempt::Answer;
-use super::document_answer;
+use super::document_answer::{self, Document};
 use super::failure::{Why, unsent};
 use crate::run_state::{Ran, StateError, Stored};
 use crate::work_items::Changed;
@@ -29,20 +28,20 @@ use crate::work_items::Changed;
 /// concurrency and backs it off, a 502, 503 or 504 backs it off, each
 /// until the time its `Retry-After` names when that is later, and a 500 or
 /// any other status says nothing. An answer the Run's proxy gave itself
-/// (`proxied`: its Sessions send through one, which forwards an `http:`
-/// URL itself) backs no domain off: its limits are the proxy's (ADR
-/// 0053). Times are read at `wall` when the monotonic clock read `now`.
+/// (`document.forwarded`: an `http:` hop actually forwarded by an HTTP or
+/// HTTPS proxy, never a `proxy.bypass` or direct hop) backs no domain off:
+/// its limits are the proxy's (ADR 0053). Times are read at `wall` when
+/// the monotonic clock read `now`.
 pub(super) fn domain_ending(
     answer: &Answer,
-    document: Option<&PageResponse>,
-    proxied: bool,
+    document: Option<&Document>,
     now: Instant,
     wall: SystemTime,
 ) -> Ended {
     match failure_ending(answer, now, wall) {
-        Ended::Done => document.map_or(Ended::Done, |response| {
-            document_ending(response, proxied, now, wall)
-        }),
+        Ended::Done => {
+            document.map_or(Ended::Done, |document| document_ending(document, now, wall))
+        }
         ended => ended,
     }
 }
@@ -96,16 +95,11 @@ fn site_response(status: u16) -> Met<'static> {
     }
 }
 
-/// What the answer `response` to a request's own document says of its
+/// What the answer `document` to a request's own document says of its
 /// domain, by the backoff classes, with the time its `Retry-After` names,
 /// measured against its own `Date` when it has one (ADR 0118).
-fn document_ending(
-    response: &PageResponse,
-    proxied: bool,
-    now: Instant,
-    wall: SystemTime,
-) -> Ended {
-    let asked = document_answer::asked(response, proxied, wall);
+fn document_ending(document: &Document, now: Instant, wall: SystemTime) -> Ended {
+    let asked = document_answer::asked(&document.response, document.forwarded, wall);
     let until = || match asked.retry_after? {
         (_, RetryAfter::Until(until)) => Some(at(until, now, wall)),
         (_, RetryAfter::NoWait | RetryAfter::Unparsable) => None,

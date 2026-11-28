@@ -522,6 +522,7 @@ impl Reqwest {
             certificate_exception: None,
             custom_tls: false,
             origin: None,
+            forwarded: self.proxy.is_some() && hop.url.scheme() == "http",
         })
     }
 

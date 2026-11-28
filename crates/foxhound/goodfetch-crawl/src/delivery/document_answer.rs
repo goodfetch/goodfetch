@@ -15,6 +15,18 @@ use goodfetch_protocol::page::PageResponse;
 /// response's headers are.
 const PROXY_STATUS: &str = "proxy-status";
 
+/// What a request's own document answered, and whether an HTTP or HTTPS
+/// forward proxy forwarded that hop itself (not bypassed via `proxy.bypass`,
+/// not over a tunnel or SOCKS proxy, and not answered from a cache,
+/// recording or route; ADR 0053).
+#[derive(Clone, Debug)]
+pub(super) struct Document {
+    /// The response to the request's own document.
+    pub(super) response: PageResponse,
+    /// Whether a forward proxy forwarded the hop itself.
+    pub(super) forwarded: bool,
+}
+
 /// What an answer to a request's own document asks of its domain.
 pub(super) struct Asked<'r> {
     /// Its class by the backoff classes.
@@ -25,16 +37,16 @@ pub(super) struct Asked<'r> {
     pub(super) retry_after: Option<(&'r str, RetryAfter)>,
 }
 
-/// What `response` asks of its domain, `proxied` when the Run's Sessions
-/// send through a proxy, which forwards an `http:` URL itself (ADR 0053);
-/// its `Retry-After` read at `wall`, against its own `Date` when it has one
+/// What `response` asks of its domain, `forwarded` when an HTTP or HTTPS
+/// proxy forwarded the attempt's document hop itself (ADR 0053); its
+/// `Retry-After` read at `wall`, against its own `Date` when it has one
 /// (ADR 0118).
-pub(super) fn asked(response: &PageResponse, proxied: bool, wall: SystemTime) -> Asked<'_> {
+pub(super) fn asked(response: &PageResponse, forwarded: bool, wall: SystemTime) -> Asked<'_> {
     let header = |name: &str| response.headers.get(name).map(String::as_str);
     let class = class(Met::Response {
         status: response.status,
         proxy_status: header(PROXY_STATUS),
-        forwarded: proxied && response.url.starts_with("http:"),
+        forwarded,
     });
     let reads = matches!(class, Class::TooManyRequests | Class::BackOff);
     let retry_after = header("retry-after")

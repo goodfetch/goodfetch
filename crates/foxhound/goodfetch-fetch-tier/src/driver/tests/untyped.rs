@@ -88,6 +88,7 @@ impl Transport for Untyped {
                 certificate_exception: None,
                 custom_tls: false,
                 origin: None,
+                forwarded: false,
             })
         })
     }

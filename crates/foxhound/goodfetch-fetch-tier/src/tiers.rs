@@ -312,6 +312,9 @@ struct ServedPage {
     /// The Response recording or Response cache that answered in place of
     /// the network (ADRs 0046 and 0105, issue 802).
     origin: Option<goodfetch_protocol::foxhound::provenance::ResponseOrigin>,
+    /// Whether an HTTP or HTTPS forward proxy forwarded its crawl request's
+    /// own document itself (ADR 0053).
+    forwarded: bool,
     /// What the attempt it belongs to handed over: the navigation gate and
     /// the lease its navigations and `page.request`s go through.
     hand_over: Arc<HandOver>,
@@ -361,6 +364,9 @@ pub struct PageFacts {
     /// The Response recording or Response cache that answered in place of
     /// the network, as Provenance marks it (ADRs 0046 and 0105, issue 802).
     pub origin: Option<goodfetch_protocol::foxhound::provenance::ResponseOrigin>,
+    /// Whether an HTTP or HTTPS forward proxy forwarded its crawl request's
+    /// own document itself (ADR 0053).
+    pub forwarded: bool,
     /// The AI-use signals its response carried.
     pub use_signals: UseSignals,
     /// The call that escalated it to the browser, the first its tier could
@@ -1432,6 +1438,7 @@ impl FetchTiers {
         );
         let certificate_exception = fetched.certificate_exception.as_ref().map(mark);
         let origin = fetched.origin.clone();
+        let forwarded = fetched.forwarded;
         // The document is decoded and streamed on the page's own task, and
         // parsed and read on the CPU pool, in one hand-off, never on an
         // async worker (STYLE.md; ADR 0138; issue 2189).
@@ -1506,6 +1513,7 @@ impl FetchTiers {
                 own: Some((response, body)),
                 certificate_exception,
                 origin,
+                forwarded,
                 hand_over: Arc::clone(hand_over),
                 redirects: redirects.into(),
                 pending_cache: deferred_cache,
@@ -1615,6 +1623,7 @@ impl FetchTiers {
             // exception is taken on this tier.
             certificate_exception: None,
             origin: None,
+            forwarded: false,
             text: None,
             pass: None,
         };
@@ -1654,6 +1663,7 @@ impl FetchTiers {
             encoding: page.encoding(),
             certificate_exception: page.certificate_exception.clone(),
             origin: page.origin.clone(),
+            forwarded: page.forwarded,
             use_signals: pages.use_signals.get(page_id).cloned().unwrap_or_default(),
             escalated: page.escalated,
         })
@@ -2148,6 +2158,7 @@ impl FetchTiers {
             not_document: page.not_document,
             certificate_exception: page.certificate_exception,
             origin: page.origin,
+            forwarded: page.forwarded,
             use_signals,
             escalated: page.escalated,
         })
@@ -2309,6 +2320,20 @@ impl FetchTiers {
             .await
             .as_ref()
             .map(mark)
+    }
+
+    /// Whether an HTTP or HTTPS forward proxy forwarded the document
+    /// `response` of the browser page `page_id` itself (ADR 0053): false
+    /// when it came from a service worker, went around the proxy via
+    /// `proxy.bypass`, went over HTTPS/SOCKS, or had no proxy.
+    pub async fn browser_forwarded(&self, page_id: &PageId, response: &PageResponse) -> bool {
+        if response.from_service_worker {
+            return false;
+        }
+        let Some(pages) = self.served.browser.get() else {
+            return false;
+        };
+        pages.forwarded(page_id, &response.url).await
     }
 
     /// Retires the browser context of the Session `pooled` of the Run

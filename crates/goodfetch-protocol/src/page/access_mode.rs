@@ -148,6 +148,21 @@ pub const STEALTH_HUMAN_INPUT: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `stealth.allow_runtime` (ADRs 0019 and 0089; spec #599's Q2).
+pub const STEALTH_ALLOW_RUNTIME: Setting = Setting {
+    name: "stealth.allow_runtime",
+    description: "Whether a `stealth` Session's pages may turn on the browser's `Runtime` domain, which a detector sees: `false` by default, so `page.on` for `console` or `page_error` answers `capability_unavailable`. On, they listen, the Run report carries the warning `stealth_runtime_allowed` and Provenance marks the Session. A `standard` Session listens either way. A Label refuses it with `setting_not_applicable`.",
+    kind: ValueKind::Boolean,
+    default: off,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `stealth.chromium_build` (ADR 0035; spec #599).
 pub const STEALTH_CHROMIUM_BUILD: Setting = Setting {
     name: "stealth.chromium_build",
@@ -273,7 +288,7 @@ pub const IDENTIFIED_ITEMS: [&Setting; 2] = [&IDENTIFIED_SIGNING_KEY, &IDENTIFIE
 
 /// The items of a Session's Identity profile, which a `stealth` Session
 /// runs with and a Session in another mode never does.
-pub const STEALTH_ITEMS: [&Setting; 7] = [
+pub const STEALTH_ITEMS: [&Setting; 8] = [
     &STEALTH_FINGERPRINT_METHOD,
     &STEALTH_GENERATED_IDENTITY,
     &STEALTH_IDENTITY_OS,
@@ -281,6 +296,7 @@ pub const STEALTH_ITEMS: [&Setting; 7] = [
     &STEALTH_IDENTITY_BRAND,
     &STEALTH_HUMAN_INPUT,
     &STEALTH_CHROMIUM_BUILD,
+    &STEALTH_ALLOW_RUNTIME,
 ];
 
 /// Whether an Access mode is one a stealth item yields to.
@@ -315,7 +331,7 @@ const fn yields_to_the_access_mode(item: &'static Setting) -> Yielding {
 }
 
 /// Each stealth item yields to an Access mode that is not `stealth`.
-pub const ITEMS_YIELD_TO_THE_ACCESS_MODE: [Yielding; 7] = [
+pub const ITEMS_YIELD_TO_THE_ACCESS_MODE: [Yielding; 8] = [
     yields_to_the_access_mode(&STEALTH_FINGERPRINT_METHOD),
     yields_to_the_access_mode(&STEALTH_GENERATED_IDENTITY),
     yields_to_the_access_mode(&STEALTH_IDENTITY_OS),
@@ -323,6 +339,7 @@ pub const ITEMS_YIELD_TO_THE_ACCESS_MODE: [Yielding; 7] = [
     yields_to_the_access_mode(&STEALTH_IDENTITY_BRAND),
     yields_to_the_access_mode(&STEALTH_HUMAN_INPUT),
     yields_to_the_access_mode(&STEALTH_CHROMIUM_BUILD),
+    yields_to_the_access_mode(&STEALTH_ALLOW_RUNTIME),
 ];
 
 /// Whether an Access mode is one an item of [`IDENTIFIED_ITEMS`] yields to.
@@ -372,6 +389,7 @@ pub const ENTRIES: Entries = Entries {
         STEALTH_IDENTITY_BRAND,
         STEALTH_HUMAN_INPUT,
         STEALTH_CHROMIUM_BUILD,
+        STEALTH_ALLOW_RUNTIME,
         STEALTH_ALLOWED_BUILDS,
         IDENTIFIED_SIGNING_KEY,
         IDENTIFIED_SIGNATURE_AGENT,

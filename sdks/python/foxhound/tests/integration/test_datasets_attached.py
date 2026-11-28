@@ -1,4 +1,4 @@
-"""A handler's `push` on an Attached engine (ADR 0103; issue 1486).
+"""A handler's `push` and its Records read back on an Attached engine (ADRs 0103, 0104).
 
 On an Attached engine of Foxhound's executable of the same commit,
 crawling the Proving ground's `catalog` family, each Record is checked in
@@ -6,12 +6,15 @@ the program before it is sent: one that is not JSON, or that its
 Dataset's model would not parse back, is never staged, and
 `record_invalid` names it by its position beside those the engine
 refuses. Caught, the attempt keeps the others; escaped, the request fails
-without a retry. TypeScript's `datasets.test.ts` of Foxhound's package is
-its twin.
+without a retry. Read back, each Record is its Dataset's type, a typed
+read stops at the Record its schema refuses and resumes past it, and the
+rejection table names what the engine refused. TypeScript's
+`datasets.test.ts` of Foxhound's package is its twin.
 """
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING, Any
 
 import anyio.to_thread
@@ -19,12 +22,18 @@ import pytest
 from goodfetch_foxhound import AsyncCrawl, AsyncFoxhound, seed
 from goodfetch_foxhound.generated.errors import RecordInvalidError
 from goodfetch_test_support import Product as ToolProduct
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from goodfetch_foxhound import AsyncCrawlContext, AsyncCrawlRun, Dataset
+    from goodfetch_collie_client.json_values import JSONObject
+    from goodfetch_foxhound import (
+        AsyncCrawlContext,
+        AsyncCrawlRun,
+        Dataset,
+        DatasetRecord,
+    )
     from goodfetch_test_support import ProvingGround
 
 TASK = "catalog/1"
@@ -155,8 +164,8 @@ async def test_refuses_a_record_before_it_is_sent_and_fails_its_request_when_it_
     assert failures == [[(1, ["/price"])], [(1, ["/text"]), (2, ["/id"])]]
     assert committed == (
         [
-            {"id": "P-1", "name": "Blue kettle", "price": "12.50"},
-            {"id": "P-3", "name": "Green kettle", "price": "9.99"},
+            Product(id="P-1", name="Blue kettle", price="12.50"),
+            Product(id="P-3", name="Green kettle", price="9.99"),
         ],
         [{"id": "N-1", "text": 1}],
     )
@@ -169,3 +178,115 @@ async def test_refuses_a_record_before_it_is_sent_and_fails_its_request_when_it_
         for reason in report.completeness_reasons or []
     ]
     assert reasons == [("failed_requests", 1, True)]
+
+
+class StrictProduct(BaseModel):
+    """A reader's own product, whose price must be a string."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str
+    name: str
+    price: str
+
+
+@pytest.mark.covers(
+    "story:11-1060", "story:11-1061", "story:11-1070", "error:record_invalid"
+)
+@pytest.mark.anyio
+async def test_reads_records_as_a_readers_type_past_after_and_the_rejection_table(
+    env: Mapping[str, str], proving_ground: ProvingGround
+) -> None:
+    """A typed read stops at the Record its schema refuses, and resumes past it.
+
+    The engine refuses the Record without its key into the rejection table,
+    which reads with its reason, issue, request and URL.
+    """
+    start = await anyio.to_thread.run_sync(proving_ground.start_url, TASK)
+    shop = AsyncCrawl()
+    listing = shop.label("listing")
+    products = shop.dataset("products", key=["id"])
+
+    @shop.handle(listing)
+    async def push(ctx: AsyncCrawlContext[None]) -> None:
+        with contextlib.suppress(RecordInvalidError):
+            await ctx.push(
+                products,
+                [
+                    {"id": "P-1", "name": "Blue kettle", "price": "12.50"},
+                    {"id": "P-2", "name": "Red kettle", "price": 9.99},
+                    {
+                        "id": "P-3",
+                        "name": "Green kettle",
+                        "price": "3.00",
+                        "colour": "green",
+                    },
+                    {"name": "Nameless kettle", "price": "1.00"},
+                ],
+            )
+
+    foxhound = await AsyncFoxhound.connect(env=env)
+    run = await foxhound.start_crawl(
+        shop, seeds=[seed(start, listing)], settings={"fetch": {"tier": "http"}}
+    )
+    kept: list[DatasetRecord[JSONObject]] = []
+
+    async def follow() -> None:
+        async with run.records(products) as read:
+            kept.extend([record async for record in read])
+
+    # Read while the Run is live: the read follows it until it ends.
+    async with anyio.create_task_group() as group:
+        group.start_soon(follow)
+        await run.finish()
+    numbers = {record.value.get("id"): record.number for record in kept}
+    # The one crawl request that pushed every Record, kept or rejected.
+    requests = {record.request_id for record in kept}
+    # A reader's own declaration of the Dataset, whose schema wants a string price.
+    typed = AsyncCrawl().dataset("products", schema=StrictProduct, key=["id"])
+    stopped: RecordInvalidError | None = None
+    async with run.records(typed, after=numbers["P-1"]) as refusing:
+        try:
+            await anext(refusing)
+        except RecordInvalidError as error:
+            stopped = error
+    async with run.records(typed, after=numbers["P-2"]) as read:
+        resumed = [record.value async for record in read]
+    async with run.rejected_records(products) as read_rejected:
+        rejected = [entry async for entry in read_rejected]
+    await foxhound.close()
+
+    assert numbers == {"P-1": 1, "P-2": 2, "P-3": 3}
+    assert stopped is not None
+    assert stopped.typed_details is not None
+    assert (stopped.typed_details.dataset, stopped.typed_details.number) == (
+        "products",
+        numbers["P-2"],
+    )
+    assert [(type(value), value.model_dump()) for value in resumed] == [
+        (StrictProduct, {"id": "P-3", "name": "Green kettle", "price": "3.00"})
+    ]
+    assert resumed[0].model_extra == {"colour": "green"}
+    assert len(requests) == 1
+    assert [
+        (
+            entry.number,
+            entry.data,
+            bool(entry.reason.strip()),
+            [issue.path for issue in entry.issues],
+            entry.hook,
+            {entry.request_id},
+            entry.url,
+        )
+        for entry in rejected
+    ] == [
+        (
+            1,
+            {"name": "Nameless kettle", "price": "1.00"},
+            True,
+            ["/id"],
+            None,
+            requests,
+            start,
+        )
+    ]

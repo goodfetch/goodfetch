@@ -448,6 +448,11 @@ pub struct DaemonState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub live_view: Option<SocketAddr>,
+    /// Where the Daemon's HTTP JSON-RPC listener listens (`host:port`); none
+    /// while `http_listener.enabled` is off (ADR 0027).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub http_listener: Option<SocketAddr>,
 }
 
 /// What `daemon.stop` answers, before the Daemon stops.

@@ -209,6 +209,17 @@ impl Deadline {
     /// deadline for `waited_for`, which did not come, for a caller that
     /// counts its own time, such as one that leaves some waits out of it.
     pub fn exceeded(&self, waited_for: WaitedFor, elapsed: Duration) -> CallError {
+        self.exceeded_seeing(waited_for, elapsed, None)
+    }
+
+    /// As [`Self::exceeded`], its `observed` the last state the call saw
+    /// before it ended, such as the rows a scroll collection kept.
+    pub fn exceeded_seeing(
+        &self,
+        waited_for: WaitedFor,
+        elapsed: Duration,
+        observed: Option<String>,
+    ) -> CallError {
         CallError::new(
             &DEADLINE_EXCEEDED,
             format!(
@@ -221,7 +232,7 @@ impl Deadline {
                 elapsed: millis(elapsed),
                 waited_for,
                 ended_by: None,
-                observed: None,
+                observed,
             },
         )
     }

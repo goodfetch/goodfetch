@@ -360,6 +360,10 @@ _Avoid_: price list, cost map, rate card
 A standing instruction, kept by the Daemon or Goodfetch Cloud, that starts runs of one target when its time comes or its trigger fires.
 _Avoid_: cron job, periodic job, monitor, trigger (for the whole Schedule)
 
+**Occurrence**:
+One scheduled firing of a Schedule, at its due instant, after an upstream run ended, or when run now was requested; recorded with its due and fire times, the Schedule version it used and its outcome (started, skipped, missed or failed to start).
+_Avoid_: execution, tick, job run
+
 **Watch**:
 A small run that checks whether chosen pages or values have changed, so that a Schedule starts its target only on change.
 _Avoid_: monitor, probe, poll

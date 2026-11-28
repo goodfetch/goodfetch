@@ -134,6 +134,7 @@ mod blocked;
 mod blocking_off;
 mod clean_up;
 mod plugin_extractor;
+mod scroll_collect;
 pub(crate) mod served_formats;
 mod waits;
 
@@ -167,7 +168,7 @@ pub fn contribution_with(
     blocks: Arc<dyn BlockClassifier>,
 ) -> Contribution {
     let handler_pages: Arc<dyn HandlerPages> = Arc::new(handler_pages);
-    let interception = Interception::default();
+    let interception = Interception::with_blocks(Arc::clone(&blocks));
     let dialogs = Dialogs::default();
     let pages = Pages {
         sessions: Sessions::new(
@@ -199,6 +200,7 @@ pub fn contribution_with(
         with_dialog_handlers(contribution, (&pages.dialogs, pages.sessions.page_owners()));
     let contribution = with_function_handlers(contribution, &pages);
     let contribution = waits::with_wait_handlers(contribution, &pages);
+    let contribution = scroll_collect::with_scroll_collect_handler(contribution, &pages);
     let contribution = with_request_handler(contribution, &pages);
     pages.product.opened(Arc::new(Opener {
         pages: pages.clone(),
@@ -432,6 +434,54 @@ fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contributio
                 }
             },
         ))
+}
+
+/// Performs `action`, the call `operation`'s, on the element `locator`
+/// matches on `page`, through the guard: a gesture under the Run's
+/// `timeout.action`, of which `spent` is gone already. A dialog handler
+/// that failed on a dialog the action opened fails it, which the dialog
+/// blocked.
+async fn gesture(
+    page: &OpenPage,
+    operation: &'static str,
+    locator: &Locator,
+    action: Action,
+    spent: Duration,
+    form: Form,
+) -> Result<(), CallError> {
+    let (limit, duration) = page.action_timeout.clone();
+    let request = Request {
+        operation,
+        selector: &locator.selector,
+        action,
+        window: Window {
+            limit,
+            duration,
+            spent,
+        },
+        form,
+        hiding: page
+            .owner
+            .hiding()
+            .hidden(&page.run.trace, (&locator.page_id, &page.session)),
+        owner: &page.owner,
+        sent: SentMark {
+            window: &page.run.send_window,
+            lease: page.lease(),
+        },
+        human_input: page.human_input.clone(),
+    };
+    let acted = page
+        .life
+        .call(
+            PageEvent::Gesture,
+            guard::act(&page.driver, request, &page.clock),
+        )
+        .await;
+    if let Some(failure) = page.owner.dialogs().take_failure() {
+        return Err(failure);
+    }
+    acted
 }
 
 /// The engine's matcher for `matcher`.
@@ -1176,7 +1226,12 @@ impl BrowserPages for Opener {
     }
 
     fn classify(&self, response: &PageResponse, markup: &str) -> Option<Block> {
-        self.pages.blocks.classify(response, markup)
+        // A tier's transport ends a hop its proxy answered with the proxy's
+        // own error before a document is served, so a served one is the
+        // site's.
+        self.pages
+            .blocks
+            .classify(response, proxy::Party::Site, markup)
     }
 }
 
@@ -1383,40 +1438,7 @@ impl Pages {
             })
             .await?;
         tracing::Span::current().record("run_id", page.run.identity.id().as_str());
-        let (limit, duration) = page.action_timeout.clone();
-        let request = Request {
-            operation,
-            selector: &locator.selector,
-            action,
-            window: Window {
-                limit,
-                duration,
-                spent,
-            },
-            form: context.form(),
-            hiding: page
-                .owner
-                .hiding()
-                .hidden(&page.run.trace, (&locator.page_id, &page.session)),
-            owner: &page.owner,
-            sent: SentMark {
-                window: &page.run.send_window,
-                lease: page.lease(),
-            },
-        };
-        let acted = page
-            .life
-            .call(
-                PageEvent::Gesture,
-                guard::act(&page.driver, request, &page.clock),
-            )
-            .await;
-        // A dialog handler that failed on a dialog the action opened fails
-        // the action, which the dialog blocked.
-        if let Some(failure) = page.owner.dialogs().take_failure() {
-            return Err(failure);
-        }
-        acted?;
+        gesture(&page, operation, &locator, action, spent, context.form()).await?;
         Ok(Acted {})
     }
 

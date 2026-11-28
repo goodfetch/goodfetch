@@ -79,6 +79,7 @@ mod journey_run;
 mod kill;
 #[cfg(target_os = "linux")]
 mod lazyfs;
+mod local_model;
 mod locales;
 mod media_samples;
 mod model_trace;
@@ -210,6 +211,11 @@ pub use journey_run::{
 pub use kill::{KILL_DEADLINE, KillAtError, Killed, Moment, kill_at, kill_at_within};
 #[cfg(target_os = "linux")]
 pub use lazyfs::{LAZYFS_DEADLINE, LazyFs, LazyFsError};
+pub use local_model::{
+    LOCAL_MODEL_DEADLINE, LocalModel, LocalModelConfig, LocalModelError, LocalModelKind,
+    LocalModelPins, PinnedModel, PinnedServer, PinnedServerPlatform, local_model_pins,
+    verify_model_digest,
+};
 pub use locales::{LocaleTableError, TimeZoneCase, locales, time_zones};
 pub use media_samples::{
     CODECS_HOST, CodecSample, FONTS_HOST, FontAvailability, FontSample, FontSamples, MediaKind,
@@ -314,10 +320,10 @@ pub use variables::{
     CALLGRIND_AT_ONCE_VARIABLE, CASE_LOGS_VARIABLE, CHROME_FOR_TESTING_DOWNLOADS_VARIABLE,
     CLAUDE_CODE_DOWNLOADS_VARIABLE, CallgrindAtOnceError, DNS_NAMESPACE_VARIABLE, ENGINE_VARIABLE,
     FAULT_PLAN_VARIABLE, LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, LIGHTPANDA_DOWNLOADS_VARIABLE,
-    MAX_SEED, MODEL_TRACES_VARIABLE, NO_GUI_SESSION_VARIABLE, OLDER_ENGINE_VARIABLE,
-    RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE, SUITE_VARIABLE, SeedError, Suite,
-    SuiteError, TOOLS_VARIABLE, TOXIPROXY_DOWNLOADS_VARIABLE, Variables, case_logs, current_test,
-    model_traces,
+    LOCAL_MODELS_DOWNLOADS_VARIABLE, MAX_SEED, MODEL_TRACES_VARIABLE, NO_GUI_SESSION_VARIABLE,
+    OLDER_ENGINE_VARIABLE, RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE,
+    SUITE_VARIABLE, SeedError, Suite, SuiteError, TOOLS_VARIABLE, TOXIPROXY_DOWNLOADS_VARIABLE,
+    Variables, case_logs, current_test, model_traces,
 };
 pub use webhook_signatures::{
     SignedVector, VerificationCase, VerificationOutcome, WebhookSignatures, webhook_signatures,

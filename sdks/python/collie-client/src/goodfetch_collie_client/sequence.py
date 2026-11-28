@@ -9,8 +9,11 @@ or `with` block, `close()`, `aclose()` and releasing it, which a bare
 `async for … break` does in CPython, cancel its call, before any later call
 of the Run. It has one reader: it is its own iterator. In the sync API,
 `Sequence` reads its async twin on the Connection's private loop. A
-followed read, such as a Run's progress, is read the same way, each credit
-one read (`_followed.py`). TypeScript's `sequence.ts` is its twin.
+followed read, such as a Run's progress, or a paged one, such as a crawl's
+rejected Records, is read the same way (`_followed.py`). An item the
+program fails to read, such as a Record its Dataset's model refuses, ends
+the read with that failure once the items before it are read, and cancels
+its call. TypeScript's `sequence.ts` is its twin.
 """
 
 from __future__ import annotations
@@ -37,6 +40,9 @@ if TYPE_CHECKING:
 __all__ = ["AsyncSequence", "Sequence"]
 
 _Item = TypeVar("_Item")
+_Item_co = TypeVar("_Item_co", covariant=True)
+"""A sequence's item: a sequence only hands items out, so one of a narrower
+item, such as a crawl's progress, is one of the wider."""
 
 
 class Reads(Protocol[_Item]):
@@ -100,7 +106,10 @@ class Reading(Generic[_Item]):
         item_of: Callable[[str, object], _Item | None],
         order: Order,
     ) -> None:
-        """Takes its call, what reads an item from a notification, the Run's order."""
+        """Takes its call, what reads an item from a notification, the Run's order.
+
+        `item_of` raising a `BaseGoodfetchError` ends the read with it.
+        """
         self._connection = connection
         self._method = method
         self._params = params
@@ -133,10 +142,14 @@ class Reading(Generic[_Item]):
             return
         self.closed = True
         self.received.clear()
-        if not self.ended:
+        self._cancel()
+        self._wake()
+
+    def _cancel(self) -> None:
+        """Asks its call to be cancelled after every earlier hold, once."""
+        if not self.ended and self._closing is None:
             self._closing = self._order.hold()
             self._close_asked.set()
-        self._wake()
 
     async def grant(self, credits: int) -> None:
         """Grants the engine `credits` more items."""
@@ -181,7 +194,7 @@ class Reading(Generic[_Item]):
                         self._method, self._params, self._notified, sent=sent
                     )
                 except BaseGoodfetchError as error:
-                    if not self.closed:
+                    if not self.closed and self.failure is None:
                         self.failure = error
             group.cancel_scope.cancel()
 
@@ -207,9 +220,16 @@ class Reading(Generic[_Item]):
 
     def _notified(self, method: str, params: object) -> None:
         """Keeps an item the call carried; on the reading task, so it never blocks."""
-        if self.closed:
+        if self.closed or self.failure is not None:
             return
-        item = self._item_of(method, params)
+        try:
+            item = self._item_of(method, params)
+        except BaseGoodfetchError as error:
+            # The items before it are still read, then the read ends with it.
+            self.failure = error
+            self._cancel()
+            self._wake()
+            return
         if item is not None:
             self.received.append(item)
             self._wake()
@@ -219,14 +239,14 @@ class Reading(Generic[_Item]):
         changed.set()
 
 
-class AsyncSequence(Generic[_Item]):
+class AsyncSequence(Generic[_Item_co]):
     """A sequence read to its end with `async for`; it closes at once however it stops.
 
     A program never constructs one: a method such as
     `run.key_value_store.keys()` returns it.
     """
 
-    def __init__(self, reading: Reads[_Item]) -> None:
+    def __init__(self, reading: Reads[_Item_co]) -> None:
         """Takes what it reads, already spawned: a call, or a followed read."""
         self._reading = reading
         self._release = weakref.finalize(self, reading.close)
@@ -240,7 +260,7 @@ class AsyncSequence(Generic[_Item]):
         """Itself: it has one reader."""
         return self
 
-    async def __anext__(self) -> _Item:
+    async def __anext__(self) -> _Item_co:
         """The next item, once it comes.
 
         Raises:
@@ -293,7 +313,7 @@ class AsyncSequence(Generic[_Item]):
         self.close()
 
 
-class Sequence(Generic[_Item]):
+class Sequence(Generic[_Item_co]):
     """A sequence read to its end with `for`, in the sync API; any thread reads it.
 
     It reads its async twin on the Connection's private loop, and closes as
@@ -303,7 +323,7 @@ class Sequence(Generic[_Item]):
     def __init__(
         self,
         loop: PrivateLoop,
-        sequence: AsyncSequence[_Item],
+        sequence: AsyncSequence[_Item_co],
         stopped: Callable[[], Exception],
     ) -> None:
         """Takes the private loop, the async twin it reads there, and a stop's error."""
@@ -317,7 +337,7 @@ class Sequence(Generic[_Item]):
         """Itself: it has one reader."""
         return self
 
-    def __next__(self) -> _Item:
+    def __next__(self) -> _Item_co:
         """The next item, once it comes.
 
         Raises:

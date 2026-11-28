@@ -100,7 +100,7 @@ impl InitScripts {
             let frame = (child.kind == ChildKind::Frame).then(|| {
                 (
                     scripts.clone(),
-                    scripts.shared.cdp.frame(&child.session),
+                    scripts.shared.cdp.child(&child.session),
                     child.gone.clone(),
                 )
             });

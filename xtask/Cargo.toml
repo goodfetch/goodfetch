@@ -16,12 +16,15 @@ clap.workspace = true
 # document.
 data-encoding.workspace = true
 flate2.workspace = true
+# The gate's key for its records (ADR 0135).
+getrandom.workspace = true
 glob.workspace = true
 # The only Goodfetch crate it builds: the contract types `xtask codegen`
 # emits in process. No engine crate (ADR 0072, `xtask
 # dependency-direction`): the Products' command lines come from their
 # executables' `command-line`.
 goodfetch-protocol.workspace = true
+hmac.workspace = true
 jiff.workspace = true
 jsonschema.workspace = true
 proc-macro2.workspace = true
@@ -58,6 +61,7 @@ goodfetch-counted-work.workspace = true
 goodfetch-test-support.workspace = true
 insta.workspace = true
 rstest.workspace = true
+goodfetch-dev-workspace-hack.workspace = true
 
 # Its tests run the Proving ground and both Products' executables through
 # the test tool manifest, so a change to any runs them (TESTING.md, Commands).

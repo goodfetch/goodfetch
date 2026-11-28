@@ -254,6 +254,11 @@
             "const": "worker",
             "description": "A Script sandbox worker.",
             "type": "string"
+          },
+          {
+            "const": "http_listener",
+            "description": "A plain HTTP client calling the Daemon's HTTP JSON-RPC listener\n(`POST /v1/rpc`, ADR 0027): its Runs outlive the HTTP request, and it\nis never a person surface.",
+            "type": "string"
           }
         ]
       }

@@ -93,6 +93,7 @@ fn tags_parse_by_the_bounds_the_wire_reads(
 #[case::fingerprint_js_injection("fingerprint_js_injection", Product::Collie)]
 #[case::fingerprint_basic("fingerprint_basic", Product::Collie)]
 #[case::fingerprint_basic_fallback("fingerprint_basic_fallback", Product::Collie)]
+#[case::stealth_runtime_allowed("stealth_runtime_allowed", Product::Collie)]
 #[case::browser_build_outdated("browser_build_outdated", Product::Collie)]
 #[case::browser_build_third_party("browser_build_third_party", Product::Collie)]
 #[case::browser_build_firefox("browser_build_firefox", Product::Collie)]

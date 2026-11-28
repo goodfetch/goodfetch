@@ -27,7 +27,7 @@ use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::daemon::{DaemonHealth, Unready};
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
-use hyper::header::{self, HeaderMap, HeaderValue};
+use hyper::header::{self, HeaderValue};
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::{TokioIo, TokioTimer};
 use tokio::sync::Semaphore;
@@ -293,7 +293,7 @@ impl Serving {
                 let health = self.health.check().await;
                 empty(probe_status(health.ready))
             }
-            "/metrics" => match bearer(headers) {
+            "/metrics" => match endpoint::bearer(headers) {
                 None => {
                     self.refused(StatusCode::UNAUTHORIZED, RefusalReason::TokenMissing)
                         .await
@@ -327,13 +327,6 @@ fn probe_status(yes: bool) -> StatusCode {
     } else {
         StatusCode::SERVICE_UNAVAILABLE
     }
-}
-
-/// The bearer token of the request's `Authorization`, if any.
-fn bearer(headers: &HeaderMap) -> Option<&str> {
-    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
-    let (scheme, token) = value.split_once(' ')?;
-    scheme.eq_ignore_ascii_case("bearer").then(|| token.trim())
 }
 
 /// An answer with `status` and no body.

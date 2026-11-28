@@ -13,7 +13,9 @@
 //! `locator.evaluate_all`'s and `locator.wait_for_function`'s, takes the
 //! locator's matches first, found in its world by `targets.js`
 //! ([`on_locator`]): every match, or the one match, a check while there are
-//! none or several answering no value, which is falsy.
+//! none or several answering no value, which is falsy. A scroll collection's
+//! step reads every match through `collect.js`, which calls the program's
+//! function with each and answers the rows it kept ([`scroll_collect`]).
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -27,7 +29,9 @@ use goodfetch_protocol::page::functions::{
     Evaluated, PAGE_FUNCTION_FAILED, PAGE_VALUE_INVALID, PageFunctionFailedDetails,
     PageValueDirection, PageValueInvalidDetails, PageValueKind,
 };
-use goodfetch_protocol::page::functions::{LOCATOR_EVALUATE_ALL, PAGE_EVALUATE};
+use goodfetch_protocol::page::functions::{
+    LOCATOR_EVALUATE_ALL, LOCATOR_SCROLL_COLLECT, PAGE_EVALUATE,
+};
 use goodfetch_protocol::page::waits::{LOCATOR_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_FUNCTION};
 use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::{connection::Form, naming};
@@ -45,6 +49,11 @@ const WALK: &str = include_str!("page_functions/walk.js");
 /// selector and whether the page function takes one match, which answers
 /// the thunk the walker calls.
 const TARGETS: &str = include_str!("page_functions/targets.js");
+
+/// A scroll collection's step, a function the engine calls with the
+/// program's function, which answers the page function the walker calls
+/// with every match.
+const COLLECT: &str = include_str!("page_functions/collect.js");
 
 /// The Provenance action that marks a main-world injection.
 const MAIN_WORLD_INJECTION: &str = "main_world_injection";
@@ -79,6 +88,56 @@ pub(crate) fn on_locator(
     let selector = Value::String(selector.to_owned()).to_string();
     let one = matches == Matches::One;
     called(function, arg, &format!("({TARGETS})({selector}, {one})"))
+}
+
+/// The expression `Runtime.evaluate` runs for one step of a scroll
+/// collection whose locator's CSS selector is `selector`: the program's
+/// page function `function`, called with each match and `arg`, wrapped by
+/// `collect.js`, whose rows [`collected`] reads.
+pub(crate) fn scroll_collect(function: &str, arg: Option<&Value>, selector: &str) -> String {
+    on_locator(
+        &format!("({COLLECT})(\n{function}\n)"),
+        arg,
+        (selector, Matches::All),
+    )
+}
+
+/// What one step of a scroll collection read: each row the program's
+/// function kept, in document order, how many elements matched, and the
+/// rows the list declares.
+#[derive(Debug, Deserialize)]
+pub(crate) struct Collected {
+    /// The rows kept, each a key and its value.
+    pub(crate) rows: Vec<Row>,
+    /// How many elements the locator matched.
+    pub(crate) matched: u64,
+    /// What the list declares: a count, `-1` for unknown, or none.
+    pub(crate) declared: Option<i64>,
+}
+
+/// One row a scroll collection's step kept.
+#[derive(Debug, Deserialize)]
+pub(crate) struct Row {
+    /// Its key.
+    pub(crate) key: String,
+    /// Its value, `null` when the function gave none.
+    #[serde(default)]
+    pub(crate) value: Value,
+}
+
+/// The rows of a scroll collection's step, from `evaluated`, the answer to
+/// [`scroll_collect`]'s expression.
+///
+/// # Errors
+///
+/// `internal_error` when the answer is not `collect.js`'s.
+pub(crate) fn collected(evaluated: Evaluated) -> Result<Collected, CallError> {
+    serde_json::from_value(evaluated.value.unwrap_or(Value::Null)).map_err(|error| {
+        CallError::protocol(
+            ProtocolFailure::InternalError,
+            format!("a scroll collection's step answered no rows: {error}"),
+        )
+    })
 }
 
 /// The walker's call for `function` with `arg`, `targets` the expression
@@ -264,6 +323,7 @@ fn passing(missing: &str, (form, operation): (Form, &'static str)) -> String {
     let (operation, matches) = match operation {
         name if name == LOCATOR_EVALUATE_ALL.name => (name, Some("elements")),
         name if name == LOCATOR_WAIT_FOR_FUNCTION.name => (name, Some("element")),
+        name if name == LOCATOR_SCROLL_COLLECT.name => (name, Some("row")),
         name if name == PAGE_WAIT_FOR_FUNCTION.name => (name, None),
         _ => (PAGE_EVALUATE.name, None),
     };
@@ -543,6 +603,8 @@ pub(crate) enum Injection {
     EvaluateAll,
     /// A main-world `locator.wait_for_function`.
     LocatorWaitForFunction,
+    /// A main-world `locator.scroll_collect`.
+    ScrollCollect,
     /// The `js_injection` Fingerprint method's script (ADR 0035).
     FingerprintMethod,
 }
@@ -557,6 +619,7 @@ impl Injection {
             Self::WaitForFunction => PAGE_WAIT_FOR_FUNCTION.name,
             Self::EvaluateAll => LOCATOR_EVALUATE_ALL.name,
             Self::LocatorWaitForFunction => LOCATOR_WAIT_FOR_FUNCTION.name,
+            Self::ScrollCollect => LOCATOR_SCROLL_COLLECT.name,
             Self::FingerprintMethod => {
                 goodfetch_protocol::page::access_mode::STEALTH_FINGERPRINT_METHOD.name
             }

@@ -41,6 +41,7 @@ advisories = ["CVE-2025-49596"]
 daemon_socket = { expect = "closed" }
 private_endpoint = { expect = "closed" }
 ops_listener = { expect = "status", status = 401 }
+http_listener = { expect = "status", status = 401 }
 daemon_websocket = { expect = "closed" }
 live_view = { expect = "closed" }
 exposed_daemon = { expect = "closed" }
@@ -54,6 +55,7 @@ adrs = [17, 24, 50]
 daemon_socket = { expect = "closed" }
 private_endpoint = { expect = "closed" }
 ops_listener = { expect = "status", status = 401 }
+http_listener = { expect = "status", status = 401 }
 daemon_websocket = { expect = "closed" }
 live_view = { expect = "closed" }
 exposed_daemon = { expect = "closed" }
@@ -67,6 +69,7 @@ adrs = [17, 31, 50, 67]
 daemon_socket = { expect = "closed" }
 private_endpoint = { expect = "closed" }
 ops_listener = { expect = "status", status = 401 }
+http_listener = { expect = "status", status = 401 }
 daemon_websocket = { expect = "closed" }
 live_view = { expect = "closed" }
 exposed_daemon = { expect = "closed" }
@@ -87,6 +90,7 @@ adrs = [17, 50, 67]
 [rule.token_revoked.listeners]
 daemon_socket = { expect = "closed" }
 ops_listener = { expect = "status", status = 401 }
+http_listener = { expect = "status", status = 401 }
 
 [rule.token_scoped_elsewhere]
 summary = "A token of the same Daemon whose scope is another: the ops token, read-only on `/metrics`, on the Daemon's socket, or the Daemon's protocol token on `/metrics`."
@@ -95,6 +99,7 @@ adrs = [50, 67]
 [rule.token_scoped_elsewhere.listeners]
 daemon_socket = { expect = "closed" }
 ops_listener = { expect = "status", status = 401 }
+http_listener = { expect = "status", status = 401 }
 
 [rule.token_in_query_string]
 summary = "The valid token is sent in the query string (`access_token`) instead of a header or the `hello`."
@@ -103,6 +108,7 @@ advisories = ["CVE-2025-49596"]
 
 [rule.token_in_query_string.listeners]
 ops_listener = { expect = "status", status = 401 }
+http_listener = { expect = "status", status = 401 }
 daemon_websocket = { expect = "closed" }
 live_view = { expect = "closed" }
 
@@ -113,6 +119,7 @@ advisories = ["CVE-2025-66414"]
 
 [rule.host_foreign.listeners]
 ops_listener = { expect = "status", status = 403 }
+http_listener = { expect = "status", status = 403 }
 daemon_websocket = { expect = "status", status = 403 }
 live_view = { expect = "status", status = 403 }
 
@@ -123,6 +130,7 @@ advisories = ["CVE-2025-49596"]
 
 [rule.origin_foreign.listeners]
 ops_listener = { expect = "status", status = 403 }
+http_listener = { expect = "status", status = 403 }
 daemon_websocket = { expect = "status", status = 403 }
 live_view = { expect = "status", status = 403 }
 
@@ -132,6 +140,7 @@ adrs = [17, 49, 67]
 
 [rule.origin_missing.listeners]
 ops_listener = { expect = "accepted" }
+http_listener = { expect = "accepted" }
 daemon_websocket = { expect = "status", status = 403 }
 live_view = { expect = "status", status = 403 }
 
@@ -142,6 +151,7 @@ advisories = ["CVE-2025-49596"]
 
 [rule.origin_missing_without_header_token.listeners]
 ops_listener = { expect = "status", status = 401 }
+http_listener = { expect = "status", status = 401 }
 
 [rule.hello_not_first]
 summary = "The connection's first message is not a `hello`."
@@ -160,6 +170,7 @@ summary = "A connection opens in plain, with the valid `hello` or handshake, whe
 adrs = [49, 55]
 
 [rule.plain_where_tls_configured.listeners]
+http_listener = { expect = "closed" }
 daemon_websocket = { expect = "closed" }
 exposed_daemon = { expect = "closed" }
 peer_link = { expect = "closed" }

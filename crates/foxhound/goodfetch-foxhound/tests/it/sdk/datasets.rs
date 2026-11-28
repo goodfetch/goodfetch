@@ -11,11 +11,14 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use std::collections::BTreeSet;
+
+use futures_util::TryStreamExt as _;
 use goodfetch_foxhound::schemars::{self, JsonSchema};
 use goodfetch_foxhound::settings::crawl::{handler, retry};
 use goodfetch_foxhound::{
-    Crawl, CrawlContext, CrawlRun, Dataset, DatasetDeclaration, Error, Foxhound, Schema, Seed,
-    error_code,
+    Crawl, CrawlContext, CrawlRun, Dataset, DatasetDeclaration, Error, Foxhound, Label,
+    RejectedRecord, Schema, Seed, error_code,
 };
 use goodfetch_protocol::foxhound::dataset::RecordInvalidDetails;
 use goodfetch_test_support::{ProvingGround, TestEnv, real_time_runtime};
@@ -94,10 +97,12 @@ fn refused(error: &Error) -> Refused {
         .collect()
 }
 
-/// The Records `run` committed into `dataset`.
-async fn committed<I>(run: &CrawlRun, dataset: &Dataset<I>) -> Vec<Value> {
+/// The Records `run` committed into its Dataset `name`, each as its JSON,
+/// read through a reader's own Dataset of that name.
+async fn committed(run: &CrawlRun, name: &str) -> Vec<Value> {
+    let json = Crawl::new().dataset::<Value>(name).unwrap();
     let mut values = Vec::new();
-    let mut read = run.records(dataset);
+    let mut read = run.records(&json);
     while let Some(record) = read.next().await {
         values.push(record.unwrap().value);
     }
@@ -206,8 +211,8 @@ fn a_record_is_refused_before_it_is_sent_and_fails_its_request_when_it_escapes()
             .unwrap();
         let report = crawl.serve(&run).await.unwrap();
         let committed = (
-            committed(&run, &products).await,
-            committed(&run, &notes).await,
+            committed(&run, "products").await,
+            committed(&run, "notes").await,
         );
         foxhound.close().await.unwrap();
         (report, committed)
@@ -240,5 +245,186 @@ fn a_record_is_refused_before_it_is_sent_and_fails_its_request_when_it_escapes()
         ),
         (vec![1], 1, 1),
         "{requests:?}"
+    );
+}
+
+/// A product as a reader reads it, whose price must be a string, with
+/// every field it does not declare kept.
+#[derive(Debug, PartialEq, Deserialize)]
+struct StrictProduct {
+    id: String,
+    name: String,
+    price: String,
+    #[serde(flatten)]
+    other: serde_json::Map<String, Value>,
+}
+
+/// A crawl whose listing handler pushes three kettles keyed by `id`, the
+/// second with a number for its price, and a fourth without its key.
+fn kettle_shelf() -> (Crawl<'static>, Label<()>, Dataset<Value>) {
+    let mut crawl = Crawl::new();
+    let listing = crawl.label::<()>("listing").unwrap();
+    let products = crawl
+        .dataset(DatasetDeclaration::<Value>::new("products").key(&["id"]))
+        .unwrap();
+    let shelf = products.clone();
+    crawl
+        .handle(&listing, move |ctx: CrawlContext<()>| async move {
+            for record in [
+                json!({"id": "P-1", "name": "Blue kettle", "price": "12.50"}),
+                json!({"id": "P-2", "name": "Red kettle", "price": 9.99}),
+                json!({"id": "P-3", "name": "Green kettle", "price": "3.00", "colour": "green"}),
+                json!({"name": "Nameless kettle", "price": "1.00"}),
+            ] {
+                match ctx.push(&shelf, &record).await {
+                    Err(error) if error.code() != error_code::RECORD_INVALID => {
+                        return Err(error.into());
+                    }
+                    _ => {}
+                }
+            }
+            Ok(())
+        })
+        .unwrap();
+    (crawl, listing, products)
+}
+
+/// A typed read stops at the Record its type refuses, and resumes past
+/// it. The engine refuses the Record without its key into the rejection
+/// table, which reads with its reason, issue, request and URL.
+///
+/// Covers: story:11-1060, story:11-1061, story:11-1070, error:record_invalid
+#[test]
+fn reads_records_as_a_readers_type_past_after_and_the_rejection_table() {
+    let env = TestEnv::new();
+    let site = ProvingGround::start(&env, SEED).unwrap();
+    let start = site.start_url(TASK).unwrap();
+    let (crawl, listing, products) = kettle_shelf();
+    // A reader's own declaration of the Dataset, whose type wants a string
+    // price.
+    let typed = Crawl::new().dataset::<StrictProduct>("products").unwrap();
+
+    let (numbers, stopped, resumed, rejected, past_rejected) =
+        real_time_runtime().block_on(async {
+            let foxhound = Foxhound::connect(super::options(&env).settings(site_settings(&site)))
+                .await
+                .unwrap();
+            let run = foxhound
+                .start_crawl(&crawl, [Seed::new(&start, &listing, ())])
+                .await
+                .unwrap();
+            // Read while the Run is live: the read follows it until it ends.
+            let (served, read) = tokio::join!(
+                crawl.serve(&run),
+                run.records(&products).try_collect::<Vec<_>>()
+            );
+            served.unwrap();
+            let numbers: Vec<_> = read
+                .unwrap()
+                .into_iter()
+                .map(|record| (record.value["id"].clone(), record.number, record.request_id))
+                .collect();
+            let mut refusing = run.records(&typed).after(numbers[0].1);
+            let stopped = (
+                refusing
+                    .next()
+                    .await
+                    .map(|read| read.map(|record| record.number)),
+                refusing.next().await.is_none(),
+            );
+            let resumed: Vec<_> = run
+                .records(&typed)
+                .after(numbers[1].1)
+                .try_collect()
+                .await
+                .unwrap();
+            let resumed: Vec<_> = resumed.into_iter().map(|record| record.value).collect();
+            let rejected: Vec<_> = run.rejected_records(&products).try_collect().await.unwrap();
+            let mut read = run.rejected_records(&products).after(1);
+            let past_rejected = read
+                .next()
+                .await
+                .map(|entry| entry.map(|entry| entry.number));
+            foxhound.close().await.unwrap();
+            (numbers, stopped, resumed, rejected, past_rejected)
+        });
+
+    // The one crawl request that pushed every Record, kept or rejected.
+    let requests: BTreeSet<_> = numbers
+        .iter()
+        .map(|(_, _, request)| request.clone())
+        .collect();
+    let numbers: Vec<_> = numbers
+        .into_iter()
+        .map(|(id, number, _)| (id, number))
+        .collect();
+    assert_eq!(
+        numbers,
+        [(json!("P-1"), 1), (json!("P-2"), 2), (json!("P-3"), 3)]
+    );
+    assert_eq!(requests.len(), 1, "{requests:?}");
+    let (Some(Err(error)), true) = stopped else {
+        panic!("the typed read did not stop at P-2: {stopped:?}");
+    };
+    assert_eq!(error.code(), error_code::RECORD_INVALID, "{error:?}");
+    let details: RecordInvalidDetails = error.details().expect("a record_invalid's details");
+    assert_eq!(
+        (
+            details.dataset.as_str(),
+            details.number,
+            details
+                .records
+                .iter()
+                .map(|record| record.position)
+                .collect::<Vec<_>>(),
+        ),
+        ("products", Some(2), vec![0])
+    );
+    assert_eq!(
+        resumed,
+        [StrictProduct {
+            id: "P-3".to_owned(),
+            name: "Green kettle".to_owned(),
+            price: "3.00".to_owned(),
+            other: serde_json::Map::from_iter([("colour".to_owned(), json!("green"))]),
+        }]
+    );
+    assert_the_keyless_kettle_rejected(rejected, requests, &start);
+    assert!(past_rejected.is_none(), "{past_rejected:?}");
+}
+
+/// The rejection table holds the keyless kettle alone, with a reason, the
+/// `/id` issue, no Hook, and the request and URL that pushed it.
+fn assert_the_keyless_kettle_rejected(
+    rejected: Vec<RejectedRecord>,
+    requests: BTreeSet<String>,
+    start: &str,
+) {
+    let rejected: Vec<_> = rejected
+        .into_iter()
+        .map(|entry| {
+            let paths: Vec<_> = entry.issues.into_iter().map(|issue| issue.path).collect();
+            (
+                entry.number,
+                entry.data,
+                !entry.reason.trim().is_empty(),
+                paths,
+                entry.hook,
+                BTreeSet::from([entry.request_id]),
+                entry.url,
+            )
+        })
+        .collect();
+    assert_eq!(
+        rejected,
+        [(
+            1,
+            json!({"name": "Nameless kettle", "price": "1.00"}),
+            true,
+            vec!["/id".to_owned()],
+            None,
+            requests,
+            start.to_owned()
+        )]
     );
 }

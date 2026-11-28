@@ -36,6 +36,8 @@ pub enum ListenerKind {
     PrivateEndpoint,
     /// The Daemon's ops listener: its probes and `/metrics` (ADR 0050).
     OpsListener,
+    /// The Daemon's HTTP JSON-RPC listener (`POST /v1/rpc`, ADR 0027).
+    HttpListener,
     /// The Daemon's WebSocket: the protocol over WebSocket, its handshake
     /// held to the Daemon's `Host` and `Origin` (ADRs 0049 and 0067).
     DaemonWebsocket,
@@ -59,10 +61,11 @@ pub enum ListenerKind {
 
 impl ListenerKind {
     /// Every listener, each of which must have a row.
-    pub(super) const ALL: [Self; 8] = [
+    pub(super) const ALL: [Self; 9] = [
         Self::DaemonSocket,
         Self::PrivateEndpoint,
         Self::OpsListener,
+        Self::HttpListener,
         Self::DaemonWebsocket,
         Self::ExposedDaemon,
         Self::ProxyRelay,
@@ -79,6 +82,7 @@ impl ListenerKind {
             Self::OpsListener => Transport::Http {
                 protected_path: "/metrics",
             },
+            Self::HttpListener => Transport::HttpRpc { path: "/v1/rpc" },
             Self::DaemonWebsocket => Transport::WebSocket,
             Self::ProxyRelay => Transport::HttpProxy,
             Self::LiveView => Transport::LiveViewChannel,
@@ -95,6 +99,9 @@ pub(super) enum Transport {
     JsonRpcStream,
     /// HTTP/1.1, with the token as a bearer token on `protected_path`.
     Http { protected_path: &'static str },
+    /// HTTP/1.1 JSON-RPC (`POST /v1/rpc`), with `hello` fields in headers
+    /// and the token as a bearer token (ADR 0027).
+    HttpRpc { path: &'static str },
     /// JSON-RPC over WebSocket, one message per WebSocket message, that
     /// opens with a `hello` carrying the token once its handshake is
     /// accepted (ADR 0049).
@@ -181,7 +188,11 @@ pub enum Rule {
 impl Rule {
     /// Whether the runner can try this rule over `transport`.
     fn tried_over(self, transport: Transport) -> bool {
-        let http = matches!(transport, Transport::Http { .. });
+        let http = matches!(
+            transport,
+            Transport::Http { .. } | Transport::HttpRpc { .. }
+        );
+        let http_rpc = matches!(transport, Transport::HttpRpc { .. });
         let websocket = transport.is_websocket();
         let proxy = transport == Transport::HttpProxy;
         let peer_mtls = transport == Transport::PeerMutualTls;
@@ -196,8 +207,10 @@ impl Rule {
             | Self::OriginMissing
             | Self::HostForeign
             | Self::OriginForeign => http || websocket,
-            Self::ProbesAnswerStatusOnly | Self::OriginMissingWithoutHeaderToken => http,
-            Self::HelloNotFirst | Self::PlainWhereTlsConfigured => !http && !proxy,
+            Self::OriginMissingWithoutHeaderToken => http,
+            Self::ProbesAnswerStatusOnly => matches!(transport, Transport::Http { .. }),
+            Self::HelloNotFirst => !http && !proxy,
+            Self::PlainWhereTlsConfigured => (!http || http_rpc) && !proxy,
             Self::CertificateUnknownAuthority
             | Self::CertificateRevoked
             | Self::CertificateExpired => peer_mtls,
@@ -256,7 +269,11 @@ impl Expected {
     /// Whether a listener reached over `transport` can give this answer to
     /// `rule`'s attempt.
     fn fits(self, rule: Rule, transport: Transport) -> bool {
-        let http = matches!(transport, Transport::Http { .. } | Transport::HttpProxy);
+        let http = matches!(
+            transport,
+            Transport::Http { .. } | Transport::HttpRpc { .. } | Transport::HttpProxy
+        );
+        let http_rpc = matches!(transport, Transport::HttpRpc { .. });
         let websocket = transport.is_websocket();
         let at_the_handshake = rule.at_the_handshake();
         rule.tried_over(transport)
@@ -266,15 +283,22 @@ impl Expected {
                         transport,
                         Transport::JsonRpcStream | Transport::PeerMutualTls
                     ) || (websocket && !at_the_handshake)
+                        || (http_rpc && rule == Rule::PlainWhereTlsConfigured)
                 }
                 Self::Status { status } => {
                     (http || (websocket && at_the_handshake))
                         && (400..=499).contains(&status)
                         && rule != Rule::ProbesAnswerStatusOnly
                 }
-                Self::StatusOnly => http && rule == Rule::ProbesAnswerStatusOnly,
+                Self::StatusOnly => {
+                    matches!(transport, Transport::Http { .. })
+                        && rule == Rule::ProbesAnswerStatusOnly
+                }
                 Self::Accepted => {
-                    matches!(transport, Transport::Http { .. }) && rule == Rule::OriginMissing
+                    matches!(
+                        transport,
+                        Transport::Http { .. } | Transport::HttpRpc { .. }
+                    ) && rule == Rule::OriginMissing
                 }
                 Self::Challenge => transport == Transport::HttpProxy && rule == Rule::TokenMissing,
             }

@@ -37,7 +37,9 @@ use crate::control_state::ControlStateRegistry;
 use crate::controls::Controls;
 use crate::daemon::{self, DaemonEnd, DaemonOptions};
 use crate::endpoint::Refusals;
-use crate::engine_context::{EngineContext, Host, Stores, ToTheDaemon, host_zone, os_user, places};
+use crate::engine_context::{
+    EngineContext, Host, Stores, ToTheDaemon, has_display, host_zone, os_user, places,
+};
 use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
 use crate::forward::{DaemonReach, ThroughTheReach, ToOwner};
@@ -614,6 +616,7 @@ impl Engine {
             Host {
                 person: os_user(&dependencies.environment),
                 zone: host_zone(&dependencies.environment),
+                display: has_display(&dependencies.environment),
                 entropy: dependencies.entropy.stream(HANDLERS_STREAM),
                 places: places(&dependencies.home, &dependencies.environment),
                 daemon,

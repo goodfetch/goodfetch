@@ -36,6 +36,7 @@ enum Set {
     CleanUpRules,
     BlockDetectionRules,
     IdentityPopulation,
+    HumanInput,
 }
 
 impl From<Set> for Ecosystem {
@@ -45,6 +46,7 @@ impl From<Set> for Ecosystem {
             Set::CleanUpRules => Self::CleanUpRules,
             Set::BlockDetectionRules => Self::BlockDetectionRules,
             Set::IdentityPopulation => Self::IdentityPopulation,
+            Set::HumanInput => Self::HumanInput,
         }
     }
 }

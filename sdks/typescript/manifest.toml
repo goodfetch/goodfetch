@@ -305,6 +305,24 @@ form = "read"
 
 [[member]]
 package = "@goodfetch/foxhound"
+receiver = "AttemptRun"
+member = "records"
+entry = "none"
+reason = "Reads `run.records` through the last Record `dataset.page` answers as committed, then ends: the Run cannot end while the handler holds its request (ADR 0103)."
+words = ["records"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "AttemptRun"
+member = "rejectedRecords"
+entry = "none"
+reason = "Reads `run.rejected_records` through the last entry `dataset.list` counts, then ends: the Run cannot end while the handler holds its request (ADR 0103)."
+words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/foxhound"
 receiver = "CrawlContext"
 member = "page"
 entry = "none"
@@ -343,6 +361,46 @@ member = "records"
 entry = "run.records"
 words = ["records"]
 form = "opener"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
+member = "rejectedRecords"
+entry = "run.rejected_records"
+words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
+member = "finish"
+entry = "run.finish"
+words = ["finish"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
+member = "stop"
+entry = "run.stop"
+words = ["stop"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
+member = "report"
+entry = "run.report"
+words = ["report"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
+member = "progress"
+entry = "run.progress"
+words = ["progress"]
+form = "round_trip"
 
 [[member]]
 package = "@goodfetch/foxhound"
@@ -547,6 +605,15 @@ entry = "none"
 reason = "The scoped form of `close()` (ADR 0078), whose line serves `run.abort`."
 words = ["close"]
 form = "closer"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "limitList"
+entry = "none"
+reason = "The wire's list of a Run's `limits`, which each Product's start sends (ADR 0080)."
+words = ["limit", "list"]
+form = "runtime"
 
 [[member]]
 package = "@goodfetch/collie-client/runtime"
@@ -2556,6 +2623,24 @@ form = "runtime"
 [[member]]
 package = "@goodfetch/collie-client/runtime"
 receiver = "(module)"
+member = "paged"
+entry = "none"
+reason = "Opens a Product's paged read, such as `run.rejected_records`, as a sequence's stream: a page asked while the program has credit left, each of its items handed in order."
+words = ["paged"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "FOLLOWED_VALUE"
+entry = "none"
+reason = "The method a `paged` read hands each item under, which a Product's sequence's `itemOf` reads."
+words = ["followed", "value"]
+form = "constant"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
 member = "RunHost"
 entry = "none"
 reason = "What a Run reaches its engine through: its Connection, which a Product's Run type is built on."
@@ -2864,6 +2949,26 @@ form = "type"
 [[member]]
 package = "@goodfetch/foxhound"
 receiver = "(module)"
+member = "CodeFreeCrawl"
+entry = "none"
+reason = "A crawl `Foxhound.startCrawl` starts with no handler: a `CrawlDeclaration` or an `extraction` (ADR 0093)."
+only = "Rust's `start_crawl` takes a `CrawlTarget`, which a `Crawl`, a `CrawlDeclaration` or a `CrawlExtraction` converts into."
+words = ["code", "free", "crawl"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "StartCodeFreeCrawlOptions"
+entry = "none"
+reason = "What `Foxhound.startCrawl` takes for a code-free crawl: `StartCrawlOptions` and `detached` (ADR 0093)."
+only = "Rust's `start_crawl` returns the builder `StartCrawl`, which takes each option by a call of its own (ADR 0112)."
+words = ["start", "code", "free", "crawl", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
 member = "Crawl"
 entry = "none"
 reason = "A crawl's declaration (ADR 0093), which `crawl.start` sends."
@@ -3061,8 +3166,27 @@ receiver = "(module)"
 member = "RecordsOptions"
 entry = "none"
 reason = "What `CrawlRun.records()` takes."
-only = "Rust's `CrawlRun::records` takes the Dataset alone, reads every Record from the first, its value as JSON, and does not resume on a new connection."
+only = "Rust's `CrawlRun::records` returns the builder `ReadRecords`, whose `after` sets the number to read past, and does not resume on a new connection; Python's `records` takes `after` as a keyword argument."
 words = ["records", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "RejectedRecordsOptions"
+entry = "none"
+reason = "What `CrawlRun.rejectedRecords()` takes: the number of the last entry a reader handled, and its signal."
+only = "Python's `rejected_records` takes `after` as a keyword argument, and Rust's `rejected_records` returns the builder `ReadRejectedRecords`, whose `after` sets it."
+words = ["rejected", "records", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "DatasetRecord"
+entry = "none"
+reason = "A committed Record as `CrawlRun.records()` reads it: the wire's Record with its value of the Dataset's own output type, parsed by its typed schema (ADR 0103, G3)."
+words = ["dataset", "record"]
 form = "type"
 
 [[member]]
@@ -3176,6 +3300,14 @@ form = "round_trip"
 
 [[member]]
 package = "@goodfetch/collie-client"
+receiver = "Schedules"
+member = "preview"
+entry = "schedule.preview"
+words = ["preview"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
 receiver = "(module)"
 member = "Schedule"
 entry = "none"
@@ -3221,6 +3353,16 @@ entry = "none"
 reason = "The options of a `Schedules` read: its own `timeout` and the `signal` that cancels it (ADR 0080)."
 only = "Python and Rust take `timeout` as a keyword argument and through `Call`, with no options type."
 words = ["schedule", "call", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "SchedulePreviewOptions"
+entry = "none"
+reason = "The options of `schedules.preview`: `timeZone`, `after`, `count`, `timeout` and `signal` (spec 588)."
+only = "Python takes keyword arguments and Rust takes builder methods on `Call`, with no options type."
+words = ["schedule", "preview", "options"]
 form = "type"
 
 [[member]]
@@ -3326,7 +3468,3 @@ reason = "Issue 1494 adds `seeds()`, `addSeed` and `addSeeds` to a running crawl
 [[unreached]]
 entries = ["run.outcomes", "run.failed_requests", "run.retry_failed"]
 reason = "Issue 1495 adds `outcomes`, `failedRequests` and `retryFailed`."
-
-[[unreached]]
-entries = ["run.rejected_records"]
-reason = "Issue 1489 adds `rejectedRecords` to a Run read through `openCrawlRun`."

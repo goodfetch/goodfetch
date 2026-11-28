@@ -4890,6 +4890,21 @@
       ],
       "type": "object"
     },
+    "CronTrigger": {
+      "additionalProperties": false,
+      "description": "A cron expression: five fields (minute, hour, day of month, month, day\nof week) plus optional seconds first, `L`, `W`, `#` and the\n`@daily`-style macros (ADR 0036).",
+      "properties": {
+        "cron": {
+          "arrived_in": "0.1",
+          "description": "The cron expression, such as `0 9 * * MON-FRI` or `@daily`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cron"
+      ],
+      "type": "object"
+    },
     "DaemonDrainingDetails": {
       "description": "What `daemon_draining` details.",
       "properties": {
@@ -5035,6 +5050,14 @@
           "minimum": 0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "http_listener": {
+          "arrived_in": "0.1",
+          "description": "Where the Daemon's HTTP JSON-RPC listener listens (`host:port`); none\nwhile `http_listener.enabled` is off (ADR 0027).",
+          "type": [
+            "string",
             "null"
           ]
         },
@@ -5899,6 +5922,20 @@
         "waited_for"
       ],
       "type": "object"
+    },
+    "Declared": {
+      "description": "The rows a list declares: a count, or `unknown` for `-1`.",
+      "oneOf": [
+        {
+          "description": "This many.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "const": "unknown",
+          "description": "The list says it does not know."
+        }
+      ]
     },
     "DeclaredExtract": {
       "additionalProperties": false,
@@ -11780,6 +11817,22 @@
       ],
       "type": "object"
     },
+    "ListEnded": {
+      "description": "How a scroll collection ended, open (ADR 0079).",
+      "oneOf": [
+        {
+          "const": "end_of_list",
+          "description": "`idle_steps` steps in a row brought no new key.",
+          "type": "string"
+        },
+        {
+          "const": "max_rows",
+          "description": "It kept `max_rows` rows.",
+          "type": "string"
+        }
+      ],
+      "open": true
+    },
     "ListField": {
       "additionalProperties": false,
       "description": "A list: the value field read from every element its locator finds, in\ndocument order.",
@@ -13207,6 +13260,88 @@
           ],
           "arrived_in": "0.1",
           "description": "Where it runs; the main world when absent."
+        }
+      },
+      "required": [
+        "locator",
+        "function"
+      ],
+      "type": "object"
+    },
+    "LocatorScrollCollectParams": {
+      "additionalProperties": false,
+      "description": "What `locator.scroll_collect` takes (#807): the locator, the page\nfunction reading each match, its argument and world, and when the\ncollection ends.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "arg": {
+          "arrived_in": "0.1",
+          "description": "Its one argument, JSON; absent for none."
+        },
+        "function": {
+          "arrived_in": "0.1",
+          "description": "The page function's JavaScript source, called with each matched\nelement and `arg`: it answers the row's `{ key, value }`, `key` a\nstring, or `null` to skip the element.",
+          "type": "string"
+        },
+        "idle_steps": {
+          "arrived_in": "0.1",
+          "description": "The steps in a row without a new key at which it ends\n`end_of_list`, at least 1; 3 when absent.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator, whose every match the function reads, resolved again\nat each step."
+        },
+        "max_rows": {
+          "arrived_in": "0.1",
+          "description": "The rows at which the collection ends `max_rows`, at least 1;\n10,000 when absent.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "step_wait": {
+          "arrived_in": "0.1",
+          "description": "How long a step waits for an element with a new key after its\nscroll, in milliseconds, at least 1; 2,000 when absent.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the whole collection may take, in milliseconds, at least\n1: absent for `timeout.wait`, `null` for none, though an enclosing\ntimeout still applies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.wait",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "world": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/World"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Where it runs; the isolated world when absent."
         }
       },
       "required": [
@@ -18412,6 +18547,26 @@
         }
       ]
     },
+    "PreviewOccurrence": {
+      "description": "One previewed Occurrence of a trigger: its UTC instant and its local\ncivil date-time with offset in the preview's IANA time zone.",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When the Occurrence falls, as a UTC instant."
+        },
+        "local": {
+          "arrived_in": "0.1",
+          "description": "The same instant written in the preview's IANA time zone with its\noffset, such as `2026-03-29T03:00:00+02:00[Europe/Paris]`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "local"
+      ],
+      "type": "object"
+    },
     "PrivateEndpoint": {
       "additionalProperties": false,
       "description": "An Attached engine's private endpoint (ADRs 0024 and 0031): where it\nlistens, a `0600` Unix socket on macOS and Linux or loopback TCP on\nWindows, and the `0600` file holding the token that each Connection's\n`hello` there carries, as a Daemon's does.",
@@ -18825,6 +18980,54 @@
         "crv",
         "x",
         "kid"
+      ],
+      "type": "object"
+    },
+    "PublishedCatalog": {
+      "additionalProperties": false,
+      "description": "The self-contained Operation catalog published with every release.",
+      "properties": {
+        "$defs": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Every JSON Schema definition (`#/$defs/...`) reached by `catalog` and\n`connection`.",
+          "type": "object"
+        },
+        "$schema": {
+          "arrived_in": "0.1",
+          "description": "The JSON Schema draft of `$defs`.",
+          "type": "string"
+        },
+        "catalog": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Every catalog section of both Products (`operations`, `events`,\n`error_codes`, `exit_codes`, `protocol_failures`, `plugin_kinds`,\n`metrics`, `settings`, `hook_stages`, `shared_types`, `kind_parts`, …),\neach entry carrying its `product` mark (`collie` or `foxhound`).",
+          "type": "object"
+        },
+        "connection": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The Connection handshake and framing types outside the catalog (`hello`,\n`cancel`, `credit`, `events`, `chunk`, `meta`, …).",
+          "type": "object"
+        },
+        "format_version": {
+          "$ref": "#/$defs/ProtocolVersion",
+          "arrived_in": "0.1",
+          "description": "The version of the `published-catalog` format this file was written in."
+        },
+        "protocol_version": {
+          "$ref": "#/$defs/ProtocolVersion",
+          "arrived_in": "0.1",
+          "description": "The protocol version this release's engines speak."
+        }
+      },
+      "required": [
+        "format_version",
+        "protocol_version",
+        "$schema",
+        "catalog",
+        "connection",
+        "$defs"
       ],
       "type": "object"
     },
@@ -19310,6 +19513,16 @@
           "arrived_in": "0.1",
           "description": "The Dataset's name.",
           "type": "string"
+        },
+        "number": {
+          "arrived_in": "0.1",
+          "description": "The Record's number in its Dataset when an SDK reading it from\n`run.records` could not parse it, which `records` then holds at\nposition 0; absent when a push or a handler's answer is refused.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "records": {
           "arrived_in": "0.1",
@@ -22612,6 +22825,16 @@
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
           "description": "The crawl's Run."
+        },
+        "through": {
+          "arrived_in": "0.1",
+          "description": "The number of the last entry to read, such as the `rejected` count\n`dataset.list` answers: no entry past it is read, and the read never\nwaits, a live Run's included. A page says `ended` once it reaches\nthat number or has read every committed entry, as when an erase left\nfewer entries than the count. Absent, it follows a live Run until\nthe Run ends.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -24125,6 +24348,55 @@
         }
       ]
     },
+    "ScheduleCapExceededDetails": {
+      "description": "What `schedule_cap_exceeded` details: which Operator policy cap was\nexceeded and which Operator policy setting (and version, when present)\nimposed it.",
+      "properties": {
+        "cap": {
+          "$ref": "#/$defs/ScheduleCapKind",
+          "arrived_in": "0.1",
+          "description": "Which cap was exceeded: `count`, `min_interval` or `period_limit`."
+        },
+        "policy": {
+          "arrived_in": "0.1",
+          "description": "The Operator policy key that set the cap (`schedule.max_count`,\n`schedule.min_interval` or `schedule.limits_max`).",
+          "type": "string"
+        },
+        "policy_version": {
+          "arrived_in": "0.1",
+          "description": "The Operator policy's version, when the policy carries one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "cap",
+        "policy"
+      ],
+      "type": "object"
+    },
+    "ScheduleCapKind": {
+      "description": "Which Operator policy cap a Schedule exceeded (`schedule_cap_exceeded`).",
+      "oneOf": [
+        {
+          "const": "count",
+          "description": "`schedule.max_count`: maximum number of Schedules held by the Daemon.",
+          "type": "string"
+        },
+        {
+          "const": "min_interval",
+          "description": "`schedule.min_interval`: minimum interval between consecutive occurrences.",
+          "type": "string"
+        },
+        {
+          "const": "period_limit",
+          "description": "`schedule.limits_max`: maximum period Limit on a Schedule.",
+          "type": "string"
+        }
+      ],
+      "open": true
+    },
     "ScheduleCreateParams": {
       "additionalProperties": false,
       "description": "What `schedule.create` takes.",
@@ -24193,6 +24465,27 @@
           ],
           "arrived_in": "0.1",
           "description": "Its ID; one is made when absent: `s` and a lowercase ULID."
+        },
+        "limits": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SchedulePeriodLimits"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Schedule's period Limits (`day`, `week`, `month`), counted in\nits time zone and bounded by Operator policy's `schedule.limits_max`."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The Schedule's own `schedule.*` settings, nested by key, layered\nabove user configuration and held to Operator policy locks and caps.",
+          "type": [
+            "object",
+            "null"
+          ]
         },
         "target": {
           "$ref": "#/$defs/ScheduleTarget",
@@ -24295,10 +24588,31 @@
           "description": "The person who created it, for whom its occurrences fire.",
           "type": "string"
         },
+        "limits": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SchedulePeriodLimits"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Schedule's period Limits, when the definition set any."
+        },
         "schedule_id": {
           "$ref": "#/$defs/ScheduleId",
           "arrived_in": "0.1",
           "description": "Its ID."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The Schedule's own `schedule.*` settings, when the definition set any.",
+          "type": [
+            "object",
+            "null"
+          ]
         },
         "state": {
           "$ref": "#/$defs/ScheduleState",
@@ -24423,6 +24737,135 @@
       ],
       "type": "object"
     },
+    "SchedulePeriodLimits": {
+      "additionalProperties": false,
+      "description": "Period Limits on a Schedule, or Operator policy caps on them\n(`schedule.limits_max`, ADRs 0036, 0041 and 0080): caps on total Usage\nacross the Schedule's runs per `day`, `week` or `month` in the\nSchedule's time zone.",
+      "properties": {
+        "day": {
+          "arrived_in": "0.1",
+          "description": "Limits per day, counted in the Schedule's time zone.",
+          "items": {
+            "$ref": "#/$defs/RunLimit"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "month": {
+          "arrived_in": "0.1",
+          "description": "Limits per month, counted in the Schedule's time zone.",
+          "items": {
+            "$ref": "#/$defs/RunLimit"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "week": {
+          "arrived_in": "0.1",
+          "description": "Limits per week, counted in the Schedule's time zone.",
+          "items": {
+            "$ref": "#/$defs/RunLimit"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "SchedulePreview": {
+      "description": "What `schedule.preview` answers.",
+      "properties": {
+        "description": {
+          "$ref": "#/$defs/TriggerDescription",
+          "arrived_in": "0.1",
+          "description": "The plain-words description of the trigger."
+        },
+        "occurrences": {
+          "arrived_in": "0.1",
+          "description": "The next occurrences strictly after `after` (or now), in order.",
+          "items": {
+            "$ref": "#/$defs/PreviewOccurrence"
+          },
+          "type": "array"
+        },
+        "time_zone": {
+          "arrived_in": "0.1",
+          "description": "The IANA time zone used.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "time_zone",
+        "occurrences"
+      ],
+      "type": "object"
+    },
+    "SchedulePreviewParams": {
+      "additionalProperties": false,
+      "description": "What `schedule.preview` takes: a trigger, an optional IANA time zone\n(the Daemon host's when absent), an optional instant after which\noccurrences are listed (now when absent) and how many to list (5 when\nabsent, at most 100).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The instant strictly after which occurrences are listed; now when\nabsent."
+        },
+        "count": {
+          "arrived_in": "0.1",
+          "description": "How many occurrences to list; 5 when absent, at most 100.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "time_zone": {
+          "arrived_in": "0.1",
+          "description": "The IANA time zone, such as `Europe/Paris`; the Daemon host's when\nabsent, never \"local\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the call may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.wait",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "trigger": {
+          "$ref": "#/$defs/ScheduleTrigger",
+          "arrived_in": "0.1",
+          "description": "The trigger to preview."
+        }
+      },
+      "required": [
+        "trigger"
+      ],
+      "type": "object"
+    },
     "ScheduleState": {
       "description": "Whether a Schedule fires.",
       "oneOf": [
@@ -24449,6 +24892,10 @@
     },
     "ScheduleTrigger": {
       "anyOf": [
+        {
+          "$ref": "#/$defs/CronTrigger",
+          "description": "A cron expression."
+        },
         {
           "$ref": "#/$defs/EveryTrigger",
           "description": "At a fixed interval."
@@ -24537,6 +24984,39 @@
       "required": [
         "exception_type",
         "exception_message"
+      ],
+      "type": "object"
+    },
+    "ScrollCollected": {
+      "description": "What `locator.scroll_collect` answers (#807): the rows, how the\ncollection ended and what the list declares, so a short read is never\nsilent.",
+      "properties": {
+        "declared": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Declared"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The rows the list declares through `aria-rowcount` or its items'\n`aria-setsize`; `null` when it declares none."
+        },
+        "ended": {
+          "$ref": "#/$defs/ListEnded",
+          "arrived_in": "0.1",
+          "description": "How it ended."
+        },
+        "rows": {
+          "arrived_in": "0.1",
+          "description": "Each new key's value, in the order its key was first seen.",
+          "items": true,
+          "type": "array"
+        }
+      },
+      "required": [
+        "rows",
+        "ended"
       ],
       "type": "object"
     },
@@ -27124,6 +27604,107 @@
         }
       ]
     },
+    "StructuredTriggerDescription": {
+      "description": "The structured form of a trigger's plain-words description, which a\nClient translates into its own locale (ADR 0073).",
+      "oneOf": [
+        {
+          "description": "A fixed-interval trigger: every `every` milliseconds from `anchor`.",
+          "properties": {
+            "anchor": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PointInTime"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "arrived_in": "0.1",
+              "description": "The anchor instant, when the trigger names one."
+            },
+            "every": {
+              "arrived_in": "0.1",
+              "description": "The interval, in milliseconds.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "every",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "every"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A cron expression, split into its normalized fields and DST class.",
+          "properties": {
+            "day_of_month": {
+              "arrived_in": "0.1",
+              "description": "The day-of-month field.",
+              "type": "string"
+            },
+            "day_of_week": {
+              "arrived_in": "0.1",
+              "description": "The day-of-week field.",
+              "type": "string"
+            },
+            "expression": {
+              "arrived_in": "0.1",
+              "description": "The expression as given.",
+              "type": "string"
+            },
+            "fixed_time": {
+              "arrived_in": "0.1",
+              "description": "Whether DST treats this expression as fixed-time (runs once\nafter a spring gap and once in an autumn overlap) rather than\nwildcard or step (skips a gap and runs on both passes of an\noverlap).",
+              "type": "boolean"
+            },
+            "hours": {
+              "arrived_in": "0.1",
+              "description": "The hours field.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "cron",
+              "type": "string"
+            },
+            "minutes": {
+              "arrived_in": "0.1",
+              "description": "The minutes field.",
+              "type": "string"
+            },
+            "month": {
+              "arrived_in": "0.1",
+              "description": "The month field.",
+              "type": "string"
+            },
+            "seconds": {
+              "arrived_in": "0.1",
+              "description": "The seconds field, when the expression named one.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "expression",
+            "minutes",
+            "hours",
+            "day_of_month",
+            "month",
+            "day_of_week",
+            "fixed_time"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "SubscriptionEnded": {
       "description": "What `events.subscribe` answers when its subscription ends without the\nClient cancelling it: the engine stopped, or the subscription redirected to\nthe Run's owning Group member (ADR 0055).",
       "properties": {
@@ -27207,6 +27788,11 @@
         {
           "const": "worker",
           "description": "A Script sandbox worker.",
+          "type": "string"
+        },
+        {
+          "const": "http_listener",
+          "description": "A plain HTTP client calling the Daemon's HTTP JSON-RPC listener\n(`POST /v1/rpc`, ADR 0027): its Runs outlive the HTTP request, and it\nis never a person surface.",
           "type": "string"
         }
       ]
@@ -27791,6 +28377,26 @@
         "field",
         "text",
         "transform"
+      ],
+      "type": "object"
+    },
+    "TriggerDescription": {
+      "description": "The plain-words description of a trigger (ADR 0073): a structured form\na Client can render in its own locale, and the engine's English\nrendering.",
+      "properties": {
+        "english": {
+          "arrived_in": "0.1",
+          "description": "The trigger in plain English, such as `Every 15 minutes` or\n`At 09:00, Monday through Friday`.",
+          "type": "string"
+        },
+        "structured": {
+          "$ref": "#/$defs/StructuredTriggerDescription",
+          "arrived_in": "0.1",
+          "description": "The structured form of the trigger, for a Client's own translation."
+        }
+      },
+      "required": [
+        "structured",
+        "english"
       ],
       "type": "object"
     },
@@ -29805,6 +30411,18 @@
                 },
                 "type": "object"
               },
+              "http_listener": {
+                "additionalProperties": false,
+                "properties": {
+                  "port": {
+                    "description": "The port the Daemon's HTTP listener binds to when `http_listener.enabled` is on: 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's listener has a port of its own. Port 0 takes a free port, which the Daemon's log and `daemon.status` report. Set in user configuration or an Operator policy only.",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "log": {
                 "additionalProperties": false,
                 "properties": {
@@ -30028,6 +30646,89 @@
                 "properties": {
                   "echo_repeats": {
                     "description": "How many times the sample operation repeats a text.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "schedule": {
+                "additionalProperties": false,
+                "properties": {
+                  "auto_pause": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "failures": {
+                        "description": "How many consecutive failed, rejected or failed-to-start occurrences auto-pause a Schedule: `3` by default, `0` for never.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "jitter": {
+                    "description": "Upper bound in milliseconds of the fixed random delay drawn once at Schedule creation and added to every occurrence; `0` by default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max_count": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Maximum number of Schedules the Daemon may hold; unset by default. Set only in an Operator policy; a creation past it fails with `schedule_cap_exceeded`."
+                  },
+                  "min_interval": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Minimum interval in milliseconds allowed between consecutive occurrences of a Schedule; unset by default. Set only in an Operator policy; a creation below it fails with `schedule_cap_exceeded`."
+                  },
+                  "retention": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "changed_watches": {
+                        "description": "How many recent Watch runs that detected a change a Schedule keeps: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "history": {
+                        "description": "How long a Schedule's occurrence history is kept before retention drops older records, in milliseconds: 90 days by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "runs": {
+                        "description": "How many recent target runs a Schedule keeps before retention discards older ones: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "watch_runs": {
+                        "description": "How many recent Watch runs a Schedule keeps before retention discards older ones: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "tick": {
+                    "description": "Maximum sleep interval of the Daemon's scheduler loop in milliseconds before waking to re-check due occurrences: 60 s by default. Set only in user configuration or an Operator policy.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "wake_threshold": {
+                    "description": "Wall-clock advance beyond monotonic time, in milliseconds, that the scheduler treats as a machine wake from sleep: 2 minutes by default. Set only in user configuration or an Operator policy.",
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -30337,6 +31038,19 @@
                     "description": "Whether the Run trace keeps its CDP command log, `trace/cdp-commands.jsonl`: one line for each command the engine sends a Session's browser, its method only, never its params, up to the launch's last `Browser.close`. Off by default: no command's method goes to the Run trace's writer and the file is never written. Turn it on to see every command the engine sent, such as to debug a Run. No result, Record or Provenance entry reads the log, so off weakens no guarantee.",
                     "type": "boolean"
                   },
+                  "color_scheme": {
+                    "description": "The `prefers-color-scheme` media feature emulated for every page of the Session: `light` (the default, Playwright's), `dark`, or `no-preference`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "enum": [
+                      "light",
+                      "dark",
+                      "no-preference"
+                    ]
+                  },
+                  "device_scale_factor": {
+                    "description": "The device pixel ratio (`window.devicePixelRatio`) for every page of the Session: `1` by default. Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.",
+                    "exclusiveMinimum": 0.0,
+                    "type": "number"
+                  },
                   "executable_path": {
                     "anyOf": [
                       {
@@ -30348,6 +31062,55 @@
                     ],
                     "description": "The path of an installed Chromium-family browser executable on this machine, launched in place of the Browser cache's pinned Chrome for Testing build: `null` by default. Set in user configuration, an Operator policy, or a Group member's scope."
                   },
+                  "geolocation": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Coordinates emulated for `browser.geolocation` (spec #578, Playwright's\nshape).",
+                        "properties": {
+                          "accuracy": {
+                            "arrived_in": "0.1",
+                            "description": "Non-negative accuracy in meters; `0` when left out.",
+                            "format": "double",
+                            "minimum": 0.0,
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "latitude": {
+                            "arrived_in": "0.1",
+                            "description": "Latitude in degrees, from -90 to 90.",
+                            "format": "double",
+                            "maximum": 90.0,
+                            "minimum": -90.0,
+                            "type": "number"
+                          },
+                          "longitude": {
+                            "arrived_in": "0.1",
+                            "description": "Longitude in degrees, from -180 to 180.",
+                            "format": "double",
+                            "maximum": 180.0,
+                            "minimum": -180.0,
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "latitude",
+                          "longitude"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The geographic coordinates emulated for every page of the Session; `null` by default. Pages observe the coordinates when `geolocation` is granted in `browser.permissions`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens."
+                  },
+                  "has_touch": {
+                    "description": "Whether the Session's pages emulate a touch screen (`navigator.maxTouchPoints` and touch events): `false` by default (Playwright's `hasTouch`). Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "type": "boolean"
+                  },
                   "headless": {
                     "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.",
                     "type": "boolean"
@@ -30356,10 +31119,58 @@
                     "description": "Whether the Session's Chromium is Chrome for Testing's `chrome-headless-shell` build, of the same pinned release, in place of the full browser: `false` by default. The shell runs only headless and differs from the full browser in fingerprint and features: a site sees its own identity, `HeadlessChrome` in its user agent and client hints, where the full build shows its window's. It starts where the full browser's headless mode cannot, such as on macOS with no GUI session (`browser_needs_gui_session`). It is downloaded on first use, as the full build is. Refused with `setting_not_applicable` beside `browser.headless: false`, and under the `stealth` Access mode, which launches its own build; a Borrowed browser launches nothing, so it takes no effect there.",
                     "type": "boolean"
                   },
+                  "is_mobile": {
+                    "description": "Whether the Session's pages emulate a mobile viewport (`meta viewport` tag and mobile layout): `false` by default (Playwright's `isMobile`). Chromium only: `true` outside Chromium raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "type": "boolean"
+                  },
+                  "java_script_enabled": {
+                    "description": "Whether page scripts run in the Session's pages: `true` by default. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "type": "boolean"
+                  },
+                  "locale": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The BCP 47 locale tag emulated for every page of the Session, such as `fr-FR`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens."
+                  },
                   "mirror": {
                     "description": "The URL a missing Chrome for Testing build is downloaded below, each build at `<build>/<platform>/<archive>-<platform>.zip` as Chrome for Testing lays them out: Chrome for Testing's own storage by default, or a mirror of it, whose certificate may chain to the authorities `tls.trusted_cas` lists for its domain. A mirror is an Operator-configured endpoint: `egress.no_private_endpoints` refuses one on a private address. What it sends is still checked against the pinned digest. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
                     "pattern": "^https://[^/?#@\\s]+(/[^?#\\s]*)?$",
                     "type": "string"
+                  },
+                  "permissions": {
+                    "description": "Browser permissions (Playwright's names) granted to every page of the Session; `[]` by default. Clipboard permissions (`clipboard-read`, `clipboard-write`) are refused with `setting_not_applicable` on a headful Session (`browser.headless: false`) so the engine does not touch the person's desktop clipboard. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "items": {
+                      "enum": [
+                        "geolocation",
+                        "midi",
+                        "midi-sysex",
+                        "notifications",
+                        "camera",
+                        "microphone",
+                        "background-sync",
+                        "ambient-light-sensor",
+                        "accelerometer",
+                        "gyroscope",
+                        "magnetometer",
+                        "clipboard-read",
+                        "clipboard-write",
+                        "payment-handler",
+                        "storage-access",
+                        "local-fonts",
+                        "screen-wake-lock",
+                        "idle-detection",
+                        "periodic-background-sync",
+                        "window-management",
+                        "local-network-access"
+                      ]
+                    },
+                    "type": "array"
                   },
                   "service_workers": {
                     "description": "Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.",
@@ -30367,6 +31178,50 @@
                       "allow",
                       "block"
                     ]
+                  },
+                  "timezone_id": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The IANA time zone identifier emulated for every page of the Session, such as `Europe/Paris`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens."
+                  },
+                  "viewport": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "A page's viewport size in CSS pixels (spec #578, SA-23): both dimensions\nat least 1. Default is 1280×720, Playwright's; `null` clears it for the\nwindow's own size in a headful browser.",
+                        "properties": {
+                          "height": {
+                            "arrived_in": "0.1",
+                            "description": "Height in CSS pixels, at least 1.",
+                            "format": "uint32",
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "width": {
+                            "arrived_in": "0.1",
+                            "description": "Width in CSS pixels, at least 1.",
+                            "format": "uint32",
+                            "minimum": 1,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "width",
+                          "height"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The viewport size in CSS pixels for every page of the Session: `{ width: 1280, height: 720 }` by default, Playwright's. `null` uses the window's own size and applies only to a headful browser (`browser.headless: false`). Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens."
                   }
                 },
                 "type": "object"
@@ -30408,7 +31263,7 @@
                     "type": "integer"
                   },
                   "mode": {
-                    "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response to a request sent with no cookie or credential, which sets no cookie and is not `private`, whatever its method, status or freshness, and serves it again with no request and no revalidation. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
+                    "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response, whatever its method, status or freshness, and serves it again with no request and no revalidation. A response sent with or setting a cookie or a credential, or marked `private`, is kept in the partition of the Session that fetched it, which no other Session reads, until that Session ends; one fetched outside a Session is not stored. Every tier shares the cache: a browser page's requests are served through its interception, and a request a site's service worker answers never reaches it. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
                     "enum": [
                       "off",
                       "revalidate",
@@ -31458,6 +32313,26 @@
                 },
                 "type": "object"
               },
+              "http_listener": {
+                "additionalProperties": false,
+                "properties": {
+                  "address": {
+                    "description": "The IP address the Daemon's HTTP listener binds to when `http_listener.enabled` is on: `127.0.0.1` by default. Any address other than loopback requires TLS through the Exposed Daemon's keys (`daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`), so no token crosses a network in clear. Set in user configuration or an Operator policy only.",
+                    "type": "string"
+                  },
+                  "enabled": {
+                    "description": "Whether the Daemon opens its HTTP JSON-RPC listener (`POST /v1/rpc`, ADR 0027). Off (`false`) by default so workflow tools reach a Daemon only when enabled. Set in user configuration or an Operator policy only.",
+                    "type": "boolean"
+                  },
+                  "port": {
+                    "description": "The port the Daemon's HTTP listener binds to when `http_listener.enabled` is on: 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's listener has a port of its own. Port 0 takes a free port, which the Daemon's log and `daemon.status` report. Set in user configuration or an Operator policy only.",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "identified": {
                 "additionalProperties": false,
                 "properties": {
@@ -31611,6 +32486,55 @@
                     },
                     "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
                     "type": "object"
+                  },
+                  "throttle": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Chromium network throttling conditions for `network.throttle` (ADR 0083;\nspec #578).",
+                        "properties": {
+                          "download_bytes_per_second": {
+                            "arrived_in": "0.1",
+                            "description": "Maximum download throughput in bytes per second; unthrottled when left out.",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "latency": {
+                            "arrived_in": "0.1",
+                            "default": 0,
+                            "description": "Minimum additional round-trip latency in milliseconds; `0` by default.",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "offline": {
+                            "arrived_in": "0.1",
+                            "default": false,
+                            "description": "Whether the browser appears offline; `false` by default.",
+                            "type": "boolean"
+                          },
+                          "upload_bytes_per_second": {
+                            "arrived_in": "0.1",
+                            "description": "Maximum upload throughput in bytes per second; unthrottled when left out.",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          }
+                        },
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Emulated network conditions (`offline`, `latency` in milliseconds, optional `download_bytes_per_second` and `upload_bytes_per_second`) applied to every page of the Session; `null` by default. Chromium only: set outside Chromium it raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens."
                   }
                 },
                 "type": "object"
@@ -32684,6 +33608,265 @@
                 "properties": {
                   "echo_repeats": {
                     "description": "How many times the sample operation repeats a text.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "schedule": {
+                "additionalProperties": false,
+                "properties": {
+                  "auto_pause": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "failures": {
+                        "description": "How many consecutive failed, rejected or failed-to-start occurrences auto-pause a Schedule: `3` by default, `0` for never.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "catch_up": {
+                    "description": "How far back a Schedule catches up its latest missed occurrence after downtime or sleep: `until_next` (default, until the occurrence after it is due), a duration in whole milliseconds, or `0` for never.",
+                    "oneOf": [
+                      {
+                        "description": "Catch-up window in whole milliseconds; 0 means never catch up.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "const": "until_next",
+                        "description": "Catch up the latest missed occurrence until the occurrence after it is due."
+                      }
+                    ]
+                  },
+                  "jitter": {
+                    "description": "Upper bound in milliseconds of the fixed random delay drawn once at Schedule creation and added to every occurrence; `0` by default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "limits_max": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Period Limits on a Schedule, or Operator policy caps on them\n(`schedule.limits_max`, ADRs 0036, 0041 and 0080): caps on total Usage\nacross the Schedule's runs per `day`, `week` or `month` in the\nSchedule's time zone.",
+                        "properties": {
+                          "day": {
+                            "arrived_in": "0.1",
+                            "description": "Limits per day, counted in the Schedule's time zone.",
+                            "items": {
+                              "additionalProperties": false,
+                              "description": "A Limit a program gives a Run at its start (`run.start`'s `limits`):\nthe Run's own, with no period, set by its Client. A start that names\nthe Run again lowers it and never raises it (ADR 0102).",
+                              "properties": {
+                                "amount": {
+                                  "arrived_in": "0.1",
+                                  "description": "How much the Run may use: a count of the Usage kind, or millionths\nof the currency.",
+                                  "format": "uint64",
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "currency": {
+                                  "arrived_in": "0.1",
+                                  "description": "The currency it caps the price in, an ISO 4217 code; none for a\ncount of the Usage kind.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "usage_kind": {
+                                  "arrived_in": "0.1",
+                                  "description": "The Usage kind it caps.",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "usage_kind",
+                                "amount"
+                              ],
+                              "type": "object"
+                            },
+                            "type": [
+                              "array",
+                              "null"
+                            ]
+                          },
+                          "month": {
+                            "arrived_in": "0.1",
+                            "description": "Limits per month, counted in the Schedule's time zone.",
+                            "items": {
+                              "additionalProperties": false,
+                              "description": "A Limit a program gives a Run at its start (`run.start`'s `limits`):\nthe Run's own, with no period, set by its Client. A start that names\nthe Run again lowers it and never raises it (ADR 0102).",
+                              "properties": {
+                                "amount": {
+                                  "arrived_in": "0.1",
+                                  "description": "How much the Run may use: a count of the Usage kind, or millionths\nof the currency.",
+                                  "format": "uint64",
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "currency": {
+                                  "arrived_in": "0.1",
+                                  "description": "The currency it caps the price in, an ISO 4217 code; none for a\ncount of the Usage kind.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "usage_kind": {
+                                  "arrived_in": "0.1",
+                                  "description": "The Usage kind it caps.",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "usage_kind",
+                                "amount"
+                              ],
+                              "type": "object"
+                            },
+                            "type": [
+                              "array",
+                              "null"
+                            ]
+                          },
+                          "week": {
+                            "arrived_in": "0.1",
+                            "description": "Limits per week, counted in the Schedule's time zone.",
+                            "items": {
+                              "additionalProperties": false,
+                              "description": "A Limit a program gives a Run at its start (`run.start`'s `limits`):\nthe Run's own, with no period, set by its Client. A start that names\nthe Run again lowers it and never raises it (ADR 0102).",
+                              "properties": {
+                                "amount": {
+                                  "arrived_in": "0.1",
+                                  "description": "How much the Run may use: a count of the Usage kind, or millionths\nof the currency.",
+                                  "format": "uint64",
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "currency": {
+                                  "arrived_in": "0.1",
+                                  "description": "The currency it caps the price in, an ISO 4217 code; none for a\ncount of the Usage kind.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "usage_kind": {
+                                  "arrived_in": "0.1",
+                                  "description": "The Usage kind it caps.",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "usage_kind",
+                                "amount"
+                              ],
+                              "type": "object"
+                            },
+                            "type": [
+                              "array",
+                              "null"
+                            ]
+                          }
+                        },
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Operator policy cap on a Schedule's period Limits (`day`, `week`, `month`); unset by default. Set only in an Operator policy; a Schedule whose period Limits exceed it or omit a capped period Limit fails with `schedule_cap_exceeded`."
+                  },
+                  "max_count": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Maximum number of Schedules the Daemon may hold; unset by default. Set only in an Operator policy; a creation past it fails with `schedule_cap_exceeded`."
+                  },
+                  "min_interval": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Minimum interval in milliseconds allowed between consecutive occurrences of a Schedule; unset by default. Set only in an Operator policy; a creation below it fails with `schedule_cap_exceeded`."
+                  },
+                  "overlap": {
+                    "description": "How a Schedule handles an occurrence due while its previous run is still live: `skip` (default), `queue_one`, `allow` or `replace`.",
+                    "enum": [
+                      "skip",
+                      "queue_one",
+                      "allow",
+                      "replace"
+                    ]
+                  },
+                  "pause_timeout": {
+                    "anyOf": [
+                      {
+                        "oneOf": [
+                          {
+                            "description": "Human pause timeout in whole milliseconds, at least 1; 0 is refused and `null` clears it.",
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          {
+                            "const": "next_occurrence",
+                            "description": "Time out at the Schedule's next due occurrence (24 hours for an after-a-run trigger)."
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "A scheduled run's Human pause timeout: `next_occurrence` by default (24 hours for an after-a-run trigger), a duration of at least 1 millisecond, or `null` for none; `0` is refused."
+                  },
+                  "retention": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "changed_watches": {
+                        "description": "How many recent Watch runs that detected a change a Schedule keeps: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "history": {
+                        "description": "How long a Schedule's occurrence history is kept before retention drops older records, in milliseconds: 90 days by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "runs": {
+                        "description": "How many recent target runs a Schedule keeps before retention discards older ones: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "watch_runs": {
+                        "description": "How many recent Watch runs a Schedule keeps before retention discards older ones: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "tick": {
+                    "description": "Maximum sleep interval of the Daemon's scheduler loop in milliseconds before waking to re-check due occurrences: 60 s by default. Set only in user configuration or an Operator policy.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "wake_threshold": {
+                    "description": "Wall-clock advance beyond monotonic time, in milliseconds, that the scheduler treats as a machine wake from sleep: 2 minutes by default. Set only in user configuration or an Operator policy.",
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -34400,6 +35583,10 @@
                       "collect"
                     ]
                   },
+                  "read_robots_txt_for_navigation": {
+                    "description": "Whether a page a program opened reads its origin's robots.txt for Provenance: on, each document its main frame receives and each `page.request` it sends reads the origin's robots.txt once per Run, beside the navigation, and Provenance records whether the page was allowed, never gating it. Off by default: nothing is fetched and no Provenance entry is written. A crawl's own requests and a handler's navigations read and obey robots.txt either way, under Foxhound's `site_preferences.respect_robots_txt`.",
+                    "type": "boolean"
+                  },
                   "respect_robots_txt": {
                     "description": "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder.",
                     "type": "boolean"
@@ -34425,6 +35612,10 @@
               "stealth": {
                 "additionalProperties": false,
                 "properties": {
+                  "allow_runtime": {
+                    "description": "Whether a `stealth` Session's pages may turn on the browser's `Runtime` domain, which a detector sees: `false` by default, so `page.on` for `console` or `page_error` answers `capability_unavailable`. On, they listen, the Run report carries the warning `stealth_runtime_allowed` and Provenance marks the Session. A `standard` Session listens either way. A Label refuses it with `setting_not_applicable`.",
+                    "type": "boolean"
+                  },
                   "allowed_builds": {
                     "description": "The digests of the third-party stealth builds the Operator allows; empty by default. Set only in an Operator policy: set at any other layer, `setting_not_applicable`.",
                     "items": {
@@ -34851,6 +36042,19 @@
                     "description": "Whether the Run trace keeps its CDP command log, `trace/cdp-commands.jsonl`: one line for each command the engine sends a Session's browser, its method only, never its params, up to the launch's last `Browser.close`. Off by default: no command's method goes to the Run trace's writer and the file is never written. Turn it on to see every command the engine sent, such as to debug a Run. No result, Record or Provenance entry reads the log, so off weakens no guarantee.",
                     "type": "boolean"
                   },
+                  "color_scheme": {
+                    "description": "The `prefers-color-scheme` media feature emulated for every page of the Session: `light` (the default, Playwright's), `dark`, or `no-preference`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "enum": [
+                      "light",
+                      "dark",
+                      "no-preference"
+                    ]
+                  },
+                  "device_scale_factor": {
+                    "description": "The device pixel ratio (`window.devicePixelRatio`) for every page of the Session: `1` by default. Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.",
+                    "exclusiveMinimum": 0.0,
+                    "type": "number"
+                  },
                   "executable_path": {
                     "anyOf": [
                       {
@@ -34862,6 +36066,55 @@
                     ],
                     "description": "The path of an installed Chromium-family browser executable on this machine, launched in place of the Browser cache's pinned Chrome for Testing build: `null` by default. Set in user configuration, an Operator policy, or a Group member's scope."
                   },
+                  "geolocation": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Coordinates emulated for `browser.geolocation` (spec #578, Playwright's\nshape).",
+                        "properties": {
+                          "accuracy": {
+                            "arrived_in": "0.1",
+                            "description": "Non-negative accuracy in meters; `0` when left out.",
+                            "format": "double",
+                            "minimum": 0.0,
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "latitude": {
+                            "arrived_in": "0.1",
+                            "description": "Latitude in degrees, from -90 to 90.",
+                            "format": "double",
+                            "maximum": 90.0,
+                            "minimum": -90.0,
+                            "type": "number"
+                          },
+                          "longitude": {
+                            "arrived_in": "0.1",
+                            "description": "Longitude in degrees, from -180 to 180.",
+                            "format": "double",
+                            "maximum": 180.0,
+                            "minimum": -180.0,
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "latitude",
+                          "longitude"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The geographic coordinates emulated for every page of the Session; `null` by default. Pages observe the coordinates when `geolocation` is granted in `browser.permissions`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens."
+                  },
+                  "has_touch": {
+                    "description": "Whether the Session's pages emulate a touch screen (`navigator.maxTouchPoints` and touch events): `false` by default (Playwright's `hasTouch`). Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "type": "boolean"
+                  },
                   "headless": {
                     "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.",
                     "type": "boolean"
@@ -34870,10 +36123,58 @@
                     "description": "Whether the Session's Chromium is Chrome for Testing's `chrome-headless-shell` build, of the same pinned release, in place of the full browser: `false` by default. The shell runs only headless and differs from the full browser in fingerprint and features: a site sees its own identity, `HeadlessChrome` in its user agent and client hints, where the full build shows its window's. It starts where the full browser's headless mode cannot, such as on macOS with no GUI session (`browser_needs_gui_session`). It is downloaded on first use, as the full build is. Refused with `setting_not_applicable` beside `browser.headless: false`, and under the `stealth` Access mode, which launches its own build; a Borrowed browser launches nothing, so it takes no effect there.",
                     "type": "boolean"
                   },
+                  "is_mobile": {
+                    "description": "Whether the Session's pages emulate a mobile viewport (`meta viewport` tag and mobile layout): `false` by default (Playwright's `isMobile`). Chromium only: `true` outside Chromium raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "type": "boolean"
+                  },
+                  "java_script_enabled": {
+                    "description": "Whether page scripts run in the Session's pages: `true` by default. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "type": "boolean"
+                  },
+                  "locale": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The BCP 47 locale tag emulated for every page of the Session, such as `fr-FR`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens."
+                  },
                   "mirror": {
                     "description": "The URL a missing Chrome for Testing build is downloaded below, each build at `<build>/<platform>/<archive>-<platform>.zip` as Chrome for Testing lays them out: Chrome for Testing's own storage by default, or a mirror of it, whose certificate may chain to the authorities `tls.trusted_cas` lists for its domain. A mirror is an Operator-configured endpoint: `egress.no_private_endpoints` refuses one on a private address. What it sends is still checked against the pinned digest. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
                     "pattern": "^https://[^/?#@\\s]+(/[^?#\\s]*)?$",
                     "type": "string"
+                  },
+                  "permissions": {
+                    "description": "Browser permissions (Playwright's names) granted to every page of the Session; `[]` by default. Clipboard permissions (`clipboard-read`, `clipboard-write`) are refused with `setting_not_applicable` on a headful Session (`browser.headless: false`) so the engine does not touch the person's desktop clipboard. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "items": {
+                      "enum": [
+                        "geolocation",
+                        "midi",
+                        "midi-sysex",
+                        "notifications",
+                        "camera",
+                        "microphone",
+                        "background-sync",
+                        "ambient-light-sensor",
+                        "accelerometer",
+                        "gyroscope",
+                        "magnetometer",
+                        "clipboard-read",
+                        "clipboard-write",
+                        "payment-handler",
+                        "storage-access",
+                        "local-fonts",
+                        "screen-wake-lock",
+                        "idle-detection",
+                        "periodic-background-sync",
+                        "window-management",
+                        "local-network-access"
+                      ]
+                    },
+                    "type": "array"
                   },
                   "service_workers": {
                     "description": "Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.",
@@ -34881,6 +36182,50 @@
                       "allow",
                       "block"
                     ]
+                  },
+                  "timezone_id": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The IANA time zone identifier emulated for every page of the Session, such as `Europe/Paris`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens."
+                  },
+                  "viewport": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "A page's viewport size in CSS pixels (spec #578, SA-23): both dimensions\nat least 1. Default is 1280×720, Playwright's; `null` clears it for the\nwindow's own size in a headful browser.",
+                        "properties": {
+                          "height": {
+                            "arrived_in": "0.1",
+                            "description": "Height in CSS pixels, at least 1.",
+                            "format": "uint32",
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "width": {
+                            "arrived_in": "0.1",
+                            "description": "Width in CSS pixels, at least 1.",
+                            "format": "uint32",
+                            "minimum": 1,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "width",
+                          "height"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The viewport size in CSS pixels for every page of the Session: `{ width: 1280, height: 720 }` by default, Playwright's. `null` uses the window's own size and applies only to a headful browser (`browser.headless: false`). Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens."
                   }
                 },
                 "type": "object"
@@ -34922,7 +36267,7 @@
                     "type": "integer"
                   },
                   "mode": {
-                    "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response to a request sent with no cookie or credential, which sets no cookie and is not `private`, whatever its method, status or freshness, and serves it again with no request and no revalidation. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
+                    "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response, whatever its method, status or freshness, and serves it again with no request and no revalidation. A response sent with or setting a cookie or a credential, or marked `private`, is kept in the partition of the Session that fetched it, which no other Session reads, until that Session ends; one fetched outside a Session is not stored. Every tier shares the cache: a browser page's requests are served through its interception, and a request a site's service worker answers never reaches it. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
                     "enum": [
                       "off",
                       "revalidate",
@@ -35972,6 +37317,26 @@
                 },
                 "type": "object"
               },
+              "http_listener": {
+                "additionalProperties": false,
+                "properties": {
+                  "address": {
+                    "description": "The IP address the Daemon's HTTP listener binds to when `http_listener.enabled` is on: `127.0.0.1` by default. Any address other than loopback requires TLS through the Exposed Daemon's keys (`daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`), so no token crosses a network in clear. Set in user configuration or an Operator policy only.",
+                    "type": "string"
+                  },
+                  "enabled": {
+                    "description": "Whether the Daemon opens its HTTP JSON-RPC listener (`POST /v1/rpc`, ADR 0027). Off (`false`) by default so workflow tools reach a Daemon only when enabled. Set in user configuration or an Operator policy only.",
+                    "type": "boolean"
+                  },
+                  "port": {
+                    "description": "The port the Daemon's HTTP listener binds to when `http_listener.enabled` is on: 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's listener has a port of its own. Port 0 takes a free port, which the Daemon's log and `daemon.status` report. Set in user configuration or an Operator policy only.",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "identified": {
                 "additionalProperties": false,
                 "properties": {
@@ -36125,6 +37490,55 @@
                     },
                     "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
                     "type": "object"
+                  },
+                  "throttle": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Chromium network throttling conditions for `network.throttle` (ADR 0083;\nspec #578).",
+                        "properties": {
+                          "download_bytes_per_second": {
+                            "arrived_in": "0.1",
+                            "description": "Maximum download throughput in bytes per second; unthrottled when left out.",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "latency": {
+                            "arrived_in": "0.1",
+                            "default": 0,
+                            "description": "Minimum additional round-trip latency in milliseconds; `0` by default.",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "offline": {
+                            "arrived_in": "0.1",
+                            "default": false,
+                            "description": "Whether the browser appears offline; `false` by default.",
+                            "type": "boolean"
+                          },
+                          "upload_bytes_per_second": {
+                            "arrived_in": "0.1",
+                            "description": "Maximum upload throughput in bytes per second; unthrottled when left out.",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          }
+                        },
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Emulated network conditions (`offline`, `latency` in milliseconds, optional `download_bytes_per_second` and `upload_bytes_per_second`) applied to every page of the Session; `null` by default. Chromium only: set outside Chromium it raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens."
                   }
                 },
                 "type": "object"
@@ -37198,6 +38612,265 @@
                 "properties": {
                   "echo_repeats": {
                     "description": "How many times the sample operation repeats a text.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "schedule": {
+                "additionalProperties": false,
+                "properties": {
+                  "auto_pause": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "failures": {
+                        "description": "How many consecutive failed, rejected or failed-to-start occurrences auto-pause a Schedule: `3` by default, `0` for never.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "catch_up": {
+                    "description": "How far back a Schedule catches up its latest missed occurrence after downtime or sleep: `until_next` (default, until the occurrence after it is due), a duration in whole milliseconds, or `0` for never.",
+                    "oneOf": [
+                      {
+                        "description": "Catch-up window in whole milliseconds; 0 means never catch up.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "const": "until_next",
+                        "description": "Catch up the latest missed occurrence until the occurrence after it is due."
+                      }
+                    ]
+                  },
+                  "jitter": {
+                    "description": "Upper bound in milliseconds of the fixed random delay drawn once at Schedule creation and added to every occurrence; `0` by default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "limits_max": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Period Limits on a Schedule, or Operator policy caps on them\n(`schedule.limits_max`, ADRs 0036, 0041 and 0080): caps on total Usage\nacross the Schedule's runs per `day`, `week` or `month` in the\nSchedule's time zone.",
+                        "properties": {
+                          "day": {
+                            "arrived_in": "0.1",
+                            "description": "Limits per day, counted in the Schedule's time zone.",
+                            "items": {
+                              "additionalProperties": false,
+                              "description": "A Limit a program gives a Run at its start (`run.start`'s `limits`):\nthe Run's own, with no period, set by its Client. A start that names\nthe Run again lowers it and never raises it (ADR 0102).",
+                              "properties": {
+                                "amount": {
+                                  "arrived_in": "0.1",
+                                  "description": "How much the Run may use: a count of the Usage kind, or millionths\nof the currency.",
+                                  "format": "uint64",
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "currency": {
+                                  "arrived_in": "0.1",
+                                  "description": "The currency it caps the price in, an ISO 4217 code; none for a\ncount of the Usage kind.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "usage_kind": {
+                                  "arrived_in": "0.1",
+                                  "description": "The Usage kind it caps.",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "usage_kind",
+                                "amount"
+                              ],
+                              "type": "object"
+                            },
+                            "type": [
+                              "array",
+                              "null"
+                            ]
+                          },
+                          "month": {
+                            "arrived_in": "0.1",
+                            "description": "Limits per month, counted in the Schedule's time zone.",
+                            "items": {
+                              "additionalProperties": false,
+                              "description": "A Limit a program gives a Run at its start (`run.start`'s `limits`):\nthe Run's own, with no period, set by its Client. A start that names\nthe Run again lowers it and never raises it (ADR 0102).",
+                              "properties": {
+                                "amount": {
+                                  "arrived_in": "0.1",
+                                  "description": "How much the Run may use: a count of the Usage kind, or millionths\nof the currency.",
+                                  "format": "uint64",
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "currency": {
+                                  "arrived_in": "0.1",
+                                  "description": "The currency it caps the price in, an ISO 4217 code; none for a\ncount of the Usage kind.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "usage_kind": {
+                                  "arrived_in": "0.1",
+                                  "description": "The Usage kind it caps.",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "usage_kind",
+                                "amount"
+                              ],
+                              "type": "object"
+                            },
+                            "type": [
+                              "array",
+                              "null"
+                            ]
+                          },
+                          "week": {
+                            "arrived_in": "0.1",
+                            "description": "Limits per week, counted in the Schedule's time zone.",
+                            "items": {
+                              "additionalProperties": false,
+                              "description": "A Limit a program gives a Run at its start (`run.start`'s `limits`):\nthe Run's own, with no period, set by its Client. A start that names\nthe Run again lowers it and never raises it (ADR 0102).",
+                              "properties": {
+                                "amount": {
+                                  "arrived_in": "0.1",
+                                  "description": "How much the Run may use: a count of the Usage kind, or millionths\nof the currency.",
+                                  "format": "uint64",
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "currency": {
+                                  "arrived_in": "0.1",
+                                  "description": "The currency it caps the price in, an ISO 4217 code; none for a\ncount of the Usage kind.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "usage_kind": {
+                                  "arrived_in": "0.1",
+                                  "description": "The Usage kind it caps.",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "usage_kind",
+                                "amount"
+                              ],
+                              "type": "object"
+                            },
+                            "type": [
+                              "array",
+                              "null"
+                            ]
+                          }
+                        },
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Operator policy cap on a Schedule's period Limits (`day`, `week`, `month`); unset by default. Set only in an Operator policy; a Schedule whose period Limits exceed it or omit a capped period Limit fails with `schedule_cap_exceeded`."
+                  },
+                  "max_count": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Maximum number of Schedules the Daemon may hold; unset by default. Set only in an Operator policy; a creation past it fails with `schedule_cap_exceeded`."
+                  },
+                  "min_interval": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Minimum interval in milliseconds allowed between consecutive occurrences of a Schedule; unset by default. Set only in an Operator policy; a creation below it fails with `schedule_cap_exceeded`."
+                  },
+                  "overlap": {
+                    "description": "How a Schedule handles an occurrence due while its previous run is still live: `skip` (default), `queue_one`, `allow` or `replace`.",
+                    "enum": [
+                      "skip",
+                      "queue_one",
+                      "allow",
+                      "replace"
+                    ]
+                  },
+                  "pause_timeout": {
+                    "anyOf": [
+                      {
+                        "oneOf": [
+                          {
+                            "description": "Human pause timeout in whole milliseconds, at least 1; 0 is refused and `null` clears it.",
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          {
+                            "const": "next_occurrence",
+                            "description": "Time out at the Schedule's next due occurrence (24 hours for an after-a-run trigger)."
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "A scheduled run's Human pause timeout: `next_occurrence` by default (24 hours for an after-a-run trigger), a duration of at least 1 millisecond, or `null` for none; `0` is refused."
+                  },
+                  "retention": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "changed_watches": {
+                        "description": "How many recent Watch runs that detected a change a Schedule keeps: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "history": {
+                        "description": "How long a Schedule's occurrence history is kept before retention drops older records, in milliseconds: 90 days by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "runs": {
+                        "description": "How many recent target runs a Schedule keeps before retention discards older ones: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "watch_runs": {
+                        "description": "How many recent Watch runs a Schedule keeps before retention discards older ones: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "tick": {
+                    "description": "Maximum sleep interval of the Daemon's scheduler loop in milliseconds before waking to re-check due occurrences: 60 s by default. Set only in user configuration or an Operator policy.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "wake_threshold": {
+                    "description": "Wall-clock advance beyond monotonic time, in milliseconds, that the scheduler treats as a machine wake from sleep: 2 minutes by default. Set only in user configuration or an Operator policy.",
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -38914,6 +40587,10 @@
                       "collect"
                     ]
                   },
+                  "read_robots_txt_for_navigation": {
+                    "description": "Whether a page a program opened reads its origin's robots.txt for Provenance: on, each document its main frame receives and each `page.request` it sends reads the origin's robots.txt once per Run, beside the navigation, and Provenance records whether the page was allowed, never gating it. Off by default: nothing is fetched and no Provenance entry is written. A crawl's own requests and a handler's navigations read and obey robots.txt either way, under Foxhound's `site_preferences.respect_robots_txt`.",
+                    "type": "boolean"
+                  },
                   "respect_robots_txt": {
                     "description": "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder.",
                     "type": "boolean"
@@ -38939,6 +40616,10 @@
               "stealth": {
                 "additionalProperties": false,
                 "properties": {
+                  "allow_runtime": {
+                    "description": "Whether a `stealth` Session's pages may turn on the browser's `Runtime` domain, which a detector sees: `false` by default, so `page.on` for `console` or `page_error` answers `capability_unavailable`. On, they listen, the Run report carries the warning `stealth_runtime_allowed` and Provenance marks the Session. A `standard` Session listens either way. A Label refuses it with `setting_not_applicable`.",
+                    "type": "boolean"
+                  },
                   "allowed_builds": {
                     "description": "The digests of the third-party stealth builds the Operator allows; empty by default. Set only in an Operator policy: set at any other layer, `setting_not_applicable`.",
                     "items": {
@@ -39381,6 +41062,19 @@
                     "description": "Whether the Run trace keeps its CDP command log, `trace/cdp-commands.jsonl`: one line for each command the engine sends a Session's browser, its method only, never its params, up to the launch's last `Browser.close`. Off by default: no command's method goes to the Run trace's writer and the file is never written. Turn it on to see every command the engine sent, such as to debug a Run. No result, Record or Provenance entry reads the log, so off weakens no guarantee.",
                     "type": "boolean"
                   },
+                  "color_scheme": {
+                    "description": "The `prefers-color-scheme` media feature emulated for every page of the Session: `light` (the default, Playwright's), `dark`, or `no-preference`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "enum": [
+                      "light",
+                      "dark",
+                      "no-preference"
+                    ]
+                  },
+                  "device_scale_factor": {
+                    "description": "The device pixel ratio (`window.devicePixelRatio`) for every page of the Session: `1` by default. Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.",
+                    "exclusiveMinimum": 0.0,
+                    "type": "number"
+                  },
                   "executable_path": {
                     "anyOf": [
                       {
@@ -39392,6 +41086,55 @@
                     ],
                     "description": "The path of an installed Chromium-family browser executable on this machine, launched in place of the Browser cache's pinned Chrome for Testing build: `null` by default. Set in user configuration, an Operator policy, or a Group member's scope."
                   },
+                  "geolocation": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Coordinates emulated for `browser.geolocation` (spec #578, Playwright's\nshape).",
+                        "properties": {
+                          "accuracy": {
+                            "arrived_in": "0.1",
+                            "description": "Non-negative accuracy in meters; `0` when left out.",
+                            "format": "double",
+                            "minimum": 0.0,
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "latitude": {
+                            "arrived_in": "0.1",
+                            "description": "Latitude in degrees, from -90 to 90.",
+                            "format": "double",
+                            "maximum": 90.0,
+                            "minimum": -90.0,
+                            "type": "number"
+                          },
+                          "longitude": {
+                            "arrived_in": "0.1",
+                            "description": "Longitude in degrees, from -180 to 180.",
+                            "format": "double",
+                            "maximum": 180.0,
+                            "minimum": -180.0,
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "latitude",
+                          "longitude"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The geographic coordinates emulated for every page of the Session; `null` by default. Pages observe the coordinates when `geolocation` is granted in `browser.permissions`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens."
+                  },
+                  "has_touch": {
+                    "description": "Whether the Session's pages emulate a touch screen (`navigator.maxTouchPoints` and touch events): `false` by default (Playwright's `hasTouch`). Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "type": "boolean"
+                  },
                   "headless": {
                     "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.",
                     "type": "boolean"
@@ -39400,10 +41143,58 @@
                     "description": "Whether the Session's Chromium is Chrome for Testing's `chrome-headless-shell` build, of the same pinned release, in place of the full browser: `false` by default. The shell runs only headless and differs from the full browser in fingerprint and features: a site sees its own identity, `HeadlessChrome` in its user agent and client hints, where the full build shows its window's. It starts where the full browser's headless mode cannot, such as on macOS with no GUI session (`browser_needs_gui_session`). It is downloaded on first use, as the full build is. Refused with `setting_not_applicable` beside `browser.headless: false`, and under the `stealth` Access mode, which launches its own build; a Borrowed browser launches nothing, so it takes no effect there.",
                     "type": "boolean"
                   },
+                  "is_mobile": {
+                    "description": "Whether the Session's pages emulate a mobile viewport (`meta viewport` tag and mobile layout): `false` by default (Playwright's `isMobile`). Chromium only: `true` outside Chromium raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "type": "boolean"
+                  },
+                  "java_script_enabled": {
+                    "description": "Whether page scripts run in the Session's pages: `true` by default. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "type": "boolean"
+                  },
+                  "locale": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The BCP 47 locale tag emulated for every page of the Session, such as `fr-FR`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens."
+                  },
                   "mirror": {
                     "description": "The URL a missing Chrome for Testing build is downloaded below, each build at `<build>/<platform>/<archive>-<platform>.zip` as Chrome for Testing lays them out: Chrome for Testing's own storage by default, or a mirror of it, whose certificate may chain to the authorities `tls.trusted_cas` lists for its domain. A mirror is an Operator-configured endpoint: `egress.no_private_endpoints` refuses one on a private address. What it sends is still checked against the pinned digest. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
                     "pattern": "^https://[^/?#@\\s]+(/[^?#\\s]*)?$",
                     "type": "string"
+                  },
+                  "permissions": {
+                    "description": "Browser permissions (Playwright's names) granted to every page of the Session; `[]` by default. Clipboard permissions (`clipboard-read`, `clipboard-write`) are refused with `setting_not_applicable` on a headful Session (`browser.headless: false`) so the engine does not touch the person's desktop clipboard. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "items": {
+                      "enum": [
+                        "geolocation",
+                        "midi",
+                        "midi-sysex",
+                        "notifications",
+                        "camera",
+                        "microphone",
+                        "background-sync",
+                        "ambient-light-sensor",
+                        "accelerometer",
+                        "gyroscope",
+                        "magnetometer",
+                        "clipboard-read",
+                        "clipboard-write",
+                        "payment-handler",
+                        "storage-access",
+                        "local-fonts",
+                        "screen-wake-lock",
+                        "idle-detection",
+                        "periodic-background-sync",
+                        "window-management",
+                        "local-network-access"
+                      ]
+                    },
+                    "type": "array"
                   },
                   "service_workers": {
                     "description": "Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.",
@@ -39411,6 +41202,50 @@
                       "allow",
                       "block"
                     ]
+                  },
+                  "timezone_id": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The IANA time zone identifier emulated for every page of the Session, such as `Europe/Paris`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens."
+                  },
+                  "viewport": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "A page's viewport size in CSS pixels (spec #578, SA-23): both dimensions\nat least 1. Default is 1280×720, Playwright's; `null` clears it for the\nwindow's own size in a headful browser.",
+                        "properties": {
+                          "height": {
+                            "arrived_in": "0.1",
+                            "description": "Height in CSS pixels, at least 1.",
+                            "format": "uint32",
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "width": {
+                            "arrived_in": "0.1",
+                            "description": "Width in CSS pixels, at least 1.",
+                            "format": "uint32",
+                            "minimum": 1,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "width",
+                          "height"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The viewport size in CSS pixels for every page of the Session: `{ width: 1280, height: 720 }` by default, Playwright's. `null` uses the window's own size and applies only to a headful browser (`browser.headless: false`). Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens."
                   }
                 },
                 "type": "object"
@@ -39452,7 +41287,7 @@
                     "type": "integer"
                   },
                   "mode": {
-                    "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response to a request sent with no cookie or credential, which sets no cookie and is not `private`, whatever its method, status or freshness, and serves it again with no request and no revalidation. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
+                    "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response, whatever its method, status or freshness, and serves it again with no request and no revalidation. A response sent with or setting a cookie or a credential, or marked `private`, is kept in the partition of the Session that fetched it, which no other Session reads, until that Session ends; one fetched outside a Session is not stored. Every tier shares the cache: a browser page's requests are served through its interception, and a request a site's service worker answers never reaches it. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
                     "enum": [
                       "off",
                       "revalidate",
@@ -40502,6 +42337,26 @@
                 },
                 "type": "object"
               },
+              "http_listener": {
+                "additionalProperties": false,
+                "properties": {
+                  "address": {
+                    "description": "The IP address the Daemon's HTTP listener binds to when `http_listener.enabled` is on: `127.0.0.1` by default. Any address other than loopback requires TLS through the Exposed Daemon's keys (`daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`), so no token crosses a network in clear. Set in user configuration or an Operator policy only.",
+                    "type": "string"
+                  },
+                  "enabled": {
+                    "description": "Whether the Daemon opens its HTTP JSON-RPC listener (`POST /v1/rpc`, ADR 0027). Off (`false`) by default so workflow tools reach a Daemon only when enabled. Set in user configuration or an Operator policy only.",
+                    "type": "boolean"
+                  },
+                  "port": {
+                    "description": "The port the Daemon's HTTP listener binds to when `http_listener.enabled` is on: 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's listener has a port of its own. Port 0 takes a free port, which the Daemon's log and `daemon.status` report. Set in user configuration or an Operator policy only.",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "identified": {
                 "additionalProperties": false,
                 "properties": {
@@ -40655,6 +42510,55 @@
                     },
                     "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
                     "type": "object"
+                  },
+                  "throttle": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Chromium network throttling conditions for `network.throttle` (ADR 0083;\nspec #578).",
+                        "properties": {
+                          "download_bytes_per_second": {
+                            "arrived_in": "0.1",
+                            "description": "Maximum download throughput in bytes per second; unthrottled when left out.",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "latency": {
+                            "arrived_in": "0.1",
+                            "default": 0,
+                            "description": "Minimum additional round-trip latency in milliseconds; `0` by default.",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "offline": {
+                            "arrived_in": "0.1",
+                            "default": false,
+                            "description": "Whether the browser appears offline; `false` by default.",
+                            "type": "boolean"
+                          },
+                          "upload_bytes_per_second": {
+                            "arrived_in": "0.1",
+                            "description": "Maximum upload throughput in bytes per second; unthrottled when left out.",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          }
+                        },
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Emulated network conditions (`offline`, `latency` in milliseconds, optional `download_bytes_per_second` and `upload_bytes_per_second`) applied to every page of the Session; `null` by default. Chromium only: set outside Chromium it raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens."
                   }
                 },
                 "type": "object"
@@ -41728,6 +43632,265 @@
                 "properties": {
                   "echo_repeats": {
                     "description": "How many times the sample operation repeats a text.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "schedule": {
+                "additionalProperties": false,
+                "properties": {
+                  "auto_pause": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "failures": {
+                        "description": "How many consecutive failed, rejected or failed-to-start occurrences auto-pause a Schedule: `3` by default, `0` for never.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "catch_up": {
+                    "description": "How far back a Schedule catches up its latest missed occurrence after downtime or sleep: `until_next` (default, until the occurrence after it is due), a duration in whole milliseconds, or `0` for never.",
+                    "oneOf": [
+                      {
+                        "description": "Catch-up window in whole milliseconds; 0 means never catch up.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "const": "until_next",
+                        "description": "Catch up the latest missed occurrence until the occurrence after it is due."
+                      }
+                    ]
+                  },
+                  "jitter": {
+                    "description": "Upper bound in milliseconds of the fixed random delay drawn once at Schedule creation and added to every occurrence; `0` by default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "limits_max": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Period Limits on a Schedule, or Operator policy caps on them\n(`schedule.limits_max`, ADRs 0036, 0041 and 0080): caps on total Usage\nacross the Schedule's runs per `day`, `week` or `month` in the\nSchedule's time zone.",
+                        "properties": {
+                          "day": {
+                            "arrived_in": "0.1",
+                            "description": "Limits per day, counted in the Schedule's time zone.",
+                            "items": {
+                              "additionalProperties": false,
+                              "description": "A Limit a program gives a Run at its start (`run.start`'s `limits`):\nthe Run's own, with no period, set by its Client. A start that names\nthe Run again lowers it and never raises it (ADR 0102).",
+                              "properties": {
+                                "amount": {
+                                  "arrived_in": "0.1",
+                                  "description": "How much the Run may use: a count of the Usage kind, or millionths\nof the currency.",
+                                  "format": "uint64",
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "currency": {
+                                  "arrived_in": "0.1",
+                                  "description": "The currency it caps the price in, an ISO 4217 code; none for a\ncount of the Usage kind.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "usage_kind": {
+                                  "arrived_in": "0.1",
+                                  "description": "The Usage kind it caps.",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "usage_kind",
+                                "amount"
+                              ],
+                              "type": "object"
+                            },
+                            "type": [
+                              "array",
+                              "null"
+                            ]
+                          },
+                          "month": {
+                            "arrived_in": "0.1",
+                            "description": "Limits per month, counted in the Schedule's time zone.",
+                            "items": {
+                              "additionalProperties": false,
+                              "description": "A Limit a program gives a Run at its start (`run.start`'s `limits`):\nthe Run's own, with no period, set by its Client. A start that names\nthe Run again lowers it and never raises it (ADR 0102).",
+                              "properties": {
+                                "amount": {
+                                  "arrived_in": "0.1",
+                                  "description": "How much the Run may use: a count of the Usage kind, or millionths\nof the currency.",
+                                  "format": "uint64",
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "currency": {
+                                  "arrived_in": "0.1",
+                                  "description": "The currency it caps the price in, an ISO 4217 code; none for a\ncount of the Usage kind.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "usage_kind": {
+                                  "arrived_in": "0.1",
+                                  "description": "The Usage kind it caps.",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "usage_kind",
+                                "amount"
+                              ],
+                              "type": "object"
+                            },
+                            "type": [
+                              "array",
+                              "null"
+                            ]
+                          },
+                          "week": {
+                            "arrived_in": "0.1",
+                            "description": "Limits per week, counted in the Schedule's time zone.",
+                            "items": {
+                              "additionalProperties": false,
+                              "description": "A Limit a program gives a Run at its start (`run.start`'s `limits`):\nthe Run's own, with no period, set by its Client. A start that names\nthe Run again lowers it and never raises it (ADR 0102).",
+                              "properties": {
+                                "amount": {
+                                  "arrived_in": "0.1",
+                                  "description": "How much the Run may use: a count of the Usage kind, or millionths\nof the currency.",
+                                  "format": "uint64",
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "currency": {
+                                  "arrived_in": "0.1",
+                                  "description": "The currency it caps the price in, an ISO 4217 code; none for a\ncount of the Usage kind.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "usage_kind": {
+                                  "arrived_in": "0.1",
+                                  "description": "The Usage kind it caps.",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "usage_kind",
+                                "amount"
+                              ],
+                              "type": "object"
+                            },
+                            "type": [
+                              "array",
+                              "null"
+                            ]
+                          }
+                        },
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Operator policy cap on a Schedule's period Limits (`day`, `week`, `month`); unset by default. Set only in an Operator policy; a Schedule whose period Limits exceed it or omit a capped period Limit fails with `schedule_cap_exceeded`."
+                  },
+                  "max_count": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Maximum number of Schedules the Daemon may hold; unset by default. Set only in an Operator policy; a creation past it fails with `schedule_cap_exceeded`."
+                  },
+                  "min_interval": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Minimum interval in milliseconds allowed between consecutive occurrences of a Schedule; unset by default. Set only in an Operator policy; a creation below it fails with `schedule_cap_exceeded`."
+                  },
+                  "overlap": {
+                    "description": "How a Schedule handles an occurrence due while its previous run is still live: `skip` (default), `queue_one`, `allow` or `replace`.",
+                    "enum": [
+                      "skip",
+                      "queue_one",
+                      "allow",
+                      "replace"
+                    ]
+                  },
+                  "pause_timeout": {
+                    "anyOf": [
+                      {
+                        "oneOf": [
+                          {
+                            "description": "Human pause timeout in whole milliseconds, at least 1; 0 is refused and `null` clears it.",
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          {
+                            "const": "next_occurrence",
+                            "description": "Time out at the Schedule's next due occurrence (24 hours for an after-a-run trigger)."
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "A scheduled run's Human pause timeout: `next_occurrence` by default (24 hours for an after-a-run trigger), a duration of at least 1 millisecond, or `null` for none; `0` is refused."
+                  },
+                  "retention": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "changed_watches": {
+                        "description": "How many recent Watch runs that detected a change a Schedule keeps: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "history": {
+                        "description": "How long a Schedule's occurrence history is kept before retention drops older records, in milliseconds: 90 days by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "runs": {
+                        "description": "How many recent target runs a Schedule keeps before retention discards older ones: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "watch_runs": {
+                        "description": "How many recent Watch runs a Schedule keeps before retention discards older ones: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "tick": {
+                    "description": "Maximum sleep interval of the Daemon's scheduler loop in milliseconds before waking to re-check due occurrences: 60 s by default. Set only in user configuration or an Operator policy.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "wake_threshold": {
+                    "description": "Wall-clock advance beyond monotonic time, in milliseconds, that the scheduler treats as a machine wake from sleep: 2 minutes by default. Set only in user configuration or an Operator policy.",
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -43444,6 +45607,10 @@
                       "collect"
                     ]
                   },
+                  "read_robots_txt_for_navigation": {
+                    "description": "Whether a page a program opened reads its origin's robots.txt for Provenance: on, each document its main frame receives and each `page.request` it sends reads the origin's robots.txt once per Run, beside the navigation, and Provenance records whether the page was allowed, never gating it. Off by default: nothing is fetched and no Provenance entry is written. A crawl's own requests and a handler's navigations read and obey robots.txt either way, under Foxhound's `site_preferences.respect_robots_txt`.",
+                    "type": "boolean"
+                  },
                   "respect_robots_txt": {
                     "description": "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder.",
                     "type": "boolean"
@@ -43469,6 +45636,10 @@
               "stealth": {
                 "additionalProperties": false,
                 "properties": {
+                  "allow_runtime": {
+                    "description": "Whether a `stealth` Session's pages may turn on the browser's `Runtime` domain, which a detector sees: `false` by default, so `page.on` for `console` or `page_error` answers `capability_unavailable`. On, they listen, the Run report carries the warning `stealth_runtime_allowed` and Provenance marks the Session. A `standard` Session listens either way. A Label refuses it with `setting_not_applicable`.",
+                    "type": "boolean"
+                  },
                   "allowed_builds": {
                     "description": "The digests of the third-party stealth builds the Operator allows; empty by default. Set only in an Operator policy: set at any other layer, `setting_not_applicable`.",
                     "items": {
@@ -43871,6 +46042,16 @@
       "rule": "frozen_major",
       "schema": {
         "$ref": "#/$defs/NotificationPayload"
+      },
+      "storage": "json",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
+      "name": "published-catalog",
+      "rule": "default",
+      "schema": {
+        "$ref": "#/$defs/PublishedCatalog"
       },
       "storage": "json",
       "version": "0.1"

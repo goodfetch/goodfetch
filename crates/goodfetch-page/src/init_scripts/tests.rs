@@ -50,7 +50,7 @@ fn a_replaced_request_removes_its_script_once_from_the_page_and_each_iframe() {
         let replaced = async {
             // An out-of-process iframe attached before the script, which
             // takes it once the page did.
-            let iframe = cdp.frame(&TargetSession(IFRAME.to_owned()));
+            let iframe = cdp.child(&TargetSession(IFRAME.to_owned()));
             scripts.attached(iframe, CancellationToken::new()).await;
             let registering = scripts.register("1;".to_owned(), scripts.begin(), &first);
             let added = async {

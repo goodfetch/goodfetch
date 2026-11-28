@@ -1,30 +1,35 @@
 {
+  "chromium/launch-args.json": {
+    "input": "26cd874e42e6e1401f2be1bbda76feaa09e857c52fe44ad375b211333162e28f",
+    "output": "9a98a4ea3ef0d3d73ab2c8ff4a27e77c11e080249b4fef472b8ca4388aceefbb",
+    "tools": {}
+  },
   "sdks/python/collie-client/src/goodfetch_collie_client/generated/models.py": {
-    "input": "9abb34e6b2d10926324e3b66affdd73a85f12b4f39db741ba0c685cc9687776a",
-    "output": "a8c44ea5e462e03c5bbe5b606a326606f44c285174e98b15d4996fe2b2f1ea00",
+    "input": "3b41d46dcc9c4f4dfd38b79dfe7eb947615b13a365b6b22c4c0b904d4d63c406",
+    "output": "392ddcfe032b9740b05c92b3aaf45a8e0e53f3d80925b7c7ea24744512f885aa",
     "tools": {
       "datamodel-code-generator": "0.86.0",
       "ruff": "0.17.1"
     }
   },
   "sdks/python/foxhound/src/goodfetch_foxhound/generated/models.py": {
-    "input": "6c45b4f5094a65ca608657e971cd14ab8d70c157cf89e7f634090aa127c1fc76",
-    "output": "2e55c36e963d5d4c874404ad904d1f663fa582d6b5307ae1622bb0dd2e4a52aa",
+    "input": "ebccdb3109b8f180f4fac8816898af56adea1d74031cca1b2052b79a6752f6b2",
+    "output": "7fbc581c7949b51283309e74be14443f5e218dcc98f73cac3e72572f5c171d21",
     "tools": {
       "datamodel-code-generator": "0.86.0",
       "ruff": "0.17.1"
     }
   },
   "sdks/typescript/collie-client/src/generated/types.ts": {
-    "input": "841338de514e194ad7d09cc47fa09fdc9e9a318a0e2eef6fed00ee766b9b1ca4",
-    "output": "d662b97732e579ba1398cbfa4f775af3e8522fd14cc640317185f00495500498",
+    "input": "7eb709b734b18bf45192a7ba8d0ee137a8291cf508ea9012caa4a8bbe797a18d",
+    "output": "4ffa3295a6f836206c0980ef7ade49b0251b916e4380745039affefab4145d17",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }
   },
   "sdks/typescript/foxhound/src/generated/types.ts": {
-    "input": "9e3388d2e5174c7a3f4f41450a78980a5b91f2161e86006a757070e2d890725e",
-    "output": "06e7197cae184ef41dd48f3977b06cd399d85d0b2a4e3d22cf89a53b10eec67e",
+    "input": "b11b97b336a434b71875362dfa493493eaf0a49915c1284bbe8d3d1417c913c4",
+    "output": "4ded6a039458b9315714c6e7bf95130f471543012b86c4d73b01c4fdded29cbd",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }

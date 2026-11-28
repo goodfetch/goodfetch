@@ -53,6 +53,8 @@ Every Goodfetch package carries one version and is released together: the `goodf
   - error codes
 
   > Amended by [ADR 0095](0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md): semver covers each Product's catalog. An entry leaving Collie's catalog is breaking for Collie, one joining it from Foxhound's is additive. The Collie client packages (`@goodfetch/collie-client`, `goodfetch-collie-client` on PyPI and crates.io) are released with every version and fall under semver like the SDKs, and the API breakage checks cover them.
+  >
+  > Note (implementer decision, 2026-11-27, [#1662](https://github.com/goodfetch/goodfetch/issues/1662)): each release attaches its self-contained Operation catalog of both Products to its GitHub Release as `goodfetch-catalog.json`, written by `xtask codegen` under the registered `published-catalog` format (`0.1`, default version rule) with `format_version`, `protocol_version`, `$schema`, `catalog` (every entry carrying its Product mark), `connection` and the reached `$defs`; `xtask api-check` compares it against the previous release of the same major.
 
   Semver does not cover:
   - Console screens, although the Console's functions stay, such as the reconciliation of uncertain Effects (ADR 0029)

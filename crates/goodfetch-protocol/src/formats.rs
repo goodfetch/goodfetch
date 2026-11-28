@@ -23,6 +23,7 @@ use crate::jsonrpc::Message;
 use crate::notifications::{NOTIFICATION_PAYLOAD_VERSION, NotificationPayload};
 use crate::plugin::{MANIFEST_VERSION, PLUGIN_PROTOCOL_VERSION, PluginManifest};
 use crate::politeness::PermitRow;
+use crate::published_catalog::{PUBLISHED_CATALOG_VERSION, PublishedCatalog};
 use crate::recipe::{RECIPE_MANIFEST_VERSION, RecipeManifest};
 use crate::response_cache::ResponseCacheEntry;
 use crate::run::{RunIndexRow, RunStateRow};
@@ -514,6 +515,19 @@ pub const NOTIFICATION_PAYLOAD: Format = Format {
     schema: schema_of::<NotificationPayload>,
 };
 
+/// The signed Operation catalog file attached to every GitHub Release
+/// (`goodfetch-catalog.json`, ADRs 0030, 0032 and 0095; issue 1662): both
+/// Products' catalog entries with their marks, the protocol version, the
+/// Connection framing types and every JSON Schema definition they refer to.
+pub const PUBLISHED_CATALOG: Format = Format {
+    name: "published-catalog",
+    version: PUBLISHED_CATALOG_VERSION,
+    storage: Storage::Json,
+    rule: Rule::Default,
+    hello_from: &[],
+    schema: schema_of::<PublishedCatalog>,
+};
+
 /// Every registered format.
 pub const FORMATS: &[&Format] = &[
     &PROTOCOL,
@@ -537,6 +551,7 @@ pub const FORMATS: &[&Format] = &[
     &PLUGIN_MANIFEST,
     &PEER_PROTOCOL,
     &NOTIFICATION_PAYLOAD,
+    &PUBLISHED_CATALOG,
 ];
 
 /// A settings file's schema: its `version` and each of `tables`, a table

@@ -27,14 +27,24 @@ pub(crate) enum Target<'a> {
 }
 
 /// The check's argument: its target, the kind of action, which decides the
-/// conditions (`pointer`, `text` or `fill`), and how long it may wait in
-/// the page before it answers.
-pub(crate) fn argument(target: Target<'_>, kind: &str, slice: Duration) -> Value {
+/// conditions (`pointer`, `text`, `fill` or `scroll`), how long it may wait
+/// in the page before it answers, and whether an off-screen target should
+/// ask the engine to scroll with wheel notches instead of teleporting into
+/// view.
+pub(crate) fn argument(
+    target: Target<'_>,
+    kind: &str,
+    slice: Duration,
+    human_scroll: bool,
+) -> Value {
     let mut argument = json!({
         "action": kind,
         "events": CLICK_EVENTS,
         "slice": u64::try_from(slice.as_millis()).unwrap_or(u64::MAX),
     });
+    if human_scroll {
+        argument["human_scroll"] = json!(true);
+    }
     match target {
         Target::Selector(selector) => argument["selector"] = json!(selector),
         Target::Handle(handle) => argument["handle"] = json!(handle),
@@ -66,6 +76,14 @@ pub(crate) fn wait_argument(
     argument
 }
 
+const fn default_width() -> f64 {
+    1280.0
+}
+
+const fn default_height() -> f64 {
+    720.0
+}
+
 /// What one check saw.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
@@ -77,6 +95,22 @@ pub(crate) enum Seen {
         x: f64,
         /// Its distance from the viewport's top.
         y: f64,
+        /// The viewport's width, in CSS pixels.
+        #[serde(default = "default_width")]
+        width: f64,
+        /// The viewport's height, in CSS pixels.
+        #[serde(default = "default_height")]
+        height: f64,
+    },
+    /// A pointer action's target lies outside the viewport under
+    /// human-like input: scroll by `(dx, dy)` using wheel notches first.
+    Scroll {
+        dx: f64,
+        dy: f64,
+        #[serde(default = "default_width")]
+        width: f64,
+        #[serde(default = "default_height")]
+        height: f64,
     },
     /// A text action's target is ready and has the focus, its text
     /// selected for `fill`.
@@ -86,6 +120,9 @@ pub(crate) enum Seen {
         #[serde(default)]
         set_value: bool,
     },
+    /// A scroll's target, the last match, is visible and was scrolled to
+    /// the top of the view.
+    Scrolled,
     /// A locator wait's matches are in the state it waits for.
     Ready {
         /// For `count`, how many elements matched.

@@ -14,9 +14,16 @@
 # - `screen-reader-windows` and `screen-reader-macos`: ADR 0073's
 #   `screen-reader` Live check, NVDA on Windows and VoiceOver on macOS, before
 #   each release candidate while the nightly tier is off.
+# - `integration-accounts`: ADRs 0070 and 0076's real-account Integration
+#   checks on free developer plans, behind a Cloudflare Quick Tunnel
+#   (`cloudflared tunnel --url`). Weekly and by hand, off until the owner sets
+#   the repository variable `GOODFETCH_INTEGRATION_ACCOUNTS_ENABLED` to `true`
+#   at M4.
 name: live
 
 on:
+  schedule:
+    - cron: "0 6 * * 1"
   workflow_dispatch:
     inputs:
       checks:
@@ -26,12 +33,13 @@ on:
           - vendors
           - provider
           - screen-reader
+          - integration-accounts
         default: vendors
 
 permissions: {}
 
 concurrency:
-  group: live-${{ inputs.checks }}
+  group: live-${{ inputs.checks || 'integration-accounts' }}
   cancel-in-progress: false
 
 jobs:
@@ -83,7 +91,9 @@ jobs:
 
   provider:
     name: provider
-    if: inputs.checks == 'provider'
+    if: >-
+      inputs.checks == 'provider' &&
+      (vars.GOODFETCH_LIVE_PROVIDER_CHECK == '1' || vars.GOODFETCH_LIVE_PROVIDER_CHECK == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -108,6 +118,7 @@ jobs:
       - name: "Test: the job's Live checks"
         env:
           AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+          GOODFETCH_LIVE_PROVIDER_CHECK: ${{ vars.GOODFETCH_LIVE_PROVIDER_CHECK }}
         run: >-
           ci/egress/under-deny.sh cargo run --quiet --locked --bin xtask --
           results live-run --job live.yml#provider --junit target/junit/live.xml
@@ -214,5 +225,54 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-screen-reader-live-macos-arm64-1
+          path: target/junit/
+          if-no-files-found: ignore
+
+  integration-accounts:
+    name: integration-accounts
+    if: >-
+      vars.GOODFETCH_INTEGRATION_ACCOUNTS_ENABLED == 'true'
+      && (github.event_name == 'schedule' || inputs.checks == 'integration-accounts')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the tools and dependencies
+        uses: ./.github/actions/host-tools
+        with:
+          target: x86_64-unknown-linux-gnu
+      - name: Install pinned cloudflared before the deny
+        run: ci/integration-accounts.sh install
+      - name: Build xtask and goodfetch-collie before the deny
+        run: >-
+          cargo build --quiet --locked --bin xtask -p goodfetch-collie --bin goodfetch-collie
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: the job's Live checks"
+        run: ci/egress/under-deny.sh ci/integration-accounts.sh run
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/junit/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-integration-accounts-live-linux-x64-1
           path: target/junit/
           if-no-files-found: ignore

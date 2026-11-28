@@ -277,7 +277,8 @@ fn the_registry_lists_every_format_under_its_rule() {
             ("plugin-protocol", Rule::LowerMinor),
             ("plugin-manifest", Rule::Default),
             ("peer-protocol", Rule::LowerMinor),
-            ("notification-payload", Rule::FrozenMajor)
+            ("notification-payload", Rule::FrozenMajor),
+            ("published-catalog", Rule::Default),
         ]
     );
 }

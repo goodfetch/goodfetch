@@ -25,6 +25,9 @@ use crate::products::Product;
 
 /// The digest table's name, among the files it lists.
 pub(super) const TABLE: &str = "SHA256SUMS";
+/// The published Operation catalog attached to every GitHub Release (ADRs 0030,
+/// 0032 and 0095; issue 1662).
+pub(super) const CATALOG_FILE: &str = goodfetch_protocol::published_catalog::PUBLISHED_CATALOG_FILE;
 /// The largest part, in bytes: 2,000 MiB, below GitHub's 2 GiB limit.
 pub(super) const PART_SIZE: u64 = 2000 << 20;
 /// What a part's name adds to its file's, before its number.
@@ -46,10 +49,10 @@ pub(super) const TARGETS: [&str; 8] = [
     "aarch64-pc-windows-msvc",
 ];
 
-/// The files each Product must put on the GitHub Release, each named after
-/// its executable (ADR 0094): its archive per target, which
-/// `[package.metadata.binstall]` and `docs/install.md` name, its debug
-/// symbols per target, and its SBOM.
+/// The files every release must put on the GitHub Release, each Product's
+/// files named after its executable (ADR 0094) plus the shared published
+/// Operation catalog (`goodfetch-catalog.json`, issue 1662): each Product's
+/// archive per target, debug symbols per target, and SBOM, and the catalog.
 fn product_files() -> Vec<String> {
     let mut files = Vec::new();
     for product in Product::ALL {
@@ -60,6 +63,7 @@ fn product_files() -> Vec<String> {
         }
         files.push(format!("{executable}.cdx.json"));
     }
+    files.push(CATALOG_FILE.to_owned());
     files
 }
 
@@ -232,6 +236,68 @@ fn split(folder: &Path, file: &str, part_size: u64) -> Result<Vec<String>> {
     }
     std::fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
     Ok(parts)
+}
+
+/// The first-party Plugins' crate names start with this prefix (ADR 0033).
+const PLUGIN_PREFIX: &str = "goodfetch-plugin-";
+/// Workspace folders that hold first-party Plugin crates (including Foxhound's
+/// sink processes).
+const PLUGIN_FOLDERS: [&str; 3] = ["crates", "crates/foxhound", "crates/foxhound/sinks"];
+
+/// The first-party Plugins' crate names in the workspace, in sorted order.
+pub(super) fn first_party_plugins(root: &Path) -> Result<Vec<String>> {
+    let mut names = Vec::new();
+    for folder in PLUGIN_FOLDERS {
+        let Ok(entries) = std::fs::read_dir(root.join(folder)) else {
+            continue;
+        };
+        for entry in entries {
+            let entry = entry.with_context(|| format!("reading {folder}"))?;
+            let file_name = entry.file_name();
+            let Some(file_name) = file_name.to_str() else {
+                continue;
+            };
+            if !file_name.starts_with(PLUGIN_PREFIX) {
+                continue;
+            }
+            let manifest_path = root.join(folder).join(file_name).join("Cargo.toml");
+            if !manifest_path.is_file() {
+                continue;
+            }
+            let text = std::fs::read_to_string(&manifest_path)
+                .with_context(|| format!("reading {}", manifest_path.display()))?;
+            let manifest: toml_edit::DocumentMut = text
+                .parse()
+                .with_context(|| format!("parsing {}", manifest_path.display()))?;
+            let package_name = manifest
+                .get("package")
+                .and_then(toml_edit::Item::as_table)
+                .and_then(|table| table.get("name"))
+                .and_then(toml_edit::Item::as_str)
+                .with_context(|| format!("{} names no package", manifest_path.display()))?;
+            names.push(package_name.to_owned());
+        }
+    }
+    names.sort();
+    names.dedup();
+    Ok(names)
+}
+
+/// The SHA-256 of `path`, streamed without reading the whole file into memory.
+pub(super) fn sha256_file(path: &Path) -> Result<String> {
+    let mut file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 8 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .with_context(|| format!("reading {}", path.display()))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 /// The SHA-256 of `parts` joined in order, and of each.

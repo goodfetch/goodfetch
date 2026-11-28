@@ -80,6 +80,12 @@ const TWO_COPIES_CASES: &str = include_str!("../../../conformance/two-copies/cas
 /// The Schedule store's case list, embedded the same way.
 const SCHEDULE_CASES: &str = include_str!("../../../conformance/schedule/cases.toml");
 
+/// The Daemon's HTTP JSON-RPC listener's case list, embedded the same way.
+const HTTP_LISTENER_CASES: &str = include_str!("../../../conformance/http-listener/cases.toml");
+
+/// The Schedule Operator policy caps case list, embedded the same way.
+const SCHEDULE_CAPS_CASES: &str = include_str!("../../../conformance/schedule-caps/cases.toml");
+
 /// A protocol suite: its declared case list, and the Product whose
 /// executable it runs on.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -153,6 +159,20 @@ impl ProtocolSuite {
     /// operations only, on Collie's executable.
     pub fn schedule() -> Self {
         Self::read(SCHEDULE_CASES).expect("invariant: the embedded case list is valid")
+    }
+
+    /// `conformance/http-listener/cases.toml`: the Daemon's HTTP JSON-RPC
+    /// listener (`POST /v1/rpc`, spec 608 / #1400), on Collie's executable.
+    pub fn http_listener() -> Self {
+        Self::read(HTTP_LISTENER_CASES).expect("invariant: the embedded case list is valid")
+    }
+
+    /// `conformance/schedule-caps/cases.toml`: Operator policy caps on
+    /// Schedules (#872, spec 589), refusing creations past `max_count`,
+    /// `min_interval` or `limits_max` with `schedule_cap_exceeded` and
+    /// creating a Schedule within caps.
+    pub fn schedule_caps() -> Self {
+        Self::read(SCHEDULE_CAPS_CASES).expect("invariant: the embedded case list is valid")
     }
 
     /// Reads a protocol suite's case list.

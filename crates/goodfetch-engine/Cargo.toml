@@ -191,6 +191,7 @@ proptest.workspace = true
 proptest-state-machine.workspace = true
 rstest.workspace = true
 tempfile.workspace = true
+goodfetch-dev-workspace-hack.workspace = true
 
 # The Simulation's scenarios (tests/it/simulation/), built only by `just
 # simulate` and `just simulation`, which set `--cfg tokio_unstable` (ADR 0060).

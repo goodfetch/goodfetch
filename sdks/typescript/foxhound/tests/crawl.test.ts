@@ -48,7 +48,7 @@ function refusal(error: unknown): {
 async function crawlFailingOnce(
   env: Readonly<Record<string, string>>,
   start: string,
-): Promise<{ readonly attempts: number; readonly records: DatasetRecord[] }> {
+): Promise<{ readonly attempts: number; readonly records: DatasetRecord<unknown>[] }> {
   const program = failsOnce();
   // oxlint-disable-next-line no-restricted-properties -- `Foxhound.connect` is the SDK's own factory (ADR 0078), not a browser's.
   const foxhound = await Foxhound.connect({ env });
@@ -57,7 +57,7 @@ async function crawlFailingOnce(
     settings: program.settings,
   });
   await run.finish();
-  const records: DatasetRecord[] = [];
+  const records: DatasetRecord<unknown>[] = [];
   for await (const record of run.records(program.attempts)) records.push(record);
   await foxhound.close();
   return { attempts: program.attemptsMade(), records };
@@ -78,7 +78,7 @@ describe("a program's crawls on an Attached engine", () => {
 
       const run = await foxhound.startCrawl(catalog, { seeds: [seed(start, listing)], settings });
       const report = await run.finish();
-      const records: DatasetRecord[] = [];
+      const records: DatasetRecord<object>[] = [];
       for await (const record of run.records(products)) records.push(record);
       await foxhound.close();
       const answer = await judgeTask(provingGround, {

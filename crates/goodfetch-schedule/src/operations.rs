@@ -7,6 +7,8 @@
 //! each call to it, and only a Daemon, or an engine that cannot start one,
 //! such as a Linked engine, runs these handlers.
 
+use std::time::Duration;
+
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::control_state::STORE_SCHEDULES;
 use goodfetch_engine::deadline::Deadline;
@@ -15,13 +17,15 @@ use goodfetch_engine::{CallContext, CallError, Contribution, Handler, kept_by_th
 use goodfetch_protocol::group::ControlStateMode;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::schedule::{
-    SCHEDULE_CREATE, SCHEDULE_DELETE, SCHEDULE_EXISTS, SCHEDULE_GET, SCHEDULE_INFO, SCHEDULE_LIST,
-    SCHEDULE_NOT_FOUND, SCHEDULE_STORE_ANSWER, SCHEDULE_TRIGGER_INVALID, ScheduleCreateParams,
+    DEFAULT_PREVIEW_COUNT, MAX_PREVIEW_COUNT, SCHEDULE_CAP_EXCEEDED, SCHEDULE_CREATE,
+    SCHEDULE_DELETE, SCHEDULE_EXISTS, SCHEDULE_GET, SCHEDULE_INFO, SCHEDULE_LIST,
+    SCHEDULE_NOT_FOUND, SCHEDULE_PREVIEW, SCHEDULE_STORE_ANSWER, ScheduleCreateParams,
     ScheduleCreated, ScheduleDeleted, ScheduleExistsDetails, ScheduleGetParams, ScheduleId,
     ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleNotFoundDetails, ScheduleParams,
-    ScheduleState,
+    SchedulePreview, SchedulePreviewParams, ScheduleState,
 };
 use goodfetch_protocol::settings::TIMEOUT_WAIT;
+use jiff::tz::TimeZone;
 
 use crate::{definition, store, trigger};
 
@@ -35,6 +39,7 @@ pub fn contribution() -> Contribution {
         .with_handler(Handler::new(&SCHEDULE_CREATE, create))
         .with_handler(Handler::new(&SCHEDULE_LIST, list))
         .with_handler(Handler::new(&SCHEDULE_GET, get))
+        .with_handler(Handler::new(&SCHEDULE_PREVIEW, preview))
         .with_handler(Handler::new(&SCHEDULE_INFO, info))
         .with_handler(Handler::new(&SCHEDULE_DELETE, delete))
         .guarded(&kept_by_the_daemon())
@@ -45,52 +50,77 @@ async fn create(
     context: CallContext,
 ) -> Result<ScheduleCreated, CallError> {
     let deadline = deadline(&context, params.timeout).await?;
-    let definition = params.definition;
-    trigger::check(&definition.trigger).map_err(|refused| {
-        CallError::new(&SCHEDULE_TRIGGER_INVALID, refused.message, &refused.details)
-    })?;
     let engine = context.engine();
-    let time_zone = definition::time_zone(definition.time_zone.as_deref(), engine.host_zone())
-        .map_err(|unknown| {
-            CallError::protocol(ProtocolFailure::InvalidParams, unknown.to_string())
-        })?;
     let clock = engine.clock();
-    let schedule_id = definition
-        .id
-        .unwrap_or_else(|| definition::generated_id(clock.wall(), || engine.draw_u64()));
+    let machine = engine
+        .settings()
+        .machine()
+        .await
+        .map_err(|error| settings_refusal(&error, &context))?;
+    let store = store_of(&context);
+    let checked = definition::check(
+        params.definition,
+        definition::CheckContext {
+            machine: &machine,
+            engine_product: engine.settings().product(),
+            host_zone: engine.host_zone(),
+            existing_count: None,
+            wall: clock.wall(),
+        },
+        || engine.draw_u64(),
+    )
+    .map_err(|error| definition_refusal(error, &context))?;
+
+    let schedule_id = checked.schedule_id;
     let schedule = ScheduleInfo {
         schedule_id: schedule_id.clone(),
-        target: definition.target,
-        trigger: definition.trigger,
-        time_zone,
+        target: checked.target,
+        trigger: checked.trigger,
+        time_zone: checked.time_zone,
         version: 1,
         state: ScheduleState::On,
         creator: engine.person().to_owned(),
         created_at: clock.wall(),
+        settings: checked.settings,
+        limits: checked.limits,
     };
+    let jitter_ms = trigger::draw_jitter(checked.resolved_settings.jitter_ms, || engine.draw_u64());
     let draws = engine.clone();
-    let created = within(
+    let outcome = within(
         deadline.as_ref(),
         &clock,
-        store::create(&store_of(&context), schedule, move || {
+        store::create(&store, schedule, jitter_ms, checked.max_count, move || {
             store::made_store_id(draws.draw_u64(), draws.draw_u64())
         }),
     )
     .await?
     .map_err(|error| store_failed(&error))?;
-    if !created {
-        return Err(CallError::new(
+
+    match outcome {
+        store::CreateOutcome::Created => Ok(ScheduleCreated {
+            schedule_id,
+            warnings: checked.warnings,
+        }),
+        store::CreateOutcome::Exists => Err(CallError::new(
             &SCHEDULE_EXISTS,
             format!(
                 "A Schedule has the ID `{schedule_id}` already; create it under another ID, or omit the ID for a new one."
             ),
             &ScheduleExistsDetails { schedule_id },
-        ));
+        )),
+        store::CreateOutcome::CapExceeded { existing_count } => {
+            let cap = checked
+                .max_count
+                .expect("invariant: CapExceeded only returned when max_count is Some");
+            let refused =
+                definition::count_cap_exceeded(existing_count, cap, checked.policy_version);
+            Err(CallError::new(
+                &SCHEDULE_CAP_EXCEEDED,
+                refused.message,
+                &refused.details,
+            ))
+        }
     }
-    Ok(ScheduleCreated {
-        schedule_id,
-        warnings: Vec::new(),
-    })
 }
 
 async fn list(params: ScheduleListParams, context: CallContext) -> Result<ScheduleList, CallError> {
@@ -107,6 +137,35 @@ async fn list(params: ScheduleListParams, context: CallContext) -> Result<Schedu
 
 async fn get(params: ScheduleGetParams, context: CallContext) -> Result<ScheduleInfo, CallError> {
     read_one(params.id, params.timeout, &context).await
+}
+
+async fn preview(
+    params: SchedulePreviewParams,
+    context: CallContext,
+) -> Result<SchedulePreview, CallError> {
+    let _deadline = deadline(&context, params.timeout).await?;
+    let count = params.count.unwrap_or(DEFAULT_PREVIEW_COUNT);
+    if count > MAX_PREVIEW_COUNT {
+        return Err(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!("`count` is {count}; ask for at most {MAX_PREVIEW_COUNT} Occurrences."),
+        ));
+    }
+    let parsed = trigger::parse(&params.trigger)?;
+    let engine = context.engine();
+    let time_zone = definition::time_zone(params.time_zone.as_deref(), engine.host_zone())
+        .map_err(|unknown| {
+            CallError::protocol(ProtocolFailure::InvalidParams, unknown.to_string())
+        })?;
+    let zone = TimeZone::get(&time_zone).expect("invariant: `definition::time_zone` validated it");
+    let after = params.after.unwrap_or_else(|| engine.clock().wall());
+    let count = usize::try_from(count).expect("invariant: count <= MAX_PREVIEW_COUNT");
+    let occurrences = trigger::occurrences(&parsed, &zone, after, Duration::ZERO, after, count)?;
+    Ok(SchedulePreview {
+        description: trigger::describe(&parsed),
+        time_zone,
+        occurrences,
+    })
 }
 
 async fn info(params: ScheduleParams, context: CallContext) -> Result<ScheduleInfo, CallError> {
@@ -191,6 +250,33 @@ fn store_of(context: &CallContext) -> UserStore {
             "invariant: the contribution that registers these handlers declares the Schedule store",
         )
         .clone()
+}
+
+/// Converts a [`definition::DefinitionError`] into its protocol [`CallError`].
+fn definition_refusal(error: definition::DefinitionError, context: &CallContext) -> CallError {
+    match error {
+        definition::DefinitionError::TriggerInvalid(refused) => refused.into(),
+        definition::DefinitionError::ZoneUnknown(unknown) => {
+            CallError::protocol(ProtocolFailure::InvalidParams, unknown.to_string())
+        }
+        definition::DefinitionError::LimitsInvalid(reason) => {
+            CallError::protocol(ProtocolFailure::InvalidParams, reason)
+        }
+        definition::DefinitionError::Settings(error) => settings_refusal(&error, context),
+        definition::DefinitionError::CapExceeded(refused) => {
+            CallError::new(&SCHEDULE_CAP_EXCEEDED, refused.message, &refused.details)
+        }
+    }
+}
+
+/// Converts a [`goodfetch_engine::settings::SettingsError`] into its protocol
+/// [`CallError`], naming the machine's settings files where applicable.
+fn settings_refusal(
+    error: &goodfetch_engine::settings::SettingsError,
+    context: &CallContext,
+) -> CallError {
+    let named = context.engine().settings().files().named_in(error.clone());
+    goodfetch_engine::run::settings_error(&named, context)
 }
 
 /// The error a call answers when the store fails it.

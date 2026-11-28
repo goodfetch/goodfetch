@@ -18,6 +18,7 @@ use std::collections::BTreeMap;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
+use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::response_cache::{
     CacheBodyProblem, CacheCleared, CacheDamage, CachePartitionStats, CacheStats, CacheVerified,
 };
@@ -25,7 +26,9 @@ use goodfetch_protocol::run::RunId;
 use rusqlite::Connection;
 use sha2::{Digest as _, Sha256};
 
-use super::{BODIES, CacheFile, HELD, ResponseCache, ResponseCacheError, is_sha256, let_go};
+use super::{
+    BODIES, CacheFile, HELD, ResponseCache, ResponseCacheError, is_sha256, let_go, partition,
+};
 use crate::host_name;
 use crate::sqlite_store;
 
@@ -43,7 +46,8 @@ pub struct Clearing {
     pub domain: Option<String>,
     /// Only those this Run fetched.
     pub run_id: Option<RunId>,
-    /// Only those of this partition: `public`, or a Saved identity's name.
+    /// Only those of this partition: `public`, a Saved identity's name, or
+    /// a Session's own ([`Keeper`](super::Keeper)).
     pub partition: Option<String>,
     /// Only those fetched through this proxy exit country.
     pub country: Option<String>,
@@ -59,6 +63,15 @@ impl Clearing {
     pub fn of_run(run_id: &RunId) -> Self {
         Self {
             run_id: Some(run_id.clone()),
+            ..Self::default()
+        }
+    }
+
+    /// The entries kept in the own partition of the Session `session_id`
+    /// of the Run `run_id`: what its end deletes.
+    pub fn of_session(run_id: &RunId, session_id: &SessionId) -> Self {
+        Self {
+            partition: Some(partition::of_session(run_id, session_id)),
             ..Self::default()
         }
     }
@@ -163,6 +176,34 @@ impl ResponseCache {
             Ok(_) => Ok(()),
             Err(error @ ResponseCacheError::Format { .. }) => {
                 tracing::warn!(saved_identity = name, %error, "the deleted Saved identity's entries stay in a Response cache this engine cannot read");
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Deletes the entries kept in the own partition of the Session
+    /// `session_id` of the Run `run_id`, which has no Saved identity, so
+    /// nothing personal it fetched outlives it (ADR 0046). A cache this
+    /// engine cannot read keeps them, which a warning says; the Run's
+    /// discard deletes them still.
+    ///
+    /// # Errors
+    ///
+    /// When the index cannot be written: nothing is deleted then.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`ResponseCache::clear`]'s.
+    pub async fn forget_session(
+        &self,
+        run_id: &RunId,
+        session_id: &SessionId,
+    ) -> Result<(), ResponseCacheError> {
+        match self.clear(Clearing::of_session(run_id, session_id)).await {
+            Ok(_) => Ok(()),
+            Err(error @ ResponseCacheError::Format { .. }) => {
+                tracing::warn!(%run_id, session_id = %session_id.0, %error, "the ended Session's entries stay in a Response cache this engine cannot read");
                 Ok(())
             }
             Err(error) => Err(error),

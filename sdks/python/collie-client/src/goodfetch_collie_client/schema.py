@@ -40,6 +40,7 @@ from goodfetch_collie_client.json_values import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
+    from typing import Literal
 
 __all__ = ["JSONSchema", "SchemaCodec", "schema_codec"]
 
@@ -105,8 +106,13 @@ class SchemaCodec(ABC, Generic[T]):
         """
 
     @abstractmethod
-    def decode(self, value: JSONValue) -> T:
+    def decode(self, value: JSONValue, *, keep_unknown: bool = False) -> T:
         """`value`, an answer, parsed by the schema into its output type.
+
+        With `keep_unknown`, a model keeps each field it does not declare in
+        its `model_extra`, a nested model's included, where its own config
+        would ignore or refuse it; a `TypedDict` keeps the key, and a
+        dataclass drops it. A Dataset's Record is read so (G3).
 
         Raises:
             SchemaRejectedError: The schema rejects it.
@@ -153,7 +159,8 @@ class _HandWritten(SchemaCodec[JSONValue]):
         _raise_non_json(value)
         return value
 
-    def decode(self, value: JSONValue) -> JSONValue:
+    def decode(self, value: JSONValue, *, keep_unknown: bool = False) -> JSONValue:
+        del keep_unknown
         return value
 
 
@@ -195,12 +202,14 @@ class _Typed(SchemaCodec[T]):
             raise ValueNotJSONError(changed)
         return json_value
 
-    def decode(self, value: JSONValue) -> T:
-        return self._parse(value)
+    def decode(self, value: JSONValue, *, keep_unknown: bool = False) -> T:
+        return self._parse(value, extra="allow" if keep_unknown else None)
 
-    def _parse(self, value: JSONValue) -> T:
+    def _parse(self, value: JSONValue, *, extra: Literal["allow"] | None = None) -> T:
         try:
-            return self._adapter.validate_json(json.dumps(value, allow_nan=False))
+            return self._adapter.validate_json(
+                json.dumps(value, allow_nan=False), extra=extra
+            )
         except ValidationError as rejected:
             raise SchemaRejectedError(
                 tuple(

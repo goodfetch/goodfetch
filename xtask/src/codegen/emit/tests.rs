@@ -78,6 +78,7 @@ fn file_formats() -> serde_json::Value {
             "schema": { "$ref": "#/$defs/Message" },
         },
         stored_format("notification-payload", "json", "frozen_major", "NotificationPayload"),
+        stored_format("published-catalog", "json", "default", "PublishedCatalog"),
     ])
 }
 

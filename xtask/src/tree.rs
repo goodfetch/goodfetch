@@ -56,6 +56,12 @@ pub(crate) const BUNDLE: &str = concat!(protocol_generated!(), "/bundle.json");
 /// and the checks read (ADR 0038).
 pub(crate) const CATALOG: &str = concat!(protocol_generated!(), "/catalog.json");
 
+/// The committed published Operation catalog file, from the root, which
+/// `xtask codegen` writes and every release attaches to its GitHub Release
+/// (ADRs 0030, 0032 and 0095; issue 1662).
+pub(crate) const PUBLISHED_CATALOG: &str =
+    concat!(protocol_generated!(), "/goodfetch-catalog.json");
+
 /// The plugin protocol's types on their own, from the bundle's `plugin`, for
 /// Plugin authors (ADR 0033), from the root.
 pub(crate) const PLUGIN_PROTOCOL_SCHEMA: &str =

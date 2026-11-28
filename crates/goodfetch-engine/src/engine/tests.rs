@@ -28,6 +28,7 @@ mod following;
 mod governor;
 mod group;
 mod handler_requests;
+mod http_listener;
 mod in_flight_cap;
 mod key_value_bytes;
 mod key_value_store;

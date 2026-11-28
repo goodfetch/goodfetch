@@ -5,24 +5,40 @@
 //! call of another module that sends its own events, such as `page.on`,
 //! sends them with [`send_events`].
 
+use std::convert::Infallible;
+use std::io::Write as _;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
 use goodfetch_protocol::events::{
-    EVENTS, EVENTS_SUBSCRIBE, EventBatch, EventsSubscribeParams, StreamRedirect, SubscriptionEnded,
+    EVENTS, EVENTS_SUBSCRIBE, EventBatch, EventsSubscribeParams, LastRead, StreamRedirect,
+    SubscriptionEnded,
 };
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::page::{
     BODY_NOT_FOUND, BodyNotFoundDetails, PAGE_BODY, PageBodyParams, PageBodyRead,
 };
+use goodfetch_protocol::run::RunId;
+use hyper::body::{Body, Bytes, Frame};
 use serde::Serialize;
+use tokio::sync::mpsc;
 
 use super::record_event;
 use crate::body;
 use crate::call_error::CallError;
 use crate::composition::{CallContext, CallStream, Handler};
 use crate::engine_context::EventsRoute;
-use crate::events::Envelope;
+use crate::events::{Credits, Envelope, Events};
+use crate::mask::{Masks, Scope};
+use crate::tasks::TaskOwner;
 
 /// The most events one `$/events` batch carries.
 const MAX_BATCH: usize = 256;
+
+/// Credit window for one Server-Sent Events reader (`GET /v1/events`, ADRs
+/// 0024 and 0027): each frame polled by the HTTP response refunds one credit,
+/// and dropping the response closes the channel and ends the subscription.
+const SSE_CREDITS: u32 = 16;
 
 /// The streaming calls' handlers.
 pub(crate) fn handlers() -> [Handler; 2] {
@@ -128,6 +144,115 @@ pub async fn send_events(stream: &CallStream, events: Vec<Envelope>) -> bool {
 struct Batch<'a> {
     id: &'a RequestId,
     events: &'a [Envelope],
+}
+
+/// One Server-Sent Events HTTP body streamed through `rpc`'s event-stream
+/// writer and `Credits` (ADRs 0024, 0027 and 0140's E1).
+pub(crate) struct SseStream {
+    frames: mpsc::Receiver<Bytes>,
+    credits: Credits,
+}
+
+impl Body for SseStream {
+    type Data = Bytes;
+    type Error = Infallible;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        match self.frames.poll_recv(cx) {
+            Poll::Ready(Some(bytes)) => {
+                self.credits.grant(1);
+                Poll::Ready(Some(Ok(Frame::data(bytes))))
+            }
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+/// Opens a Server-Sent Events stream backed by `events` and `Credits`,
+/// optionally filtered to `run` and resuming after `after`. Each event's
+/// pre-encoded [`EventData`](crate::events::EventData) is spliced verbatim
+/// without re-encoding (ADR 0140's E1).
+///
+/// # Cancel safety
+///
+/// Dropping the returned [`SseStream`] ends the pump task and unsubscribes.
+pub(crate) async fn open_sse_stream(
+    events: &Events,
+    after: Option<LastRead>,
+    run: Option<RunId>,
+    masks: Masks,
+    owner: &TaskOwner,
+) -> Option<SseStream> {
+    let mut subscription = events.subscribe_for_run(after, run, false).await?;
+    let credits = Credits::new();
+    credits.grant(SSE_CREDITS);
+    let (sender, frames) = mpsc::channel(SSE_CREDITS as usize);
+    let pump_credits = credits.clone();
+    let stopping = owner.token().clone();
+    owner.spawn(async move {
+        loop {
+            let granted = tokio::select! {
+                biased;
+                () = stopping.cancelled() => return,
+                () = sender.closed() => return,
+                granted = pump_credits.spend(MAX_BATCH) => granted,
+            };
+            let batch = tokio::select! {
+                biased;
+                () = stopping.cancelled() => return,
+                () = sender.closed() => return,
+                batch = subscription.next(granted) => match batch {
+                    Some(batch) => batch,
+                    None => return,
+                },
+            };
+            pump_credits.refund(granted.saturating_sub(batch.len()));
+            for envelope in batch {
+                record_event(envelope.event);
+                let frame = format_sse_frame(&envelope, &masks);
+                let sent = tokio::select! {
+                    biased;
+                    () = stopping.cancelled() => false,
+                    outcome = sender.send(frame) => outcome.is_ok(),
+                };
+                if !sent {
+                    return;
+                }
+            }
+        }
+    });
+    Some(SseStream { frames, credits })
+}
+
+/// Formats one [`Envelope`] as a Server-Sent Event frame (`id`, `event`,
+/// `data`), splicing the pre-encoded `envelope.data.json()` verbatim so an
+/// event is encoded once whichever transport carries it (ADR 0140's E1).
+pub(crate) fn format_sse_frame(envelope: &Envelope, masks: &Masks) -> Bytes {
+    let payload = envelope.data.json();
+    let mut json_line = Vec::with_capacity(payload.len() + envelope.event.len() + 64);
+    let _ = write!(
+        json_line,
+        "{{\"position\":{},\"event\":\"{}\",\"data\":{}",
+        envelope.position.0, envelope.event, payload
+    );
+    if envelope.dropped > 0 {
+        let _ = write!(json_line, ",\"dropped\":{}", envelope.dropped);
+    }
+    json_line.push(b'}');
+    let masked = masks.apply_json_line(json_line, Scope::Returned);
+    let mut wire = Vec::with_capacity(masked.len() + envelope.event.len() + 40);
+    let _ = write!(
+        wire,
+        "id: {}\nevent: {}\ndata: ",
+        envelope.position.0, envelope.event
+    );
+    wire.extend_from_slice(&masked);
+    wire.extend_from_slice(b"\n\n");
+    Bytes::from(wire)
 }
 
 async fn read_body(

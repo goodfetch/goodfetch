@@ -974,10 +974,32 @@ fn plan_publishes_neither_crates_nor_wheels_for_a_nightly() {
     assert_eq!(
         oci,
         [
+            "oci goodfetch/charts/collie 1.5.0-dev.7",
+            "oci goodfetch/charts/collie nightly",
+            "oci goodfetch/charts/foxhound 1.5.0-dev.7",
+            "oci goodfetch/charts/foxhound nightly",
             "oci goodfetch/collie 1.5.0-dev.7",
+            "oci goodfetch/collie 1.5.0-dev.7-full",
+            "oci goodfetch/collie 1.5.0-dev.7-node",
+            "oci goodfetch/collie 1.5.0-dev.7-python",
+            "oci goodfetch/collie 1.5.0-dev.7-slim",
             "oci goodfetch/collie nightly",
+            "oci goodfetch/collie nightly-full",
+            "oci goodfetch/collie nightly-node",
+            "oci goodfetch/collie nightly-python",
+            "oci goodfetch/collie nightly-slim",
             "oci goodfetch/foxhound 1.5.0-dev.7",
+            "oci goodfetch/foxhound 1.5.0-dev.7-full",
+            "oci goodfetch/foxhound 1.5.0-dev.7-node",
+            "oci goodfetch/foxhound 1.5.0-dev.7-python",
+            "oci goodfetch/foxhound 1.5.0-dev.7-slim",
             "oci goodfetch/foxhound nightly",
+            "oci goodfetch/foxhound nightly-full",
+            "oci goodfetch/foxhound nightly-node",
+            "oci goodfetch/foxhound nightly-python",
+            "oci goodfetch/foxhound nightly-slim",
+            "oci goodfetch/goodfetch-plugin-archive 1.5.0-dev.7",
+            "oci goodfetch/goodfetch-plugin-archive nightly",
         ]
     );
     assert_eq!(registries.pypi.requests(), Vec::<Request>::new());
@@ -1482,4 +1504,33 @@ mod pypiserver {
         // pypiserver lists no sizes, so the use of the limit is not summed.
         assert_eq!(outcome.notes(), [finding("pypi-quota", "goodfetch-collie")]);
     }
+}
+
+/// Issue 1662: the release plan lists `goodfetch-catalog.json` among the
+/// GitHub Release's files for a stable release, a release candidate, and a
+/// `0.y` preview, and holds publication until it is uploaded.
+#[rstest]
+#[case::stable("1.4.0")]
+#[case::release_candidate("1.4.0-rc.1")]
+#[case::preview("0.2.0")]
+fn plan_lists_the_published_catalog_for_stable_rc_and_preview(#[case] version: &str) {
+    let workspace = prepared(version);
+    let registries = Registries::serving(&Published::previous_release());
+
+    let outcome = plan(&workspace, version, &registries);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let states = states(&outcome.stdout);
+    assert_eq!(
+        states.get("github asset goodfetch-catalog.json"),
+        Some(&"upload"),
+        "{}",
+        outcome.stdout
+    );
+    assert_eq!(
+        states.get(format!("github release v{version}").as_str()),
+        Some(&"held"),
+        "{}",
+        outcome.stdout
+    );
 }

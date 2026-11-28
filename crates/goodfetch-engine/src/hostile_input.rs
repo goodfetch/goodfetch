@@ -27,54 +27,9 @@ use goodfetch_protocol::hostile_input::{
     HEADER_VALUE_INVALID, HeaderCharacter, HeaderValueInvalidDetails, PATH_UNSAFE, PathHazard,
     PathUnsafeDetails,
 };
-use icu_normalizer::ComposingNormalizerBorrowed;
+use goodfetch_saved_file::{PathIssue, PathShape as SavedPathShape, check_relative_path};
 
 use crate::call_error::CallError;
-
-/// The most bytes one part of a path holds: a file system's name.
-const NAME_MAX_BYTES: usize = 255;
-
-/// The characters Windows forbids in a name, beside the separators and the
-/// colon, which the checks name on their own.
-const FORBIDDEN: [char; 6] = ['<', '>', '"', '|', '?', '*'];
-
-/// The device names Windows reserves, in upper case, alone or before an
-/// extension: the console's, the ports, with their superscript digits, and
-/// the console's input and output.
-const RESERVED: [&str; 32] = [
-    "CON",
-    "PRN",
-    "AUX",
-    "NUL",
-    "COM0",
-    "COM1",
-    "COM2",
-    "COM3",
-    "COM4",
-    "COM5",
-    "COM6",
-    "COM7",
-    "COM8",
-    "COM9",
-    "COM\u{b9}",
-    "COM\u{b2}",
-    "COM\u{b3}",
-    "LPT0",
-    "LPT1",
-    "LPT2",
-    "LPT3",
-    "LPT4",
-    "LPT5",
-    "LPT6",
-    "LPT7",
-    "LPT8",
-    "LPT9",
-    "LPT\u{b9}",
-    "LPT\u{b2}",
-    "LPT\u{b3}",
-    "CONIN$",
-    "CONOUT$",
-];
 
 /// A header value the engine refuses to send: `header_value_invalid`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -188,100 +143,35 @@ impl PathUnsafe {
 /// [`PathUnsafe`] with the first hazard found: the whole path's, then
 /// each part's, then a separator where one name is taken.
 pub fn check_path(name: &str, shape: PathShape) -> Result<(), PathUnsafe> {
-    hazard(name, shape).map_or(Ok(()), |hazard| {
-        Err(PathUnsafe {
-            name: name.to_owned(),
-            hazard,
-        })
+    let saved_shape = match shape {
+        PathShape::Name => SavedPathShape::Name,
+        PathShape::RelativePath => SavedPathShape::RelativePath,
+    };
+    check_relative_path(name, saved_shape).map_err(|issue| PathUnsafe {
+        name: name.to_owned(),
+        hazard: hazard_of(issue),
     })
 }
 
-/// The first hazard of `name` as a `shape`, if any.
-fn hazard(name: &str, shape: PathShape) -> Option<PathHazard> {
-    if name.is_empty() {
-        return Some(PathHazard::DotName);
+/// Maps the shared path check's issue to the protocol's [`PathHazard`].
+const fn hazard_of(issue: PathIssue) -> PathHazard {
+    match issue {
+        PathIssue::ParentTraversal => PathHazard::ParentTraversal,
+        PathIssue::Absolute => PathHazard::Absolute,
+        PathIssue::Drive => PathHazard::Drive,
+        PathIssue::Verbatim => PathHazard::Verbatim,
+        PathIssue::DeviceNamespace => PathHazard::DeviceNamespace,
+        PathIssue::Unc => PathHazard::Unc,
+        PathIssue::ReservedName => PathHazard::ReservedName,
+        PathIssue::TrailingDotOrSpace => PathHazard::TrailingDotOrSpace,
+        PathIssue::AlternateDataStream => PathHazard::AlternateDataStream,
+        PathIssue::ForbiddenCharacter => PathHazard::ForbiddenCharacter,
+        PathIssue::ControlCharacter => PathHazard::ControlCharacter,
+        PathIssue::Normalisation => PathHazard::Normalisation,
+        PathIssue::Overlong => PathHazard::Overlong,
+        PathIssue::DotName => PathHazard::DotName,
+        PathIssue::Separator => PathHazard::Separator,
     }
-    if name.chars().any(char::is_control) {
-        return Some(PathHazard::ControlCharacter);
-    }
-    if let Some(hazard) = root_hazard(name) {
-        return Some(hazard);
-    }
-    if !ComposingNormalizerBorrowed::new_nfc().is_normalized(name) {
-        return Some(PathHazard::Normalisation);
-    }
-    let parts: Vec<&str> = name.split(['/', '\\']).collect();
-    if let Some(hazard) = parts.iter().find_map(|part| part_hazard(part)) {
-        // An empty last part is a trailing separator, which a name never
-        // takes and a path does not need.
-        let trailing = parts.last().is_some_and(|last| last.is_empty())
-            && parts
-                .iter()
-                .rev()
-                .skip(1)
-                .all(|part| part_hazard(part).is_none());
-        if !(trailing && shape == PathShape::Name) {
-            return Some(hazard);
-        }
-    }
-    (shape == PathShape::Name && parts.len() > 1).then_some(PathHazard::Separator)
-}
-
-/// What makes `name`, as a whole, start outside its folder: a verbatim,
-/// device or UNC path, a path from the root, or a drive.
-fn root_hazard(name: &str) -> Option<PathHazard> {
-    let separator = |character: char| character == '/' || character == '\\';
-    let mut characters = name.chars();
-    let (first, second, third, fourth) = (
-        characters.next(),
-        characters.next(),
-        characters.next(),
-        characters.next(),
-    );
-    match (first, second, third, fourth) {
-        (Some(a), Some(b), Some('?'), Some(d)) if separator(a) && separator(b) && separator(d) => {
-            Some(PathHazard::Verbatim)
-        }
-        (Some(a), Some(b), Some('.'), Some(d)) if separator(a) && separator(b) && separator(d) => {
-            Some(PathHazard::DeviceNamespace)
-        }
-        (Some(a), Some(b), ..) if separator(a) && separator(b) => Some(PathHazard::Unc),
-        (Some(a), ..) if separator(a) => Some(PathHazard::Absolute),
-        (Some(letter), Some(':'), ..) if letter.is_ascii_alphabetic() => Some(PathHazard::Drive),
-        _ => None,
-    }
-}
-
-/// What makes one part of a path unsafe, if anything.
-fn part_hazard(part: &str) -> Option<PathHazard> {
-    if part.is_empty() || part == "." {
-        return Some(PathHazard::DotName);
-    }
-    if part == ".." {
-        return Some(PathHazard::ParentTraversal);
-    }
-    if part.contains(':') {
-        return Some(PathHazard::AlternateDataStream);
-    }
-    if part.contains(FORBIDDEN) {
-        return Some(PathHazard::ForbiddenCharacter);
-    }
-    if part.ends_with('.') || part.ends_with(' ') {
-        return Some(PathHazard::TrailingDotOrSpace);
-    }
-    if is_reserved(part) {
-        return Some(PathHazard::ReservedName);
-    }
-    (part.len() > NAME_MAX_BYTES).then_some(PathHazard::Overlong)
-}
-
-/// Whether `part` is a device name Windows reserves: alone, or before an
-/// extension, in any case, spaces before the extension dropped as Windows
-/// drops them.
-fn is_reserved(part: &str) -> bool {
-    let stem = part.split('.').next().unwrap_or(part).trim_end_matches(' ');
-    let upper = stem.to_uppercase();
-    RESERVED.contains(&upper.as_str())
 }
 
 #[cfg(test)]

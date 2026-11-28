@@ -11,6 +11,8 @@
 
 mod failure;
 mod partial;
+mod path;
 
 pub use failure::{blames_path, os_code, reason_of, unix_code};
 pub use partial::{create_hidden, unhide};
+pub use path::{PathIssue, PathShape, check_relative_path, check_save_path, resolve_in_folder};

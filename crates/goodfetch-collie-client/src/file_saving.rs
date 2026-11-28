@@ -19,7 +19,9 @@ use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::checkpoint::{FileWriteFailedDetails, PathNotWritableDetails, WriteSide};
-use goodfetch_saved_file::{blames_path, create_hidden, os_code, reason_of, unhide, unix_code};
+use goodfetch_saved_file::{
+    blames_path, check_save_path, create_hidden, os_code, reason_of, unhide, unix_code,
+};
 
 use crate::error::Error;
 
@@ -54,6 +56,16 @@ impl FileSaving {
     /// Starts the file for `given`, which resolves to the absolute `path`,
     /// as [`FileSaving::create`] does.
     pub(crate) fn create_at(given: &Path, path: PathBuf, call: &str) -> Result<Self, Error> {
+        if let Err(issue) = check_save_path(given) {
+            return Err(failure(
+                "invalid_filename",
+                None,
+                given,
+                call,
+                issue.describe(),
+                None,
+            ));
+        }
         let named_folder = given
             .as_os_str()
             .to_string_lossy()
@@ -161,6 +173,16 @@ impl FileSaving {
 ///
 /// When the working directory cannot be read, as `call`'s failure.
 pub(crate) fn absolute(path: &Path, call: &str) -> Result<PathBuf, Error> {
+    if let Err(issue) = check_save_path(path) {
+        return Err(failure(
+            "invalid_filename",
+            None,
+            path,
+            call,
+            issue.describe(),
+            None,
+        ));
+    }
     std::path::absolute(path).map_err(|error| {
         classify(
             error,

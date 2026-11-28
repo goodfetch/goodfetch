@@ -3784,6 +3784,7 @@ version = "0.0.0"
 dependencies = [
  "goodfetch-dev-workspace-hack",
  "goodfetch-workspace-hack",
+ "icu_normalizer",
  "windows-sys 0.61.2",
 ]
 

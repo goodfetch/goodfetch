@@ -678,3 +678,58 @@ mod saver {
         );
     }
 }
+
+#[test]
+fn every_hostile_export_name_in_the_path_table_is_refused_with_path_not_writable() {
+    use goodfetch_test_support::{HostileTables, PathTarget};
+
+    let folder = tempfile::tempdir().unwrap();
+    let tables = HostileTables::committed().unwrap();
+    let cases: Vec<_> = tables
+        .paths
+        .cases
+        .iter()
+        .filter(|case| case.input.targets.contains(&PathTarget::ExportName))
+        .collect();
+    assert_ne!(cases.len(), 0);
+
+    let mut misses = Vec::new();
+    for case in &cases {
+        let name = &case.input.name;
+        if goodfetch_saved_file::resolve_in_folder(folder.path(), name).is_ok() {
+            misses.push(format!(
+                "{}: resolve_in_folder accepted {name:?}",
+                case.name
+            ));
+        }
+        let native_absolute = if cfg!(windows) {
+            case.name == "drive_path"
+        } else {
+            case.name == "absolute_path"
+        };
+        if !native_absolute {
+            let joined = folder.path().join(name);
+            match FileSaving::create(&joined, "export.saveAs") {
+                Ok(_) => misses.push(format!("{}: FileSaving accepted {joined:?}", case.name)),
+                Err(error) => {
+                    let (_, is_path) = failure(&error);
+                    if !is_path {
+                        misses.push(format!(
+                            "{}: FileSaving returned non-path error {error:?}",
+                            case.name
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(misses, Vec::<String>::new());
+    assert_eq!(names(folder.path()), Vec::<String>::new());
+
+    // Positive control: an ordinary name inside the folder works.
+    let safe = goodfetch_saved_file::resolve_in_folder(folder.path(), "report.csv").unwrap();
+    let mut saving = FileSaving::create(&safe, "export.saveAs").unwrap();
+    saving.write(b"a,b\n1,2\n").unwrap();
+    saving.finish().unwrap();
+    assert_eq!(std::fs::read(&safe).unwrap(), b"a,b\n1,2\n");
+}

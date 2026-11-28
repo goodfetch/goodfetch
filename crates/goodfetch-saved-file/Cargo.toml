@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 goodfetch-workspace-hack.workspace = true
+icu_normalizer.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 # The hidden attribute of a Saved file's temporary file (ADR 0116).

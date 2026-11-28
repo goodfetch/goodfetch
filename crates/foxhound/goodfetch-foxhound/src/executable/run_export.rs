@@ -87,8 +87,8 @@ fn args(command: Command, operation: &Operation) -> Command {
 enum Out {
     /// Standard output, `-`.
     Stdout,
-    /// A path, absolute.
-    Path(PathBuf),
+    /// The path as given and its absolute resolution.
+    Path { given: PathBuf, resolved: PathBuf },
 }
 
 /// Reads `--out`: `-`, or a path, made absolute against the working
@@ -98,7 +98,10 @@ fn out(text: &str) -> Result<Out, String> {
         return Ok(Out::Stdout);
     }
     std::path::absolute(text)
-        .map(Out::Path)
+        .map(|resolved| Out::Path {
+            given: PathBuf::from(text),
+            resolved,
+        })
         .map_err(|error| format!("`{text}` is no path: {error}"))
 }
 
@@ -164,10 +167,12 @@ fn run(
             return ExitCode::from(cli::USAGE.code);
         }
         Out::Stdout => Destination::Stdout,
-        Out::Path(path) => match Saving::create(path) {
-            Ok(saving) => Destination::File(saving),
-            Err(error) => return call.fail(save_failed(error, path), human),
-        },
+        Out::Path { given, resolved } => {
+            match Saving::check_path(given).and_then(|()| Saving::create(resolved)) {
+                Ok(saving) => Destination::File(saving),
+                Err(error) => return call.fail(save_failed(error, given), human),
+            }
+        }
     };
     let stream = operations_of(call.product()).find(|operation| operation.name == EXPORT_STREAM);
     let mut export: Option<Value> = None;
@@ -263,7 +268,7 @@ fn finished(
     export: Option<&Value>,
     human: &Human,
 ) -> ExitCode {
-    if let Out::Path(path) = out {
+    if let Out::Path { given: path, .. } = out {
         let written = match (failed, destination) {
             (Some(error), _) => Err(error),
             (None, Destination::File(saving)) => saving.finish(),

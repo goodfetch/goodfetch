@@ -1272,3 +1272,260 @@ fn an_xlsx_export_past_what_a_sheet_holds_fails_and_leaves_no_file() {
         )
     );
 }
+
+/// Drives the `canaries/3` login flow on `handle`'s page, visits
+/// `account_url`, writes `storage_canary` into `localStorage` and
+/// `sessionStorage`, and returns `(status, saw_storage, title)`.
+fn log_in_and_plant_storage(
+    inside: &mut crate::frontier::Inside<'_>,
+    handle: &Value,
+    (username, password): (&str, &str),
+    account_url: &str,
+    storage_canary: &str,
+) -> (Value, bool, String) {
+    let page_id = handle["page_id"].clone();
+    for (selector, value) in [
+        ("input[name=username]", username),
+        ("input[name=password]", password),
+    ] {
+        let filled = inside.call(
+            "locator.fill",
+            &json!({
+                "locator": { "page_id": page_id, "selector": selector },
+                "value": value,
+            }),
+        );
+        assert!(filled.get("result").is_some(), "{filled}");
+    }
+    let clicked = inside.call(
+        "locator.click",
+        &json!({
+            "locator": { "page_id": page_id, "selector": "button[type=submit]" },
+        }),
+    );
+    assert!(clicked.get("result").is_some(), "{clicked}");
+    let waited = inside.call(
+        "page.wait_for_url",
+        &json!({
+            "page_id": page_id,
+            "url": { "kind": "glob", "pattern": "**/account" },
+        }),
+    );
+    assert!(waited.get("result").is_some(), "{waited}");
+    let visited = inside.call(
+        "page.goto",
+        &json!({ "page_id": page_id, "url": account_url }),
+    );
+    assert!(visited.get("result").is_some(), "{visited}");
+    let status = visited["result"]["response"]["status"].clone();
+    let planted_storage = inside.call(
+        "page.evaluate",
+        &json!({
+            "page_id": page_id,
+            "function": "(token) => { localStorage.setItem('session_token', token); sessionStorage.setItem('session_token', token); return [localStorage.getItem('session_token'), sessionStorage.getItem('session_token'), document.title]; }",
+            "arg": storage_canary,
+        }),
+    );
+    let values = planted_storage["result"]["value"]
+        .as_array()
+        .unwrap_or_else(|| panic!("expected evaluation array: {planted_storage}"));
+    let saw_storage =
+        values[0].as_str() == Some(storage_canary) && values[1].as_str() == Some(storage_canary);
+    let title = values[2].as_str().unwrap_or("account").to_owned();
+    (status, saw_storage, title)
+}
+
+/// An Export of a crawl that logged in carries no Session cookie or browser
+/// storage value (ADRs 0015 and 0067): a browser-tier crawl logs into the
+/// Proving ground's `canaries/3` login flow (which plants a `SessionCookie`
+/// canary in the Session's cookies) and writes a storage canary into both
+/// `localStorage` and `sessionStorage`, verifies all three are active in the
+/// Session, commits a Record from the authenticated page, and exports the
+/// Dataset as JSON, JSONL and CSV; searching every Export finds zero canary
+/// leaks.
+///
+/// Covers: story:4-114, operation:run.export, operation:export.save_as
+#[test]
+fn an_export_of_a_logged_in_crawl_carries_no_session_cookie_or_storage() {
+    use goodfetch_test_support::{Canaries, Output, ProvingGround, SecretKind};
+
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, 683).unwrap();
+    let mut canaries = Canaries::new(env.seed());
+    let planted_cookie = canaries
+        .plant_through(&proving_ground, SecretKind::SessionCookie)
+        .unwrap();
+    let account = planted_cookie.account().unwrap().clone();
+    let storage_canary = canaries.plant(SecretKind::CallerAnswer).value().to_owned();
+    let login = proving_ground.start_url("canaries/3").unwrap();
+    let account_url = login.replace("/login", "/account");
+    let mut engine = crate::fetch_tiers::engine(&env);
+    let mut account_status = Value::Null;
+    let mut saw_storage = false;
+
+    let finished = crate::frontier::crawl_declaring(
+        &mut engine,
+        "logged-in-export",
+        &[json!({ "url": login, "label": "page" })],
+        &json!({ "page": {} }),
+        &crate::fetch_tiers::settings(
+            &proving_ground,
+            &json!({
+                "fetch": { "tier": "browser" },
+                "crawl": { "handler": { "concurrency": 1 } },
+                "politeness": { "domain": { "delay": 0 } },
+                "site_preferences": { "respect_robots_txt": false },
+            }),
+        ),
+        &mut |inside, handle| {
+            let (status, stored, title) = log_in_and_plant_storage(
+                inside,
+                handle,
+                (account.username.as_str(), account.password.as_str()),
+                &account_url,
+                &storage_canary,
+            );
+            account_status = status;
+            saw_storage = stored;
+            json!({
+                "result": {
+                    "records": [{
+                        "dataset": "pages",
+                        "data": { "url": account_url, "title": title },
+                    }],
+                },
+            })
+        },
+    );
+    assert_eq!(
+        finished["result"]["lifecycle"],
+        json!("finished"),
+        "{finished}"
+    );
+    assert_eq!(
+        account_status,
+        json!(200),
+        "authenticated /account page loaded"
+    );
+    assert_ne!(
+        canaries.sightings(&proving_ground).unwrap().len(),
+        0,
+        "the login flow planted and sent the HttpOnly session cookie canary"
+    );
+    assert!(saw_storage, "the session stored the browser storage canary");
+
+    let out_dir = env.folder().join("exported");
+    let saved_files: Vec<(&str, Vec<u8>)> = ["json", "jsonl", "csv"]
+        .into_iter()
+        .map(|format| {
+            let exported = engine.call(
+                &format!("export-{format}"),
+                "run.export",
+                &json!({ "run_id": "logged-in-export", "dataset": "pages", "format": format }),
+                &mut |_| None,
+            );
+            assert_eq!(exported["result"]["records"], json!(1), "{exported}");
+            let path = out_dir.join(format!("pages.{format}"));
+            let saved = engine.call(
+                &format!("save-{format}"),
+                "export.save_as",
+                &json!({ "export_id": exported["result"]["export_id"], "path": path }),
+                &mut |_| None,
+            );
+            assert!(saved.get("result").is_some(), "{saved}");
+            (format, std::fs::read(&path).unwrap())
+        })
+        .collect();
+    assert!(engine.finished());
+
+    let outputs: Vec<Output<'_>> = saved_files
+        .iter()
+        .map(|(name, bytes)| Output::Bytes { name, bytes })
+        .collect();
+    assert_eq!(canaries.leaks(&outputs).unwrap(), Vec::new());
+}
+
+/// Every hostile Export file name in the committed path table (ADR 0067) is
+/// refused with `path_not_writable` (ADR 0116) on Linux, macOS and Windows
+/// alike: `..`, absolute paths, Windows reserved names, trailing dots or
+/// spaces, `\\?\`, `\\.\`, UNC paths, alternate data streams, forbidden and
+/// control characters, overlong names and decomposed Unicode, leaving no file
+/// written; an ordinary name inside the folder succeeds (positive control).
+///
+/// Covers: story:4-114, operation:export.save_as, error:path_not_writable
+#[test]
+fn export_save_as_refuses_hostile_names_from_the_path_table_with_path_not_writable() {
+    use goodfetch_engine::run_files::{SaveError, Saving};
+    use goodfetch_test_support::{HostileTables, PathTarget};
+
+    let env = TestEnv::new();
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
+    crawl((&mut engine, &site), "hostile-export", 1);
+    finish(&mut engine, "hostile-export", book);
+    let exported = export(&mut engine, "hostile-export", "json");
+    let export_id = exported["result"]["export_id"].as_str().unwrap().to_owned();
+
+    let tables = HostileTables::committed().unwrap();
+    let cases: Vec<_> = tables
+        .paths
+        .cases
+        .iter()
+        .filter(|case| case.input.targets.contains(&PathTarget::ExportName))
+        .collect();
+    assert_ne!(cases.len(), 0);
+
+    let folder = env.folder().join("export-folder");
+    std::fs::create_dir_all(&folder).unwrap();
+    let mut misses = Vec::new();
+    for (index, case) in cases.iter().enumerate() {
+        let name = &case.input.name;
+        match Saving::create_in_folder(&folder, name) {
+            Err(SaveError::Path { .. }) => {}
+            other => misses.push(format!(
+                "{}: Saving::create_in_folder returned {}",
+                case.name,
+                match other {
+                    Ok(_) => "Ok".to_owned(),
+                    Err(error) => format!("{error:?}"),
+                }
+            )),
+        }
+        let native_absolute = if cfg!(windows) {
+            case.name == "drive_path"
+        } else {
+            case.name == "absolute_path"
+        };
+        if !native_absolute {
+            let joined = folder.join(name);
+            let reply = engine.call(
+                &format!("hostile-{index}"),
+                "export.save_as",
+                &json!({ "export_id": export_id, "path": joined }),
+                &mut |_| None,
+            );
+            if reply["error"]["data"]["code"] != json!("path_not_writable") {
+                misses.push(format!("{}: export.save_as returned {reply}", case.name));
+            }
+        }
+    }
+    assert_eq!(misses, Vec::<String>::new());
+    let entries: Vec<_> = std::fs::read_dir(&folder)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(entries, Vec::<std::ffi::OsString>::new());
+
+    // Positive control: an ordinary name inside the folder works.
+    let ok_path = folder.join("books.json");
+    let saved = engine.call(
+        "save-ok",
+        "export.save_as",
+        &json!({ "export_id": export_id, "path": ok_path }),
+        &mut |_| None,
+    );
+    assert!(saved.get("result").is_some(), "{saved}");
+    assert!(engine.finished());
+    let records: Value = serde_json::from_slice(&std::fs::read(&ok_path).unwrap()).unwrap();
+    assert_eq!(records, json!([book(1)]));
+}

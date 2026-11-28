@@ -2537,6 +2537,7 @@ dependencies = [
  "goodfetch-engine",
  "goodfetch-extractor",
  "goodfetch-mcp",
+ "goodfetch-notification",
  "goodfetch-page",
  "goodfetch-protocol",
  "goodfetch-runtime",

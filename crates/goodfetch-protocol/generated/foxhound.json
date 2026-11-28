@@ -11332,6 +11332,104 @@
       ],
       "type": "object"
     },
+    "NotificationSubscribeParams": {
+      "additionalProperties": false,
+      "description": "What `notification.subscribe` takes (ADR 0027; spec #608, issue 1403):\nregisters a `webhook` channel named for an Integration's trigger with a\nthin payload and a signing secret returned once.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "channel": {
+          "description": "The webhook channel name (named for the Integration's trigger).",
+          "type": "string"
+        },
+        "events": {
+          "arrived_in": "0.1",
+          "description": "The Notification events this subscription receives; attention set when omitted.",
+          "items": {
+            "$ref": "#/$defs/NotificationEvent"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "url": {
+          "description": "The webhook destination URL; checked against ADR 0017's endpoint rule.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "channel",
+        "url"
+      ],
+      "type": "object"
+    },
+    "NotificationSubscribeResult": {
+      "additionalProperties": false,
+      "description": "What `notification.subscribe` answers (ADR 0027; spec #608, issue 1403).",
+      "properties": {
+        "channel": {
+          "description": "The subscribed channel name.",
+          "type": "string"
+        },
+        "created": {
+          "description": "Whether this call created a new subscription (`false` on idempotent repeat).",
+          "type": "boolean"
+        },
+        "secret": {
+          "arrived_in": "0.1",
+          "description": "The Standard Webhooks `whsec_` signing secret, returned once when `created` is `true`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "channel",
+        "created"
+      ],
+      "type": "object"
+    },
+    "NotificationUnsubscribeParams": {
+      "additionalProperties": false,
+      "description": "What `notification.unsubscribe` takes (ADR 0027; spec #608, issue 1403).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "channel": {
+          "description": "The webhook channel name to remove.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "channel"
+      ],
+      "type": "object"
+    },
+    "NotificationUnsubscribeResult": {
+      "additionalProperties": false,
+      "description": "What `notification.unsubscribe` answers (ADR 0027; spec #608, issue 1403).",
+      "properties": {
+        "channel": {
+          "description": "The channel name.",
+          "type": "string"
+        },
+        "removed": {
+          "description": "Whether a subscription was removed (`false` when already absent).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "channel",
+        "removed"
+      ],
+      "type": "object"
+    },
     "Now": {
       "description": "The word `now`: from the next commit on.",
       "oneOf": [
@@ -27153,6 +27251,44 @@
         "$ref": "#/$defs/RefetchDomainRemoved"
       },
       "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Registers a `webhook` Notification channel named for an Integration's trigger with a thin payload and a Standard Webhooks signing secret returned once on creation. Idempotent when called again for the same channel; the destination URL passes ADR 0017's endpoint rule, so `egress.no_private_endpoints` refuses a private address. Offered on the HTTP listener and the CLI, and kept off every agent surface.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "notification.subscribe",
+      "params": {
+        "$ref": "#/$defs/NotificationSubscribeParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/NotificationSubscribeResult"
+      },
+      "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Removes a `webhook` Notification channel registered by `notification.subscribe`. Idempotent when the channel is already absent. Offered on the HTTP listener and the CLI, and kept off every agent surface.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "notification.unsubscribe",
+      "params": {
+        "$ref": "#/$defs/NotificationUnsubscribeParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/NotificationUnsubscribeResult"
+      },
+      "stability": "stable"
     },
     {
       "arrived_in": "0.1",

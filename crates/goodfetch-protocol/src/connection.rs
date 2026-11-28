@@ -95,19 +95,19 @@ impl Surface {
 
     /// Whether a Client of this surface acts for a model, which sets none of
     /// the settings that send a Secret reference's value to a destination
-    /// they name (ADR 0092): the MCP server, and a Script sandbox worker
-    /// running Code mode.
+    /// they name (ADR 0092): the MCP server, a Script sandbox worker
+    /// running Code mode, and an Integration reaching the HTTP listener
+    /// (ADRs 0027 and 0056).
     pub fn acts_for_model(self) -> bool {
         match self {
-            Self::Mcp | Self::Worker => true,
+            Self::Mcp | Self::Worker | Self::HttpListener => true,
             Self::SdkTypescript
             | Self::SdkPython
             | Self::Rust
             | Self::Cli
             | Self::Kennel
             | Self::Cloud
-            | Self::BrowserHost
-            | Self::HttpListener => false,
+            | Self::BrowserHost => false,
         }
     }
 

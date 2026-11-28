@@ -379,6 +379,12 @@ impl EngineContext {
         &self.stores.owner
     }
 
+    /// Blocking-thread handle for domain crates constructing HTTP endpoints
+    /// such as Notification channels (ADR 0027).
+    pub fn blocking_threads(&self) -> crate::tasks::BlockingThreads {
+        self.stores.owner.blocking_threads()
+    }
+
     /// The engine's "Needs you" (spec #592).
     pub(crate) fn needs_you(&self) -> &NeedsYou {
         &self.needs_you

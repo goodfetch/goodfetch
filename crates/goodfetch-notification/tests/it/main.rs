@@ -15,4 +15,5 @@ mod chat;
 mod email;
 mod email_api;
 mod sns;
+mod subscriptions;
 mod webhook;

@@ -383,7 +383,7 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 104] = [
+    const COLLIE: [&str; 106] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -401,6 +401,8 @@ mod tests {
         "needs_you.allow_consent_domain",
         "needs_you.remove_refetch_domain",
         "needs_you.deny_wall_domain",
+        "notification.subscribe",
+        "notification.unsubscribe",
         "run.new_page",
         "run.new_session",
         "session.new_page",

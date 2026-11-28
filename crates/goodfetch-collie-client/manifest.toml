@@ -3149,3 +3149,7 @@ reason = "A Client that cannot read a page body's file streams it through `page.
 [[unreached]]
 entries = ["key_value_store.keys"]
 reason = "Issue 1284 adds the Rust store's `keys`."
+
+[[unreached]]
+entries = ["notification.subscribe", "notification.unsubscribe"]
+reason = "Offered on the HTTP listener and the CLI for Integration triggers, not as an SDK method (ADR 0027; issue 1403)."

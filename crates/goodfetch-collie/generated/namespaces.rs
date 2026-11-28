@@ -38,6 +38,12 @@
         product: Product::Collie,
     },
     Namespace {
+        name: "notification",
+        spelled: "notification",
+        about: "Calls the catalog's `notification` operations",
+        product: Product::Collie,
+    },
+    Namespace {
         name: "run",
         spelled: "run",
         about: "Calls the catalog's `run` operations",

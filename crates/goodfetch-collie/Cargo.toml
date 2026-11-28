@@ -36,6 +36,7 @@ goodfetch-collie-client.workspace = true
 goodfetch-confinement.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-mcp = { workspace = true, optional = true }
+goodfetch-notification.workspace = true
 goodfetch-page.workspace = true
 # The runtimes the executables and a linked engine build (ADR 0081).
 goodfetch-runtime.workspace = true

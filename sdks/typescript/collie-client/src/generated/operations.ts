@@ -2,7 +2,7 @@
 
 import type { CallOptions, Caller } from "../caller.ts";
 import { type EntryMarkers, warnDeprecated, warnExperimental } from "../markers.ts";
-import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScrollCollected, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
+import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, NotificationSubscribeParams, NotificationSubscribeResult, NotificationUnsubscribeParams, NotificationUnsubscribeResult, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScrollCollected, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
 import { warnDeprecatedSettings } from "./settings.ts";
 
 export type { CallOptions, Caller, OperationTypes } from "../caller.ts";
@@ -44,6 +44,8 @@ export interface CollieOperationTypes {
   "locator.wait_for_function": { params: LocatorWaitForFunctionParams; result: Evaluated };
   "needs_you.dismiss": { params: NeedsYouDismissParams; result: NeedsYouDismissed };
   "needs_you.list": { params: NeedsYouListParams; result: NeedsYouList };
+  "notification.subscribe": { params: NotificationSubscribeParams; result: NotificationSubscribeResult };
+  "notification.unsubscribe": { params: NotificationUnsubscribeParams; result: NotificationUnsubscribeResult };
   "page.add_init_script": { params: AddInitScriptParams; result: InitScriptEnded };
   "page.body": { params: PageBodyParams; result: PageBodyRead };
   "page.close": { params: PageCloseParams; result: PageClosed };
@@ -143,6 +145,8 @@ export const collieOperations: Readonly<Record<keyof CollieOperationTypes, Entry
   "locator.wait_for_function": { experimental: true, deprecated: undefined },
   "needs_you.dismiss": { experimental: true, deprecated: undefined },
   "needs_you.list": { experimental: true, deprecated: undefined },
+  "notification.subscribe": { experimental: false, deprecated: undefined },
+  "notification.unsubscribe": { experimental: false, deprecated: undefined },
   "page.add_init_script": { experimental: true, deprecated: undefined },
   "page.body": { experimental: true, deprecated: undefined },
   "page.close": { experimental: true, deprecated: undefined },
@@ -242,6 +246,8 @@ export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, s
   "locator.wait_for_function": "locator.waitForFunction",
   "needs_you.dismiss": "needsYou.dismiss",
   "needs_you.list": "needsYou.list",
+  "notification.subscribe": "notification.subscribe",
+  "notification.unsubscribe": "notification.unsubscribe",
   "page.add_init_script": "page.addInitScript",
   "page.body": "page.body",
   "page.close": "page.close",
@@ -341,6 +347,8 @@ export const collieOperationClasses: Readonly<Record<keyof CollieOperationTypes,
   "locator.wait_for_function": "effect",
   "needs_you.dismiss": "idempotent_write",
   "needs_you.list": "read",
+  "notification.subscribe": "idempotent_write",
+  "notification.unsubscribe": "idempotent_write",
   "page.add_init_script": "idempotent_write",
   "page.body": "read",
   "page.close": "idempotent_write",
@@ -746,6 +754,20 @@ export class CollieOperations {
   needsYouList(params: NeedsYouListParams): Promise<NeedsYouList> {
     warnExperimental("needs_you.list");
     return this.#caller.call("needs_you.list", params, {});
+  }
+
+  /**
+   * Registers a `webhook` Notification channel named for an Integration's trigger with a thin payload and a Standard Webhooks signing secret returned once on creation. Idempotent when called again for the same channel; the destination URL passes ADR 0017's endpoint rule, so `egress.no_private_endpoints` refuses a private address. Offered on the HTTP listener and the CLI, and kept off every agent surface.
+   */
+  notificationSubscribe(params: NotificationSubscribeParams): Promise<NotificationSubscribeResult> {
+    return this.#caller.call("notification.subscribe", params, {});
+  }
+
+  /**
+   * Removes a `webhook` Notification channel registered by `notification.subscribe`. Idempotent when the channel is already absent. Offered on the HTTP listener and the CLI, and kept off every agent surface.
+   */
+  notificationUnsubscribe(params: NotificationUnsubscribeParams): Promise<NotificationUnsubscribeResult> {
+    return this.#caller.call("notification.unsubscribe", params, {});
   }
 
   /**

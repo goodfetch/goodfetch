@@ -394,6 +394,11 @@ async fn effects(params: Value, context: CallContext) -> Result<Value, CallError
                  VALUES ('', 'payment', 0, 'reconciled', 'failed_after_send', 'Input.dispatchKeyEvent', '2026-01-05T09:00:02Z', 'ada', '2026-01-05T09:00:03Z')",
                 [],
             )?;
+            connection.execute(
+                "INSERT INTO notification_deliveries (event_id, channel, state, attempt, run_epoch, next_attempt_at, failure) \
+                 VALUES ('evt_compat_1', 'ops-webhook', 'waiting', 1, 1, 1767603605000, 'timeout')",
+                [],
+            )?;
             Ok(())
         })
         .await

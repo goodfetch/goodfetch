@@ -230,6 +230,19 @@
         "commands": [
           {
             "commands": [],
+            "name": "subscribe"
+          },
+          {
+            "commands": [],
+            "name": "unsubscribe"
+          }
+        ],
+        "name": "notification"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
             "name": "new-page"
           },
           {
@@ -685,6 +698,19 @@
           }
         ],
         "name": "events"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "subscribe"
+          },
+          {
+            "commands": [],
+            "name": "unsubscribe"
+          }
+        ],
+        "name": "notification"
       },
       {
         "commands": [

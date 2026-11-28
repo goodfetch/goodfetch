@@ -214,6 +214,8 @@ goodfetch-frontier = { path = "crates/foxhound/goodfetch-frontier" }
 goodfetch-model-provider = { path = "crates/goodfetch-model-provider" }
 # The MCP server shared by Collie and Foxhound (spec #608; ADRs 0070 and 0087).
 goodfetch-mcp = { path = "crates/goodfetch-mcp" }
+# Notification channels, delivery ledger and Integration subscriptions (ADRs 0027 and 0129; spec #608).
+goodfetch-notification = { path = "crates/goodfetch-notification" }
 # The Memory site, a site served from memory through the fetch tiers' test
 # seam, a test adapter: only ever a dev-dependency (ADR 0125, issue 2512).
 goodfetch-memory-site = { path = "crates/foxhound/goodfetch-memory-site" }

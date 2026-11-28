@@ -1,9 +1,9 @@
 {
-  "digest": "6444eab7bae9c918b5119bd7c961717b0fd3bd74e95cb307947b9abc93b763a0",
+  "digest": "883a6dc42957df87a8d3cd2b39a55533fa1b3889bdbe40e91e0d55c15112d0af",
   "journal_position": 13,
   "location": "checkpoint.sqlite",
   "run_epoch": 1,
   "run_id": "paused",
-  "size": 475136,
+  "size": 483328,
   "time": "2026-01-05T09:00:51.361Z"
 }

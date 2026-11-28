@@ -4290,6 +4290,44 @@
     },
     {
       "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Registers a `webhook` Notification channel named for an Integration's trigger with a thin payload and a Standard Webhooks signing secret returned once on creation. Idempotent when called again for the same channel; the destination URL passes ADR 0017's endpoint rule, so `egress.no_private_endpoints` refuses a private address. Offered on the HTTP listener and the CLI, and kept off every agent surface.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "notification.subscribe",
+      "params": {
+        "$ref": "#/$defs/NotificationSubscribeParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/NotificationSubscribeResult"
+      },
+      "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Removes a `webhook` Notification channel registered by `notification.subscribe`. Idempotent when the channel is already absent. Offered on the HTTP listener and the CLI, and kept off every agent surface.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "notification.unsubscribe",
+      "params": {
+        "$ref": "#/$defs/NotificationUnsubscribeParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/NotificationUnsubscribeResult"
+      },
+      "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,

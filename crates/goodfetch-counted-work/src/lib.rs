@@ -220,6 +220,10 @@ rows! {
     /// state runs to lease a work item or find the pending ones, at a
     /// Durability level that batches attempts (#2169).
     LeaseReads => "F3.lease_reads", "frontier_lease", "reads";
+    /// `F3.revisits_due_window_reads`: a read of the run file's `revisits`
+    /// table to fill a domain's due revisit queue in a Continuous crawl
+    /// (ADR 0139, ADR 0140).
+    RevisitsDueWindowReads => "F3.revisits_due_window_reads", "frontier_revisit", "due_window_reads";
     /// `F3.state_reads`: a read of the run file an admission makes for the
     /// Frontier's state, the Scope's seeds, the learned rules and
     /// identities, the visited set, the Bounds' counts or the trap marks,

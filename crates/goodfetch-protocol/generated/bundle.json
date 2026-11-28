@@ -4374,7 +4374,7 @@
         },
         "idle": {
           "arrived_in": "0.1",
-          "description": "Whether `crawl.keep_alive` holds it `running` with an empty Frontier\nand nothing in flight, until `run.add_seed` gives it work.",
+          "description": "Whether `crawl.keep_alive` or `crawl.continuous` holds it `running`\nwith an empty Frontier and nothing in flight, until new work or a due\nrevisit arrives.",
           "type": [
             "boolean",
             "null"
@@ -4412,6 +4412,18 @@
           ],
           "arrived_in": "0.1",
           "description": "The program's own status line, once it set one."
+        },
+        "next_due_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When a Continuous crawl's next revisit is due while idle (ADR 0139)."
         },
         "pauses": {
           "arrived_in": "0.1",
@@ -31022,6 +31034,10 @@
                     },
                     "type": "array"
                   },
+                  "continuous": {
+                    "description": "Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.",
+                    "type": "boolean"
+                  },
                   "domain_keys": {
                     "additionalProperties": {
                       "type": "string"
@@ -33105,6 +33121,53 @@
                     "description": "How long the engine's HTTP transports wait for a host's IPv6 addresses once its IPv4 addresses arrived first, before they start connecting over IPv4: 50 ms, RFC 8305's Resolution Delay.",
                     "minimum": 0,
                     "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "revisit": {
+                "additionalProperties": false,
+                "properties": {
+                  "policy": {
+                    "description": "How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ \"kind\": \"never\" }` for pages read once, or `{ \"kind\": \"every\", \"interval\": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).",
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Never revisit the URL after its first visit, such as articles.",
+                        "properties": {
+                          "kind": {
+                            "const": "never",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "description": "Revisit at a fixed interval, in whole milliseconds (at least 1).",
+                        "properties": {
+                          "interval": {
+                            "arrived_in": "0.1",
+                            "description": "Interval between revisits in milliseconds (at least 1).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "const": "every",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "interval"
+                        ],
+                        "type": "object"
+                      }
+                    ]
                   }
                 },
                 "type": "object"
@@ -36027,6 +36090,10 @@
                     },
                     "type": "array"
                   },
+                  "continuous": {
+                    "description": "Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.",
+                    "type": "boolean"
+                  },
                   "domain_keys": {
                     "additionalProperties": {
                       "type": "string"
@@ -38110,6 +38177,53 @@
                     "description": "How long the engine's HTTP transports wait for a host's IPv6 addresses once its IPv4 addresses arrived first, before they start connecting over IPv4: 50 ms, RFC 8305's Resolution Delay.",
                     "minimum": 0,
                     "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "revisit": {
+                "additionalProperties": false,
+                "properties": {
+                  "policy": {
+                    "description": "How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ \"kind\": \"never\" }` for pages read once, or `{ \"kind\": \"every\", \"interval\": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).",
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Never revisit the URL after its first visit, such as articles.",
+                        "properties": {
+                          "kind": {
+                            "const": "never",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "description": "Revisit at a fixed interval, in whole milliseconds (at least 1).",
+                        "properties": {
+                          "interval": {
+                            "arrived_in": "0.1",
+                            "description": "Interval between revisits in milliseconds (at least 1).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "const": "every",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "interval"
+                        ],
+                        "type": "object"
+                      }
+                    ]
                   }
                 },
                 "type": "object"
@@ -41048,6 +41162,10 @@
                     },
                     "type": "array"
                   },
+                  "continuous": {
+                    "description": "Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.",
+                    "type": "boolean"
+                  },
                   "domain_keys": {
                     "additionalProperties": {
                       "type": "string"
@@ -43131,6 +43249,53 @@
                     "description": "How long the engine's HTTP transports wait for a host's IPv6 addresses once its IPv4 addresses arrived first, before they start connecting over IPv4: 50 ms, RFC 8305's Resolution Delay.",
                     "minimum": 0,
                     "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "revisit": {
+                "additionalProperties": false,
+                "properties": {
+                  "policy": {
+                    "description": "How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ \"kind\": \"never\" }` for pages read once, or `{ \"kind\": \"every\", \"interval\": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).",
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Never revisit the URL after its first visit, such as articles.",
+                        "properties": {
+                          "kind": {
+                            "const": "never",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "description": "Revisit at a fixed interval, in whole milliseconds (at least 1).",
+                        "properties": {
+                          "interval": {
+                            "arrived_in": "0.1",
+                            "description": "Interval between revisits in milliseconds (at least 1).",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "const": "every",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "interval"
+                        ],
+                        "type": "object"
+                      }
+                    ]
                   }
                 },
                 "type": "object"

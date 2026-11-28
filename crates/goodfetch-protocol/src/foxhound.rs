@@ -17,6 +17,7 @@
 //! every Foxhound Error code as a value of the shared `ErrorCode`.
 
 pub mod block;
+pub mod continuous;
 pub mod crawl;
 pub mod dataset;
 pub mod dataset_view;

@@ -36,6 +36,11 @@
 //! the run file as the crawl opens, then counted from what each job
 //! answers that it changed, so a live crawl's progress is built from this
 //! state and reads no count from the run file (#2167).
+//!
+//! Size: one concern, the single actor owning ADR 0140's F3 Run state
+//! (pending leases, admission, attempt outcomes, tally and Continuous
+//! revisit scheduling) with its sub-structures already split into sibling
+//! modules (`asks`, `kept`, `revisits`, `stored`, `tally`).
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::pin::Pin;
@@ -64,12 +69,15 @@ use crate::hooks::Hooks;
 use crate::labels;
 use crate::tier_choice::{AttemptPlan, Sampled, TierChoices, Unit, Weighed};
 use crate::tier_race::Latencies;
-use crate::work_items::{Again, Changed, Leased};
+use crate::work_items::{Again, Changed, Claiming, Leased};
+use goodfetch_frontier::revisit::{PreviousState, RevisitRow};
 use kept::{Kept, Leasing};
+use revisits::RevisitTracker;
 
 pub(crate) mod admission;
 mod asks;
 mod kept;
+mod revisits;
 mod stored;
 mod tally;
 pub(crate) mod teacher;
@@ -318,6 +326,8 @@ pub(crate) struct RunState {
     /// yet, and every one whole while they fit within the Run's memory
     /// budget (#2169).
     kept: Kept,
+    /// Continuous crawl revisit schedule (disabled on batch crawls, ADR 0139).
+    revisits: RevisitTracker,
     /// The claims queued with the run-state writer whose answers the crawl
     /// has not heard yet: no page waits for one (#2168). Only `&mut self`
     /// reaches them, so their lock is never contended: it only lets a
@@ -341,7 +351,7 @@ impl RunState {
     pub(crate) fn new(
         pool: SessionPool,
         choices: TierChoices,
-        (tally, whole): Opening,
+        (tally, whole, revisits): Opening,
         stored: Stored,
     ) -> Self {
         Self {
@@ -351,6 +361,7 @@ impl RunState {
             tally: Arc::new(tally),
             stored,
             kept: Kept::new(whole),
+            revisits: RevisitTracker::from_opened(revisits),
             claims: tokio::sync::Mutex::new(FuturesUnordered::new()),
             undrawn: VecDeque::new(),
         }
@@ -430,7 +441,84 @@ impl RunState {
     pub(crate) async fn seal(&mut self) -> Result<(), StateError> {
         self.stored.seal().await?;
         self.kept.sealed();
+        self.revisits.sealed();
         self.heard()
+    }
+
+    /// Previous revisit schedule state for `id` held in memory, if any.
+    pub(crate) fn revisit_previous(&self, id: &str) -> Option<PreviousState> {
+        self.revisits.previous_state(id)
+    }
+
+    /// Records a committed attempt's revisit row in memory (ADR 0139).
+    pub(crate) fn record_revisit(&mut self, leased: Leased, row: RevisitRow, committed: u64) {
+        self.revisits
+            .record_committed(leased, row, committed, || self.stored.frontier_bytes());
+    }
+
+    /// Marks an unsuccessful revisit attempt as no longer active.
+    pub(crate) fn revisit_unsuccessful(&mut self, id: &str) {
+        self.revisits.settled_unsuccessful(id);
+    }
+
+    /// Pulls up to `limit` due revisit entries (at `now_ms`), marks them queued
+    /// for admission, and returns their `Waiting` items. Reads memory when
+    /// within budget (0 SQL reads) or reads a bounded window through a reader
+    /// when spilled (`F3.revisits_due_window_reads`).
+    pub(crate) async fn due_revisits(
+        &mut self,
+        domain_key: Option<&str>,
+        now_ms: u64,
+        limit: usize,
+    ) -> Result<Vec<Waiting>, StateError> {
+        if !self.revisits.enabled() {
+            return Ok(Vec::new());
+        }
+        self.revisits.seen(self.stored.commits());
+        let entries = if self.revisits.holds_whole(|| self.stored.frontier_bytes()) {
+            self.revisits
+                .due_window_in_memory(domain_key, now_ms, limit)
+        } else {
+            let from_disk = self
+                .stored
+                .revisit_due_window(domain_key.map(str::to_owned), now_ms, limit)
+                .await?;
+            self.revisits
+                .merge_due_window(from_disk, domain_key, now_ms, limit)
+        };
+        Ok(entries
+            .iter()
+            .map(|entry| self.revisits.queue_due(entry))
+            .collect())
+    }
+
+    /// Returns the earliest `next_visit_at` across all unqueued revisits (ms
+    /// since Unix epoch), reading memory when within budget or the index when
+    /// spilled.
+    pub(crate) async fn next_revisit_due_at(&mut self) -> Result<Option<u64>, StateError> {
+        if !self.revisits.enabled() {
+            return Ok(None);
+        }
+        self.revisits.seen(self.stored.commits());
+        if self.revisits.holds_whole(|| self.stored.frontier_bytes()) {
+            Ok(self.revisits.earliest_due_in_memory())
+        } else {
+            let from_disk = self.stored.revisit_earliest_due().await?;
+            Ok(self.revisits.merge_earliest_due(from_disk))
+        }
+    }
+
+    /// O(1) in-memory earliest `next_visit_at`, or `None` if disabled/spilled.
+    pub(crate) fn next_revisit_due_in_memory(&self) -> Option<u64> {
+        if !self.revisits.enabled() {
+            return None;
+        }
+        self.revisits.earliest_due_in_memory()
+    }
+
+    /// Cancels queued-but-unleased revisits when `run.finish` is called.
+    pub(crate) fn drop_unleased_revisits(&mut self) {
+        self.revisits.drop_unleased();
     }
 
     /// Lets the crawl's pending work items go from memory for good: some
@@ -673,7 +761,20 @@ impl RunState {
         self.kept.seen(self.stored.commits());
         let mut kept = HashMap::new();
         let mut unread = Vec::new();
+        let mut unread_revisits = Vec::new();
+        let mut reopened = Vec::new();
         for (id, _) in &asked {
+            if self.revisits.is_active(id) {
+                if let Some((cached, prev)) = self.revisits.begin_lease(id) {
+                    reopened.push(prev);
+                    if let Some(leased) = cached {
+                        kept.insert(id.clone(), leased);
+                    } else {
+                        unread_revisits.push(id.clone());
+                    }
+                }
+                continue;
+            }
             match self.kept.leasing(id) {
                 Leasing::Kept(leased) => {
                     kept.insert(id.clone(), *leased);
@@ -695,6 +796,17 @@ impl RunState {
                 .map(|leased| (leased.crawl_request.id.clone(), leased))
                 .collect()
         };
+        if !unread_revisits.is_empty() {
+            for leased in self.stored.leasable_revisits(unread_revisits).await? {
+                read.insert(leased.crawl_request.id.clone(), leased);
+            }
+        }
+        if !reopened.is_empty() {
+            self.changed(Changed {
+                reopened,
+                ..Changed::default()
+            });
+        }
         Ok(asked
             .into_iter()
             .filter_map(|(id, key)| {
@@ -719,7 +831,10 @@ impl RunState {
     ) -> impl FnOnce(&Connection) -> rusqlite::Result<Vec<String>> + Send + 'static {
         let claims = leased
             .iter()
-            .map(|leased| leased.attempt_key().owned())
+            .map(|leased| Claiming {
+                key: leased.attempt_key().owned(),
+                revisit: leased.is_revisit,
+            })
             .collect();
         Stored::claim(claims, (self.pool.changes(), self.learned.counted()))
     }

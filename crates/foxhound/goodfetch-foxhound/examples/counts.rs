@@ -749,6 +749,32 @@ fn durability(name: &'static str, level: &str, removes_syncs: bool) -> Cell {
 /// file, counted on [`LEASE_READS_SPILLED`] and not on [`LEASE_READS`].
 const MEMORY_BUDGET_0: &str = "memory_budget_0";
 
+/// B1's Continuous crawl cells (#1839, ADR 0140): one within the memory budget
+/// (0 `F3.revisits_due_window_reads`) and one at `run_state.memory.budget: 0`
+/// (bounded reader due-window fills on `revisits`, <= 1 per revisit).
+const CONTINUOUS_CELL: &str = "continuous";
+const CONTINUOUS_SPILLED_CELL: &str = "continuous_spilled";
+
+fn is_continuous(name: &str) -> bool {
+    name == CONTINUOUS_CELL || name == CONTINUOUS_SPILLED_CELL
+}
+
+fn passes(name: &str) -> usize {
+    if is_continuous(name) { 2 } else { 1 }
+}
+
+fn continuous_cell(name: &'static str, settings: Value) -> Cell {
+    Cell {
+        name,
+        settings,
+        frontier: None,
+        removes: &[],
+        removes_syncs: false,
+        handler: false,
+        limit: false,
+    }
+}
+
 /// The cell `name` at `run_state.memory.budget: budget` (#2169), with the
 /// Frontier's outcomes beyond a links batch, as the default cell meets
 /// them.
@@ -1080,6 +1106,11 @@ fn cells() -> Vec<Cell> {
         // fits in none from the first page (#2169).
         memory_budget("memory_budget_1mib", 1 << 20),
         memory_budget(MEMORY_BUDGET_0, 0),
+        continuous_cell(CONTINUOUS_CELL, json!({})),
+        continuous_cell(
+            CONTINUOUS_SPILLED_CELL,
+            json!({ "run_state": { "memory": { "budget": 0 } } }),
+        ),
         bounded(),
         round_robin(),
         robots_txt_off(),
@@ -1170,7 +1201,7 @@ impl Counted {
 
     /// Whether its memory budget holds no pending work item.
     fn spills(&self) -> bool {
-        self.name == MEMORY_BUDGET_0
+        self.name == MEMORY_BUDGET_0 || self.name == CONTINUOUS_SPILLED_CELL
     }
 }
 
@@ -1260,6 +1291,8 @@ fn crawl(
             formats: Map::new(),
             after_start: if BARRIER_CELLS.contains(&cell.name) {
                 AfterStart::BarrierCalls
+            } else if is_continuous(cell.name) {
+                AfterStart::Continuous
             } else {
                 AfterStart::Finish
             },
@@ -1290,6 +1323,7 @@ fn crawl(
 /// its items, on each copy of the site it crawls.
 fn pages_of(cell: &Cell, linked: usize) -> usize {
     sites(cell.name)
+        * passes(cell.name)
         * (linked
             + cell
                 .frontier
@@ -1399,10 +1433,16 @@ fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
         );
         assert_eq!(
             crawled.body_bytes,
-            u64::try_from(sites(cell.name)).expect("invariant: two sites at most") * body_bytes(),
-            "the site sends each body once from each of its origins"
+            u64::try_from(sites(cell.name) * passes(cell.name))
+                .expect("invariant: four passes at most")
+                * body_bytes(),
+            "the site sends each body once per pass from each of its origins"
         );
         let pages = pages_of(cell, PAGES.len());
+        assert!(
+            cell.name != CONTINUOUS_SPILLED_CELL || work.read(Row::RevisitsDueWindowReads) > 0,
+            "the spilled Continuous cell read no due window from `revisits`"
+        );
         assert!(
             cell.name != VARYING_PARAMETER
                 || (work.read(Row::EvidenceReads) > 0 && work.read(Row::AdmissionEvidence) > 0),
@@ -1999,6 +2039,7 @@ fn main() {
             } else {
                 0
             },
+            "revisits": if is_continuous(cell.name) { cell.pages / 2 } else { 0 },
             "full_pages": if full { cell.pages } else { 0 },
         });
         let printed = json!({

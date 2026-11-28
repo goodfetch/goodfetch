@@ -13,6 +13,7 @@ use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::Keys;
 use goodfetch_engine::egress::Policy;
+use goodfetch_frontier::revisit::{self, RevisitRow};
 use goodfetch_frontier::sitemap;
 use goodfetch_session_pool::Changes;
 use rusqlite::Connection;
@@ -56,6 +57,9 @@ pub(crate) struct Outcome {
     /// Its Label's tier choice on its domain, once its sample classified
     /// it.
     pub(crate) chosen: Option<(String, String, Unit)>,
+    /// Updated Continuous crawl revisit row written in the same transaction
+    /// when the attempt commits (ADR 0139, ADR 0140); `None` on batch crawls.
+    pub(crate) revisit: Option<RevisitRow>,
     pub(crate) ending: Ending,
 }
 
@@ -100,6 +104,7 @@ impl Outcome {
         let Self {
             scored,
             chosen,
+            revisit,
             ending,
         } = self;
         if !scored.is_empty() {
@@ -113,7 +118,12 @@ impl Outcome {
             Ending::Commit { commit, refused } => {
                 let (attempt, ended_at) = (commit.attempt().owned(), *commit.ended_at());
                 match commit.write(connection, &mut changed)? {
-                    Some(Ok(committed)) => Ended::Committed(committed),
+                    Some(Ok(committed)) => {
+                        if let Some(row) = revisit {
+                            revisit::upsert(connection, &row)?;
+                        }
+                        Ended::Committed(committed)
+                    }
                     Some(Err(refusal)) => end(
                         &mut EndWrite {
                             connection,

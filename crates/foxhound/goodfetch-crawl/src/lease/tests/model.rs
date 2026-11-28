@@ -690,6 +690,7 @@ fn commit(
             let outcome = Outcome {
                 scored: goodfetch_session_pool::Changes::default(),
                 chosen: None,
+                revisit: None,
                 ending: Ending::Commit {
                     commit,
                     refused: Box::new(|refused| panic!("a Record was refused: {refused:?}")),

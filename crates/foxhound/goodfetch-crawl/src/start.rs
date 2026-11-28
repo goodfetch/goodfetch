@@ -49,6 +49,7 @@ use goodfetch_engine::settings::{Opening, RunSettings};
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::foxhound::continuous::CRAWL_CONTINUOUS;
 use goodfetch_protocol::foxhound::crawl::{
     CRAWL_KEEP_ALIVE, CRAWL_SERVE, CRAWL_START, CrawlStartParams, CrawlStarted, LabelDeclaration,
     Seed,
@@ -387,12 +388,13 @@ async fn start_new(
 /// runs when every initial seed was refused, so an immediate `run.progress()`
 /// read sees `idle: true`.
 fn mark_initial_idle(run: &CrawlRun, settings: &RunSettings, seeds: &[Enqueued]) {
-    if settings.resolved().get::<bool>(&CRAWL_KEEP_ALIVE)
+    if (settings.resolved().get::<bool>(&CRAWL_KEEP_ALIVE)
+        || settings.resolved().get::<bool>(&CRAWL_CONTINUOUS))
         && seeds
             .iter()
             .all(|answer| !matches!(answer, Enqueued::Added { .. }))
     {
-        crate::progress::show_idle(run, true);
+        crate::progress::show_idle(run, true, None);
     }
 }
 

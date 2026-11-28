@@ -36,6 +36,7 @@ use goodfetch_engine::run_state::{
 };
 use goodfetch_engine::runs::CompletenessReason;
 use goodfetch_fetch_tier::ChainHop;
+use goodfetch_frontier::revisit::{self, DueEntry};
 use goodfetch_frontier::{SharedBudget, sitemap};
 use goodfetch_protocol::foxhound::crawl::Seed;
 use goodfetch_protocol::foxhound::frontier::{Enqueued, SeedAttempt};
@@ -48,6 +49,7 @@ type StagedAnswer<T> = Option<Result<T, CallError>>;
 use super::admission::{self, Enqueue, LinksBatch};
 use super::asks::{self, Answering, Ask, HopAsk, Queued};
 use super::kept::Whole;
+use super::revisits::OpenedRevisits;
 use super::tally::Tally;
 use super::teacher::{Taught, Teacher};
 use super::{Counted, StateError};
@@ -57,7 +59,7 @@ use crate::intake::Intake;
 use crate::invariants::Invariants;
 use crate::staging::Staging;
 use crate::work_items::{
-    self, AttemptKey, Changed, EndWrite, Failure, Leased, Positions, Unsuccessful,
+    self, AttemptKey, Changed, Claiming, EndWrite, Failure, Leased, Positions, Unsuccessful,
 };
 
 mod lookup;
@@ -85,9 +87,10 @@ pub(crate) struct Ran<T> {
 pub(crate) type Given = (Vec<Leased>, Changed);
 
 /// What the crawl's Run state opens with beside its Session pool: its
-/// requests by state, and its pending work items whole when they fit
-/// within the Run's memory budget (#2169).
-pub(crate) type Opening = (Tally, Option<Whole>);
+/// requests by state, its pending work items whole when they fit within
+/// the Run's memory budget (#2169), and its Continuous crawl revisit
+/// schedule (disabled on batch crawls, ADR 0139).
+pub(crate) type Opening = (Tally, Option<Whole>, OpenedRevisits);
 
 /// An outcome's job, queued, which answers once it is written.
 pub(crate) type QueuedEnd = Pin<Box<dyn Future<Output = EndWritten> + Send>>;
@@ -623,19 +626,25 @@ impl Stored {
     pub(crate) async fn open(
         &self,
         entropy: Entropy,
+        continuous: bool,
     ) -> Result<(SessionPool, Opening), StateError> {
         let budget = self.shared_budget();
         let beside = self.frontier_bytes();
         Ok(self
             .writer
             .read(move |connection| {
-                let whole = match budget {
+                let whole = match budget.clone() {
                     Some(budget) => Whole::read(connection, budget, beside)?,
                     None => None,
                 };
+                let revisits = if continuous {
+                    OpenedRevisits::read(connection, budget, beside)?
+                } else {
+                    OpenedRevisits::disabled()
+                };
                 Ok((
                     SessionPool::open(connection, entropy)?,
-                    (Tally::read(connection)?, whole),
+                    (Tally::read(connection)?, whole, revisits),
                 ))
             })
             .await?)
@@ -804,13 +813,50 @@ impl Stored {
             .await?)
     }
 
+    /// Each due revisit work item of `ids`, read on a reader without mutating
+    /// the run file (used when revisit state spilled from memory, ADR 0139).
+    pub(super) async fn leasable_revisits(
+        &self,
+        ids: Vec<String>,
+    ) -> Result<Vec<Leased>, StateError> {
+        Ok(self
+            .writer
+            .read(move |connection| work_items::leasable_revisits(connection, &ids))
+            .await?)
+    }
+
+    /// Reads up to `limit` due revisit entries from the run file's covering
+    /// index `revisits_due` on a reader, counting one `F3.revisits_due_window_reads`
+    /// per fill (ADR 0139, ADR 0140).
+    pub(super) async fn revisit_due_window(
+        &self,
+        domain_key: Option<String>,
+        now_ms: u64,
+        limit: usize,
+    ) -> Result<Vec<DueEntry>, StateError> {
+        self.work.count(Row::RevisitsDueWindowReads);
+        Ok(self
+            .writer
+            .read(move |connection| {
+                revisit::due_window(connection, domain_key.as_deref(), now_ms, limit)
+            })
+            .await?)
+    }
+
+    /// Reads the earliest `next_visit_at` from the run file's `revisits_next_due`
+    /// index on a reader (used when revisit state spilled from memory).
+    pub(super) async fn revisit_earliest_due(&self) -> Result<Option<u64>, StateError> {
+        Ok(self.writer.read(revisit::earliest_due).await?)
+    }
+
     /// The job of a claim: leases the work item of each attempt of `claims`
-    /// still pending under the lease epoch below the attempt's, in that
-    /// order, after writing the rows the draws before it decided, what they
-    /// changed in the Session pool, `changes`, and each tier choice's count
-    /// of requests served, `counted`. It answers the IDs it did not lease.
+    /// still pending (or due for revisit) under the lease epoch below the
+    /// attempt's, in that order, after writing the rows the draws before it
+    /// decided, what they changed in the Session pool, `changes`, and each
+    /// tier choice's count of requests served, `counted`. It answers the IDs
+    /// it did not lease.
     pub(super) fn claim(
-        claims: Vec<AttemptKey<String>>,
+        claims: Vec<Claiming>,
         (changes, counted): (Changes, Counted),
     ) -> impl FnOnce(&Connection) -> rusqlite::Result<Vec<String>> + Send + 'static {
         move |connection| {

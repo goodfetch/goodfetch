@@ -267,6 +267,18 @@ impl Progress {
         });
     }
 
+    /// Removes the part `name` its kind of Run added: a change only when it
+    /// was present.
+    pub fn clear_part(&self, name: &str) {
+        self.changes.send_if_modified(|progressing| {
+            if progressing.kind_parts.remove(name).is_none() {
+                return false;
+            }
+            progressing.position = progressing.position.saturating_add(1);
+            true
+        });
+    }
+
     /// Sets the typed part `name` its kind of Run adds to `part`; a change.
     pub fn set_typed_part(&self, name: &'static str, part: TypedPart) {
         self.change(|progressing| {

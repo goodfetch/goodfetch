@@ -1226,7 +1226,7 @@ impl Subject {
                     stored.seal().await.unwrap();
                 }
             }
-            let (pool, opening) = stored.open(Entropy::seeded(seed)).await.unwrap();
+            let (pool, opening) = stored.open(Entropy::seeded(seed), false).await.unwrap();
             let (asking, asked) = mailbox(CountedWork::default());
             Crawl {
                 owner,
@@ -1515,6 +1515,7 @@ impl Subject {
         let outcome = Outcome {
             scored: goodfetch_session_pool::Changes::default(),
             chosen: None,
+            revisit: None,
             ending,
         };
         let stored = crawl.stored();
@@ -1882,6 +1883,7 @@ fn a_work_item_readmitted_before_its_failed_attempt_settles_stays_pending() {
     let outcome = Outcome {
         scored: goodfetch_session_pool::Changes::default(),
         chosen: None,
+        revisit: None,
         ending: Ending::End {
             work_item: leased.crawl_request.id.clone(),
             lease_epoch: leased.lease_epoch,

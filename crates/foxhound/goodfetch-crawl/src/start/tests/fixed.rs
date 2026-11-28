@@ -28,6 +28,7 @@ fn the_cases_are_every_key_the_settings_schema_fixes_for_a_runs_life() {
     assert_eq!(
         fixed,
         [
+            "crawl.continuous",
             "crawl.keep_url_fragment",
             "crawl.scope.exclude",
             "crawl.scope.include",
@@ -56,8 +57,9 @@ fn outcome(answer: &Value) -> Value {
 /// default and the start sets it, or began with another value and the
 /// start leaves it out.
 ///
-/// Covers: story:3-172, error:setting_not_applicable, operation:crawl.start, setting:crawl.scope.strategy, setting:crawl.scope.include, setting:crawl.scope.exclude, setting:crawl.keep_url_fragment
+/// Covers: story:3-172, error:setting_not_applicable, operation:crawl.start, setting:crawl.continuous, setting:crawl.scope.strategy, setting:crawl.scope.include, setting:crawl.scope.exclude, setting:crawl.keep_url_fragment
 #[rstest::rstest]
+#[case::continuous("crawl.continuous", json!({ "crawl": { "continuous": true } }))]
 #[case::strategy("crawl.scope.strategy", json!({ "crawl": { "scope": { "strategy": "same_domain" } } }))]
 #[case::include("crawl.scope.include", json!({ "crawl": { "scope": { "include": ["https://shop.test/page/**"] } } }))]
 #[case::exclude("crawl.scope.exclude", json!({ "crawl": { "scope": { "exclude": ["https://shop.test/private/**"] } } }))]
@@ -106,8 +108,9 @@ fn a_start_under_a_runs_id_that_changes_a_key_fixed_for_its_life_is_refused(
 /// refused, and one that gives none of them resumes it: a key a resume
 /// leaves out is no change.
 ///
-/// Covers: story:3-172, error:setting_not_applicable, operation:run.resume, setting:crawl.scope.strategy, setting:crawl.scope.include, setting:crawl.scope.exclude, setting:crawl.keep_url_fragment
+/// Covers: story:3-172, error:setting_not_applicable, operation:run.resume, setting:crawl.continuous, setting:crawl.scope.strategy, setting:crawl.scope.include, setting:crawl.scope.exclude, setting:crawl.keep_url_fragment
 #[rstest::rstest]
+#[case::continuous("crawl.continuous", json!({ "crawl": { "continuous": true } }))]
 #[case::strategy("crawl.scope.strategy", json!({ "crawl": { "scope": { "strategy": "same_domain" } } }))]
 #[case::include("crawl.scope.include", json!({ "crawl": { "scope": { "include": ["https://shop.test/page/**"] } } }))]
 #[case::exclude("crawl.scope.exclude", json!({ "crawl": { "scope": { "exclude": ["https://shop.test/admin/**"] } } }))]

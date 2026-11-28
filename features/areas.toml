@@ -587,6 +587,16 @@ prefix = "crawl.keep_alive"
 [[area]]
 number = 3
 kind = "setting"
+prefix = "crawl.continuous"
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "revisit."
+
+[[area]]
+number = 3
+kind = "setting"
 prefix = "admission."
 
 [[area]]

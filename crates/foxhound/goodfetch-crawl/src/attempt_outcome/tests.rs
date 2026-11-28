@@ -191,6 +191,7 @@ fn committing(
     Outcome {
         scored: goodfetch_session_pool::Changes::default(),
         chosen: None,
+        revisit: None,
         ending: Ending::Commit {
             commit: lease
                 .committing(state, &Masks::new(), records, ended_at())
@@ -286,6 +287,7 @@ fn a_failed_attempt_still_commits_what_it_learned() {
         let outcome = Outcome {
             scored: goodfetch_session_pool::Changes::default(),
             chosen: None,
+            revisit: None,
             ending: Ending::End {
                 work_item: leased.crawl_request.id.clone(),
                 lease_epoch: leased.lease_epoch,

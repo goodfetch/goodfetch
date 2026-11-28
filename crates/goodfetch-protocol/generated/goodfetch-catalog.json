@@ -3619,7 +3619,7 @@
         },
         "idle": {
           "arrived_in": "0.1",
-          "description": "Whether `crawl.keep_alive` holds it `running` with an empty Frontier\nand nothing in flight, until `run.add_seed` gives it work.",
+          "description": "Whether `crawl.keep_alive` or `crawl.continuous` holds it `running`\nwith an empty Frontier and nothing in flight, until new work or a due\nrevisit arrives.",
           "type": [
             "boolean",
             "null"
@@ -3657,6 +3657,18 @@
           ],
           "arrived_in": "0.1",
           "description": "The program's own status line, once it set one."
+        },
+        "next_due_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When a Continuous crawl's next revisit is due while idle (ADR 0139)."
         },
         "pauses": {
           "arrived_in": "0.1",
@@ -25785,6 +25797,7 @@
               "frontier_hop",
               "frontier_lease",
               "frontier_payload",
+              "frontier_revisit",
               "frontier_sitemap",
               "governor_sample",
               "hook_stage",
@@ -25836,6 +25849,7 @@
               "document_encodes",
               "document_loads",
               "document_worlds",
+              "due_window_reads",
               "effect_syncs",
               "encodes",
               "end_round_trips",
@@ -29952,6 +29966,29 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "weakening": null,
+        "weakens": false
+      },
+      {
+        "arrived_in": "0.1",
+        "authority": "every",
+        "clearable": false,
+        "default": false,
+        "deprecated": null,
+        "description": "Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.",
+        "fixed_for_run": true,
+        "name": "crawl.continuous",
+        "product": "foxhound",
+        "products": [
+          "foxhound"
+        ],
+        "scopes": [
+          "connection",
+          "run"
+        ],
+        "value": {
+          "type": "boolean"
         },
         "weakening": null,
         "weakens": false
@@ -34492,6 +34529,70 @@
           "description": "A duration in milliseconds.",
           "minimum": 0,
           "type": "integer"
+        },
+        "weakening": null,
+        "weakens": false
+      },
+      {
+        "arrived_in": "0.1",
+        "authority": "every",
+        "clearable": false,
+        "default": {
+          "kind": "never"
+        },
+        "deprecated": null,
+        "description": "How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ \"kind\": \"never\" }` for pages read once, or `{ \"kind\": \"every\", \"interval\": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).",
+        "fixed_for_run": false,
+        "name": "revisit.policy",
+        "product": "foxhound",
+        "products": [
+          "foxhound"
+        ],
+        "scopes": [
+          "connection",
+          "run",
+          "label"
+        ],
+        "value": {
+          "description": "How a Continuous crawl schedules revisits of a URL (`revisit.policy`, ADR 0139).",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "description": "Never revisit the URL after its first visit, such as articles.",
+              "properties": {
+                "kind": {
+                  "const": "never",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Revisit at a fixed interval, in whole milliseconds (at least 1).",
+              "properties": {
+                "interval": {
+                  "arrived_in": "0.1",
+                  "description": "Interval between revisits in milliseconds (at least 1).",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "kind": {
+                  "const": "every",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "interval"
+              ],
+              "type": "object"
+            }
+          ]
         },
         "weakening": null,
         "weakens": false

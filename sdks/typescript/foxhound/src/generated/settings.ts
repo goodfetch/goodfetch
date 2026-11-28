@@ -222,6 +222,12 @@ export interface FoxhoundSettings {
      */
     readonly contentTypes?: readonly string[];
     /**
+     * Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.
+     *
+     * `crawl.continuous`.
+     */
+    readonly continuous?: boolean;
+    /**
      * Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.
      *
      * `crawl.domain_keys`.
@@ -971,6 +977,14 @@ export interface FoxhoundSettings {
      * `resolver.resolution_delay`.
      */
     readonly resolutionDelay?: number;
+  };
+  readonly revisit?: {
+    /**
+     * How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ "kind": "never" }` for pages read once, or `{ "kind": "every", "interval": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
+     *
+     * `revisit.policy`.
+     */
+    readonly policy?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" };
   };
   readonly runState?: {
     readonly batch?: {
@@ -1642,6 +1656,12 @@ export interface CrawlSettings {
      */
     readonly contentTypes?: readonly string[];
     /**
+     * Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.
+     *
+     * `crawl.continuous`.
+     */
+    readonly continuous?: boolean;
+    /**
      * Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.
      *
      * `crawl.domain_keys`.
@@ -2392,6 +2412,14 @@ export interface CrawlSettings {
      */
     readonly resolutionDelay?: number;
   };
+  readonly revisit?: {
+    /**
+     * How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ "kind": "never" }` for pages read once, or `{ "kind": "every", "interval": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
+     *
+     * `revisit.policy`.
+     */
+    readonly policy?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" };
+  };
   readonly runState?: {
     readonly batch?: {
       /**
@@ -2928,6 +2956,14 @@ export interface LabelSettings {
      */
     readonly tier?: "auto" | "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
   };
+  readonly revisit?: {
+    /**
+     * How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ "kind": "never" }` for pages read once, or `{ "kind": "every", "interval": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
+     *
+     * `revisit.policy`.
+     */
+    readonly policy?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" };
+  };
   readonly session?: {
     /**
      * The Page check every page of a Session is judged against once its navigation reached its document: `login_page` and `expected_page`, each optional and each a page match, a URL glob or regular expression, a CSS or XPath selector, or a text. A page matching its login page raises `logged_out` from the call that waited for its navigation; one matching neither, when an expected page is given, raises `page_check_failed`. None by default: the built-in detector then judges a page a login page when the navigation was redirected to a login path, or when the page shows one password field outside a login path, and Provenance marks each page it judged as weakly checked. Set at a Run, a connection or a Session's own `settings`.
@@ -3021,6 +3057,7 @@ const SPELLING: Spelling = {
   }],
   crawl: ["crawl", {
     contentTypes: "content_types",
+    continuous: "continuous",
     domainKeys: "domain_keys",
     domainOrder: "domain_order",
     handleStatuses: "handle_statuses",
@@ -3289,6 +3326,9 @@ const SPELLING: Spelling = {
   resolver: ["resolver", {
     attemptDelay: "attempt_delay",
     resolutionDelay: "resolution_delay",
+  }],
+  revisit: ["revisit", {
+    policy: "policy",
   }],
   runState: ["run_state", {
     batch: ["batch", {

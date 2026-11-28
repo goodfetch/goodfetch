@@ -189,6 +189,23 @@ CREATE TABLE request_counts (
             count INTEGER NOT NULL,
             PRIMARY KEY (kind, name)
         ) STRICT;
+CREATE TABLE revisits (
+            work_item TEXT NOT NULL PRIMARY KEY,
+            identity TEXT NOT NULL,
+            domain_key TEXT NOT NULL,
+            next_visit_at INTEGER,
+            interval_ms INTEGER,
+            last_fetched_at INTEGER,
+            last_changed_at INTEGER,
+            signature TEXT,
+            etag TEXT,
+            last_modified TEXT,
+            visits INTEGER NOT NULL,
+            changes INTEGER NOT NULL,
+            consecutive_gone INTEGER NOT NULL DEFAULT 0,
+            last_tier TEXT
+        ) STRICT;
+INSERT INTO "revisits" VALUES('1','https://shop.test/','shop.test',1790000060000,60000,1790000000000,1790000000000,'sha256:0000','"v1"','Mon, 05 Jan 2026 09:00:00 GMT',1,1,0,'http');
 CREATE TABLE robots_txt_copies (location TEXT NOT NULL PRIMARY KEY, status INTEGER, body BLOB, unreachable TEXT, CHECK ((status IS NULL) = (body IS NULL)), CHECK ((status IS NULL) <> (unreachable IS NULL))) STRICT;
 INSERT INTO "robots_txt_copies" VALUES('https://shop.test/robots.txt',200,X'557365722D6167656E743A202A0A446973616C6C6F773A202F636172742F0A',NULL);
 INSERT INTO "robots_txt_copies" VALUES('https://down.test/robots.txt',NULL,NULL,'the navigation to https://down.test/robots.txt failed: net::ERR_CONNECTION_REFUSED');
@@ -425,6 +442,12 @@ CREATE TABLE work_items (
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
 CREATE INDEX pool_sessions_open ON pool_sessions (pool, position)
             WHERE retired_because IS NULL;
+CREATE INDEX revisits_due
+            ON revisits (domain_key, next_visit_at, work_item)
+            WHERE next_visit_at IS NOT NULL;
+CREATE INDEX revisits_next_due
+            ON revisits (next_visit_at, domain_key, work_item)
+            WHERE next_visit_at IS NOT NULL;
 CREATE INDEX rules_ended_by_rule ON rules_ended (rule);
 CREATE INDEX rules_pages_by_query ON rules_pages (host, path, query);
 CREATE INDEX rules_pages_by_url ON rules_pages (url);

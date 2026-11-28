@@ -87,8 +87,40 @@ fn notice(seed: u64, revision: u64) -> Notice {
 pub(crate) fn respond(seed: u64, step: u64, request: &Request<'_>) -> Reply {
     match (request.method, request.path) {
         (&Method::GET, "/board") => Reply::html(board(&notice(seed, revision_at(step)))),
+        (&Method::GET, "/continuous") => Reply::html(continuous_index()),
+        (&Method::GET, "/continuous/fast") => scheduled_page(seed, "fast", step, request),
+        (&Method::GET, "/continuous/slow") => scheduled_page(seed, "slow", step / 3, request),
+        (&Method::GET, "/continuous/static") => scheduled_page(seed, "static", 0, request),
         _ => Reply::not_found(),
     }
+}
+
+fn continuous_index() -> String {
+    "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>Scheduled continuous site</title></head>\n<body>\n<main>\n<h1>Scheduled pages</h1>\n<ul>\n<li><a href=\"/continuous/fast\">Fast page</a></li>\n<li><a href=\"/continuous/slow\">Slow page</a></li>\n<li><a href=\"/continuous/static\">Static page</a></li>\n</ul>\n</main>\n</body>\n</html>\n".to_owned()
+}
+
+fn scheduled_page(seed: u64, slug: &str, revision: u64, request: &Request<'_>) -> Reply {
+    let etag = format!("\"{slug}-r{revision}\"");
+    if request
+        .headers
+        .get("if-none-match")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|given| given.trim() == etag)
+    {
+        return Reply {
+            status: hyper::StatusCode::NOT_MODIFIED,
+            content_type: "text/html; charset=utf-8",
+            headers: vec![("etag", etag)],
+            body: hyper::body::Bytes::new(),
+        };
+    }
+    let notice = notice(seed, revision);
+    let mut reply = Reply::html(format!(
+        "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>{slug} revision {revision}</title></head>\n<body>\n<main>\n<article data-slug=\"{slug}\" data-revision=\"{revision}\">\n<h1>{}</h1>\n<p>Price: ${}</p>\n</article>\n</main>\n</body>\n</html>\n",
+        notice.headline, notice.price
+    ));
+    reply.headers.push(("etag", etag));
+    reply
 }
 
 fn board(notice: &Notice) -> String {
@@ -142,4 +174,109 @@ fn record(seed: u64, revision: u64) -> Record {
         price,
     } = notice(seed, revision);
     Record::from([("id", id), ("headline", headline), ("price", price)])
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::{IpAddr, Ipv4Addr};
+
+    use hyper::body::Bytes;
+    use hyper::header::HeaderValue;
+    use hyper::{HeaderMap, Method, StatusCode};
+
+    use super::*;
+
+    fn get(path: &str, if_none_match: Option<&str>) -> Reply {
+        let mut headers = HeaderMap::new();
+        if let Some(etag) = if_none_match {
+            headers.insert(
+                "if-none-match",
+                HeaderValue::from_str(etag).expect("invariant: valid header value"),
+            );
+        }
+        let empty = Bytes::new();
+        let request = Request {
+            method: &Method::GET,
+            path,
+            query: "",
+            cookies: "",
+            authorization: "",
+            headers: &headers,
+            body: &empty,
+            peer: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            tls: None,
+        };
+        respond(42, 0, &request)
+    }
+
+    fn get_at(step: u64, path: &str, if_none_match: Option<&str>) -> Reply {
+        let mut headers = HeaderMap::new();
+        if let Some(etag) = if_none_match {
+            headers.insert(
+                "if-none-match",
+                HeaderValue::from_str(etag).expect("invariant: valid header value"),
+            );
+        }
+        let empty = Bytes::new();
+        let request = Request {
+            method: &Method::GET,
+            path,
+            query: "",
+            cookies: "",
+            authorization: "",
+            headers: &headers,
+            body: &empty,
+            peer: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            tls: None,
+        };
+        respond(42, step, &request)
+    }
+
+    #[test]
+    fn continuous_index_links_all_scheduled_pages() {
+        let reply = get("/continuous", None);
+        assert_eq!(reply.status, StatusCode::OK);
+        let body = std::str::from_utf8(&reply.body).expect("utf-8 html");
+        assert!(body.contains("/continuous/fast"));
+        assert!(body.contains("/continuous/slow"));
+        assert!(body.contains("/continuous/static"));
+    }
+
+    #[test]
+    fn scheduled_pages_advance_by_step_and_honour_etag() {
+        let fast_0 = get_at(0, "/continuous/fast", None);
+        let fast_1 = get_at(1, "/continuous/fast", None);
+        assert_eq!(fast_0.status, StatusCode::OK);
+        assert_eq!(fast_1.status, StatusCode::OK);
+        assert_ne!(fast_0.body, fast_1.body);
+        let etag_0 = fast_0
+            .headers
+            .iter()
+            .find(|(name, _)| *name == "etag")
+            .map(|(_, value)| value.as_str())
+            .expect("etag header");
+        assert_eq!(etag_0, "\"fast-r0\"");
+
+        // Matching ETag at step 0 returns 304 Not Modified with empty body.
+        let not_modified = get_at(0, "/continuous/fast", Some(etag_0));
+        assert_eq!(not_modified.status, StatusCode::NOT_MODIFIED);
+        assert!(not_modified.body.is_empty());
+
+        // Stale ETag at step 1 returns 200 OK with updated content.
+        let changed = get_at(1, "/continuous/fast", Some(etag_0));
+        assert_eq!(changed.status, StatusCode::OK);
+        assert_eq!(changed.body, fast_1.body);
+
+        // Slow page stays identical at steps 0..3 and changes at step 3.
+        let slow_0 = get_at(0, "/continuous/slow", None);
+        let slow_2 = get_at(2, "/continuous/slow", None);
+        let slow_3 = get_at(3, "/continuous/slow", None);
+        assert_eq!(slow_0.body, slow_2.body);
+        assert_ne!(slow_0.body, slow_3.body);
+
+        // Static page never changes across steps.
+        let static_0 = get_at(0, "/continuous/static", None);
+        let static_9 = get_at(9, "/continuous/static", None);
+        assert_eq!(static_0.body, static_9.body);
+    }
 }

@@ -16,6 +16,7 @@ use std::collections::BTreeMap;
 use encoding_rs::Encoding;
 use goodfetch_engine::{CallError, named};
 use goodfetch_extractor::BuiltIn;
+use goodfetch_protocol::foxhound::continuous::{REVISIT_POLICY, RevisitPolicy};
 use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CRAWL_CONTENT_TYPES, CRAWL_RETRY_HANDLER_FAILED, LabelDeclaration,
 };
@@ -65,6 +66,7 @@ pub struct LabelSettings {
     extractors: BTreeMap<String, BuiltIn>,
     hook_timeouts: BTreeMap<String, u64>,
     retries_handler_failed: BTreeMap<String, bool>,
+    revisit_policies: BTreeMap<String, RevisitPolicy>,
 }
 
 /// How a request's tier is chosen.
@@ -156,100 +158,100 @@ impl LabelSettings {
     /// no duration in milliseconds or a `crawl.retry.handler_failed` that
     /// is no Boolean.
     pub fn of(labels: &BTreeMap<String, LabelDeclaration>) -> Result<Self, CallError> {
-        let mut tiers = BTreeMap::new();
-        let mut http_from = BTreeMap::new();
-        let mut encodings = BTreeMap::new();
-        let mut content_types = BTreeMap::new();
-        let mut page_checks = BTreeMap::new();
-        let mut fragments = BTreeMap::new();
-        let mut kept_responses = BTreeMap::new();
-        let mut extractors = BTreeMap::new();
-        let mut hook_timeouts = BTreeMap::new();
-        let mut retries_handler_failed = BTreeMap::new();
+        let mut settings = Self {
+            tiers: BTreeMap::new(),
+            http_from: BTreeMap::new(),
+            encodings: BTreeMap::new(),
+            content_types: BTreeMap::new(),
+            page_checks: BTreeMap::new(),
+            fragments: BTreeMap::new(),
+            kept_responses: BTreeMap::new(),
+            extractors: BTreeMap::new(),
+            hook_timeouts: BTreeMap::new(),
+            retries_handler_failed: BTreeMap::new(),
+            revisit_policies: BTreeMap::new(),
+        };
         for (name, declaration) in labels {
             let mut keys = Vec::new();
             flatten("", &declaration.settings, &mut keys);
             let mut tier = SetTier::Unset;
             for (key, value) in keys {
-                if key == FETCH_HTTP_FROM.name {
-                    http_from.insert(name.clone(), http_from_of(name, &key, &value)?);
-                    continue;
-                }
-                if key == FETCH_ENCODING.name {
-                    if let Some(encoding) = encoding(name, &value)? {
-                        encodings.insert(name.clone(), encoding);
-                    }
-                    continue;
-                }
-                if key == CRAWL_CONTENT_TYPES.name {
-                    let types = ContentTypes::of(&value)
-                        .map_err(|reason| invalid(name, &key, &value, &reason))?;
-                    content_types.insert(name.clone(), types);
-                    continue;
-                }
-                if key == SESSION_PAGE_CHECK.name {
-                    if let Some(check) = page_check_of(name, &value)? {
-                        page_checks.insert(name.clone(), check);
-                    }
-                    continue;
-                }
-                if key == CRAWL_KEEP_URL_FRAGMENT.name {
-                    fragments.insert(name.clone(), boolean(name, &key, &value)?);
-                    continue;
-                }
-                if key == FETCH_KEPT_RESPONSES_URLS.name {
-                    let Some(patterns) = value
-                        .as_array()
-                        .filter(|patterns| patterns.iter().all(Value::is_string))
-                    else {
-                        return Err(invalid(name, &key, &value, "is no list of URL patterns"));
-                    };
-                    kept_responses.insert(name.clone(), !patterns.is_empty());
-                    continue;
-                }
-                if key == CONTENT_EXTRACTOR.name {
-                    let Some(extractor) = value.as_str().and_then(BuiltIn::named) else {
-                        return Err(invalid(
-                            name,
-                            &key,
-                            &value,
-                            &format!("is none of {}", CONTENT_EXTRACTORS.join(", ")),
-                        ));
-                    };
-                    extractors.insert(name.clone(), extractor);
-                    continue;
-                }
-                if key == TIMEOUT_HOOK.name {
-                    hook_timeouts.insert(name.clone(), millis(name, &key, &value)?);
-                    continue;
-                }
-                if key == CRAWL_RETRY_HANDLER_FAILED.name {
-                    retries_handler_failed.insert(name.clone(), boolean(name, &key, &value)?);
-                    continue;
-                }
-                // The Session pool reads a Label's own Session source.
-                if key == SESSION_SOURCE.name || key.starts_with(SESSION_SOURCE_KEYS) {
-                    continue;
-                }
-                if key != FETCH_TIER.name {
-                    return Err(not_taken(name, key));
-                }
-                tier = tier_of(name, key, &value)?;
+                settings.apply_key(name, key, &value, &mut tier)?;
             }
-            tiers.insert(name.clone(), tier);
+            settings.tiers.insert(name.clone(), tier);
         }
-        Ok(Self {
-            tiers,
-            http_from,
-            encodings,
-            content_types,
-            page_checks,
-            fragments,
-            kept_responses,
-            extractors,
-            hook_timeouts,
-            retries_handler_failed,
-        })
+        Ok(settings)
+    }
+
+    fn apply_key(
+        &mut self,
+        name: &str,
+        key: String,
+        value: &Value,
+        tier: &mut SetTier,
+    ) -> Result<(), CallError> {
+        if key == FETCH_HTTP_FROM.name {
+            self.http_from
+                .insert(name.to_owned(), http_from_of(name, &key, value)?);
+        } else if key == FETCH_ENCODING.name {
+            if let Some(encoding) = encoding(name, value)? {
+                self.encodings.insert(name.to_owned(), encoding);
+            }
+        } else if key == CRAWL_CONTENT_TYPES.name {
+            let types =
+                ContentTypes::of(value).map_err(|reason| invalid(name, &key, value, &reason))?;
+            self.content_types.insert(name.to_owned(), types);
+        } else if key == SESSION_PAGE_CHECK.name {
+            if let Some(check) = page_check_of(name, value)? {
+                self.page_checks.insert(name.to_owned(), check);
+            }
+        } else if key == CRAWL_KEEP_URL_FRAGMENT.name {
+            self.fragments
+                .insert(name.to_owned(), boolean(name, &key, value)?);
+        } else if key == FETCH_KEPT_RESPONSES_URLS.name {
+            let Some(patterns) = value
+                .as_array()
+                .filter(|patterns| patterns.iter().all(Value::is_string))
+            else {
+                return Err(invalid(name, &key, value, "is no list of URL patterns"));
+            };
+            self.kept_responses
+                .insert(name.to_owned(), !patterns.is_empty());
+        } else if key == CONTENT_EXTRACTOR.name {
+            let Some(extractor) = value.as_str().and_then(BuiltIn::named) else {
+                return Err(invalid(
+                    name,
+                    &key,
+                    value,
+                    &format!("is none of {}", CONTENT_EXTRACTORS.join(", ")),
+                ));
+            };
+            self.extractors.insert(name.to_owned(), extractor);
+        } else if key == TIMEOUT_HOOK.name {
+            self.hook_timeouts
+                .insert(name.to_owned(), millis(name, &key, value)?);
+        } else if key == CRAWL_RETRY_HANDLER_FAILED.name {
+            self.retries_handler_failed
+                .insert(name.to_owned(), boolean(name, &key, value)?);
+        } else if key == REVISIT_POLICY.name {
+            let policy =
+                RevisitPolicy::read(value).map_err(|reason| invalid(name, &key, value, &reason))?;
+            self.revisit_policies.insert(name.to_owned(), policy);
+        } else if key == SESSION_SOURCE.name || key.starts_with(SESSION_SOURCE_KEYS) {
+            // The Session pool reads a Label's own Session source.
+        } else if key == FETCH_TIER.name {
+            *tier = tier_of(name, key, value)?;
+        } else {
+            return Err(not_taken(name, key));
+        }
+        Ok(())
+    }
+
+    /// The `revisit.policy` of `label`, falling back to `run` when the Label
+    /// sets none (ADR 0139).
+    #[must_use]
+    pub fn revisit_policy<'a>(&'a self, label: &str, run: &'a RevisitPolicy) -> &'a RevisitPolicy {
+        self.revisit_policies.get(label).unwrap_or(run)
     }
 
     /// Each declared Label that sets `timeout.hook`, with its value in
@@ -532,8 +534,10 @@ fn flatten(prefix: &str, settings: &Map<String, Value>, keys: &mut Vec<(String, 
             format!("{prefix}.{name}")
         };
         match value {
-            // A Page check is one setting's value, read whole.
-            Value::Object(nested) if key != SESSION_PAGE_CHECK.name => {
+            // A Page check and a Revisit policy are each one setting's value, read whole.
+            Value::Object(nested)
+                if key != SESSION_PAGE_CHECK.name && key != REVISIT_POLICY.name =>
+            {
                 flatten(&key, nested, keys);
             }
             leaf => keys.push((key, leaf.clone())),

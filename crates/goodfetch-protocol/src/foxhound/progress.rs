@@ -86,11 +86,20 @@ pub struct CrawlRunProgress {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub sitemaps: Option<Vec<SitemapReport>>,
-    /// Whether `crawl.keep_alive` holds it `running` with an empty Frontier
-    /// and nothing in flight, until `run.add_seed` gives it work.
+    /// Whether `crawl.keep_alive` or `crawl.continuous` holds it `running`
+    /// with an empty Frontier and nothing in flight, until new work or a due
+    /// revisit arrives.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub idle: Option<bool>,
+    /// When a Continuous crawl's next revisit is due while idle (ADR 0139).
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub next_due_at: Option<SystemTime>,
     /// Its handlers running and the Resource governor's level.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]

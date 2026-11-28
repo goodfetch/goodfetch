@@ -17,6 +17,7 @@
 
 mod admission;
 mod blocking_client;
+mod continuous;
 mod detached;
 mod effect_wait;
 mod finishing;

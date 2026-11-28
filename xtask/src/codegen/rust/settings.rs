@@ -26,6 +26,7 @@ use std::path::Path;
 use anyhow::{Context as _, Result, bail, ensure};
 use goodfetch_protocol::catalog::{ValueKind, ValueShape};
 use goodfetch_protocol::egress::LOCAL_ADDRESSES_SHAPE;
+use goodfetch_protocol::foxhound::continuous::REVISIT_POLICY_SHAPE;
 use goodfetch_protocol::foxhound::fetch::SAMPLE_REFRESH_SHAPE;
 use goodfetch_protocol::foxhound::frontier::PATH_BUDGET_SHAPE;
 use goodfetch_protocol::foxhound::sink::SINK_SHAPE;
@@ -52,7 +53,7 @@ use super::{HEADER, Setter, comment};
 /// `ValueKind::Shape`), by the shape: rustc checks the path when the crate
 /// builds, and the shape's own `check` reads that type. A new shape a key
 /// takes fails the generation until it is listed here.
-const SHAPES: [(&ValueShape, &str); 16] = [
+const SHAPES: [(&ValueShape, &str); 17] = [
     (
         &EXTRACTOR_NAME_SHAPE,
         "::goodfetch_protocol::page::ExtractorName",
@@ -84,6 +85,10 @@ const SHAPES: [(&ValueShape, &str); 16] = [
     (
         &SAMPLE_REFRESH_SHAPE,
         "::goodfetch_protocol::foxhound::fetch::SampleRefresh",
+    ),
+    (
+        &REVISIT_POLICY_SHAPE,
+        "::goodfetch_protocol::foxhound::continuous::RevisitPolicy",
     ),
     (
         &BATCH_THRESHOLD_SHAPE,

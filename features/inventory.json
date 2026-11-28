@@ -9440,6 +9440,16 @@
       ]
     },
     {
+      "id": "setting:crawl.continuous",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:crawl.domain_keys",
       "kind": "setting",
       "area": 3,
@@ -11126,6 +11136,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:revisit.policy",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },

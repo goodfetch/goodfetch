@@ -335,6 +335,12 @@ class ConnectionCrawlSettings(TypedDict):
     `crawl.content_types`.
     """
 
+    continuous: NotRequired[bool]
+    """Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.
+
+    `crawl.continuous`.
+    """
+
     domain_keys: NotRequired[Mapping[str, str]]
     """Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.
 
@@ -1181,6 +1187,31 @@ class ConnectionResolverSettings(TypedDict):
     """How long the engine's HTTP transports wait for a host's IPv6 addresses once its IPv4 addresses arrived first, before they start connecting over IPv4: 50 ms, RFC 8305's Resolution Delay.
 
     `resolver.resolution_delay`.
+    """
+
+
+class RevisitPolicyNever(TypedDict):
+    """Never revisit the URL after its first visit, such as articles."""
+
+    kind: Literal["never"]
+
+
+class RevisitPolicyEvery(TypedDict):
+    """Revisit at a fixed interval, in whole milliseconds (at least 1)."""
+
+    interval: int
+    """Interval between revisits in milliseconds (at least 1)."""
+
+    kind: Literal["every"]
+
+
+class ConnectionRevisitSettings(TypedDict):
+    """The `revisit` settings of `FoxhoundSettings`."""
+
+    policy: NotRequired[RevisitPolicyNever | RevisitPolicyEvery]
+    """How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ "kind": "never" }` for pages read once, or `{ "kind": "every", "interval": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
+
+    `revisit.policy`.
     """
 
 
@@ -2109,6 +2140,8 @@ class FoxhoundSettings(TypedDict):
 
     resolver: NotRequired[ConnectionResolverSettings]
 
+    revisit: NotRequired[ConnectionRevisitSettings]
+
     run_state: NotRequired[ConnectionRunStateSettings]
 
     sample: NotRequired[ConnectionSampleSettings]
@@ -2403,6 +2436,12 @@ class RunCrawlSettings(TypedDict):
     """The media types a Label's handler takes, each `type/subtype`, `type/*` or `*/*`, set for the Run or for one of its Labels, whose own list wins for its requests: `text/html` and `application/xhtml+xml` by default. A response that would reach the handler (a 2xx, or a status `crawl.handle_statuses` lists) of another type ends its request `skipped` with the reason `content_type` before its body is read, never retried. The type is the response's `Content-Type` essence, or, when it names none, the type the pinned Chromium's MIME sniffer gives its first 1,024 bytes; a response with neither a type nor a body is an empty HTML document. An accepted type that is not HTML or XHTML reaches the handler with its body in its response and a page holding no document, whose document calls fail with `response_not_document`. A handler's own navigations are not checked. A value that is no list of media ranges is refused with `setting_invalid` when the crawl starts.
 
     `crawl.content_types`.
+    """
+
+    continuous: NotRequired[bool]
+    """Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.
+
+    `crawl.continuous`.
     """
 
     domain_keys: NotRequired[Mapping[str, str]]
@@ -3226,6 +3265,16 @@ class RunResolverSettings(TypedDict):
     """
 
 
+class RunRevisitSettings(TypedDict):
+    """The `revisit` settings of `CrawlSettings`."""
+
+    policy: NotRequired[RevisitPolicyNever | RevisitPolicyEvery]
+    """How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ "kind": "never" }` for pages read once, or `{ "kind": "every", "interval": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
+
+    `revisit.policy`.
+    """
+
+
 class RunRunStateBatchSettings(TypedDict):
     """The `run_state.batch` settings of `CrawlSettings`."""
 
@@ -3793,6 +3842,8 @@ class CrawlSettings(TypedDict):
 
     resolver: NotRequired[RunResolverSettings]
 
+    revisit: NotRequired[RunRevisitSettings]
+
     run_state: NotRequired[RunRunStateSettings]
 
     sample: NotRequired[RunSampleSettings]
@@ -3894,6 +3945,16 @@ class LabelFetchSettings(TypedDict):
     """
 
 
+class LabelRevisitSettings(TypedDict):
+    """The `revisit` settings of `LabelSettings`."""
+
+    policy: NotRequired[RevisitPolicyNever | RevisitPolicyEvery]
+    """How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ "kind": "never" }` for pages read once, or `{ "kind": "every", "interval": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
+
+    `revisit.policy`.
+    """
+
+
 class LabelSessionSettings(TypedDict):
     """The `session` settings of `LabelSettings`."""
 
@@ -3932,6 +3993,8 @@ class LabelSettings(TypedDict):
     crawl: NotRequired[LabelCrawlSettings]
 
     fetch: NotRequired[LabelFetchSettings]
+
+    revisit: NotRequired[LabelRevisitSettings]
 
     session: NotRequired[LabelSessionSettings]
 

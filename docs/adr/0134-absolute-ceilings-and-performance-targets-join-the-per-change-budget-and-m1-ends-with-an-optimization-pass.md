@@ -108,6 +108,8 @@ Both scenarios run in the Release suite on every OS, are checked by a ratio so t
 - **`STYLE.md` gains memory rules:** bodies and frames as `Bytes`, never copied on the per-request path; every channel and buffer between tasks bounded, with backpressure when full; no `String` clone per request; the Frontier's in-memory structures bounded and its duplicate check exact.
 - **This ADR, its `STYLE.md` and `TESTING.md` edits and its glossary entries are accepted before #214 merges,** so the engine's first code follows them.
 
+> Amended by [ADR 0139](0139-a-continuous-crawl-is-a-run-that-revisits-each-url-by-its-revisit-policy-reads-syndication-feeds-as-standing-sources-and-ends-only-when-told.md): Continuous crawl revisit state counts within `run_state.memory.budget` and spills to the run file's `revisits` table, holding ADR 0134's 8 heap bytes per URL ceiling at a budget of 0; the Frontier-at-scale check and Daemon soak gain Continuous crawl scenarios.
+
 ## Considered Options
 
 - **Absolute figures as goals only, gating nothing:** rejected. Before the first release the ratchet has no anchor and the drift check compares nothing, so a goal no one checks drifts the same way.

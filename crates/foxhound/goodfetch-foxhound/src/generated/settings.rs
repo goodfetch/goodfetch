@@ -28,6 +28,17 @@ pub mod crawl {
         ],
     );
 
+    /// Whether a crawl's Run is a Continuous crawl (ADR 0139): it stays `running` when its Frontier empties, implies `crawl.keep_alive`, and revisits each URL when due under its Label's `revisit.policy` until `run.finish`, `run.stop`, an abort, a Limit or `timeout.run` ends it. Fixed for the Run's life: a resume that changes it is refused with `setting_not_applicable`. `false` by default.
+    ///
+    /// `crawl.continuous`.
+    pub const CONTINUOUS: crate::settings::Setting<bool> = crate::settings::Setting::new(
+        "crawl.continuous",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+        ],
+    );
+
     /// Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.
     ///
     /// `crawl.domain_keys`.
@@ -1019,6 +1030,24 @@ pub mod provenance {
         &[
             ::goodfetch_protocol::catalog::SettingScope::Connection,
             ::goodfetch_protocol::catalog::SettingScope::Run,
+        ],
+    );
+}
+
+/// The `revisit.*` settings.
+pub mod revisit {
+
+    /// How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ "kind": "never" }` for pages read once, or `{ "kind": "every", "interval": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
+    ///
+    /// `revisit.policy`.
+    pub const POLICY: crate::settings::Setting<
+        ::goodfetch_protocol::foxhound::continuous::RevisitPolicy,
+    > = crate::settings::Setting::new(
+        "revisit.policy",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+            ::goodfetch_protocol::catalog::SettingScope::Label,
         ],
     );
 }

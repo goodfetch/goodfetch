@@ -170,6 +170,12 @@ pub(crate) struct Leased {
     /// 0035); a link a person reveals in a menu, a tab or a disclosure
     /// leaves it unmarked here.
     pub(crate) trap_link_suspected: bool,
+    /// Whether this lease is a Continuous crawl revisit of a previously
+    /// visited work item (ADR 0139).
+    pub(crate) is_revisit: bool,
+    /// Previous revisit schedule state for this URL when known (loaded on
+    /// spilled revisit lease or resume with 0 extra queries).
+    pub(crate) revisit_previous: goodfetch_frontier::revisit::PreviousState,
 }
 
 impl Leased {
@@ -181,6 +187,21 @@ impl Leased {
             attempt: self.attempt.saturating_add(1),
             tries: self.tries.saturating_add(1),
             lease_epoch: self.lease_epoch.saturating_add(1),
+            is_revisit: false,
+            ..self
+        }
+    }
+
+    /// The same work item prepared for a Continuous crawl revisit (ADR 0139):
+    /// keeps its ID, Label, Payload and depth, counts attempts on, resets
+    /// `tries` to 1 for a fresh `crawl.retry.max`, advances `lease_epoch`,
+    /// and marks `is_revisit = true`.
+    pub(crate) fn for_revisit(self) -> Self {
+        Self {
+            attempt: self.attempt.saturating_add(1),
+            tries: 1,
+            lease_epoch: self.lease_epoch.saturating_add(1),
+            is_revisit: true,
             ..self
         }
     }
@@ -191,6 +212,7 @@ impl Leased {
     pub(crate) fn released(self) -> Self {
         Self {
             lease_epoch: self.lease_epoch.saturating_add(1),
+            is_revisit: false,
             ..self
         }
     }
@@ -1343,25 +1365,88 @@ pub(crate) fn leasable_added(
     Ok(rows)
 }
 
-/// Leases the work item of each attempt of `claims` that is still pending
-/// as it was when its row was read ([`leasable`]): its lease epoch one
-/// below the attempt's. Answers the IDs it did not lease, whose attempts
-/// then end with their lease lost.
-pub(crate) fn claim(
+/// Each revisit work item of `ids` whose status is ended (`succeeded`,
+/// `failed`, `unchanged`), in that order, as its next revisit lease takes it:
+/// attempts and lease epoch one up, `tries = 1`, `is_revisit = true`, with its
+/// prior revisit schedule state loaded in the same query.
+/// Reads on one of the run file's readers without mutating anything.
+pub(crate) fn leasable_revisits(
     connection: &Connection,
-    claims: &[AttemptKey<String>],
-) -> rusqlite::Result<Vec<String>> {
+    ids: &[String],
+) -> rusqlite::Result<Vec<Leased>> {
     let mut statement = connection.prepare_cached(
+        "SELECT w.id, w.url, w.label, w.attempts + 1, w.lease_epoch + 1, w.domain_key,
+                w.priority, w.position, w.forefront IS NOT NULL, w.method, w.body, 1, w.headers
+         FROM work_items w
+         WHERE w.id = ?1 AND w.status IN ('succeeded', 'failed', 'unchanged')",
+    )?;
+    let mut prev_stmt = connection
+        .prepare_cached("SELECT interval_ms, visits, changes FROM revisits WHERE work_item = ?1")?;
+    let mut rows = leased_rows(connection, &mut statement, ids)?;
+    for row in &mut rows {
+        row.is_revisit = true;
+        if let Some((interval_ms, visits, changes)) = prev_stmt
+            .query_row([&row.crawl_request.id], |r| {
+                Ok((
+                    r.get::<_, Option<i64>>(0)?
+                        .map(|v| u64::try_from(v).unwrap_or(0)),
+                    u64::try_from(r.get::<_, i64>(1)?).unwrap_or(0),
+                    u64::try_from(r.get::<_, i64>(2)?).unwrap_or(0),
+                ))
+            })
+            .optional()?
+        {
+            row.revisit_previous = goodfetch_frontier::revisit::PreviousState {
+                interval_ms,
+                visits,
+                changes,
+            };
+        }
+    }
+    Ok(rows)
+}
+
+/// One work item being claimed in [`claim`]: either a normal pending work
+/// item or a due Continuous crawl revisit re-admitted and claimed in the same
+/// transaction (ADR 0139, ADR 0140).
+#[derive(Clone, Debug)]
+pub(crate) struct Claiming {
+    pub(crate) key: AttemptKey<String>,
+    pub(crate) revisit: bool,
+}
+
+/// Leases the work item of each attempt of `claims` that is still pending (or
+/// ended and due for revisit when `revisit` is set) as it was when its row was
+/// read: its lease epoch one below the attempt's. Answers the IDs it did not
+/// lease, whose attempts then end with their lease lost.
+pub(crate) fn claim(connection: &Connection, claims: &[Claiming]) -> rusqlite::Result<Vec<String>> {
+    let mut pending_stmt = connection.prepare_cached(
         "UPDATE work_items SET status = 'leased', attempts = attempts + 1, lease_epoch = lease_epoch + 1
          WHERE id = ?1 AND status = 'pending' AND lease_epoch + 1 = ?2",
     )?;
     let mut unclaimed = Vec::new();
-    for AttemptKey {
-        work_item: id,
-        lease_epoch,
+    for Claiming {
+        key: AttemptKey {
+            work_item: id,
+            lease_epoch,
+        },
+        revisit,
     } in claims
     {
-        if statement.execute((id, integer(*lease_epoch)))? == 0 {
+        if *revisit {
+            let mut revisit_stmt = connection.prepare_cached(
+                "UPDATE work_items
+                 SET status = 'leased', error_code = NULL, retried_from = attempts,
+                     attempts = attempts + 1, lease_epoch = lease_epoch + 1
+                 WHERE id = ?1 AND status IN ('succeeded', 'failed', 'unchanged')
+                   AND lease_epoch + 1 = ?2",
+            )?;
+            if revisit_stmt.execute((id, integer(*lease_epoch)))? == 0 {
+                unclaimed.push(id.clone());
+            } else if let Some(outcome) = latest_outcome(connection, id)? {
+                count(connection, &outcome.ending, -1)?;
+            }
+        } else if pending_stmt.execute((id, integer(*lease_epoch)))? == 0 {
             unclaimed.push(id.clone());
         }
     }
@@ -1420,6 +1505,8 @@ fn leased_rows(
                     },
                     sitemap: false,
                     trap_link_suspected: false,
+                    is_revisit: false,
+                    revisit_previous: goodfetch_frontier::revisit::PreviousState::default(),
                 })
             })
             .optional()?;

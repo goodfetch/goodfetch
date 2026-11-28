@@ -2,7 +2,7 @@
 // edit by hand.
 
 /// Every Shared path a row of Counted work counts on, by name (ADR 0140).
-const SHARED_PATHS: [&str; 24] = [
+const SHARED_PATHS: [&str; 25] = [
     "action",
     "audit_entry",
     "cdp_command",
@@ -10,6 +10,7 @@ const SHARED_PATHS: [&str; 24] = [
     "frontier_hop",
     "frontier_lease",
     "frontier_payload",
+    "frontier_revisit",
     "frontier_sitemap",
     "governor_sample",
     "hook_stage",
@@ -30,7 +31,7 @@ const SHARED_PATHS: [&str; 24] = [
 ];
 
 /// Every work a row of Counted work counts (ADR 0140).
-const WORKS: [&str; 105] = [
+const WORKS: [&str; 106] = [
     "acknowledgements",
     "actor_round_trips",
     "admission_evidence",
@@ -60,6 +61,7 @@ const WORKS: [&str; 105] = [
     "document_encodes",
     "document_loads",
     "document_worlds",
+    "due_window_reads",
     "effect_syncs",
     "encodes",
     "end_round_trips",

@@ -668,7 +668,17 @@ pub(crate) enum AfterStart {
     /// `crawl.keep_alive`, so it is still running when they come, and
     /// `run.finish` ends it once both are answered.
     BarrierCalls,
+    /// A Continuous crawl (`crawl.continuous: true`, `revisit.policy: every 2s`)
+    /// that completes its first pass, advances the paused clock through one full
+    /// revisit cycle, and then sends `run.finish` (ADR 0139, ADR 0140).
+    Continuous,
 }
+
+/// Revisit interval in milliseconds for [`AfterStart::Continuous`].
+const CONTINUOUS_INTERVAL_MS: u64 = 2_000;
+/// Simulated duration awaited before `run.finish` in [`AfterStart::Continuous`]:
+/// past one full revisit interval (plus batch-flush margin) and before the second.
+const CONTINUOUS_SETTLE_MS: u64 = 3_000;
 
 /// The calls a crawl sent [`AfterStart::BarrierCalls`] is made: the batches
 /// they may each write are `F2.batches`' own term.
@@ -761,6 +771,11 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
     if after_start == AfterStart::BarrierCalls {
         let crawl = settings.entry("crawl").or_insert_with(|| json!({}));
         crawl["keep_alive"] = json!(true);
+    } else if after_start == AfterStart::Continuous {
+        let crawl = settings.entry("crawl").or_insert_with(|| json!({}));
+        crawl["continuous"] = json!(true);
+        let revisit = settings.entry("revisit").or_insert_with(|| json!({}));
+        revisit["policy"] = json!({ "kind": "every", "interval": CONTINUOUS_INTERVAL_MS });
     }
     let linked = linked_pages.unwrap_or(PAGES.len());
     if let Some(amount) = limit {
@@ -911,6 +926,10 @@ async fn serve(site: Arc<dyn Transport>, crawl_start: &Value, on: Driven<'_>) ->
                 send(&mut writer, &set(run)).await;
                 send(&mut writer, &add_seed(run)).await;
                 calls_out = BARRIER_CALLS;
+            } else if message["id"] == "start" && after_start == AfterStart::Continuous {
+                assert!(message.get("result").is_some(), "{message}");
+                tokio::time::sleep(std::time::Duration::from_millis(CONTINUOUS_SETTLE_MS)).await;
+                send(&mut writer, &finish(run)).await;
             } else if message["id"] == "start" {
                 assert!(message.get("result").is_some(), "{message}");
                 send(&mut writer, &finish(run)).await;

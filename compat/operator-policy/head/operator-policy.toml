@@ -379,6 +379,7 @@ max_crawl_delay = 30000
 
 [settings.crawl]
 sample_pages = 4
+continuous = true
 handle_statuses = [4]
 content_types = ["example"]
 max_staged_enqueues = 4
@@ -409,6 +410,9 @@ exclude = ["example"]
 
 [settings.crawl.payload]
 max_size = 4
+
+[settings.revisit]
+policy = { kind = "never" }
 
 [settings.fetch]
 tier = "auto"
@@ -864,6 +868,7 @@ max_crawl_delay = 30000
 
 [lock.crawl]
 sample_pages = 4
+continuous = true
 handle_statuses = [4]
 content_types = ["example"]
 max_staged_enqueues = 4
@@ -894,6 +899,9 @@ exclude = ["example"]
 
 [lock.crawl.payload]
 max_size = 4
+
+[lock.revisit]
+policy = { kind = "never" }
 
 [lock.fetch]
 tier = "auto"

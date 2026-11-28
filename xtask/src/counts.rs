@@ -217,7 +217,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 152] = [
+const ROWS: [Row; 153] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -479,6 +479,10 @@ const ROWS: [Row; 152] = [
     // counts and the trap marks into memory. Its unit is those cells'
     // links batches, none elsewhere.
     b1("F3.state_reads", HELD_LINKS_BATCHES, false),
+    // Bounded due-window reads of the `revisits` table per revisit in
+    // Continuous crawl cells: 0 within the memory budget, at most 1 per queue
+    // fill past it, and 0 in every batch cell (#1839).
+    b1("F3.revisits_due_window_reads", REVISITS, false),
     // What each page more builds, read as `F2.prepares` is: the whole
     // site's run less a run on half its pages, over the pages it adds.
     b1("F3.counted_work_constructions", ADDED_PAGES, false),
@@ -1348,6 +1352,9 @@ const SPILLED_LEASES: &str = "spilled_leases";
 /// The links batches of a cell at a level that batches attempts whose
 /// memory budget holds its pending work items: none in any other cell.
 const HELD_LINKS_BATCHES: &str = "held_links_batches";
+
+/// The revisit attempts of a Continuous crawl cell: none in any batch cell.
+const REVISITS: &str = "revisits";
 
 const fn b1(name: &'static str, unit: &'static str, happens: bool) -> Row {
     Row {

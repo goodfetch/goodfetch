@@ -23,7 +23,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::admission::{Held, QueuedGroup, RateHeld};
@@ -57,6 +57,7 @@ use crate::work_items;
 const WAITING: &str = "waiting";
 const IN_FLIGHT: &str = "in_flight";
 const IDLE: &str = "idle";
+const NEXT_DUE_AT: &str = "next_due_at";
 const CONCURRENCY: &str = "concurrency";
 const REQUESTS: &str = "requests";
 const SITEMAPS: &str = "sitemaps";
@@ -116,7 +117,7 @@ pub(crate) fn show(
 ) {
     show_waits(run, queued, resolved, now, room);
     show_concurrency(run, resolved, handlers, handler_concurrency);
-    show_idle(run, false);
+    show_idle(run, false, None);
 }
 
 /// Sets the crawl's `waiting` from the groups its admission queues at
@@ -220,10 +221,19 @@ fn backoff_setting(
     }
 }
 
-/// Sets the crawl's `idle`: whether `crawl.keep_alive` holds it with no
-/// work.
-pub(crate) fn show_idle(run: &CrawlRun, idle: bool) {
+/// Sets the crawl's `idle`: whether `crawl.keep_alive` or `crawl.continuous`
+/// holds it with no work, and when a Continuous crawl's next revisit is due
+/// while idle (`next_due_at`, ADR 0139).
+pub(crate) fn show_idle(run: &CrawlRun, idle: bool, next_due_at: Option<SystemTime>) {
     run.progress.set_part(IDLE, Value::Bool(idle));
+    match (idle, next_due_at) {
+        (true, Some(due)) => {
+            if let Ok(formatted) = goodfetch_protocol::point_in_time::to_rfc3339(due) {
+                run.progress.set_part(NEXT_DUE_AT, Value::String(formatted));
+            }
+        }
+        _ => run.progress.clear_part(NEXT_DUE_AT),
+    }
 }
 
 /// Sets the crawl's `concurrency`: `handlers` running against

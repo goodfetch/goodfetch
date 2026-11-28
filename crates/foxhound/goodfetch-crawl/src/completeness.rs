@@ -62,10 +62,22 @@ pub(crate) fn short_of_scope(connection: &Connection) -> rusqlite::Result<Vec<Co
             });
         }
     }
-    if let Some(reason) = failed_requests(&requests.by_error_code) {
+    let by_error_code: Vec<CountOf> = if !requests.by_error_code.is_empty()
+        && goodfetch_frontier::revisit::has_any(connection)?
+    {
+        // ADR 0139: in a Continuous crawl, Completeness reads whether each URL
+        // has ever been visited — a later failed revisit does not take back coverage.
+        goodfetch_frontier::revisit::never_visited_failed_by_error_code(connection)?
+            .into_iter()
+            .map(|(name, count)| CountOf { name, count })
+            .collect()
+    } else {
+        requests.by_error_code
+    };
+    if let Some(reason) = failed_requests(&by_error_code) {
         reasons.push(CompletenessReason::incomplete(reason));
     }
-    let unavailable = count_of(&requests.by_error_code, RESPONSE_UNAVAILABLE.name);
+    let unavailable = count_of(&by_error_code, RESPONSE_UNAVAILABLE.name);
     if unavailable > 0 {
         reasons.push(CompletenessReason::incomplete(counted(
             RESPONSE_UNAVAILABLE.name,

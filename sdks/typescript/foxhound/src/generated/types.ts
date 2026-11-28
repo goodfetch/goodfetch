@@ -1645,8 +1645,9 @@ export interface CrawlRunProgress {
    */
   epoch: number;
   /**
-   * Whether `crawl.keep_alive` holds it `running` with an empty Frontier
-   * and nothing in flight, until `run.add_seed` gives it work.
+   * Whether `crawl.keep_alive` or `crawl.continuous` holds it `running`
+   * with an empty Frontier and nothing in flight, until new work or a due
+   * revisit arrives.
    */
   idle?: boolean | null;
   /**
@@ -1667,6 +1668,10 @@ export interface CrawlRunProgress {
    * The program's own status line, once it set one.
    */
   message?: ProgressMessage | null;
+  /**
+   * When a Continuous crawl's next revisit is due while idle (ADR 0139).
+   */
+  nextDueAt?: PointInTime | null;
   /**
    * Each Human pause waiting (ADR 0092).
    */

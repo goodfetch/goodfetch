@@ -814,34 +814,62 @@ async fn bind(_: Value, context: CallContext) -> Result<Value, CallError> {
             .chain((0..24 + 90 + 16).map(|byte: u8| byte.wrapping_mul(53)))
             .collect();
         run.state
-            .write(move |connection| {
-                connection
-                    .execute(
-                        r#"INSERT INTO page_sessions (position, is_default, closed, settings, identity_seed, source) VALUES (1, 1, 0, '{}', 6178731391398722387, NULL), (2, 0, 1, '{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}', -2937466112876520115, NULL), (3, 0, 1, '{}', 4417291851073961183, ?1)"#,
-                        [sealed_source],
-                    )
-                    .map(drop)?;
-                // What a Label learned on a domain (#926): a split
-                // Label, one segment on `http`, one still sampled.
-                connection
-                    .execute(
-                        r#"INSERT INTO tier_choices (label, domain_key, unit) VALUES ('home', 'shop.test', '{"kind":"split","segments":[{"name":"products","matched":3,"tier":"http"},{"name":"blog","matched":0,"tier":"browser"},{"name":"mixed","matched":1,"tier":null}],"since":1790000000000}')"#,
-                        [],
-                    )
-                    .map(drop)?;
-                // A request added through a link its served
-                // document's markup hides (#1153).
-                goodfetch_frontier::trap_links::suspect(
-                    connection,
-                    None,
-                    "2",
-                    goodfetch_frontier::trap_links::Mark::Hidden,
-                )
-            })
+            .write(move |connection| seed_paused_state(connection, sealed_source))
             .await
-            .expect("the Sessions, a tier choice and a suspected trap link are kept");
+            .expect(
+                "the Sessions, a tier choice, a suspected trap link and a revisit row are kept",
+            );
     }
     Ok(json!({ "run_id": "paused" }))
+}
+
+fn seed_paused_state(
+    connection: &rusqlite::Connection,
+    sealed_source: Vec<u8>,
+) -> rusqlite::Result<()> {
+    connection
+        .execute(
+            r#"INSERT INTO page_sessions (position, is_default, closed, settings, identity_seed, source) VALUES (1, 1, 0, '{}', 6178731391398722387, NULL), (2, 0, 1, '{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}', -2937466112876520115, NULL), (3, 0, 1, '{}', 4417291851073961183, ?1)"#,
+            [sealed_source],
+        )
+        .map(drop)?;
+    // What a Label learned on a domain (#926): a split
+    // Label, one segment on `http`, one still sampled.
+    connection
+        .execute(
+            r#"INSERT INTO tier_choices (label, domain_key, unit) VALUES ('home', 'shop.test', '{"kind":"split","segments":[{"name":"products","matched":3,"tier":"http"},{"name":"blog","matched":0,"tier":"browser"},{"name":"mixed","matched":1,"tier":null}],"since":1790000000000}')"#,
+            [],
+        )
+        .map(drop)?;
+    // A request added through a link its served
+    // document's markup hides (#1153).
+    goodfetch_frontier::trap_links::suspect(
+        connection,
+        None,
+        "2",
+        goodfetch_frontier::trap_links::Mark::Hidden,
+    )?;
+    // A scheduled revisit row for a Continuous crawl (#1839).
+    goodfetch_frontier::revisit::upsert(connection, &sample_revisit())
+}
+
+fn sample_revisit() -> goodfetch_frontier::revisit::RevisitRow {
+    goodfetch_frontier::revisit::RevisitRow {
+        work_item: "1".to_owned(),
+        identity: "https://shop.test/".to_owned(),
+        domain_key: "shop.test".to_owned(),
+        next_visit_at: Some(1_790_000_060_000),
+        interval_ms: Some(60_000),
+        last_fetched_at: Some(1_790_000_000_000),
+        last_changed_at: Some(1_790_000_000_000),
+        signature: Some("sha256:0000".to_owned()),
+        etag: Some("\"v1\"".to_owned()),
+        last_modified: Some("Mon, 05 Jan 2026 09:00:00 GMT".to_owned()),
+        visits: 1,
+        changes: 1,
+        consecutive_gone: 0,
+        last_tier: Some("http".to_owned()),
+    }
 }
 
 /// The handler's enqueue, from the home page's attempt, of a request that

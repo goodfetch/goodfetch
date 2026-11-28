@@ -95,8 +95,10 @@ use goodfetch_fetch_tier::{
     ReservedSend, RunHandOver, SetTier, TierChoice, UntouchedDemand, UntouchedReaders,
 };
 use goodfetch_frontier::Bounds;
+use goodfetch_frontier::revisit::{self, RevisitRow, SiteHints, VisitResult};
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
+use goodfetch_protocol::foxhound::continuous::{CRAWL_CONTINUOUS, REVISIT_POLICY, RevisitPolicy};
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_CONTENT_TYPES, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_LOST,
     LEASE_LOST, TIMEOUT_HANDLER, WORK_ITEM_QUEUED, WORK_ITEM_RETRIED,
@@ -419,6 +421,10 @@ struct Read {
     proxied: bool,
     /// The longest wait a response may ask of its domain.
     longest_wait: Option<Duration>,
+    /// Whether this Run is a Continuous crawl (`crawl.continuous`, ADR 0139).
+    continuous: bool,
+    /// Run-level `revisit.policy` fallback for Labels that set none.
+    run_revisit_policy: RevisitPolicy,
 }
 
 impl Read {
@@ -429,6 +435,9 @@ impl Read {
             pool: PoolSettings::of(resolved),
             proxied: proxied(resolved),
             longest_wait: goodfetch_frontier::longest_wait(resolved),
+            continuous: resolved.get(&CRAWL_CONTINUOUS),
+            run_revisit_policy: RevisitPolicy::read(resolved.value(&REVISIT_POLICY))
+                .unwrap_or(RevisitPolicy::Never),
         }
     }
 }
@@ -464,9 +473,10 @@ async fn idled(
     };
     if !servers.iter_mut().any(Serving::serves) {
         let state = (admission, state);
-        return again(waited(run, state, servers, arrivals, in_flight, false).await);
+        return again(waited(run, state, servers, arrivals, in_flight, (false, None)).await);
     }
-    match when_idle(run, admission, state).await {
+    let continuous: bool = resolved.get(&CRAWL_CONTINUOUS);
+    match when_idle(run, admission, state, continuous).await {
         Ok(Idle::Admit) if !starved => Idled::Again(None),
         Ok(Idle::Admit | Idle::Wait) => Idled::Waits,
         Ok(Idle::Done) => {
@@ -485,6 +495,54 @@ async fn idled(
 /// attempt it starts handing over `handing` with its own part. It owns the
 /// crawl's Run state, which starts from the Session pool the run file
 /// holds and from `choices`, and answers what every other task asks of it
+/// Enqueues due revisits (or drops queued revisits after `run.finish()`).
+/// Returns `false` if reading due revisits failed and the Run ended.
+async fn advance_revisits(
+    run: &CrawlRun,
+    read: &Read,
+    stopping: bool,
+    admission: &mut Admission,
+    state: &mut RunState,
+) -> bool {
+    if !read.continuous {
+        return true;
+    }
+    if run.end.is_let_finish() {
+        state.drop_unleased_revisits();
+    } else if !stopping && let Err(error) = enqueue_due_revisits(run, admission, state).await {
+        tracing::error!(%error, run_id = %run.identity.id(), "the crawl's due revisits could not be read");
+        end(run, admission, failed(&run.identity, &error)).await;
+        return false;
+    }
+    true
+}
+
+/// Earliest wakeup instant across Politeness readiness and in-memory revisits.
+fn next_wake_at(
+    run: &CrawlRun,
+    read: &Read,
+    admission: &Admission,
+    state: &RunState,
+    can_lease: bool,
+) -> Option<tokio::time::Instant> {
+    if !can_lease {
+        return None;
+    }
+    let now_instant = run.identity.clock().now();
+    let admission_wake = admission.ready_at(now_instant);
+    let revisit_wake = (read.continuous && !run.end.is_let_finish())
+        .then(|| {
+            state
+                .next_revisit_due_in_memory()
+                .map(|due_ms| due_instant(run, now_instant, due_ms))
+        })
+        .flatten();
+    match (admission_wake, revisit_wake) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    }
+}
+
 /// (ADR 0142).
 async fn deliver(
     run: &std::sync::Arc<CrawlRun>,
@@ -513,6 +571,9 @@ async fn deliver(
     // (ADR 0138).
     let (resolved, read) = (settings.resolved(), Read::of(settings.resolved()));
     loop {
+        if !advance_revisits(run, &read, stop.is_some(), &mut admission, &mut state).await {
+            return;
+        }
         if stop.is_none()
             && let Err(error) = lease_to_servers(
                 run,
@@ -552,9 +613,7 @@ async fn deliver(
             }
         }
         let free = stop.is_none() && has_room(servers, read.policy);
-        let wake = (free && !starved)
-            .then(|| admission.ready_at(run.identity.clock().now()))
-            .flatten();
+        let wake = next_wake_at(run, &read, &admission, &state, free && !starved);
         let shown = (resolved, read.policy);
         let room = [stop.is_some(), free, starved];
         show(run, &mut admission, shown, servers, room);
@@ -1266,7 +1325,8 @@ async fn drained(
     arrivals: &mut Opened,
     in_flight: &SharedInFlight,
 ) -> Waited {
-    let keeps_alive: bool = resolved.get(&CRAWL_KEEP_ALIVE);
+    let continuous: bool = resolved.get(&CRAWL_CONTINUOUS);
+    let keeps_alive = resolved.get::<bool>(&CRAWL_KEEP_ALIVE) || continuous;
     let counted = state.counted();
     if keeps_alive && !run.end.is_let_finish() {
         if !counted.is_empty()
@@ -1280,52 +1340,81 @@ async fn drained(
         if let Err(error) = state.seal().await {
             tracing::warn!(%error, run_id = %run.identity.id(), "the open batch was not sealed");
         }
-    } else {
-        let lost = AttemptFailure::outcome_not_written("its attempt ended and left it leased");
-        let unwritten = Failure {
-            code: lost.code,
-            message: lost.message,
-            details: lost.details,
-        };
-        let retry_max = CrawlPolicy::of(resolved).retry_max;
-        let ended_at = run.identity.point_in_time();
-        // Its answer promises nothing outside (#2117): the Run's end, which
-        // follows it, syncs, and so does a later call's refusal, as its own
-        // write commits after the close.
-        let closed = state
-            .stored()
-            .close_if_drained(counted, (unwritten, retry_max), ended_at)
-            .await;
-        let ending = match closed {
-            Ok((short, changed)) => {
-                state.changed(changed);
-                show_counted(run, state, in_flight, []).await;
-                match short {
-                    Some(reasons) => Ending::Finished(reasons),
-                    // A work item it gave back is pending in a batch the
-                    // next reads must see (ADR 0142), and memory missed it.
-                    None => match state.spill().seal().await {
-                        Ok(()) => return Waited::Again,
-                        Err(error) => failed(&run.identity, &error),
-                    },
+        let next_due = if continuous {
+            match state.next_revisit_due_at().await {
+                Ok(Some(due_ms)) => {
+                    let now_ms = wall_ms(&run.identity);
+                    if due_ms <= now_ms {
+                        return Waited::Again;
+                    }
+                    let wall = std::time::UNIX_EPOCH + Duration::from_millis(due_ms);
+                    let instant = due_instant(run, run.identity.clock().now(), due_ms);
+                    Some((wall, instant))
+                }
+                Ok(None) => None,
+                Err(error) => {
+                    tracing::error!(%error, run_id = %run.identity.id(), "the crawl's revisit schedule could not be read");
+                    end(run, admission, failed(&run.identity, &error)).await;
+                    return Waited::Ended;
                 }
             }
-            Err(error) => {
-                tracing::error!(%error, run_id = %run.identity.id(), "the crawl's work items could not be read");
-                failed(&run.identity, &error)
-            }
+        } else {
+            None
         };
-        end(run, admission, ending).await;
-        return Waited::Ended;
+        progress::show_waits(run, &[], resolved, run.identity.clock().now(), Room::None);
+        progress::show_idle(run, true, next_due.map(|(wall, _)| wall));
+        return waited(
+            run,
+            (admission, state),
+            servers,
+            arrivals,
+            in_flight,
+            (true, next_due.map(|(_, instant)| instant)),
+        )
+        .await;
     }
-    progress::show_waits(run, &[], resolved, run.identity.clock().now(), Room::None);
-    progress::show_idle(run, true);
-    waited(run, (admission, state), servers, arrivals, in_flight, true).await
+    let lost = AttemptFailure::outcome_not_written("its attempt ended and left it leased");
+    let unwritten = Failure {
+        code: lost.code,
+        message: lost.message,
+        details: lost.details,
+    };
+    let retry_max = CrawlPolicy::of(resolved).retry_max;
+    let ended_at = run.identity.point_in_time();
+    // Its answer promises nothing outside (#2117): the Run's end, which
+    // follows it, syncs, and so does a later call's refusal, as its own
+    // write commits after the close.
+    let closed = state
+        .stored()
+        .close_if_drained(counted, (unwritten, retry_max), ended_at)
+        .await;
+    let ending = match closed {
+        Ok((short, changed)) => {
+            state.changed(changed);
+            show_counted(run, state, in_flight, []).await;
+            match short {
+                Some(reasons) => Ending::Finished(reasons),
+                // A work item it gave back is pending in a batch the
+                // next reads must see (ADR 0142), and memory missed it.
+                None => match state.spill().seal().await {
+                    Ok(()) => return Waited::Again,
+                    Err(error) => failed(&run.identity, &error),
+                },
+            }
+        }
+        Err(error) => {
+            tracing::error!(%error, run_id = %run.identity.id(), "the crawl's work items could not be read");
+            failed(&run.identity, &error)
+        }
+    };
+    end(run, admission, ending).await;
+    Waited::Ended
 }
 
 /// Waits, with nothing to deliver now, until the Run stops at once, is
 /// asked to stop at its next safe point, a Connection joins to serve it, a
-/// seed is added or failures are re-admitted or, `until_finish`,
+/// seed is added or failures are re-admitted, a Continuous crawl's next
+/// revisit becomes due (`wake_at`), or, `until_finish`,
 /// `run.finish` lets it finish; meanwhile it answers what other tasks ask
 /// of the crawl's Run state, `state`, serves what they send its
 /// admission's Politeness, and shows what a write it waited
@@ -1337,7 +1426,7 @@ async fn waited(
     servers: &mut Vec<Serving>,
     arrivals: &mut Opened,
     in_flight: &SharedInFlight,
-    until_finish: bool,
+    (until_finish, wake_at): (bool, Option<Instant>),
 ) -> Waited {
     loop {
         tokio::select! {
@@ -1349,6 +1438,7 @@ async fn waited(
             }
             reason = run.identity.stopping() => return Waited::Stop(reason),
             () = run.end.let_finish(), if until_finish => return Waited::Again,
+            () = sleep_until(run.identity.clock(), wake_at), if wake_at.is_some() => return Waited::Again,
             Some(server) = arrivals.joined.recv() => {
                 servers.push(Serving::joined(server));
                 return Waited::Again;
@@ -1382,6 +1472,7 @@ async fn when_idle(
     run: &CrawlRun,
     admission: &mut Admission,
     state: &mut RunState,
+    continuous: bool,
 ) -> Result<Idle, StateError> {
     if admission.ready_at(run.identity.clock().now()).is_some() {
         return Ok(Idle::Wait);
@@ -1390,6 +1481,9 @@ async fn when_idle(
         state.spill();
     }
     fill(state, admission, None).await?;
+    if continuous && !run.end.is_let_finish() {
+        enqueue_due_revisits(run, admission, state).await?;
+    }
     if admission.ready_at(run.identity.clock().now()).is_some() {
         return Ok(Idle::Admit);
     }
@@ -1398,6 +1492,29 @@ async fn when_idle(
     } else {
         Idle::Done
     })
+}
+
+/// Converts a wall-clock due timestamp `due_ms` (ms since Unix epoch) into a
+/// monotonic [`Instant`] relative to `now_instant` and `run`'s wall clock.
+fn due_instant(run: &CrawlRun, now_instant: Instant, due_ms: u64) -> Instant {
+    let now_ms = wall_ms(&run.identity);
+    now_instant + Duration::from_millis(due_ms.saturating_sub(now_ms))
+}
+
+/// Pulls any due Continuous crawl revisits at `run`'s current wall clock and
+/// enqueues them into `admission`'s per-domain queues.
+async fn enqueue_due_revisits(
+    run: &CrawlRun,
+    admission: &mut Admission,
+    state: &mut RunState,
+) -> Result<(), StateError> {
+    let due = state
+        .due_revisits(None, wall_ms(&run.identity), revisit::DUE_WINDOW_LIMIT)
+        .await?;
+    for waiting in due {
+        admission.enqueue(waiting);
+    }
+    Ok(())
 }
 
 /// What settling one ended attempt keeps of it once its Session is scored,
@@ -1455,6 +1572,7 @@ async fn settled(
             .await;
     }
     let mut queued = Vec::with_capacity(attempts.len());
+    let now_ms = wall_ms(&run.identity);
     for ((attempt, settling), scored) in attempts.into_iter().zip(&settlings).zip(scores) {
         let held = settling.held.is_some();
         let on = (run, state.stored());
@@ -1466,12 +1584,67 @@ async fn settled(
                 .settings
                 .retries_handler_failed(&attempt.leased.crawl_request.label),
         );
-        queued.push(queue_outcome(on, policy, held, attempt, scored).await);
+        let revisit_row = planned_revisit(run, read, state, fetching, &attempt, now_ms);
+        queued.push(queue_outcome(on, policy, held, attempt, (scored, revisit_row)).await);
     }
     let stored = state.stored().clone();
     Box::pin(async move {
         let finished = join_all(queued.into_iter().map(|queued| queued.finished(&stored))).await;
         (settlings, finished)
+    })
+}
+
+/// Computes the updated [`RevisitRow`] for a Continuous crawl attempt that is
+/// committing a handled page, or `None` on batch crawls, sitemaps, or
+/// unsuccessful attempts (ADR 0139).
+fn planned_revisit(
+    run: &CrawlRun,
+    read: Read,
+    state: &RunState,
+    fetching: &Fetching<'_>,
+    attempt: &Attempt,
+    now_ms: u64,
+) -> Option<RevisitRow> {
+    if !read.continuous || attempt.leased.sitemap {
+        return None;
+    }
+    if !matches!(&attempt.answer, Answer::Handled(handled) if handled.skipped.is_none()) {
+        return None;
+    }
+    let request = &attempt.leased.crawl_request;
+    let policy = fetching
+        .labels
+        .settings
+        .revisit_policy(&request.label, &read.run_revisit_policy);
+    let previous = state
+        .revisit_previous(&request.id)
+        .unwrap_or(attempt.leased.revisit_previous);
+    let scheduled = if run.end.is_let_finish() {
+        None
+    } else {
+        revisit::next_visit(
+            policy,
+            previous,
+            VisitResult::Changed,
+            SiteHints::default(),
+            now_ms,
+        )
+    };
+    Some(RevisitRow {
+        work_item: request.id.clone(),
+        identity: request.url.clone(),
+        domain_key: attempt.leased.waiting.key.clone(),
+        next_visit_at: scheduled.map(|s| s.next_visit_at),
+        interval_ms: scheduled.map(|s| s.interval_ms),
+        last_fetched_at: Some(now_ms),
+        last_changed_at: Some(now_ms),
+        signature: None,
+        etag: None,
+        last_modified: None,
+        visits: previous.visits.saturating_add(1),
+        changes: previous.changes.saturating_add(1),
+        consecutive_gone: 0,
+        last_tier: None,
     })
 }
 
@@ -1495,6 +1668,11 @@ async fn completed(
     let mut keyed = Vec::new();
     for (outcome, settling) in finished.into_iter().zip(&settlings) {
         servers[settling.server].in_flight -= 1;
+        if let Some(revisit_row) = outcome.revisit {
+            state.record_revisit(outcome.leased.clone(), revisit_row, outcome.commits);
+        } else if outcome.leased.is_revisit {
+            state.revisit_unsuccessful(&outcome.leased.crawl_request.id);
+        }
         state.settled(outcome.leased, outcome.again, outcome.commits);
         keyed.extend(state.added(outcome.keyed, outcome.commits));
         again.push(outcome.again);
@@ -1727,8 +1905,9 @@ async fn open(
     {
         admission.enqueue(waiting);
     }
+    let continuous: bool = resolved.get(&CRAWL_CONTINUOUS);
     let (pool, opening) = stored
-        .open(run.entropy.fork().await)
+        .open(run.entropy.fork().await, continuous)
         .await
         .map_err(|error| error.to_string())?;
     let pool = match Rotation::of(resolved) {
@@ -2064,6 +2243,8 @@ struct QueuedOutcome {
     policy: CrawlPolicy,
     /// Whether it commits its answer.
     commits: bool,
+    /// Revisit row written with this attempt if it commits (ADR 0139).
+    revisit: Option<RevisitRow>,
     written: QueuedEnd,
 }
 
@@ -2079,6 +2260,7 @@ struct Finished {
     again: Again,
     changed: Changed,
     commits: u64,
+    revisit: Option<RevisitRow>,
 }
 
 /// Queues `attempt`'s outcome as one job of the run state's writer (ADR
@@ -2094,7 +2276,7 @@ async fn queue_outcome(
     policy: CrawlPolicy,
     held: bool,
     attempt: Attempt,
-    scored: Scored,
+    (scored, revisit): (Scored, Option<RevisitRow>),
 ) -> QueuedOutcome {
     let Attempt {
         leased,
@@ -2130,7 +2312,7 @@ async fn queue_outcome(
         }
         Answer::SitemapRead(document) => {
             let ending = file.sitemap_read(AttemptKey::new(work_item, lease_epoch), document);
-            return queued(on, (leased, lease), (scored, ending), false).await;
+            return queued(on, (leased, lease), (scored, None, ending), false).await;
         }
         Answer::Handled(handled) => {
             match lease.committing(
@@ -2147,7 +2329,7 @@ async fn queue_outcome(
                             failure(kept, &why, retryable)
                         });
                     let ending = attempt_outcome::Ending::Commit { commit, refused };
-                    return queued(on, (leased, lease), (scored, ending), commits).await;
+                    return queued(on, (leased, lease), (scored, revisit, ending), commits).await;
                 }
                 Err(_) => failure(
                     Failure::new(LEASE_LOST.name, LEASE_LOST.description),
@@ -2190,7 +2372,7 @@ async fn queue_outcome(
         unsuccessful,
         ended_at: run.identity.point_in_time(),
     };
-    queued(on, (leased, lease), (scored, ending), commits).await
+    queued(on, (leased, lease), (scored, None, ending), commits).await
 }
 
 /// Queues the outcome of `leased`'s attempt under `lease`, ending as
@@ -2198,12 +2380,13 @@ async fn queue_outcome(
 async fn queued(
     (run, file, policy): (&std::sync::Arc<CrawlRun>, &Stored, CrawlPolicy),
     (leased, lease): (Leased, WorkItemLease),
-    (scored, ending): (Scored, attempt_outcome::Ending),
+    (scored, revisit, ending): (Scored, Option<RevisitRow>, attempt_outcome::Ending),
     commits: bool,
 ) -> QueuedOutcome {
     let outcome = Outcome {
         scored: scored.changes,
         chosen: scored.chosen,
+        revisit: revisit.clone(),
         ending,
     };
     let written = file.end(outcome).await;
@@ -2213,6 +2396,7 @@ async fn queued(
         run: std::sync::Arc::clone(run),
         policy,
         commits,
+        revisit,
         written,
     }
 }
@@ -2231,6 +2415,7 @@ impl QueuedOutcome {
             run,
             policy,
             commits,
+            revisit,
             written,
         } = self;
         let written = match written.await {
@@ -2257,6 +2442,7 @@ impl QueuedOutcome {
                     again,
                     changed,
                     commits,
+                    revisit: None,
                 };
             }
         };
@@ -2266,6 +2452,7 @@ impl QueuedOutcome {
             again: Again::Not,
             changed: written.answer.changed,
             commits: written.commits,
+            revisit: None,
         };
         match written.answer.ended {
             attempt_outcome::Ended::Committed(committed) => {
@@ -2286,6 +2473,7 @@ impl QueuedOutcome {
                 )
                 .await;
                 finished.keyed = committed.keyed;
+                finished.revisit = revisit;
             }
             attempt_outcome::Ended::LeaseLost => {
                 let _ = lease.committed(Ok(None));

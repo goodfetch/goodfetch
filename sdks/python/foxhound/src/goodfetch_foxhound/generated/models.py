@@ -2652,8 +2652,9 @@ class CrawlRunProgress(RunProgress):
     """Its run epoch (ADR 0003), which a resume or a migration advances."""
     idle: bool | None = None
     """
-    Whether `crawl.keep_alive` holds it `running` with an empty Frontier
-    and nothing in flight, until `run.add_seed` gives it work.
+    Whether `crawl.keep_alive` or `crawl.continuous` holds it `running`
+    with an empty Frontier and nothing in flight, until new work or a due
+    revisit arrives.
     """
     in_flight: list[InFlightRequest] | None = None
     """Each request being fetched or handled."""
@@ -2667,6 +2668,8 @@ class CrawlRunProgress(RunProgress):
     """Where the Run is."""
     message: ProgressMessage | None = None
     """The program's own status line, once it set one."""
+    next_due_at: PointInTime | None = None
+    """When a Continuous crawl's next revisit is due while idle (ADR 0139)."""
     pauses: list[HumanPause]
     """Each Human pause waiting (ADR 0092)."""
     position: Annotated[int, Field(ge=0)]

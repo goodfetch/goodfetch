@@ -25,14 +25,17 @@ use tokio::sync::broadcast;
 pub(super) struct Changes {
     count: AtomicU64,
     notify: broadcast::Sender<()>,
+    needs_you: broadcast::Sender<()>,
 }
 
 impl Default for Changes {
     fn default() -> Self {
         let (notify, _) = broadcast::channel(64);
+        let (needs_you, _) = broadcast::channel(64);
         Self {
             count: AtomicU64::new(0),
             notify,
+            needs_you,
         }
     }
 }
@@ -67,5 +70,16 @@ impl Changes {
     /// Subscribes to Limit change notifications on this ledger file.
     pub(super) fn subscribe(&self) -> broadcast::Receiver<()> {
         self.notify.subscribe()
+    }
+
+    /// Notifies "Needs you" subscribers that a ledger-kept item may have
+    /// appeared or resolved, without invalidating in-memory Limit caches.
+    pub(super) fn notify_needs_you(&self) {
+        let _ = self.needs_you.send(());
+    }
+
+    /// Subscribes to ledger-kept "Needs you" notifications on this ledger file.
+    pub(super) fn subscribe_needs_you(&self) -> broadcast::Receiver<()> {
+        self.needs_you.subscribe()
     }
 }

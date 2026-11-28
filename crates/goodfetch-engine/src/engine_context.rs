@@ -20,18 +20,22 @@ use std::pin::Pin;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, PoisonError};
 
+use std::time::SystemTime;
+
 use goodfetch_confinement::deny_list::Places;
 use goodfetch_counted_work::CountedWork;
-use goodfetch_protocol::catalog::Operation;
+use goodfetch_protocol::catalog::{Operation, Product};
 use goodfetch_protocol::connection::{Form, ProductVersion, Surface};
 use goodfetch_protocol::daemon::DaemonToken;
 use goodfetch_protocol::events::{EventEnvelope, EventsSubscribeParams};
 use goodfetch_protocol::group::{ErasureTarget, LeadEpoch, MemberRoute, PlacementRequest};
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::live_view::LiveViewScreen;
+use goodfetch_protocol::notifications::NotificationEvent;
 use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::response_cache::{CACHE_MODE, CacheMode};
 use goodfetch_protocol::run::RunId;
+use goodfetch_protocol::schedule::ScheduleId;
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use serde_json::Value;
@@ -53,6 +57,7 @@ use crate::needs_you::NeedsYou;
 use crate::response_cache::{Bounds, ResponseCache, ResponseSource};
 use crate::run_index::RunIndex;
 use crate::sandbox_probe::SandboxProbe;
+use crate::secrets::DriverSlot;
 use crate::settings::{Resolved, Settings};
 use crate::sync::{AtomicBool, Mutex};
 use crate::tasks::TaskOwner;
@@ -62,6 +67,45 @@ use crate::user_store::{UserStore, UserStoreKind};
 /// 0102), the only caller until accounts arrive (area 12), and the
 /// partition of the user's stores it reads and writes.
 pub const CALLER: &str = "os_user";
+
+/// A Notification emitted by the engine for delivery through configured
+/// `notifications.channels` (ADRs 0027, 0041 and 0087).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EngineNotification {
+    /// Deterministic, Standard Webhooks-safe event ID.
+    pub event_id: String,
+    /// The Notification event name (such as `limit_threshold`).
+    pub event: NotificationEvent,
+    /// The Run it concerns, if any.
+    pub run_id: Option<RunId>,
+    /// The Schedule it concerns, if any.
+    pub schedule_id: Option<ScheduleId>,
+    /// The Product whose engine raised it.
+    pub product: Product,
+    /// One-line English title.
+    pub title: String,
+    /// English message body.
+    pub text: String,
+    /// Optional follow-up URL.
+    pub link: Option<String>,
+    /// When the event occurred.
+    pub occurred_at: SystemTime,
+}
+
+/// Delivers engine-emitted Notifications through configured
+/// `notifications.channels` (ADRs 0027, 0087 and 0129): implemented by
+/// `goodfetch-notification` and passed into the composition root.
+pub trait NotificationDispatcher: Send + Sync {
+    /// Dispatches `notification` through matching configured channels. Returns
+    /// `true` when every matching configured channel delivered (or when no
+    /// channel is configured for the event), and `false` when a matching
+    /// channel failed delivery so the caller leaves it unsent.
+    fn dispatch(
+        &self,
+        context: EngineContext,
+        notification: EngineNotification,
+    ) -> Pin<Box<dyn Future<Output = bool> + Send>>;
+}
 
 /// Boxed future answered by a [`PeerExtensionHandler`].
 pub type PeerExtensionAnswer = Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
@@ -517,6 +561,10 @@ pub(crate) struct Host {
     pub(crate) peer_extensions: Arc<BTreeMap<&'static str, Arc<dyn PeerExtensionHandler>>>,
     /// Contribution-registered Daemon group membership hooks (ADR 0087).
     pub(crate) group_membership_hooks: Arc<[Arc<dyn GroupMembershipHook>]>,
+    /// Contribution-registered Notification dispatcher (ADRs 0027 and 0087).
+    pub(crate) notifier: Option<Arc<dyn NotificationDispatcher>>,
+    /// The engine's Secret-provider driver slot, filled once `Secrets` is built.
+    pub(crate) secrets: DriverSlot,
 }
 
 /// The user's known-certificates store, Usage ledger, Run index, Response
@@ -636,6 +684,8 @@ struct Held {
     group_peer: Mutex<Option<Arc<dyn GroupPeer>>>,
     peer_extensions: Arc<BTreeMap<&'static str, Arc<dyn PeerExtensionHandler>>>,
     group_membership_hooks: Arc<[Arc<dyn GroupMembershipHook>]>,
+    notifier: Option<Arc<dyn NotificationDispatcher>>,
+    secrets: DriverSlot,
     local_dispatcher: Mutex<Option<Arc<dyn LocalDispatcher>>>,
     runs_handle: Mutex<Option<Arc<dyn std::any::Any + Send + Sync>>>,
     live_view_handle: Arc<Mutex<Option<Arc<dyn std::any::Any + Send + Sync>>>>,
@@ -684,6 +734,8 @@ impl EngineContext {
             sigterm_is_removal,
             peer_extensions,
             group_membership_hooks,
+            notifier,
+            secrets,
         } = host;
         Self {
             stores: Arc::new(stores),
@@ -713,6 +765,8 @@ impl EngineContext {
                 group_peer: Mutex::new(None),
                 peer_extensions,
                 group_membership_hooks,
+                notifier,
+                secrets,
                 local_dispatcher: Mutex::new(None),
                 runs_handle: Mutex::new(None),
                 live_view_handle: Arc::new(Mutex::new(None)),
@@ -738,6 +792,28 @@ impl EngineContext {
     /// The engine's settings, which each Run resolves its own under.
     pub fn settings(&self) -> &Settings {
         &self.settings
+    }
+
+    /// The engine's Secret-provider driver slot, for resolving machine-level
+    /// Secret references such as Notification channel URLs and signing keys.
+    pub fn secret_driver(&self) -> &DriverSlot {
+        &self.held.secrets
+    }
+
+    /// The engine's blocking thread pool, for endpoints built from machine
+    /// settings such as Notification channels.
+    pub fn blocking_threads(&self) -> crate::tasks::BlockingThreads {
+        self.stores.owner.blocking_threads()
+    }
+
+    /// Dispatches `notification` through the composition's
+    /// [`NotificationDispatcher`], if one is registered. Returns `true` when
+    /// delivered (or when no dispatcher is registered).
+    pub(crate) async fn dispatch_notification(&self, notification: EngineNotification) -> bool {
+        let Some(notifier) = self.held.notifier.as_ref().map(Arc::clone) else {
+            return true;
+        };
+        notifier.dispatch(self.clone(), notification).await
     }
 
     /// The user's Audit log, to which the engine records its security

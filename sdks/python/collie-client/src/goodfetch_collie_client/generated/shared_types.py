@@ -80,7 +80,7 @@ received (ADR 0079).
 - `token`: Every run a Connection holding a named token starts.
 """
 
-NeedsYouKind: TypeAlias = Literal["certificate_changed", "consent_wall", "run_stopped_by_limit", "run_stopped_by_storage", "storage_level", "wall_refetch_stopped"] | str
+NeedsYouKind: TypeAlias = Literal["certificate_changed", "consent_wall", "limit_reached", "run_stopped_by_limit", "run_stopped_by_storage", "storage_level", "wall_refetch_stopped"] | str
 """A `needs_you_kind`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
@@ -88,6 +88,7 @@ received (ADR 0079).
 
 - `certificate_changed`: A pinned host whose certificate presented another public key, stopped with `certificate_changed` (ADR 0042); `details` give the `host`, the `person` whose known-certificates store holds the pin, and both keys' SHA-256 as `pinned_spki_sha256` and `presented_spki_sha256`; `run` is the Run that met it. Its actions offer `certs.accept` and `certs.forget`, which that person alone answers. It leaves the list once they answer.
 - `consent_wall`: A domain whose consent wall a Run met and left at `consent_required` (ADR 0048), offered for `consent.domains` with `needs_you.allow_consent_domain`, a domain in `wall.denied_domains` too (ADR 0052); `details` give the `domain`, and `run` the last Run that met it. It leaves the list once `consent.domains` in the Operator policy or user configuration covers the domain, or when a person dismisses it.
+- `limit_reached`: A Limit of the Usage ledger reached 100 % in its current period, recorded in the Usage ledger in the same transaction as the Slice that reached it (ADR 0041). `details` give the `limit` as `limit_reached` names it and the `amount` it allows now. Its actions offer `usage.raise`, a person's answer, and `needs_you.dismiss`. It leaves the list once a person raises the Limit with room left, once its period starts again, or when a person dismisses it.
 - `run_stopped_by_limit`: A Run stopped by a Limit that still holds it (ADR 0041): the Limit's period has not started again since the stop, and it was not set again since then with something left. `details` give the `limit` as `limit_reached` names it, the `amount` it allows now, the Product the Run `needs` and, for a Recipe's Run, its `recipe`. Its actions offer `usage.raise`, a person's answer, and for a Recipe's Run `run.resume`, which resumes it in the Daemon once the Limit is raised; an SDK script's Run then waits for its script, which resumes it by its Run ID (ADR 0031). It leaves the list once a person raises the Limit or its period starts again, once the Run runs again, or when a person dismisses it.
 - `run_stopped_by_storage`: A Run stopped by storage, resumable once space is freed by a start with its Run ID (ADR 0122); `details` give the `folder` whose filesystem filled. It leaves the list once the Run runs again, or when a person dismisses it.
 - `storage_level`: A filesystem a Run writes to is at the `low` or `critical` storage level (ADR 0122); `details` give its `level` and a `folder` on it. It leaves the list at the first sample that finds the space again.

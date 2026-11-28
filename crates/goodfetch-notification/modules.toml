@@ -3,6 +3,7 @@
 [modules]
 api = ["failure"]
 chat = ["api", "driver", "failure", "message"]
+dispatcher = ["chat", "driver", "email", "message", "rate_limit", "webhook"]
 driver = ["failure", "ledger", "message", "rate_limit"]
 email = ["api", "driver", "failure", "message"]
 failure = []

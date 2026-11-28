@@ -204,8 +204,8 @@ how = "holds no value: hosts and key hashes"
 
 [[writer]]
 path = "crates/goodfetch-engine/src/ledger.rs"
-count = 3
-how = "holds no value: Usage counts, and in `run_limits` the Limits a program gave each Run when it began, a Run ID, a Usage kind, a currency code and an amount, none a resolved value"
+count = 5
+how = "holds no value: Usage counts, in `run_limits` the Limits a program gave each Run when it began (Run ID, Usage kind, currency code and amount), and in `limit_thresholds` and `limit_needs_you` the threshold percentages, Slice IDs, amounts and timestamps of crossed Limits, none a resolved value"
 
 [[writer]]
 path = "crates/goodfetch-engine/src/lowest_minor.rs"
@@ -349,5 +349,5 @@ how = "holds no value: group membership metadata, mTLS certificates, revocation 
 
 [[writer]]
 path = "crates/foxhound/goodfetch-partitioned-crawl/src/store.rs"
-count = 2
-how = "holds no value: Partitioned crawl ID, Partition map (member names, peer addresses, Partition Run IDs, map epoch) and creation timestamp"
+count = 3
+how = "holds no value: Partitioned crawl ID, Partition map (member names, peer addresses, Partition Run IDs, map epoch), creation timestamp, and transferred Partition domain state metadata"

@@ -656,6 +656,7 @@ impl Handler {
     }
 }
 
+pub(crate) use crate::engine_context::NotificationDispatcher;
 pub use crate::engine_context::{
     AdoptHookOutcome, AdoptPeerClient, GroupMembershipContext, GroupMembershipHook,
     PeerExtensionAnswer, PeerExtensionHandler, RunAdoptHook,
@@ -688,6 +689,7 @@ pub struct Contribution {
     user_stores: Vec<&'static UserStoreKind>,
     control_stores: Vec<(&'static str, ControlStateMode)>,
     attempt_stagings: Vec<Arc<dyn AttemptStaging>>,
+    notification_dispatcher: Option<Arc<dyn NotificationDispatcher>>,
 }
 
 impl Contribution {
@@ -700,6 +702,7 @@ impl Contribution {
             runs_of_calls: Vec::new(),
             watched_sessions: Vec::new(),
             attempt_stagings: Vec::new(),
+            notification_dispatcher: None,
             name,
             handlers: Vec::new(),
             operation_guards: Vec::new(),
@@ -974,6 +977,17 @@ impl Contribution {
         self
     }
 
+    /// Registers the engine's Notification channel dispatcher (ADRs 0027 and
+    /// 0087), typically passed in from `goodfetch-notification`.
+    #[must_use]
+    pub fn with_notification_dispatcher(
+        mut self,
+        dispatcher: Arc<dyn NotificationDispatcher>,
+    ) -> Self {
+        self.notification_dispatcher = Some(dispatcher);
+        self
+    }
+
     /// Who contributes it.
     pub fn name(&self) -> &'static str {
         self.name
@@ -1186,6 +1200,14 @@ impl Composition {
             .iter()
             .flat_map(|contribution| contribution.needs_you_sources.iter().cloned())
             .collect()
+    }
+
+    /// The Notification dispatcher passed in by a contribution, if any.
+    pub(crate) fn notification_dispatcher(&self) -> Option<Arc<dyn NotificationDispatcher>> {
+        self.contributions
+            .iter()
+            .rev()
+            .find_map(|contribution| contribution.notification_dispatcher.clone())
     }
 
     /// The one gate in admission the contributions pass in, if any.

@@ -14,8 +14,9 @@
 
 use std::time::SystemTime;
 
+use futures_util::StreamExt as _;
 use goodfetch_protocol::checkpoint::RUN_RESUME;
-use goodfetch_protocol::needs_you::{NeedsYouItem, RUN_STOPPED_BY_LIMIT};
+use goodfetch_protocol::needs_you::{LIMIT_REACHED, NeedsYouItem, RUN_STOPPED_BY_LIMIT};
 use goodfetch_protocol::run::{RECIPE_TAG, ReachedLimit, RunIndexRow, StopReason};
 use goodfetch_protocol::usage::USAGE_RAISE;
 
@@ -24,11 +25,109 @@ use serde_json::{Map, Value, json};
 
 use super::{Answering, Changes, NeedsYouSource, Primitives, SourceContext, SourceError};
 use crate::clock;
-use crate::ledger::{Ledger, LedgerError, StoredLimit};
+use crate::ledger::{Ledger, LedgerError, LedgerNeedsYou, StoredLimit, point_in_time};
 
 /// Each Run stopped by a Limit that still holds it.
 pub fn runs_stopped() -> NeedsYouSource {
     NeedsYouSource::new(RunsStopped)
+}
+
+/// Each Limit of the Usage ledger that reached 100 % in its current period,
+/// kept in the Usage ledger until a person raises it, its period starts again,
+/// or it is dismissed (ADR 0041).
+pub fn reached_limits() -> NeedsYouSource {
+    NeedsYouSource::new(ReachedLimits)
+}
+
+struct ReachedLimits;
+
+impl Primitives for ReachedLimits {
+    fn dismissable(&self) -> bool {
+        true
+    }
+
+    fn items<'a>(
+        &'a self,
+        context: &'a SourceContext,
+    ) -> Answering<'a, Result<Vec<NeedsYouItem>, SourceError>> {
+        let ledger = context.ledger.clone();
+        let now = context.clock.timestamp();
+        Box::pin(async move {
+            context
+                .blocking(move || {
+                    let entries = ledger.needs_you_items(now).map_err(SourceError::new)?;
+                    Ok(entries.iter().map(limit_reached_item).collect())
+                })
+                .await
+        })
+    }
+
+    fn changes(&self, context: &SourceContext) -> Changes {
+        let storage = context.storage();
+        let ledger_changes = context.ledger.subscribe_changes();
+        let needs_you = context.ledger.subscribe_needs_you();
+        Changes(
+            futures_util::stream::unfold(
+                (storage, ledger_changes, needs_you),
+                |(mut storage, mut ledger_changes, mut needs_you)| async move {
+                    tokio::select! {
+                        changed = storage.changed() => {
+                            changed.ok()?;
+                            Some(((), (storage, ledger_changes, needs_you)))
+                        }
+                        changed = ledger_changes.recv() => {
+                            match changed {
+                                Ok(()) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                                    Some(((), (storage, ledger_changes, needs_you)))
+                                }
+                                Err(tokio::sync::broadcast::error::RecvError::Closed) => None,
+                            }
+                        }
+                        changed = needs_you.recv() => {
+                            match changed {
+                                Ok(()) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                                    Some(((), (storage, ledger_changes, needs_you)))
+                                }
+                                Err(tokio::sync::broadcast::error::RecvError::Closed) => None,
+                            }
+                        }
+                    }
+                },
+            )
+            .boxed(),
+        )
+    }
+}
+
+/// The `limit_reached` item for a 100 % Limit entry kept in the Usage ledger.
+fn limit_reached_item(entry: &LedgerNeedsYou) -> NeedsYouItem {
+    let reached = entry.limit.reached(entry.resets_at);
+    let since = point_in_time(entry.reached_at);
+    let mut details = Map::new();
+    details.insert("limit".to_owned(), json!(reached));
+    details.insert("amount".to_owned(), json!(entry.limit.amount));
+    let scope = if entry.limit.scope.id.is_empty() {
+        entry.limit.scope.kind.clone()
+    } else {
+        format!("{} ({})", entry.limit.scope.kind, entry.limit.scope.id)
+    };
+    let summary = format!(
+        "The {scope} Limit on {} reached 100 % ({}). A person may raise it.",
+        entry.limit.usage_kind, entry.limit.amount
+    );
+    NeedsYouItem {
+        id: format!(
+            "{LIMIT_REACHED}:{}:{}:{}",
+            entry.limit.id, entry.period_start, entry.limit_amount
+        ),
+        kind: LIMIT_REACHED.to_owned(),
+        since,
+        run: None,
+        schedule: None,
+        summary,
+        actions: vec![USAGE_RAISE.name.to_owned()],
+        details,
+    }
 }
 
 struct RunsStopped;

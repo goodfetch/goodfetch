@@ -35,7 +35,8 @@ use super::{
     Behind, Command, ConnectionId, Ended, FromCheckpoint, Keys, Limits, Live, LiveRun, Registry,
     ReopenCheck, Resume, Resumed, RunError, Start, StartError, Started, StorageExhausted,
     UncleanDiscard, Unlocked, applied, critical_among, discard, durability_of,
-    ledger_read_interval, parts, periodic_checkpoints, trace_changes, warn_over_charged,
+    ledger_read_interval, parts, periodic_checkpoints, trace_changes, usage_thresholds,
+    warn_over_charged,
 };
 use crate::audit::{AuditLog, Origin};
 use crate::checkpoint;
@@ -285,6 +286,7 @@ impl Disk {
             1,
             limits.placement(&self.run_id, connection, extra_limit_scopes),
             ledger_read_interval(settings),
+            usage_thresholds(settings),
         );
         let may_start = self
             .owner

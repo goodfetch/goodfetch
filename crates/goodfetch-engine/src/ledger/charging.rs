@@ -25,15 +25,15 @@ use std::sync::Arc;
 
 use goodfetch_protocol::run::AppliedLimit;
 use goodfetch_protocol::run::LimitSetter;
-use goodfetch_protocol::usage::{LEDGER_READ_INTERVAL_DEFAULT, Limit};
+use goodfetch_protocol::usage::{LEDGER_READ_INTERVAL_DEFAULT, Limit, THRESHOLDS_DEFAULT};
 use jiff::{SignedDuration, Timestamp};
 use rusqlite::Connection;
 
 pub use self::live::{Allowance, ChargeError, RunCharging, UnjournaledCharges};
-pub(crate) use self::live::{ChargingParts, StorageFailed};
+pub(crate) use self::live::{ChargingParts, CrossingsNotifier, StorageFailed};
 use super::{
     Holder, Ledger, LedgerError, LimitId, PeriodBounds, Placement, Refusal, SliceAuthority,
-    SliceId, SliceSizing, StoredLimit, TARGET, is_group_redirect, point_in_time,
+    SliceId, SliceSizing, StoredLimit, TARGET, ThresholdCrossing, is_group_redirect, point_in_time,
 };
 
 /// What a charge took from each Slice: every Slice it touched, with what
@@ -359,6 +359,12 @@ pub struct Charging {
     /// if this engine is a non-lead Group member or an Attached engine beside a
     /// Group member.
     resolved_authority: Option<Arc<dyn SliceAuthority>>,
+    /// Configured `usage.thresholds` percentages checked in memory when taking
+    /// a Slice (ADR 0041).
+    thresholds: Vec<u64>,
+    /// Newly recorded threshold crossings from the latest `take_slice` calls,
+    /// drained and dispatched after the blocking call commits.
+    pending_crossings: Vec<ThresholdCrossing>,
 }
 
 impl Charging {
@@ -380,7 +386,23 @@ impl Charging {
             limits: Limits::unread(),
             connection: None,
             resolved_authority: None,
+            thresholds: THRESHOLDS_DEFAULT.to_vec(),
+            pending_crossings: Vec::new(),
         }
+    }
+
+    /// The same charging, recording crossings at `thresholds` (percentages
+    /// `1..=100`, from `usage.thresholds`) inside each Slice's transaction.
+    #[must_use]
+    pub fn with_thresholds(mut self, thresholds: Vec<u64>) -> Self {
+        self.thresholds = thresholds;
+        self
+    }
+
+    /// Drains threshold crossings recorded by this run's latest Slice takes
+    /// that this engine owns and must send and mark sent (ADR 0041).
+    pub fn take_pending_crossings(&mut self) -> Vec<ThresholdCrossing> {
+        std::mem::take(&mut self.pending_crossings)
     }
 
     /// The same charging, reading its Limits again for another process's
@@ -923,6 +945,8 @@ impl Charging {
             limits,
             connection,
             resolved_authority,
+            thresholds,
+            pending_crossings,
             ..
         } = self;
         for holding in limits.capping(usage_kind, currency, now)? {
@@ -930,18 +954,20 @@ impl Charging {
             if room >= amount {
                 continue;
             }
-            let taken = match resolved_authority {
-                Some(authority) => {
-                    authority.take_slice(&holding.stored, holder, now, *sizing, amount - room)?
-                }
-                None => ledger.take_slice(
+            let taken = if let Some(authority) = resolved_authority {
+                authority.take_slice(&holding.stored, holder, now, *sizing, amount - room)?
+            } else {
+                let (slice, crossed) = ledger.take_slice_with_thresholds(
                     connection,
                     &holding.stored,
                     holder,
                     now,
                     *sizing,
                     amount - room,
-                )?,
+                    thresholds,
+                )?;
+                pending_crossings.extend(crossed);
+                slice
             };
             let Some(slice) = taken else {
                 return Err(reached(&holding.stored, now));

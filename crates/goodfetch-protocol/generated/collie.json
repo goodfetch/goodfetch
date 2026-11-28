@@ -29169,6 +29169,36 @@
       "arrived_in": "0.1",
       "authority": "machine",
       "clearable": false,
+      "default": [
+        50,
+        80,
+        100
+      ],
+      "deprecated": null,
+      "description": "The percentages of each Limit (0 to 100) at which the engine sends a `limit_threshold` Notification once per period (ADR 0041): `[50, 80, 100]` by default. A crossing is recorded in the Usage ledger inside the Slice's transaction so concurrent engines send it once; a 0 entry is ignored, and an empty list disables threshold Notifications. Reaching 100 % always records a `limit_reached` \"Needs you\" item in the Usage ledger. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "usage.thresholds",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "items": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": "array"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
       "default": true,
       "deprecated": null,
       "description": "Whether an executable more than three months past its release date prints one line a day on stderr saying so, from its own release date alone, with no network call. Set in user configuration or an Operator policy only.",
@@ -29615,6 +29645,13 @@
       "name": "lent_page_attached",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Limit of the Usage ledger reached 100 % in its current period, recorded in the Usage ledger in the same transaction as the Slice that reached it (ADR 0041). `details` give the `limit` as `limit_reached` names it and the `amount` it allows now. Its actions offer `usage.raise`, a person's answer, and `needs_you.dismiss`. It leaves the list once a person raises the Limit with room left, once its period starts again, or when a person dismisses it.",
+      "name": "limit_reached",
+      "product": "collie",
+      "type": "needs_you_kind"
     },
     {
       "arrived_in": "0.1",

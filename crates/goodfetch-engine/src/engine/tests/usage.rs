@@ -1237,3 +1237,215 @@ fn a_run_reads_its_limits_again_at_the_interval_its_user_configuration_sets(
         "{next}"
     );
 }
+
+/// Recording Notification dispatcher used by engine tests to prove that
+/// crossings, dead-engine reclaims and concurrent multi-engine races each
+/// deliver the expected `limit_threshold` Notifications once.
+#[derive(Clone, Default)]
+struct RecordingNotifier {
+    sent: std::sync::Arc<crate::sync::Mutex<Vec<crate::notification::EngineNotification>>>,
+}
+
+impl RecordingNotifier {
+    fn sent(&self) -> Vec<crate::notification::EngineNotification> {
+        self.sent.lock().unwrap().clone()
+    }
+}
+
+impl crate::notification::NotificationDispatcher for RecordingNotifier {
+    fn dispatch(
+        &self,
+        _context: crate::EngineContext,
+        notification: crate::notification::EngineNotification,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>> {
+        self.sent.lock().unwrap().push(notification);
+        Box::pin(async { true })
+    }
+}
+
+fn engine_with_notifier(notifier: RecordingNotifier) -> crate::Engine {
+    engine_with(
+        Product::Collie,
+        Some(charging().with_notification_dispatcher(std::sync::Arc::new(notifier))),
+    )
+}
+
+/// An engine that reclaims a dead engine's Slices sends any threshold
+/// Notification the dead engine recorded in its Slice's transaction and never
+/// marked sent, then marks it sent so no later engine sends it again
+/// (ADR 0041).
+///
+/// Covers: story:3-73
+#[test]
+fn reclaiming_a_dead_engines_slices_sends_unsent_threshold_notifications_once() {
+    let env = TestEnv::new();
+    let ledger = Ledger::at(env.home().join("usage-ledger.sqlite"), None);
+    let at: jiff::Timestamp = "2026-01-05T09:00:00Z".parse().unwrap();
+    let limit = goodfetch_protocol::usage::Limit {
+        scope: goodfetch_protocol::run::LimitScope {
+            kind: "install".to_owned(),
+            id: String::new(),
+        },
+        usage_kind: "requests".to_owned(),
+        currency: None,
+        period: None,
+        amount: 2,
+        must_understand: true,
+        set_by: goodfetch_protocol::run::LimitSetter::Person,
+    };
+    ledger.add_limit(&limit, at).unwrap();
+    let mut dead = crate::ledger::Charging::new(
+        ledger.clone(),
+        crate::ledger::Holder {
+            run_id: "dead-threshold-run".to_owned(),
+            epoch: 1,
+            folder: env.home().join("1/runs/dead-threshold-run"),
+        },
+        crate::ledger::Placement {
+            product: Product::Collie,
+            scopes: vec![goodfetch_protocol::run::LimitScope {
+                kind: "install".to_owned(),
+                id: String::new(),
+            }],
+        },
+        crate::ledger::SliceSizing::default(),
+    );
+    // Cross 50 % (1 of 2), leave the crossing unsent as if the engine crashed.
+    dead.charge("requests", 1, at).unwrap();
+    assert_eq!(dead.take_pending_crossings().len(), 1);
+    drop(dead);
+
+    let first_notifier = RecordingNotifier::default();
+    let first_engine = engine_with_notifier(first_notifier.clone());
+    attached_on(&first_engine, &env, |mut client| async move {
+        client.send(&[hello("collie", "0.1")]).await;
+        let _ = client.next().await;
+        let _ = call(&mut client, 1, "usage.list", json!({})).await;
+    });
+    let first_sent = first_notifier.sent();
+    assert_eq!(first_sent.len(), 1, "{first_sent:?}");
+    assert_eq!(
+        first_sent[0].event,
+        goodfetch_protocol::notifications::NotificationEvent::LIMIT_THRESHOLD
+    );
+    assert!(first_sent[0].title.contains("50 %"), "{first_sent:?}");
+
+    // A second engine opening the same ledger sees no unsent threshold left.
+    let second_notifier = RecordingNotifier::default();
+    let second_engine = engine_with_notifier(second_notifier.clone());
+    attached_on(&second_engine, &env, |mut client| async move {
+        client.send(&[hello("collie", "0.1")]).await;
+        let _ = client.next().await;
+        let _ = call(&mut client, 1, "usage.list", json!({})).await;
+    });
+    let second_sent = second_notifier.sent();
+    assert_eq!(second_sent.len(), 0, "{second_sent:?}");
+}
+
+/// Three engines crossing one install Limit's thresholds concurrently emit
+/// exactly one `limit_threshold` Notification per threshold (`50 %`, `80 %`,
+/// `100 %`) across all three engines, and "Needs you" lists one `limit_reached`
+/// item from the Usage ledger (ADR 0041).
+///
+/// Covers: story:3-73, setting:usage.thresholds
+#[test]
+fn three_engines_crossing_one_limit_together_send_each_threshold_notification_once() {
+    let env = TestEnv::new();
+    let ledger = Ledger::at(env.home().join("usage-ledger.sqlite"), None);
+    let at: jiff::Timestamp = "2026-01-05T09:00:00Z".parse().unwrap();
+    ledger
+        .add_limit(
+            &goodfetch_protocol::usage::Limit {
+                scope: goodfetch_protocol::run::LimitScope {
+                    kind: "install".to_owned(),
+                    id: String::new(),
+                },
+                usage_kind: "requests".to_owned(),
+                currency: None,
+                period: None,
+                amount: 15,
+                must_understand: true,
+                set_by: goodfetch_protocol::run::LimitSetter::Person,
+            },
+            at,
+        )
+        .unwrap();
+
+    let home = env.home().to_owned();
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
+    let shared_notifier = RecordingNotifier::default();
+    let handles: Vec<_> = (0..3)
+        .map(|index| {
+            let home = home.clone();
+            let barrier = std::sync::Arc::clone(&barrier);
+            let notifier = shared_notifier.clone();
+            std::thread::spawn(move || {
+                let engine = engine_with_notifier(notifier);
+                let local_env = TestEnv::new();
+                barrier.wait();
+                super::attached_with(
+                    &engine,
+                    || crate::Dependencies {
+                        home: crate::home::Home::new(home.clone()),
+                        ..super::dependencies(&local_env)
+                    },
+                    |mut client| async move {
+                        client.send(&[hello("collie", "0.1")]).await;
+                        let _ = client.next().await;
+                        let run_id = format!("racer-{index}");
+                        let _ =
+                            call(&mut client, 1, "run.start", json!({ "run_id": run_id })).await;
+                        let mut id = 2_i64;
+                        loop {
+                            let reply = call(
+                                &mut client,
+                                id,
+                                "test.charge_live",
+                                json!({ "run_id": run_id, "amount": 1 }),
+                            )
+                            .await;
+                            id += 1;
+                            if reply.get("error").is_some() {
+                                break;
+                            }
+                        }
+                        let _ =
+                            call(&mut client, id, "run.finish", json!({ "run_id": run_id })).await;
+                    },
+                );
+            })
+        })
+        .collect();
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    let mut titles: Vec<String> = shared_notifier
+        .sent()
+        .into_iter()
+        .map(|n| n.title)
+        .collect();
+    titles.sort();
+    assert_eq!(titles.len(), 3, "{titles:?}");
+    assert!(titles.iter().any(|t| t.contains("50 %")), "{titles:?}");
+    assert!(titles.iter().any(|t| t.contains("80 %")), "{titles:?}");
+    assert!(titles.iter().any(|t| t.contains("100 %")), "{titles:?}");
+
+    // "Needs you" lists the single ledger-kept `limit_reached` item.
+    let reader = engine_with_notifier(RecordingNotifier::default());
+    let listed = attached_on(&reader, &env, |mut client| async move {
+        client.send(&[hello("collie", "0.1")]).await;
+        let _ = client.next().await;
+        call(
+            &mut client,
+            1,
+            "needs_you.list",
+            json!({ "kinds": ["limit_reached"] }),
+        )
+        .await
+    });
+    let items = listed["result"]["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "{listed}");
+    assert_eq!(items[0]["kind"], json!("limit_reached"));
+    assert_eq!(items[0]["details"]["amount"], json!(15));
+}

@@ -12491,6 +12491,17 @@
       ]
     },
     {
+      "id": "setting:usage.thresholds",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:version.age_notice",
       "kind": "setting",
       "area": 3,

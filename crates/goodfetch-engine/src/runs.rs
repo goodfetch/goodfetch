@@ -98,7 +98,9 @@ use goodfetch_protocol::security::{
 };
 use goodfetch_protocol::settings::{ExplainedSetting, SettingsLayer, WeakenedSetting};
 use goodfetch_protocol::storage::{SampledFolder, StorageLevel};
-use goodfetch_protocol::usage::{LEDGER_READ_INTERVAL, Limit};
+use goodfetch_protocol::usage::{
+    LEDGER_READ_INTERVAL, Limit, THRESHOLDS_DEFAULT, USAGE_THRESHOLDS,
+};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot, watch};
@@ -144,7 +146,9 @@ use crate::governor::{
     Filesystem, Governor, Held, LastResort, RunGovernor, StorageSample, last_resort_run,
 };
 use crate::home::RunStateLocation;
-use crate::ledger::{ChargeError, Charged, ChargingParts, RunCharging, StorageFailed};
+use crate::ledger::{
+    ChargeError, Charged, ChargingParts, CrossingsNotifier, RunCharging, StorageFailed,
+};
 use crate::local_addresses::{self, Rotation};
 use crate::mask::{Masks, Redaction, Scope};
 use crate::metrics::{FolderStorage, Metrics};
@@ -1682,6 +1686,28 @@ fn secret_timeout(settings: Option<&RunSettings>) -> Duration {
 /// `settings`, its catalog default when none did.
 fn ledger_read_interval(settings: Option<&RunSettings>) -> Duration {
     get_or_default(settings.map(RunSettings::resolved), &LEDGER_READ_INTERVAL)
+}
+
+/// The `usage.thresholds` percentages of a Run whose settings resolved as
+/// `settings`, `[50, 80, 100]` when none did (ADR 0041).
+fn usage_thresholds(settings: Option<&RunSettings>) -> Vec<u64> {
+    settings
+        .and_then(|settings| settings.resolved().value(&USAGE_THRESHOLDS).as_array())
+        .map_or_else(
+            || THRESHOLDS_DEFAULT.to_vec(),
+            |items| items.iter().filter_map(Value::as_u64).collect(),
+        )
+}
+
+/// Callback passed to a live Run's charging to deliver Limit threshold
+/// crossings and mark each sent in the Usage ledger (ADR 0041).
+fn notify_crossings(engine: EngineContext, product: Product) -> CrossingsNotifier {
+    Arc::new(move |crossings| {
+        let engine = engine.clone();
+        Box::pin(async move {
+            crate::notification::dispatch_threshold_crossings(&engine, product, crossings).await;
+        })
+    })
 }
 
 /// What a Run whose settings resolved as `settings` resolves its Secret
@@ -3921,7 +3947,8 @@ impl Registry {
     }
 
     /// Reclaims the Slices of every run whose engine is gone, as each engine
-    /// that opens the Usage ledger does (ADR 0041).
+    /// that opens the Usage ledger does, and sends any threshold Notification
+    /// a dead engine recorded but never marked sent (ADR 0041).
     async fn reclaim(&self) {
         let ledger = self.limits.ledger.clone();
         let vfs = self.setup.run_state.vfs.clone();
@@ -3931,8 +3958,18 @@ impl Registry {
                 ledger.reclaim(&|holder| slices::probe(holder, RUN_FILE, vfs.as_deref()))
             })
             .await;
-        if let Err(error) = reclaimed {
-            tracing::warn!(%error, "the Usage ledger could not be opened to reclaim the Slices of dead runs");
+        match reclaimed {
+            Ok(reclaimed) => {
+                crate::notification::dispatch_threshold_crossings(
+                    &self.setup.engine,
+                    self.setup.product,
+                    reclaimed.unsent_thresholds,
+                )
+                .await;
+            }
+            Err(error) => {
+                tracing::warn!(%error, "the Usage ledger could not be opened to reclaim the Slices of dead runs");
+            }
         }
     }
 
@@ -4490,6 +4527,7 @@ impl Registry {
         let resolved = settings.as_ref().map(RunSettings::resolved);
         let share = get_or_default(resolved, &RUN_SHARE);
         let read_interval = ledger_read_interval(settings.as_ref());
+        let thresholds = usage_thresholds(settings.as_ref());
         // A kind whose contribution names no setting for it logs its
         // Provenance (ADR 0138).
         let logs_provenance = self
@@ -4513,19 +4551,11 @@ impl Registry {
             span: tracing::info_span!(parent: None, "run", run_id = %run_id),
             owner: Arc::clone(&owner),
         });
-        let placement = self
-            .limits
-            .placement(run_id, connection, extra_limit_scopes);
-        let charging = RunCharging::new(ChargingParts {
-            charging: self
-                .limits
-                .charging(run_id, folder, epoch, placement, read_interval),
-            identity: identity.clone(),
-            state: state.clone(),
-            stop: stop.clone(),
-            journal,
-            storage_failed: report_storage_failed(self.runs.clone()),
-        });
+        let charging = self.build_run_charging(
+            (&identity, &state, &stop),
+            (connection, extra_limit_scopes),
+            (read_interval, thresholds),
+        );
         let runs = self.handle(connection);
         let (let_finish, finish) = watch::channel(false);
         let warnings = ReportWarnings::new(state.clone(), keys.secrets.mask().clone());
@@ -4585,6 +4615,36 @@ impl Registry {
             runs,
         };
         (run, let_finish)
+    }
+
+    /// Builds the live Run's `RunCharging` wired with threshold-crossing
+    /// Notification dispatch (ADR 0041).
+    fn build_run_charging(
+        &self,
+        (identity, state, stop): (&RunIdentity, &RunState, &StopAsker),
+        (connection, extra_limit_scopes): (Option<ConnectionId>, &[LimitScope]),
+        (read_interval, thresholds): (Duration, Vec<u64>),
+    ) -> RunCharging {
+        let placement = self
+            .limits
+            .placement(identity.id(), connection, extra_limit_scopes);
+        let charging = self.limits.charging(
+            identity.id(),
+            identity.folder(),
+            state.epoch(),
+            placement,
+            read_interval,
+            thresholds,
+        );
+        RunCharging::new(ChargingParts {
+            charging,
+            identity: identity.clone(),
+            state: state.clone(),
+            stop: stop.clone(),
+            journal,
+            storage_failed: report_storage_failed(self.runs.clone()),
+            on_crossings: notify_crossings(self.setup.engine.clone(), self.setup.product),
+        })
     }
 
     /// The process Plugins of the Run `run_id`, started as tasks of its

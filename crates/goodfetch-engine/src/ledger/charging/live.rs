@@ -20,7 +20,7 @@ use jiff::Timestamp;
 use rusqlite::Connection;
 
 use super::{Change, Charged, Charging, Counted, Refusal, Reservation, Unmade};
-use crate::ledger::{LedgerError, SliceId};
+use crate::ledger::{LedgerError, SliceId, ThresholdCrossing};
 use crate::run_identity::{RunIdentity, StopAsker};
 use crate::run_state::{ReservedWrite, RunState, RunStateError, Syncing};
 use crate::tasks::TaskStarter;
@@ -35,6 +35,11 @@ pub(crate) type Journal = fn(&Connection, u64, &Charged, bool) -> rusqlite::Resu
 /// (ADR 0122).
 pub(crate) type StorageFailed =
     Box<dyn Fn(PathBuf) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+
+/// Dispatches threshold crossings recorded by a Slice taken on this engine and
+/// marks each sent in the Usage ledger once delivered (ADR 0041).
+pub(crate) type CrossingsNotifier =
+    Arc<dyn Fn(Vec<ThresholdCrossing>) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// What the Runs' registry builds a live Run's charging from.
 pub(crate) struct ChargingParts {
@@ -51,6 +56,8 @@ pub(crate) struct ChargingParts {
     pub(crate) journal: Journal,
     /// What a ledger that cannot be stored does.
     pub(crate) storage_failed: StorageFailed,
+    /// What delivers newly recorded Limit threshold crossings.
+    pub(crate) on_crossings: CrossingsNotifier,
 }
 
 /// Why a Run could not charge Usage.
@@ -145,6 +152,7 @@ struct Inner {
     stop: StopAsker,
     journal: Journal,
     storage_failed: StorageFailed,
+    on_crossings: CrossingsNotifier,
 }
 
 impl Inner {
@@ -179,6 +187,7 @@ impl RunCharging {
             stop,
             journal,
             storage_failed,
+            on_crossings,
         } = parts;
         Self(Arc::new(Inner {
             #[expect(
@@ -191,6 +200,7 @@ impl RunCharging {
             stop,
             journal,
             storage_failed,
+            on_crossings,
         }))
     }
 
@@ -391,19 +401,31 @@ impl RunCharging {
                 move |charging, ()| {
                     charging
                         .charge_held(usage_kind, amount, now)
-                        .map(Ok)
+                        .map(|charged| (Ok(charged), Vec::new()))
                         .ok_or(())
                 },
-                move |charging, ()| charging.charge(&kind, amount, now),
+                move |charging, ()| {
+                    let result = charging.charge(&kind, amount, now);
+                    let crossings = charging.take_pending_crossings();
+                    (result, crossings)
+                },
             )
             .await;
         match made {
             None => Ok(()),
-            Some(Ok(journaled)) => {
+            Some((Ok(journaled), crossings)) => {
                 charges.add(journaled);
+                if !crossings.is_empty() {
+                    (self.0.on_crossings)(crossings).await;
+                }
                 Ok(())
             }
-            Some(Err(refusal)) => Err(self.refused(refusal).await),
+            Some((Err(refusal), crossings)) => {
+                if !crossings.is_empty() {
+                    (self.0.on_crossings)(crossings).await;
+                }
+                Err(self.refused(refusal).await)
+            }
         }
     }
 
@@ -688,28 +710,38 @@ impl RunCharging {
             .on_charging(
                 (change, place),
                 move |charging, (change, place)| match charging.change_held(now, &change) {
-                    Some((value, charged)) => Ok(Ok((
-                        value,
-                        journaled(journal, charging, place, epoch, charged),
-                    ))),
+                    Some((value, charged)) => Ok((
+                        Ok((value, journaled(journal, charging, place, epoch, charged))),
+                        Vec::new(),
+                    )),
                     None => Err((change, place)),
                 },
                 move |charging, (change, place)| {
-                    charging.change(now, &change).map(|(value, charged)| {
+                    let outcome = charging.change(now, &change).map(|(value, charged)| {
                         (value, journaled(journal, charging, place, epoch, charged))
-                    })
+                    });
+                    let crossings = charging.take_pending_crossings();
+                    (outcome, crossings)
                 },
             )
             .await;
         match changed {
             None => Ok(None),
-            Some(Ok((value, journaling))) => {
+            Some((Ok((value, journaling)), crossings)) => {
                 if let Some(journaling) = journaling {
                     journaling.await?;
                 }
+                if !crossings.is_empty() {
+                    (self.0.on_crossings)(crossings).await;
+                }
                 Ok(Some(value))
             }
-            Some(Err(refusal)) => Err(self.refused(refusal).await),
+            Some((Err(refusal), crossings)) => {
+                if !crossings.is_empty() {
+                    (self.0.on_crossings)(crossings).await;
+                }
+                Err(self.refused(refusal).await)
+            }
         }
     }
 

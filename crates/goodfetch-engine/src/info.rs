@@ -60,6 +60,7 @@ pub(crate) fn contribution_sharing(effects: &Effects) -> Contribution {
                 .with_needs_you_source(needs_you::storage::levels())
                 .with_needs_you_source(needs_you::storage::runs_stopped())
                 .with_needs_you_source(needs_you::limits::runs_stopped())
+                .with_needs_you_source(needs_you::limits::reached_limits())
                 .with_needs_you_source(needs_you::consent::walls())
                 .with_needs_you_source(needs_you::refetch::stops())
                 .with_needs_you_source(needs_you::certificates::changed(CALLER)),

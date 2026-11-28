@@ -16,6 +16,7 @@
 
 pub mod api;
 pub mod chat;
+pub mod dispatcher;
 pub mod driver;
 pub mod email;
 pub mod failure;
@@ -25,3 +26,5 @@ pub mod plugin_channel;
 pub mod rate_limit;
 pub mod sns;
 pub mod webhook;
+
+pub use dispatcher::contribution;

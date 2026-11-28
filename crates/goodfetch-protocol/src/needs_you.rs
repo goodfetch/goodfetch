@@ -39,6 +39,11 @@ pub const RUN_STOPPED_BY_STORAGE: &str = "run_stopped_by_storage";
 /// the Daemon, and leaves an SDK script's Run waiting for its script.
 pub const RUN_STOPPED_BY_LIMIT: &str = "run_stopped_by_limit";
 
+/// The kind of a Limit of the Usage ledger that reached 100 % in its
+/// current period, kept in the Usage ledger until a person raises it, its
+/// period starts again, or it is dismissed (ADR 0041).
+pub const LIMIT_REACHED: &str = "limit_reached";
+
 /// The kind of a domain whose consent wall a Run met and left, which a
 /// person may add to `consent.domains` for the next runs (ADRs 0048 and
 /// 0052).
@@ -430,6 +435,12 @@ pub const ENTRIES: Entries = Entries {
             shared_type: SharedType::NeedsYouKind,
             name: RUN_STOPPED_BY_LIMIT,
             description: "A Run stopped by a Limit that still holds it (ADR 0041): the Limit's period has not started again since the stop, and it was not set again since then with something left. `details` give the `limit` as `limit_reached` names it, the `amount` it allows now, the Product the Run `needs` and, for a Recipe's Run, its `recipe`. Its actions offer `usage.raise`, a person's answer, and for a Recipe's Run `run.resume`, which resumes it in the Daemon once the Limit is raised; an SDK script's Run then waits for its script, which resumes it by its Run ID (ADR 0031). It leaves the list once a person raises the Limit or its period starts again, once the Run runs again, or when a person dismisses it.",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::NeedsYouKind,
+            name: LIMIT_REACHED,
+            description: "A Limit of the Usage ledger reached 100 % in its current period, recorded in the Usage ledger in the same transaction as the Slice that reached it (ADR 0041). `details` give the `limit` as `limit_reached` names it and the `amount` it allows now. Its actions offer `usage.raise`, a person's answer, and `needs_you.dismiss`. It leaves the list once a person raises the Limit with room left, once its period starts again, or when a person dismisses it.",
             arrived_in: ARRIVED_IN,
         },
         SharedTypeValue {

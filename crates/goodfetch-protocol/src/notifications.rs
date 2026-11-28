@@ -484,7 +484,7 @@ pub const NOTIFICATIONS_CHANNELS: Setting = Setting {
     authority: Authority::Machine,
     weakens: None,
     fixed_for_run: false,
-    unbuilt: Some("notifications"),
+    unbuilt: None,
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };

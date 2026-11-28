@@ -167,16 +167,18 @@ fn cli() {
                     &stopped["stoppedBy"],
                     &stopped["lifecycle"],
                     &stopped["completeness"],
-                    &listed,
+                    listed.contains(&json!(["run_stopped_by_limit", RUN_ID, "requests"])),
+                    listed.contains(&json!(["limit_reached", null, "requests"])),
                 ),
                 (
                     &json!("new"),
                     &json!("limit_reached"),
                     &json!("stopped"),
                     &json!("incomplete"),
-                    &vec![json!(["run_stopped_by_limit", RUN_ID, "requests"])],
+                    true,
+                    true,
                 ),
-                "{stopped}"
+                "{stopped}; listed={listed:?}"
             );
         },
     );

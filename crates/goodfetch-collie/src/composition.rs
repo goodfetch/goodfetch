@@ -31,6 +31,7 @@ pub fn composition_with(handler_pages: impl HandlerPages + 'static) -> Compositi
     Composition::default()
         .with(goodfetch_engine::contribution())
         .with(goodfetch_engine::group::contribution())
+        .with(goodfetch_notification::contribution())
         .with(sample::contribution())
         .with(goodfetch_secret_providers::contribution())
         .with(goodfetch_schedule::contribution())

@@ -2536,6 +2536,7 @@ dependencies = [
  "goodfetch-dev-workspace-hack",
  "goodfetch-engine",
  "goodfetch-extractor",
+ "goodfetch-notification",
  "goodfetch-page",
  "goodfetch-protocol",
  "goodfetch-runtime",

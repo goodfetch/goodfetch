@@ -4951,6 +4951,15 @@
                 "description": "How long a going Run charges on the Limits it holds before it reads them again from the Usage ledger for the changes an engine of another process made, such as a `usage set` through a Daemon while an SDK's engine crawls: 1000 ms. A change made by an engine of the Run's own process reaches its next charge, and a Run reads them again before each Slice it takes, so a Limit another process sets reaches a going Run at its next Slice or within this long, whichever comes first. A charge its Slices cover reads nothing in between: no SQL statement and no file operation. `0` reads them at every charge, one ledger read per charge. A Run reads it as it opens; set in user configuration or an Operator policy only.",
                 "minimum": 0,
                 "type": "integer"
+              },
+              "thresholds": {
+                "description": "The percentages of each Limit (0 to 100) at which the engine sends a `limit_threshold` Notification once per period (ADR 0041): `[50, 80, 100]` by default. A crossing is recorded in the Usage ledger inside the Slice's transaction so concurrent engines send it once; a 0 entry is ignored, and an empty list disables threshold Notifications. Reaching 100 % always records a `limit_reached` \"Needs you\" item in the Usage ledger. Set in user configuration or an Operator policy only.",
+                "items": {
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": "array"
               }
             },
             "type": "object"

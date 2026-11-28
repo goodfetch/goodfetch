@@ -338,6 +338,7 @@ max_requests_per_minute = 4
 
 [settings.usage]
 ledger_read_interval = 30000
+thresholds = [4]
 
 [settings.version]
 age_notice = true

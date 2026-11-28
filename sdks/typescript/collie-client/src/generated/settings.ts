@@ -2402,6 +2402,7 @@ const SPELLING: Spelling = {
   }],
   usage: ["usage", {
     ledgerReadInterval: "ledger_read_interval",
+    thresholds: "thresholds",
   }],
   version: ["version", {
     ageNotice: "age_notice",

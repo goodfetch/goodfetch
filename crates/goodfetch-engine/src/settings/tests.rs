@@ -1006,6 +1006,28 @@ fn browser_cache_max_unused_age_is_set_only_by_the_machines_own_layers(
     assert_eq!(outcome.err().map(|error| error.code()), refused);
 }
 
+/// `usage.thresholds` is set only in user configuration or an Operator policy
+/// so a program or Recipe cannot suppress a user's Limit threshold
+/// Notifications (ADR 0041).
+///
+/// Covers: story:3-73, setting:usage.thresholds
+#[rstest]
+#[case::the_operator_policy(SettingsLayer::OperatorPolicy, None)]
+#[case::user_configuration(SettingsLayer::UserConfiguration, None)]
+#[case::project_configuration(SettingsLayer::ProjectConfiguration, Some("setting_not_applicable"))]
+#[case::the_recipe(SettingsLayer::Recipe, Some("setting_not_applicable"))]
+#[case::the_run(SettingsLayer::Run, Some("setting_not_applicable"))]
+fn usage_thresholds_is_set_only_by_the_machines_own_layers(
+    #[case] layer: SettingsLayer,
+    #[case] refused: Option<&str>,
+) {
+    let layers = only(layer, "usage.thresholds", &json!([25, 75, 100]));
+
+    let outcome = resolve(&layers, Product::Collie, Product::Collie);
+
+    assert_eq!(outcome.err().map(|error| error.code()), refused);
+}
+
 /// A Notification channel names a destination and the secrets that reach
 /// it, so only the machine's own layers set one (ADR 0028): a project file,
 /// a Recipe and a Run are refused.

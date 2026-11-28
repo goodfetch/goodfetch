@@ -90,6 +90,7 @@ pub struct Engine {
     send_window: Option<Arc<dyn SendWindow>>,
     gates: Option<Arc<dyn Gates>>,
     needs_you_sources: Vec<NeedsYouSource>,
+    notification_dispatcher: Option<Arc<dyn crate::composition::NotificationDispatcher>>,
     secret_providers: Vec<(Provider, ProviderFactory)>,
     user_stores: Vec<&'static UserStoreKind>,
     control_stores: Arc<ControlStateRegistry>,
@@ -158,6 +159,7 @@ impl Engine {
             send_window: composition.send_window(),
             gates: composition.admission_gates()?,
             needs_you_sources: composition.needs_you_sources(),
+            notification_dispatcher: composition.notification_dispatcher(),
             secret_providers: composition.secret_providers(),
             user_stores: composition.user_stores(),
             control_stores: Arc::new(composition.control_stores()?),
@@ -644,6 +646,8 @@ impl Engine {
                     == crate::group::DrainMode::Removal,
                 peer_extensions: Arc::clone(&self.peer_extensions),
                 group_membership_hooks: Arc::clone(&self.group_membership_hooks),
+                notifier: self.notification_dispatcher.clone(),
+                secrets: self.driver_slot.clone(),
             },
         );
         let secrets = Secrets::new(

@@ -7,11 +7,11 @@ use goodfetch_protocol::catalog::{Operation, Product, Reach};
 use goodfetch_protocol::checkpoint::RUN_RESUME;
 use goodfetch_protocol::entries::operations_of;
 use goodfetch_protocol::needs_you::{
-    CHANGED_CERTIFICATE, CONSENT_WALL, NEEDS_YOU_ALLOW_CONSENT_DOMAIN, NEEDS_YOU_DENY_WALL_DOMAIN,
-    NEEDS_YOU_DISMISS, NEEDS_YOU_REMOVE_REFETCH_DOMAIN, NeedsYouAllowConsentDomainParams,
-    NeedsYouDenyWallDomainParams, NeedsYouDismissParams, NeedsYouItem,
-    NeedsYouRemoveRefetchDomainParams, RUN_STOPPED_BY_LIMIT, RUN_STOPPED_BY_STORAGE, STORAGE_LEVEL,
-    WALL_REFETCH_STOPPED,
+    CHANGED_CERTIFICATE, CONSENT_WALL, LIMIT_REACHED, NEEDS_YOU_ALLOW_CONSENT_DOMAIN,
+    NEEDS_YOU_DENY_WALL_DOMAIN, NEEDS_YOU_DISMISS, NEEDS_YOU_REMOVE_REFETCH_DOMAIN,
+    NeedsYouAllowConsentDomainParams, NeedsYouDenyWallDomainParams, NeedsYouDismissParams,
+    NeedsYouItem, NeedsYouRemoveRefetchDomainParams, RUN_STOPPED_BY_LIMIT, RUN_STOPPED_BY_STORAGE,
+    STORAGE_LEVEL, WALL_REFETCH_STOPPED,
 };
 use goodfetch_protocol::run::ReachedLimit;
 use goodfetch_protocol::tls::{CERTS_ACCEPT, CERTS_FORGET, CertsAcceptParams, CertsForgetParams};
@@ -21,6 +21,31 @@ use serde_json::json;
 use super::super::catalog_commands::command_words;
 use super::super::{certs, usage};
 use super::{Confirmation, ItemAnswer, ItemPrompt};
+
+/// The shared "Raise the Limit" answer for both a Run stopped by a Limit and a
+/// scope-level Limit reached at 100 % in the Usage ledger (ADR 0041).
+const RAISE_LIMIT: &[ItemAnswer] = &[ItemAnswer {
+    label: "Raise the Limit",
+    operation: &USAGE_RAISE,
+    input: |item| {
+        Some(match limit(item) {
+            Ok((params, _)) => {
+                let unit = params
+                    .currency
+                    .as_ref()
+                    .map(|currency| format!(", in millionths of {currency}"))
+                    .unwrap_or_default();
+                format!(
+                    "The {} allows {}. Its new amount{unit}:",
+                    usage::limit(&params),
+                    usage::amount(params.amount, params.currency.as_deref())
+                )
+            }
+            Err(_) => "Its new amount:".to_owned(),
+        })
+    },
+    confirmation: raise,
+}];
 
 /// The prompts of the engine's and Collie's kinds.
 const COLLIES: &[ItemPrompt] = &[
@@ -41,28 +66,12 @@ const COLLIES: &[ItemPrompt] = &[
     },
     ItemPrompt {
         kind: RUN_STOPPED_BY_LIMIT,
-        answers: &[ItemAnswer {
-            label: "Raise the Limit",
-            operation: &USAGE_RAISE,
-            input: |item| {
-                Some(match limit(item) {
-                    Ok((params, _)) => {
-                        let unit = params
-                            .currency
-                            .as_ref()
-                            .map(|currency| format!(", in millionths of {currency}"))
-                            .unwrap_or_default();
-                        format!(
-                            "The {} allows {}. Its new amount{unit}:",
-                            usage::limit(&params),
-                            usage::amount(params.amount, params.currency.as_deref())
-                        )
-                    }
-                    Err(_) => "Its new amount:".to_owned(),
-                })
-            },
-            confirmation: raise,
-        }],
+        answers: RAISE_LIMIT,
+        outside: |_| None,
+    },
+    ItemPrompt {
+        kind: LIMIT_REACHED,
+        answers: RAISE_LIMIT,
         outside: |_| None,
     },
     ItemPrompt {

@@ -412,14 +412,22 @@ fn a_run_stopped_by_a_limit_is_listed_until_a_person_raises_the_limit() {
     assert_eq!(
         listed,
         (
-            vec![json!({
-                "kind": "run_stopped_by_limit",
-                "run": "capped",
-                "details": { "limit": install_month(), "amount": 2, "needs": "collie" },
-                "actions": ["usage.raise", "needs_you.dismiss"],
-            })],
+            vec![
+                json!({
+                    "kind": "limit_reached",
+                    "run": null,
+                    "details": { "limit": install_month(), "amount": 2 },
+                    "actions": ["usage.raise", "needs_you.dismiss"],
+                }),
+                json!({
+                    "kind": "run_stopped_by_limit",
+                    "run": "capped",
+                    "details": { "limit": install_month(), "amount": 2, "needs": "collie" },
+                    "actions": ["usage.raise", "needs_you.dismiss"],
+                }),
+            ],
             Vec::new(),
-            vec![json!("resolved")],
+            vec![json!("resolved"), json!("resolved")],
         )
     );
 }
@@ -434,16 +442,24 @@ fn a_recipes_run_stopped_by_a_limit_offers_its_resume_in_the_daemon() {
 
     assert_eq!(
         listed.0,
-        vec![json!({
-            "kind": "run_stopped_by_limit",
-            "run": "capped",
-            "details": {
-                "limit": install_month(),
-                "amount": 2,
-                "needs": "collie",
-                "recipe": "nightly-prices",
-            },
-            "actions": ["usage.raise", "run.resume", "needs_you.dismiss"],
-        })]
+        vec![
+            json!({
+                "kind": "limit_reached",
+                "run": null,
+                "details": { "limit": install_month(), "amount": 2 },
+                "actions": ["usage.raise", "needs_you.dismiss"],
+            }),
+            json!({
+                "kind": "run_stopped_by_limit",
+                "run": "capped",
+                "details": {
+                    "limit": install_month(),
+                    "amount": 2,
+                    "needs": "collie",
+                    "recipe": "nightly-prices",
+                },
+                "actions": ["usage.raise", "run.resume", "needs_you.dismiss"],
+            }),
+        ]
     );
 }

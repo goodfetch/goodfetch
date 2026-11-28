@@ -1,0 +1,14 @@
+{
+  "name": "@goodfetch/collie-langchain-lowest-version",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Lowest-version peer cell for @goodfetch/collie-langchain (ADR 0070; issues 424 and 1382).",
+  "type": "module",
+  "dependencies": {
+    "@goodfetch/collie-langchain": "workspace:*",
+    "@langchain/core": "1.0.0"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

@@ -53,3 +53,11 @@ id = "skills"
 area = 9
 job = "nightly.yml#models"
 run = "node bench/src/cli.ts skills"
+
+# Nightly adapter peer-range check against npm and PyPI for new majors and
+# prereleases (ADRs 0064 and 0070; issue 1382). Reports without blocking.
+[[live-check]]
+id = "adapters-latest"
+area = 11
+job = "nightly.yml#releases"
+run = "node ci/live/adapters-latest.ts"

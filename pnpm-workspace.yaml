@@ -3,6 +3,7 @@
 packages:
   - sdks/typescript/*
   - adapters/*/*
+  - adapters/*/*/tests/lowest-version
   - integrations/*/*
   - bench
   - website

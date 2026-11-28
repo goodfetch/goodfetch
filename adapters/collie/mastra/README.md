@@ -6,7 +6,7 @@ Projects Collie's canonical MCP tool profiles (`browser`, `agent`, `run`, `code`
 
 ## Peer range
 
-- `@mastra/core`: `^1.0.0`
+- `@mastra/core`: `^1.0.0` (current major at first publish)
 
 ## Usage
 

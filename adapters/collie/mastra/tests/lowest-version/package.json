@@ -1,0 +1,14 @@
+{
+  "name": "@goodfetch/collie-mastra-lowest-version",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Lowest-version peer cell for @goodfetch/collie-mastra (ADR 0070; issues 424 and 1382).",
+  "type": "module",
+  "dependencies": {
+    "@goodfetch/collie-mastra": "workspace:*",
+    "@mastra/core": "1.0.0"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

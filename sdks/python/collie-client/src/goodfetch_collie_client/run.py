@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import os
 import threading
 import weakref
 from dataclasses import dataclass
@@ -23,6 +24,7 @@ from typing import TYPE_CHECKING, Generic, Literal, Protocol, TypeVar, cast
 
 import anyio
 
+from goodfetch_collie_client._file_saving import save_file
 from goodfetch_collie_client._followed import PagedReading
 from goodfetch_collie_client._framing import object_members
 from goodfetch_collie_client._once import Once
@@ -37,6 +39,7 @@ from goodfetch_collie_client.generated.handles import Run as RunMembers
 from goodfetch_collie_client.generated.models import (
     ConfigExplainParams,
     Lifecycle,
+    RecordingSaved,
     RunAbortParams,
     RunId,
     RunProgress,
@@ -150,6 +153,7 @@ class _RunScope:
     def __init__(self, run_id: str) -> None:
         self.id = run_id
         self.state: Literal["running", "ended", "closed"] = "running"
+        self.save_recording_on_end: Callable[[], Awaitable[object]] | None = None
         self.order = Order()
         """What `on` and a `Subscription`'s `close()` send, before any later call."""
         self._failures: list[_Failure] = []
@@ -411,9 +415,28 @@ class _AsyncHost(Generic[_Id]):
         """
         self._ensure_callable(operation)
         await self.run.order.settled()
-        result = await send()
+        is_end = self._value is None and operation in (
+            "run.finish",
+            "run.stop",
+            "run.abort",
+        )
+        save_on_end = self.run.save_recording_on_end if is_end else None
+        try:
+            result = await send()
+        except BaseException:
+            if save_on_end is not None:
+                try:
+                    await save_on_end()
+                except Exception as write_error:
+                    _logger.warning(
+                        "Could not write Response recording after Run failure: %s",
+                        write_error,
+                    )
+            raise
         if self._value is None and self.run.state == "running" and _says_ended(result):
             self.run.state = "ended"
+        if save_on_end is not None:
+            await save_on_end()
         return result
 
     def read(
@@ -765,7 +788,12 @@ class AsyncRun(AsyncRunMembers):
     """A Run of the async API."""
 
     def __init__(
-        self, connection: RunHost, started: RunStarted, *, detached: bool = False
+        self,
+        connection: RunHost,
+        started: RunStarted,
+        *,
+        detached: bool = False,
+        record_path: str | None = None,
     ) -> None:
         """Takes its Connection and the engine's answer to its start.
 
@@ -786,11 +814,44 @@ class AsyncRun(AsyncRunMembers):
         self._closing = Once()
         self.key_value_store = AsyncKeyValueStore(host)
         """Its Key-value store (ADR 0103), whose writes commit at once."""
+        conn = cast("ClientConnection", connection)
+        if record_path is not None and conn.engine.kind != "attached":
+            scope.save_recording_on_end = functools.partial(
+                self.save_recording, record_path
+            )
 
     @property
     def id(self) -> str:
         """Its Run ID."""
         return self._scope.id
+
+    async def save_recording(self, path: str | os.PathLike[str]) -> RecordingSaved:
+        """Saves a Run's recorded Response recording to `path`.
+
+        Saves a Run's recorded Response recording as a WARC 1.1 file, whole or
+        not at all (ADRs 0105 and 0116). An Attached engine given the program's
+        path writes it through a hidden temporary file beside it, synced and
+        renamed over it, creating missing folders and replacing a file there;
+        any other engine writes nothing on its own machine and sends the file in
+        `$/chunk` notifications of at most 64 KiB, one per credit granted with
+        `$/credit`, for the SDK to write. A Run that recorded no responses
+        raises `recording_invalid`. A path that cannot be written raises
+        `path_not_writable`, and full or failing storage `file_write_failed`,
+        leaving the path as it was.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_entry("recording.save_as", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        self._scope.ensure_open("recording.save_as")
+        target = os.fspath(path)
+        raw = await save_file(
+            cast("ClientConnection", self._connection),
+            "recording.save_as",
+            {"run_id": self._scope.id, "filename": os.path.basename(target)},
+            target,
+            call="save_recording",
+        )
+        return result_of(RecordingSaved, raw)
 
     def _attempt_key_value_store(
         self, attempt: KeyValueStoreAttempt
@@ -1037,6 +1098,28 @@ class Run(RunMembers):
     def id(self) -> str:
         """Its Run ID."""
         return self._run.id
+
+    def save_recording(self, path: str | os.PathLike[str]) -> RecordingSaved:
+        """Saves a Run's recorded Response recording to `path`.
+
+        Saves a Run's recorded Response recording as a WARC 1.1 file, whole or
+        not at all (ADRs 0105 and 0116). An Attached engine given the program's
+        path writes it through a hidden temporary file beside it, synced and
+        renamed over it, creating missing folders and replacing a file there;
+        any other engine writes nothing on its own machine and sends the file in
+        `$/chunk` notifications of at most 64 KiB, one per credit granted with
+        `$/credit`, for the SDK to write. A Run that recorded no responses
+        raises `recording_invalid`. A path that cannot be written raises
+        `path_not_writable`, and full or failing storage `file_write_failed`,
+        leaving the path as it was.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        scope = _held[self._run][0].run
+        try:
+            return self._loop.call(functools.partial(self._run.save_recording, path))
+        except LoopStopped:
+            raise scope.closed_error("recording.save_as") from None
 
     def explain_settings(
         self, keys: Iterable[str] | None = None

@@ -1,0 +1,135 @@
+{
+  "description": "Python Collie SDK (daemon): replay sends recording_bytes and save_recording streams $/chunk bytes on Run and RunView (`response-recordings-daemon`, issue 1291).",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_python",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "form": "python",
+          "token": "scripted-daemon-token",
+          "log_level": "warn"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.start",
+        "params": {
+          "recording": { "mode": "replay", "path": "/work/out/input.warc" },
+          "recording_bytes": "V0FSQy8xLjENCg=="
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "run-rec-py",
+          "lifecycle": "running",
+          "needs": "collie",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "recording.save_as",
+        "params": {
+          "run_id": "run-rec-py",
+          "path": "/work/out/saved.warc",
+          "filename": "saved.warc"
+        }
+      }
+    },
+    { "expect": { "method": "$/credit", "params": { "id": 2, "credits": 16 } } },
+    {
+      "send": {
+        "notification": {
+          "method": "$/chunk",
+          "params": { "id": 2, "offset": 0, "data": "V0FSQy8xLjENCg==" }
+        }
+      }
+    },
+    { "expect": { "method": "$/credit", "params": { "id": 2, "credits": 1 } } },
+    {
+      "reply": {
+        "result": {
+          "size": 10,
+          "digest": "0000000000000000000000000000000000000000000000000000000000000010",
+          "written": false
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "recording.save_as",
+        "params": {
+          "run_id": "run-rec-py",
+          "path": "/work/out/saved-view.warc",
+          "filename": "saved-view.warc"
+        }
+      }
+    },
+    { "expect": { "method": "$/credit", "params": { "id": 3, "credits": 16 } } },
+    {
+      "send": {
+        "notification": {
+          "method": "$/chunk",
+          "params": { "id": 3, "offset": 0, "data": "V0FSQy8xLjENCg==" }
+        }
+      }
+    },
+    { "expect": { "method": "$/credit", "params": { "id": 3, "credits": 1 } } },
+    {
+      "reply": {
+        "result": {
+          "size": 10,
+          "digest": "0000000000000000000000000000000000000000000000000000000000000010",
+          "written": false
+        }
+      }
+    },
+    { "expect": { "method": "run.finish", "params": { "run_id": "run-rec-py" } } },
+    {
+      "reply": {
+        "result": {
+          "run_id": "run-rec-py",
+          "kind": "collie",
+          "lifecycle": "finished",
+          "verdict": "verified",
+          "completeness": "complete",
+          "started_at": "2026-10-22T06:00:00Z",
+          "ended_at": "2026-10-22T06:00:01Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0,
+              "input_tokens": 0,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "reasoning_tokens": 0,
+              "price": null
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 0
+          }
+        }
+      }
+    }
+  ]
+}

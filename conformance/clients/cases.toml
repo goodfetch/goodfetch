@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "71"
+version = "72"
 
 [[capability]]
 name = "lifecycle"
@@ -1104,6 +1104,44 @@ covers = [
   "operation:trace.save_as",
   "operation:trace.stream",
   "operation:key_value_store.keys",
+]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-rust = ["daemon"] }
+
+# Response recordings (ADRs 0105 and 0116; issue 1291):
+# - Record against a Proving ground page, replay with the network off
+#   (same responses, empty `misses`, unrecorded URL raises
+#   `response_not_recorded`), `TestEngine` replays an empty recording by
+#   default, resume writes both halves, failed write at Run end raises
+#   `path_not_writable` and `saveRecording` (`Run` and `RunView`) writes the
+#   committed WARC records again, empty recording raises `recording_invalid`,
+#   and non-WARC / unreadable / unsupported-version files raise
+#   `recording_invalid`. Attached in TS/Python, linked in Rust.
+# - Daemon / remote transport (`response-recordings-daemon`): SDK reads replay
+#   file bytes and sends them in `recording_bytes`, and receives `$/chunk`
+#   bytes via `recording.save_as` on `finish()` and `saveRecording()`.
+[[capability]]
+name = "response-recordings"
+
+[[capability.case]]
+id = "response-recordings-live"
+covers = [
+  "story:11-158",
+  "story:11-159",
+  "story:11-160",
+  "story:11-161",
+  "story:11-162",
+  "operation:recording.save_as",
+]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
+[[capability.case]]
+id = "response-recordings-daemon"
+covers = [
+  "story:11-161",
+  "story:11-162",
+  "operation:recording.save_as",
 ]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = { sdk-rust = ["daemon"] }

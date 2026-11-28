@@ -155,6 +155,30 @@ impl CallStream {
             offset += u64::try_from(read).unwrap_or(u64::MAX);
         }
     }
+
+    /// Sends `bytes` in `$/chunk` notifications of at most [`CHUNK_BYTES`] bytes
+    /// each, one per credit granted by `$/credit`, returning the total sent.
+    pub async fn send_bytes(&self, bytes: &[u8]) -> u64 {
+        let mut offset: u64 = 0;
+        for slice in bytes.chunks(CHUNK_BYTES) {
+            let _ = self.spend(1).await;
+            let sent = self
+                .notify(
+                    CHUNK,
+                    &Chunk {
+                        id: self.id().clone(),
+                        offset,
+                        data: data_encoding::BASE64.encode(slice),
+                    },
+                )
+                .await;
+            if !sent {
+                return offset;
+            }
+            offset += u64::try_from(slice.len()).unwrap_or(u64::MAX);
+        }
+        offset
+    }
 }
 
 /// Fills `chunk` from `file` as far as it goes, and answers how many bytes

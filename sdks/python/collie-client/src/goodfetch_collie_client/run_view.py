@@ -9,12 +9,15 @@ the view: the Run goes on. TypeScript's `run-view.ts` is its twin.
 from __future__ import annotations
 
 import functools
+import os
 from typing import TYPE_CHECKING
 
+from goodfetch_collie_client._file_saving import save_file
 from goodfetch_collie_client._followed import PagedReading
 from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.generated.errors import ClosedError
 from goodfetch_collie_client.generated.models import (
+    RecordingSaved,
     RunId,
     RunParams,
     RunProgress,
@@ -232,6 +235,34 @@ class AsyncRunView:
             return None
         return AsyncRunTrace(self._connection, descriptor)
 
+    async def save_recording(self, path: str | os.PathLike[str]) -> RecordingSaved:
+        """Saves a Run's recorded Response recording to `path`.
+
+        Saves a Run's recorded Response recording as a WARC 1.1 file, whole or
+        not at all (ADRs 0105 and 0116). An Attached engine given the program's
+        path writes it through a hidden temporary file beside it, synced and
+        renamed over it, creating missing folders and replacing a file there;
+        any other engine writes nothing on its own machine and sends the file in
+        `$/chunk` notifications of at most 64 KiB, one per credit granted with
+        `$/credit`, for the SDK to write. A Run that recorded no responses
+        raises `recording_invalid`. A path that cannot be written raises
+        `path_not_writable`, and full or failing storage `file_write_failed`,
+        leaving the path as it was.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_entry("recording.save_as", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        self._ensure_open("recording.save_as")
+        target = os.fspath(path)
+        raw = await save_file(
+            self._connection,
+            "recording.save_as",
+            {"run_id": self._id, "filename": os.path.basename(target)},
+            target,
+            call="save_recording",
+        )
+        return result_of(RecordingSaved, raw)
+
     async def close(self) -> None:
         """Closes the view; idempotent. Frees only the view: the Run goes on."""
         self._closed = True
@@ -329,6 +360,27 @@ class RunView:
         except LoopStopped:
             raise closed_error("run.trace") from None
         return None if trace is None else RunTrace(self._loop, trace)
+
+    def save_recording(self, path: str | os.PathLike[str]) -> RecordingSaved:
+        """Saves a Run's recorded Response recording to `path`.
+
+        Saves a Run's recorded Response recording as a WARC 1.1 file, whole or
+        not at all (ADRs 0105 and 0116). An Attached engine given the program's
+        path writes it through a hidden temporary file beside it, synced and
+        renamed over it, creating missing folders and replacing a file there;
+        any other engine writes nothing on its own machine and sends the file in
+        `$/chunk` notifications of at most 64 KiB, one per credit granted with
+        `$/credit`, for the SDK to write. A Run that recorded no responses
+        raises `recording_invalid`. A path that cannot be written raises
+        `path_not_writable`, and full or failing storage `file_write_failed`,
+        leaving the path as it was.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        try:
+            return self._loop.call(functools.partial(self._view.save_recording, path))
+        except LoopStopped:
+            raise closed_error("recording.save_as") from None
 
     def close(self) -> None:
         """Closes the view; idempotent. Frees only the view: the Run goes on."""

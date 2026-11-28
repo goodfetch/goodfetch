@@ -4085,3 +4085,29 @@ reason = "The Connection the Run runs on, for `saveFile` and chunked streams."
 only = "Internal runtime interface for Product packages."
 words = ["connection"]
 form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
+member = "enableEmptyReplayByDefault"
+entry = "none"
+reason = "Marks a TestEngine connection so Runs without `recording` replay an empty one (ADR 0105)."
+only = "Internal runtime helper for Product testing kits."
+words = ["enable", "empty", "replay", "by", "default"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Run"
+member = "saveRecording"
+entry = "recording.save_as"
+words = ["save", "recording"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "RunView"
+member = "saveRecording"
+entry = "recording.save_as"
+words = ["save", "recording"]
+form = "round_trip"

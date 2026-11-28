@@ -2780,6 +2780,12 @@ export interface CatalogRunStartParams {
    */
   recording?: Recording | null;
   /**
+   * The Response recording's bytes in Base64, when the SDK read the file on
+   * the program's machine for `mode: "replay"` (ADR 0105); empty string for
+   * a test engine's empty replay recording.
+   */
+  recordingBytes?: string | null;
+  /**
    * The Run's ID, as `run.start`'s.
    */
   runId?: string | null;
@@ -8138,6 +8144,12 @@ export interface RecipeStartParams {
    */
   recording?: Recording | null;
   /**
+   * The Response recording's bytes in Base64, when the SDK read the file on
+   * the program's machine for `mode: "replay"` (ADR 0105); empty string for
+   * a test engine's empty replay recording.
+   */
+  recordingBytes?: string | null;
+  /**
    * The Run's ID, as `run.start`'s.
    */
   runId?: string | null;
@@ -8254,6 +8266,51 @@ export interface RecordingReport {
    * The engine that wrote them.
    */
   writtenBy?: string | null;
+}
+/**
+ * What `recording.save_as` takes (ADRs 0105 and 0116).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RecordingSaveAsParams".
+ */
+export interface RecordingSaveAsParams {
+  /**
+   * The recording's file name (such as `site.warc.gz`), used for `warcinfo`
+   * and `.gz` per-record gzip detection when `path` is absent.
+   */
+  filename?: string | null;
+  /**
+   * The program's path, absolute, which an Attached engine writes
+   * itself; any other engine leaves it to the SDK and sends the file's
+   * bytes in `$/chunk` notifications instead.
+   */
+  path?: string | null;
+  /**
+   * The Run's ID.
+   */
+  runId: RunId;
+}
+/**
+ * What `recording.save_as` answers once the file is whole (ADRs 0105 and 0116).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RecordingSaved".
+ */
+export interface RecordingSaved {
+  /**
+   * The SHA-256 of its bytes, in lowercase hexadecimal.
+   */
+  digest: string;
+  /**
+   * The file's size in bytes.
+   */
+  size: number;
+  /**
+   * Whether the engine wrote the program's path itself; when not, the
+   * `$/chunk` notifications before this answer carried every byte, and
+   * the SDK writes the path.
+   */
+  written: boolean;
 }
 /**
  * What `needs_you.remove_refetch_domain` answers.
@@ -9504,6 +9561,12 @@ export interface RunStartParams {
    * input of the Run, as `plan` is.
    */
   recording?: Recording | null;
+  /**
+   * The Response recording's bytes in Base64, when the SDK read the file on
+   * the program's machine for `mode: "replay"` (ADR 0105); empty string for
+   * a test engine's empty replay recording.
+   */
+  recordingBytes?: string | null;
   /**
    * The Run's ID; the engine generates a lowercase ULID when it is
    * absent. An existing ID reaches that Run when the caller and the

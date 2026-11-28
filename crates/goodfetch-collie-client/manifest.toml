@@ -3764,3 +3764,35 @@ entry = "none"
 reason = "Frees only the view (ADR 0102): the Run goes on."
 words = ["close"]
 form = "closer"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "Run"
+member = "save_recording"
+entry = "recording.save_as"
+words = ["save", "recording"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "RunView"
+member = "save_recording"
+entry = "recording.save_as"
+words = ["save", "recording"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::Run"
+member = "save_recording"
+entry = "recording.save_as"
+words = ["save", "recording"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch-collie-client"
+receiver = "blocking::RunView"
+member = "save_recording"
+entry = "recording.save_as"
+words = ["save", "recording"]
+form = "round_trip"

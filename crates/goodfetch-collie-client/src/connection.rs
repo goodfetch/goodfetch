@@ -168,6 +168,8 @@ struct Inner {
     /// Whether `ConnectOptions::resolve_secret()` declared a caller secret
     /// resolver on this Connection (ADRs 0092 and 0104).
     resolve_secret_declared: AtomicBool,
+    /// Whether Runs started without `recording` replay an empty recording (`TestEngine`, ADR 0105).
+    default_empty_replay: AtomicBool,
     /// Held only to be dropped with the Connection's last handle.
     _runtime: Option<Arc<Owned>>,
 }
@@ -293,6 +295,7 @@ impl ClientConnection {
             project,
             closed: AtomicBool::new(false),
             resolve_secret_declared: AtomicBool::new(false),
+            default_empty_replay: AtomicBool::new(false),
             _runtime: owned,
         }));
         let said = connection.call::<HelloResult>(HELLO, &hello).no_timeout();
@@ -311,13 +314,12 @@ impl ClientConnection {
                 // A remote Daemon is reached again once its link drops
                 // (spec 606).
                 if matches!(endpoint, Endpoint::Exposed(_)) {
-                    let within = deadline.map(|(after, _)| after);
                     let relinking = Relinking::new(
                         network,
                         endpoint,
                         hello,
                         log_level,
-                        within,
+                        deadline.map(|(after, _)| after),
                         connection.0.handle.clone(),
                         connection.0.tasks.clone(),
                     );
@@ -804,6 +806,18 @@ impl ClientConnection {
         );
         // The task ends without sending only when the runtime shut down.
         ended.recv().unwrap_or_else(|_| Err(Error::closed()))
+    }
+
+    /// Marks this Connection as belonging to a `TestEngine` (ADR 0105): every
+    /// Run started without `recording` replays an empty recording.
+    #[doc(hidden)]
+    pub fn enable_empty_replay_by_default(&self) {
+        self.0.default_empty_replay.store(true, Ordering::Relaxed);
+    }
+
+    /// Whether Runs started without `recording` replay an empty recording.
+    pub(crate) fn default_empty_replay(&self) -> bool {
+        self.0.default_empty_replay.load(Ordering::Relaxed)
     }
 
     /// The project file it carries (ADR 0083), the one its program read,

@@ -4067,6 +4067,48 @@ words = ["save", "as"]
 form = "round_trip"
 
 [[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "enable_empty_replay_by_default"
+entry = "none"
+reason = "Marks a TestEngine connection so Runs without `recording` replay an empty one (ADR 0105)."
+only = "Internal runtime helper for Product testing kits."
+words = ["enable", "empty", "replay", "by", "default"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run"
+receiver = "AsyncRun"
+member = "save_recording"
+entry = "recording.save_as"
+words = ["save", "recording"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.run"
+receiver = "Run"
+member = "save_recording"
+entry = "recording.save_as"
+words = ["save", "recording"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.run_view"
+receiver = "AsyncRunView"
+member = "save_recording"
+entry = "recording.save_as"
+words = ["save", "recording"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.run_view"
+receiver = "RunView"
+member = "save_recording"
+entry = "recording.save_as"
+words = ["save", "recording"]
+form = "round_trip"
+
+[[member]]
 package = "goodfetch_collie_client.run_copies"
 receiver = "RunTrace"
 member = "stream"

@@ -1449,6 +1449,14 @@
           "arrived_in": "0.1",
           "description": "The Response recording the Run replays or records (ADR 0105)."
         },
+        "recording_bytes": {
+          "arrived_in": "0.1",
+          "description": "The Response recording's bytes in Base64, when the SDK read the file on\nthe program's machine for `mode: \"replay\"` (ADR 0105); empty string for\na test engine's empty replay recording.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "run_id": {
           "arrived_in": "0.1",
           "description": "The Run's ID, as `run.start`'s.",
@@ -14285,6 +14293,14 @@
           "arrived_in": "0.1",
           "description": "The Response recording the Run replays or records (ADR 0105)."
         },
+        "recording_bytes": {
+          "arrived_in": "0.1",
+          "description": "The Response recording's bytes in Base64, when the SDK read the file on\nthe program's machine for `mode: \"replay\"` (ADR 0105); empty string for\na test engine's empty replay recording.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "run_id": {
           "arrived_in": "0.1",
           "description": "The Run's ID, as `run.start`'s.",
@@ -14780,6 +14796,69 @@
         "mode",
         "file",
         "responses_used"
+      ],
+      "type": "object"
+    },
+    "RecordingSaveAsParams": {
+      "additionalProperties": false,
+      "description": "What `recording.save_as` takes (ADRs 0105 and 0116).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "filename": {
+          "arrived_in": "0.1",
+          "description": "The recording's file name (such as `site.warc.gz`), used for `warcinfo`\nand `.gz` per-record gzip detection when `path` is absent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The program's path, absolute, which an Attached engine writes\nitself; any other engine leaves it to the SDK and sends the file's\nbytes in `$/chunk` notifications instead.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RecordingSaved": {
+      "description": "What `recording.save_as` answers once the file is whole (ADRs 0105 and 0116).",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "The file's size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "written": {
+          "arrived_in": "0.1",
+          "description": "Whether the engine wrote the program's path itself; when not, the\n`$/chunk` notifications before this answer carried every byte, and\nthe SDK writes the path.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "size",
+        "digest",
+        "written"
       ],
       "type": "object"
     },
@@ -17843,6 +17922,14 @@
           ],
           "arrived_in": "0.1",
           "description": "The Response recording the Run replays or records (ADR 0105): an\ninput of the Run, as `plan` is."
+        },
+        "recording_bytes": {
+          "arrived_in": "0.1",
+          "description": "The Response recording's bytes in Base64, when the SDK read the file on\nthe program's machine for `mode: \"replay\"` (ADR 0105); empty string for\na test engine's empty replay recording.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "run_id": {
           "arrived_in": "0.1",
@@ -28595,6 +28682,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RecordSearchResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Saves a Run's recorded Response recording as a WARC 1.1 file, whole or not at all (ADRs 0105 and 0116). An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. A Run that recorded no responses raises `recording_invalid`. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "recording.save_as",
+      "params": {
+        "$ref": "#/$defs/RecordingSaveAsParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/RecordingSaved"
       },
       "stability": "experimental"
     },

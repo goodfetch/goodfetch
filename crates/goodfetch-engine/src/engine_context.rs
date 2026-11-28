@@ -454,6 +454,31 @@ impl EngineContext {
             .await
     }
 
+    /// Parses and indexes the WARC bytes `bytes` for replay under `settings`'s
+    /// `network.max_decompression_ratio` (ADR 0105).
+    ///
+    /// # Errors
+    ///
+    /// `recording_invalid` when `bytes` is not a WARC recording the engine replays.
+    pub async fn open_replay_bytes(
+        &self,
+        display: &str,
+        bytes: bytes::Bytes,
+        settings: &Resolved,
+    ) -> Result<Replayed, CallError> {
+        let ratio = settings.get::<u64>(&NETWORK_MAX_DECOMPRESSION_RATIO);
+        self.stores
+            .recordings
+            .open_replay_bytes(
+                display,
+                bytes,
+                self.held.masks.clone(),
+                ratio,
+                &self.stores.owner,
+            )
+            .await
+    }
+
     /// Where reads and writes of these stores block, which the Run registry
     /// waits for before it stops; a call outside any Run that blocks, such
     /// as `sink.probe` opening a Sink's destination, blocks there too.

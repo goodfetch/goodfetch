@@ -9,6 +9,7 @@
 pub(crate) mod progress;
 
 use std::future::{Future, IntoFuture};
+use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,8 +17,9 @@ use std::time::Duration;
 use goodfetch_protocol::catalog::SettingScope;
 use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::run::{
-    RUN_PROGRESS_READ, RUN_START, Recording, RunId, RunProgress, RunReport, RunStartParams,
-    RunStarted, StartedAs, Tags,
+    RECORDING_INVALID, RECORDING_SAVE_AS, RUN_PROGRESS_READ, RUN_START, Recording,
+    RecordingInvalidDetails, RecordingMode, RecordingSaveAsParams, RecordingSaved, RunId,
+    RunProgress, RunReport, RunStartParams, RunStarted, StartedAs, Tags,
 };
 use goodfetch_protocol::settings::{CONFIG_EXPLAIN, ConfigExplainParams, SettingsExplanation};
 use serde::Serialize;
@@ -186,15 +188,70 @@ impl IntoFuture for Start {
         let checked = self
             .settings
             .within(SettingScope::Run)
-            .and_then(|settings| Ok((settings, wire_timeout(self.timeout)?)));
-        let started = checked.map(|(settings, timeout)| {
+            .and_then(|settings| Ok((settings, wire_timeout(self.timeout)?)))
+            .and_then(|(settings, timeout)| {
+                let (recording, recording_bytes) = prepare_recording(
+                    self.params.recording.take(),
+                    self.connection.default_empty_replay(),
+                )?;
+                Ok((settings, timeout, recording, recording_bytes))
+            });
+        let started = checked.map(|(settings, timeout, recording, recording_bytes)| {
             self.params.settings = settings;
             self.params.timeout = timeout;
             self.params.project = self.connection.project().cloned();
+            self.params.recording = recording;
+            self.params.recording_bytes = recording_bytes;
             self.connection.start_with(RUN_START.name, self.params)
         });
         Box::pin(async move { started?.await })
     }
+}
+
+/// Reads a replay recording's bytes on the program's machine (ADR 0105), or
+/// produces an empty replay recording on a `TestEngine` when none was named.
+pub(crate) fn prepare_recording(
+    recording: Option<Recording>,
+    default_empty_replay: bool,
+) -> Result<(Option<Recording>, Option<String>), Error> {
+    let Some(recording) = recording else {
+        return Ok(if default_empty_replay {
+            (Some(Recording::replay("")), Some(String::new()))
+        } else {
+            (None, None)
+        });
+    };
+    if recording.mode != RecordingMode::Replay {
+        return Ok((Some(recording), None));
+    }
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the SDK reads the program's own replay recording file before sending run.start (ADR 0105)"
+    )]
+    let bytes = std::fs::read(&recording.path).map_err(|error| {
+        let reason = error.to_string();
+        let mut details = serde_json::to_value(&RecordingInvalidDetails {
+            recording: recording.path.clone(),
+            reason: reason.clone(),
+        })
+        .ok()
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
+        details.insert(
+            "fix".to_owned(),
+            serde_json::Value::String("Record the file again, or name another.".to_owned()),
+        );
+        Error::of_protocol_details(
+            &RECORDING_INVALID,
+            format!(
+                "Could not read the Response recording `{}`: {reason}",
+                recording.path
+            ),
+            details,
+        )
+    })?;
+    let encoded = data_encoding::BASE64.encode(&bytes);
+    Ok((Some(recording), Some(encoded)))
 }
 
 impl ClientConnection {
@@ -388,6 +445,39 @@ impl Run {
     pub fn progress(&self) -> EventStream<Answer<RunProgress>> {
         crate::markers::warn_operation(RUN_PROGRESS_READ.name);
         EventStream::from_items(progress::Following::new(self.host.clone()))
+    }
+
+    /// Saves a Run's recorded Response recording as a WARC 1.1 file, whole or
+    /// not at all (ADRs 0105 and 0116). An Attached engine given the program's
+    /// path writes it through a hidden temporary file beside it, synced and
+    /// renamed over it, creating missing folders and replacing a file there;
+    /// any other engine writes nothing on its own machine and sends the file
+    /// in `$/chunk` notifications of at most 64 KiB, one per credit granted
+    /// with `$/credit`, for the SDK to write. A Run that recorded no responses
+    /// raises `recording_invalid`. A path that cannot be written raises
+    /// `path_not_writable`, and full or failing storage `file_write_failed`,
+    /// leaving the path as it was.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn save_recording(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> crate::connection::SaveFile<RecordingSaved> {
+        crate::markers::warn_operation(RECORDING_SAVE_AS.name);
+        let path = path.as_ref();
+        let filename = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned());
+        self.host.connection().save_file(
+            RECORDING_SAVE_AS.name,
+            &RecordingSaveAsParams {
+                run_id: self.host.id().clone(),
+                path: None,
+                filename,
+            },
+            path,
+            "save_recording",
+        )
     }
 
     /// The handle of the Run's page `page_id` in its Session `session_id`,

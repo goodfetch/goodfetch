@@ -154,6 +154,7 @@ export type CollieWireType =
   | "RecordProvenance"
   | "RecordRead"
   | "RecordingReport"
+  | "RecordingSaveAsParams"
   | "RequestFailure"
   | "ResourcesExhaustedDetails"
   | "ResponseBodyParams"
@@ -268,7 +269,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "CacheDamage": { fields: { "body_sha256": "bodySha256", "run_id": "runId" } },
     "CacheStats": { fields: { "body_bytes": "bodyBytes", "held_bytes": "heldBytes" } },
     "CacheVerified": { fields: { "damaged": ["damaged", { items: { type: "CacheDamage" } }] } },
-    "CatalogRunStartParams": { fields: { "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId", "target": ["target", { type: "CatalogTarget" }] } },
+    "CatalogRunStartParams": { fields: { "limits": ["limits", { items: { type: "RunLimit" } }], "recording_bytes": "recordingBytes", "run_id": "runId", "target": ["target", { type: "CatalogTarget" }] } },
     "CatalogTarget": { fields: { "max_steps": "maxSteps" } },
     "CdpUrlNotBrowserDetails": { fields: { "browser_url": "browserURL" } },
     "CertificateChangedDetails": { fields: { "pinned_spki_sha256": "pinnedSpkiSha256", "presented_spki_sha256": "presentedSpkiSha256" } },
@@ -397,10 +398,11 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "PrivateEndpoint": { fields: { "token_file": "tokenFile" } },
     "ProtocolVersionUnsupportedDetails": { fields: { "client_protocol_version": "clientProtocolVersion", "engine_protocol_version": "engineProtocolVersion" } },
     "ReachedLimit": { fields: { "period": ["period", { type: "Period" }], "resets_at": ["resetsAt", "time"], "usage_kind": "usageKind" } },
-    "RecipeStartParams": { fields: { "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId" } },
+    "RecipeStartParams": { fields: { "limits": ["limits", { items: { type: "RunLimit" } }], "recording_bytes": "recordingBytes", "run_id": "runId" } },
     "RecordProvenance": { fields: { "certificate_exception": ["certificateException", { type: "CertificateExceptionMark" }], "clean_up_rules": "cleanUpRules", "origin": ["origin", { type: "ResponseOrigin" }], "payment": ["payment", { type: "PaymentMark" }], "request_id": "requestId", "robots_txt": "robotsTxt", "tier": ["tier", { type: "TierProvenance" }], "unread_fields": "unreadFields", "value_transforms": ["valueTransforms", { items: { type: "TransformProvenance" } }] } },
     "RecordRead": { fields: { "record": ["record", { type: "DatasetRecord" }] } },
     "RecordingReport": { fields: { "recorded_from": ["recordedFrom", "time"], "recorded_to": ["recordedTo", "time"], "responses_used": "responsesUsed", "written_by": "writtenBy" } },
+    "RecordingSaveAsParams": { fields: { "run_id": "runId" } },
     "RequestFailure": { fields: { "error_text": "errorText" } },
     "ResourcesExhaustedDetails": { fields: { "free_bytes": "freeBytes" } },
     "ResponseBodyParams": { fields: { "page_id": "pageId", "request_id": "requestId" } },
@@ -435,7 +437,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "RunReport": { fields: { "cache_mode": "cacheMode", "checkpoint": ["checkpoint", { type: "Checkpoint" }], "completeness_reasons": ["completenessReasons", { items: { type: "AxisReason" } }], "ended_at": ["endedAt", "time"], "nothing_done": ["nothingDone", { type: "NothingDone" }], "plan": ["plan", { type: "PlanReport" }], "plugins": ["plugins", { items: { type: "PluginRun" } }], "policy_version": "policyVersion", "recording": ["recording", { type: "RecordingReport" }], "run_id": "runId", "settings": ["settings", { items: { type: "ExplainedSetting" } }], "started_at": ["startedAt", "time"], "stop_reason": ["stopReason", { type: "StopReason" }], "uncertain_effects": ["uncertainEffects", { items: { type: "UncertainEffect" } }], "usage": ["usage", { type: "RunUsage" }], "verdict_reasons": ["verdictReasons", { items: { type: "AxisReason" } }] } },
     "RunResumeParams": { fields: { "run_id": "runId" } },
     "RunSetProgressMessageParams": { fields: { "run_id": "runId" } },
-    "RunStartParams": { fields: { "accept_plugin_change": "acceptPluginChange", "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId" } },
+    "RunStartParams": { fields: { "accept_plugin_change": "acceptPluginChange", "limits": ["limits", { items: { type: "RunLimit" } }], "recording_bytes": "recordingBytes", "run_id": "runId" } },
     "RunStarted": { fields: { "run_id": "runId", "started_as": "startedAs" } },
     "RunStartedAs": { fields: { "started_as": "startedAs" } },
     "RunStatePosition": { fields: { "journal_position": "journalPosition", "run_epoch": "runEpoch" } },
@@ -545,6 +547,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "page.wait_for_response": { type: "WaitForExchangeParams" },
     "page.wait_for_url": { type: "WaitForUrlParams" },
     "recipe.start": { type: "RecipeStartParams" },
+    "recording.save_as": { type: "RecordingSaveAsParams" },
     "response.body": { type: "ResponseBodyParams" },
     "route.abort": { type: "RouteAbortParams" },
     "route.continue": { type: "RouteOverridesParams" },

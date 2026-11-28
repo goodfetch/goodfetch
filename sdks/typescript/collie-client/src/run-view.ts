@@ -3,10 +3,13 @@
 // writer role, reads `progress()`, `report()`, `trace()` and the Key-value
 // store's reads (`get`, `getBytes`, `keys`), and closing it frees only the
 // view: the Run goes on.
+import { basename } from "node:path";
+import { saveFile } from "./file-saving.ts";
 import { FOLLOWED_VALUE, followed } from "./followed.ts";
 import {
   ClosedError,
   collieOperations,
+  type RecordingSaved,
   type RunProgress,
   type RunReport,
 } from "./generated/index.ts";
@@ -147,6 +150,35 @@ export class RunView implements AsyncDisposable {
     );
     const descriptor = result.trace ?? null;
     return descriptor === null ? null : new RunTrace(this.#host.connection, descriptor);
+  }
+
+  /**
+   * Saves a Run's recorded Response recording as a WARC 1.1 file, whole or not
+   * at all (ADRs 0105 and 0116). An Attached engine given the program's path
+   * writes it through a hidden temporary file beside it, synced and renamed
+   * over it, creating missing folders and replacing a file there; any other
+   * engine writes nothing on its own machine and sends the file in `$/chunk`
+   * notifications of at most 64 KiB, one per credit granted with `$/credit`,
+   * for the SDK to write. A Run that recorded no responses raises
+   * `recording_invalid`. A path that cannot be written raises
+   * `path_not_writable`, and full or failing storage `file_write_failed`,
+   * leaving the path as it was.
+   *
+   * @experimental
+   */
+  async saveRecording(
+    path: string,
+    options: { readonly signal?: AbortSignal | undefined } = {},
+  ): Promise<RecordingSaved> {
+    warnEntry(collieOperations, "recording.save_as");
+    this.#ensureOpen("recording.save_as");
+    return saveFile<RecordingSaved>(
+      this.#host.connection,
+      "recording.save_as",
+      { run_id: this.#id, filename: basename(path) },
+      path,
+      { call: "saveRecording", signal: options.signal },
+    );
   }
 
   /** Closes the view; idempotent. Frees only the view: the Run goes on. */

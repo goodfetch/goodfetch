@@ -2,7 +2,7 @@
 
 import type { CallOptions, Caller } from "../caller.ts";
 import { type EntryMarkers, warnDeprecated, warnExperimental } from "../markers.ts";
-import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, CheckpointSaveAsParams, CheckpointSaved, CheckpointStreamParams, CheckpointStreamed, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunTraceResult, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScrollCollected, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TraceSaveAsParams, TraceSaved, TraceStreamParams, TraceStreamed, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
+import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, CheckpointSaveAsParams, CheckpointSaved, CheckpointStreamParams, CheckpointStreamed, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, RecordingSaveAsParams, RecordingSaved, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunTraceResult, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScrollCollected, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TraceSaveAsParams, TraceSaved, TraceStreamParams, TraceStreamed, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
 import { warnDeprecatedSettings } from "./settings.ts";
 
 export type { CallOptions, Caller, OperationTypes } from "../caller.ts";
@@ -67,6 +67,7 @@ export interface CollieOperationTypes {
   "page.wait_for_response": { params: WaitForExchangeParams; result: PageExchange };
   "page.wait_for_url": { params: WaitForUrlParams; result: Reached };
   "recipe.start": { params: RecipeStartParams; result: RunStarted };
+  "recording.save_as": { params: RecordingSaveAsParams; result: RecordingSaved };
   "response.body": { params: ResponseBodyParams; result: BodyHandle };
   "route.abort": { params: RouteAbortParams; result: RouteAnswered };
   "route.continue": { params: RouteOverridesParams; result: RouteAnswered };
@@ -171,6 +172,7 @@ export const collieOperations: Readonly<Record<keyof CollieOperationTypes, Entry
   "page.wait_for_response": { experimental: true, deprecated: undefined },
   "page.wait_for_url": { experimental: true, deprecated: undefined },
   "recipe.start": { experimental: true, deprecated: undefined },
+  "recording.save_as": { experimental: true, deprecated: undefined },
   "response.body": { experimental: true, deprecated: undefined },
   "route.abort": { experimental: true, deprecated: undefined },
   "route.continue": { experimental: true, deprecated: undefined },
@@ -275,6 +277,7 @@ export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, s
   "page.wait_for_response": "page.waitForResponse",
   "page.wait_for_url": "page.waitForURL",
   "recipe.start": "recipe.start",
+  "recording.save_as": "recording.saveAs",
   "response.body": "response.body",
   "route.abort": "route.abort",
   "route.continue": "route.continue",
@@ -379,6 +382,7 @@ export const collieOperationClasses: Readonly<Record<keyof CollieOperationTypes,
   "page.wait_for_response": "read",
   "page.wait_for_url": "read",
   "recipe.start": "idempotent_write",
+  "recording.save_as": "idempotent_write",
   "response.body": "read",
   "route.abort": "effect",
   "route.continue": "effect",
@@ -997,6 +1001,16 @@ export class CollieOperations {
     warnExperimental("recipe.start");
     warnDeprecatedSettings(params.settings);
     return this.#caller.call("recipe.start", params, {});
+  }
+
+  /**
+   * Saves a Run's recorded Response recording as a WARC 1.1 file, whole or not at all (ADRs 0105 and 0116). An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. A Run that recorded no responses raises `recording_invalid`. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.
+   *
+   * @experimental
+   */
+  recordingSaveAs(params: RecordingSaveAsParams, options: CallOptions = {}): Promise<RecordingSaved> {
+    warnExperimental("recording.save_as");
+    return this.#caller.call("recording.save_as", params, options);
   }
 
   /**

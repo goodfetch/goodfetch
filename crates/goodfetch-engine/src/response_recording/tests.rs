@@ -642,3 +642,57 @@ async fn recording_to_directory_returns_path_not_writable_and_leaves_existing_un
         goodfetch_protocol::checkpoint::PATH_NOT_WRITABLE.name
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn failed_run_keeps_its_own_error_and_records_write_failure_as_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    for statement in super::TABLES.statements {
+        connection.execute_batch(statement).unwrap();
+    }
+    let now: SystemTime = "2026-01-05T09:00:00Z"
+        .parse::<jiff::Timestamp>()
+        .unwrap()
+        .into();
+    let run_id = goodfetch_protocol::run::RunId::parse("run-failed-write").unwrap();
+    let recorder = super::Recorder::new(
+        dir.path().display().to_string(),
+        run_id.clone(),
+        "Collie 0.1.0".to_owned(),
+        Masks::new(),
+        crate::clock::Clock::paused(now),
+        9,
+        true,
+    );
+    let recordings = super::Recordings::default();
+    recordings.attach_recorder(run_id.clone(), recorder);
+
+    // Simulate a Run that already failed with its own error before ending.
+    let mut existing_error = Some(goodfetch_protocol::run::EndingError {
+        code: "limit_reached".to_owned(),
+        message: "the Run reached its limit".to_owned(),
+        details: serde_json::Map::new(),
+    });
+    let mut warnings = Vec::new();
+    match recordings.finish_run(&run_id, &connection).unwrap() {
+        Some(Err(error)) if existing_error.is_none() => existing_error = Some(error),
+        Some(Err(error)) => {
+            warnings.push(goodfetch_protocol::run::RunWarning {
+                code: error.code,
+                message: error.message,
+                sessions: Vec::new(),
+                folder: None,
+            });
+        }
+        other => panic!("expected write failure on directory path, got {other:?}"),
+    }
+    assert_eq!(
+        existing_error.as_ref().map(|e| e.code.as_str()),
+        Some("limit_reached")
+    );
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(
+        warnings[0].code,
+        goodfetch_protocol::checkpoint::PATH_NOT_WRITABLE.name
+    );
+}

@@ -12,8 +12,10 @@
 // program registers on a value (ADR 0081) that throws is removed, and its
 // failure waits in the Run for the next call on that value, or the `close()`
 // that closes it, to raise `listener_failed`; a value released first logs it.
+import { basename } from "node:path";
 import type { CallOptions, Caller, OperationTypes } from "./caller.ts";
 import type { ClientConnection, Stream } from "./client-connection.ts";
+import { saveFile } from "./file-saving.ts";
 import {
   CallCancelledError,
   ClosedError,
@@ -23,6 +25,7 @@ import {
   type CollieOperationTypes,
   type KeyValueStoreAttempt,
   type PageId,
+  type RecordingSaved,
   type RunProgress,
   type RunStarted,
   type SessionId,
@@ -85,6 +88,8 @@ interface RunScope {
   readonly operationNames: OperationNames;
   state: "running" | "ended" | "closed";
   readonly failures: ListenerFailure[];
+  /** Optional Daemon/remote recording save hook invoked when `run.finish`/`stop`/`abort` ends the Run. */
+  saveRecordingOnEnd?: ((signal: AbortSignal | undefined) => Promise<void>) | undefined;
 }
 
 /** A value a program holds under a Run: a Session, a page, or a Locator built on one. */
@@ -332,11 +337,34 @@ function hostIn<Id>(
     };
   };
   // The Run's own calls also read their answer, since a Run report says when the Run ended.
-  const sent = async <Result>(operation: string, send: () => Promise<Result>): Promise<Result> => {
+  const sent = async <Result>(
+    operation: string,
+    send: () => Promise<Result>,
+    signal?: AbortSignal,
+  ): Promise<Result> => {
     ensureCallable(operation);
-    const result = await send();
+    const isEnd =
+      value === undefined &&
+      (operation === "run.finish" || operation === "run.stop" || operation === "run.abort");
+    const saveOnEnd = isEnd ? run.saveRecordingOnEnd : undefined;
+    let result: Result;
+    try {
+      result = await send();
+    } catch (runError) {
+      if (saveOnEnd !== undefined) {
+        try {
+          await saveOnEnd(signal);
+        } catch {
+          // The Run's own error takes precedence (ADR 0105).
+        }
+      }
+      throw runError;
+    }
     if (value === undefined && run.state === "running" && saysEnded(result)) {
       run.state = "ended";
+    }
+    if (saveOnEnd !== undefined) {
+      await saveOnEnd(signal);
     }
     return result;
   };
@@ -347,7 +375,7 @@ function hostIn<Id>(
       params: CollieOperationTypes[Name]["params"],
       options: CallOptions,
     ): Promise<CollieOperationTypes[Name]["result"]> {
-      return sent(operation, () => calls.call(operation, params, options));
+      return sent(operation, () => calls.call(operation, params, options), options.signal);
     },
     raw: (operation, params, options) =>
       sent(operation, () => reach.raw(operation, params, options)),
@@ -565,7 +593,7 @@ export class Run extends RunMembers implements AsyncDisposable {
    * @internal The Connection's start opens a Run; a program never
    * constructs one. A `detached` start's Run outlives its program.
    */
-  constructor(host: RunHost, started: RunStarted, detached = false) {
+  constructor(host: RunHost, started: RunStarted, detached = false, recordPath?: string) {
     const scope: RunScope = {
       id: started.runId,
       operationNames: host.operationNames,
@@ -578,6 +606,11 @@ export class Run extends RunMembers implements AsyncDisposable {
     this.#host = host;
     this.#scope = scope;
     this.#detached = detached;
+    if (recordPath !== undefined && host.connection.engine().kind !== "attached") {
+      scope.saveRecordingOnEnd = async (signal) => {
+        await this.saveRecording(recordPath, { signal });
+      };
+    }
     this.keyValueStore = new KeyValueStore(
       keyValueStoreHost(host.calls, (method, params, opened) =>
         host.stream(method, params, opened),
@@ -593,6 +626,35 @@ export class Run extends RunMembers implements AsyncDisposable {
   /** The Run's ID, which names it for good. Read without a round trip. */
   id(): string {
     return this.#scope.id;
+  }
+
+  /**
+   * Saves a Run's recorded Response recording as a WARC 1.1 file, whole or not
+   * at all (ADRs 0105 and 0116). An Attached engine given the program's path
+   * writes it through a hidden temporary file beside it, synced and renamed
+   * over it, creating missing folders and replacing a file there; any other
+   * engine writes nothing on its own machine and sends the file in `$/chunk`
+   * notifications of at most 64 KiB, one per credit granted with `$/credit`,
+   * for the SDK to write. A Run that recorded no responses raises
+   * `recording_invalid`. A path that cannot be written raises
+   * `path_not_writable`, and full or failing storage `file_write_failed`,
+   * leaving the path as it was.
+   *
+   * @experimental
+   */
+  async saveRecording(
+    path: string,
+    options: { readonly signal?: AbortSignal | undefined } = {},
+  ): Promise<RecordingSaved> {
+    warnEntry(collieOperations, "recording.save_as");
+    ensureOpen(this.#scope, "recording.save_as");
+    return saveFile<RecordingSaved>(
+      this.#host.connection,
+      "recording.save_as",
+      { run_id: this.#scope.id, filename: basename(path) },
+      path,
+      { call: "saveRecording", signal: options.signal },
+    );
   }
 
   /**

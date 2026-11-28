@@ -34,6 +34,7 @@ mod partial_results;
 mod points_in_time;
 mod product_and_provisioning;
 mod reconnect;
+mod response_recordings;
 mod results;
 mod run_view_and_copies;
 mod scripted_daemon;

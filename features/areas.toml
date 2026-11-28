@@ -849,6 +849,11 @@ prefix = "recording_invalid"
 
 [[area]]
 number = 6
+kind = "operation"
+prefix = "recording."
+
+[[area]]
+number = 6
 kind = "format"
 prefix = "response-cache"
 

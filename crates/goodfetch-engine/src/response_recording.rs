@@ -50,7 +50,7 @@ pub use determinism::{
     SeededRandom, http_date_from_headers, init_script, routed_date_script, seed_of,
     system_time_millis,
 };
-pub use record::{Recorder, SanitizedExchange, TABLES};
+pub use record::{Recorder, SanitizedExchange, TABLES, encode_warc};
 
 /// The most recorded URLs a [`Miss`] names.
 const NEAREST: usize = 5;
@@ -542,6 +542,38 @@ impl Recordings {
                 )]
                 let bytes = std::fs::read(&file).map_err(|error| error.to_string())?;
                 Replay::open(&Bytes::from(bytes), masks, max_decompression_ratio)
+                    .map_err(|error| error.to_string())
+            })
+            .await;
+        match parsed {
+            Ok(replay) => Ok(Replayed {
+                path: display,
+                replay: Arc::new(replay),
+            }),
+            Err(reason) => Err(recording_invalid_error(&display, reason)),
+        }
+    }
+
+    /// Parses and indexes the WARC bytes `bytes` (sent by the SDK over the
+    /// connection, or empty for a test engine's empty replay) on `owner`'s
+    /// blocking threads, failing with `recording_invalid` if `bytes` is not
+    /// a WARC recording the engine replays.
+    ///
+    /// # Errors
+    ///
+    /// `recording_invalid` when decoding or parsing `bytes` fails.
+    pub async fn open_replay_bytes(
+        &self,
+        display: &str,
+        bytes: Bytes,
+        masks: Masks,
+        max_decompression_ratio: u64,
+        owner: &TaskOwner,
+    ) -> Result<Replayed, CallError> {
+        let display = display.to_owned();
+        let parsed = owner
+            .blocking(move || {
+                Replay::open(&bytes, masks, max_decompression_ratio)
                     .map_err(|error| error.to_string())
             })
             .await;

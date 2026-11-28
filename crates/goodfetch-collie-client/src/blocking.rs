@@ -825,6 +825,28 @@ impl Run {
         Query::new(self.inner.explain_settings(), self.inner.host.connection())
     }
 
+    /// Saves a Run's recorded Response recording as a WARC 1.1 file, whole or
+    /// not at all (ADRs 0105 and 0116). An Attached engine given the program's
+    /// path writes it through a hidden temporary file beside it, synced and
+    /// renamed over it, creating missing folders and replacing a file there;
+    /// any other engine writes nothing on its own machine and sends the file
+    /// in `$/chunk` notifications of at most 64 KiB, one per credit granted
+    /// with `$/credit`, for the SDK to write. A Run that recorded no responses
+    /// raises `recording_invalid`. A path that cannot be written raises
+    /// `path_not_writable`, and full or failing storage `file_write_failed`,
+    /// leaving the path as it was.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn save_recording(
+        &self,
+        path: impl AsRef<std::path::Path>,
+    ) -> SaveFile<goodfetch_protocol::run::RecordingSaved> {
+        SaveFile::new(
+            self.inner.save_recording(path),
+            self.inner.host.connection(),
+        )
+    }
+
     /// Reads a Run's progress: what it does and why it waits. Without
     /// `after`, it answers at once; given `after`, the position of the value
     /// the reader last read, it waits for a change and answers the latest

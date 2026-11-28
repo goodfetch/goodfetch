@@ -384,7 +384,7 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 109] = [
+    const COLLIE: [&str; 110] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -460,6 +460,7 @@ mod tests {
         "run.list",
         "recipe.start",
         "catalog_run.start",
+        "recording.save_as",
         "run.checkpoint",
         "run.pause",
         "run.migrate",

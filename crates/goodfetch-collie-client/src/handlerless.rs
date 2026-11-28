@@ -151,6 +151,13 @@ impl IntoFuture for HandlerlessStart {
             Err(error) => return Box::pin(std::future::ready(Err(error))),
         };
         let connection = self.connection;
+        let (recording, recording_bytes) = match crate::run::prepare_recording(
+            self.recording,
+            connection.default_empty_replay(),
+        ) {
+            Ok(prepared) => prepared,
+            Err(error) => return Box::pin(std::future::ready(Err(error))),
+        };
         let project = connection.project().cloned();
         let detached = self.detached;
         match self.target {
@@ -163,7 +170,8 @@ impl IntoFuture for HandlerlessStart {
                     settings,
                     project,
                     limits: self.limits,
-                    recording: self.recording,
+                    recording,
+                    recording_bytes,
                     timeout,
                     detached,
                 },
@@ -178,7 +186,8 @@ impl IntoFuture for HandlerlessStart {
                     settings,
                     project,
                     limits: self.limits,
-                    recording: self.recording,
+                    recording,
+                    recording_bytes,
                     timeout,
                     detached,
                 },

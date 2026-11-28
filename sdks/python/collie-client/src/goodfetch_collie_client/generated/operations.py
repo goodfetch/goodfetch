@@ -13,7 +13,7 @@ from typing_extensions import deprecated
 from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 from goodfetch_collie_client.markers import warn_deprecated, warn_deprecated_settings, warn_experimental
 
-from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, CheckpointSaveAsParams, CheckpointSaved, CheckpointStreamParams, CheckpointStreamed, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunTraceResult, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScrollCollected, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TraceSaveAsParams, TraceSaved, TraceStreamParams, TraceStreamed, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
+from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, CheckpointSaveAsParams, CheckpointSaved, CheckpointStreamParams, CheckpointStreamed, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, RecordingSaveAsParams, RecordingSaved, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunTraceResult, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScrollCollected, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TraceSaveAsParams, TraceSaved, TraceStreamParams, TraceStreamed, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
 from .settings import DEPRECATED_SETTINGS
 
 
@@ -470,6 +470,14 @@ class AsyncCollieOperations:
         warn_experimental("recipe.start")
         warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(RunStarted, await self._caller.call("recipe.start", params))
+
+    async def recording_save_as(self, params: RecordingSaveAsParams) -> RecordingSaved:
+        """Saves a Run's recorded Response recording as a WARC 1.1 file, whole or not at all (ADRs 0105 and 0116). An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. A Run that recorded no responses raises `recording_invalid`. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("recording.save_as")
+        return result_of(RecordingSaved, await self._caller.call("recording.save_as", params))
 
     async def response_body(self, params: ResponseBodyParams) -> BodyHandle:
         """Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser, on the session of the frame that loaded it. A body the browser no longer holds, or a redirect's, which has none, raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole. Past its `timeout`, `timeout.wait` when the call gives none, a request that has not ended fails it with `deadline_exceeded`; a page that ends under it raises what ended it, as a call on the page does.
@@ -1263,6 +1271,14 @@ class CollieOperations:
         warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(RunStarted, self._caller.call("recipe.start", params))
 
+    def recording_save_as(self, params: RecordingSaveAsParams) -> RecordingSaved:
+        """Saves a Run's recorded Response recording as a WARC 1.1 file, whole or not at all (ADRs 0105 and 0116). An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. A Run that recorded no responses raises `recording_invalid`. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("recording.save_as")
+        return result_of(RecordingSaved, self._caller.call("recording.save_as", params))
+
     def response_body(self, params: ResponseBodyParams) -> BodyHandle:
         """Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser, on the session of the frame that loaded it. A body the browser no longer holds, or a redirect's, which has none, raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole. Past its `timeout`, `timeout.wait` when the call gives none, a request that has not ended fails it with `deadline_exceeded`; a page that ends under it raises what ended it, as a call on the page does.
 
@@ -1654,6 +1670,7 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "page.wait_for_response",
     "page.wait_for_url",
     "recipe.start",
+    "recording.save_as",
     "response.body",
     "route.abort",
     "route.continue",
@@ -1763,6 +1780,7 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "page.wait_for_response": "read",
     "page.wait_for_url": "read",
     "recipe.start": "idempotent_write",
+    "recording.save_as": "idempotent_write",
     "response.body": "read",
     "route.abort": "effect",
     "route.continue": "effect",

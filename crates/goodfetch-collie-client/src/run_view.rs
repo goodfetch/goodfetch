@@ -5,8 +5,11 @@
 //! and closing it frees only the view: the Run goes on. Python's
 //! `run_view.py` and TypeScript's `run-view.ts` are its twins.
 
+use std::path::Path;
+
 use goodfetch_protocol::run::{
-    RUN_PROGRESS_READ, RUN_REPORT, RunId, RunParams, RunProgress, RunReport,
+    RECORDING_SAVE_AS, RUN_PROGRESS_READ, RUN_REPORT, RecordingSaveAsParams, RecordingSaved, RunId,
+    RunParams, RunProgress, RunReport,
 };
 use goodfetch_protocol::run_trace::{RUN_TRACE, RunTraceResult};
 
@@ -107,6 +110,39 @@ impl RunView {
     #[must_use]
     pub fn key_value_store(&self) -> KeyValueStoreView {
         KeyValueStoreView::new(self.host.clone())
+    }
+
+    /// Saves a Run's recorded Response recording as a WARC 1.1 file, whole or
+    /// not at all (ADRs 0105 and 0116). An Attached engine given the program's
+    /// path writes it through a hidden temporary file beside it, synced and
+    /// renamed over it, creating missing folders and replacing a file there;
+    /// any other engine writes nothing on its own machine and sends the file
+    /// in `$/chunk` notifications of at most 64 KiB, one per credit granted
+    /// with `$/credit`, for the SDK to write. A Run that recorded no responses
+    /// raises `recording_invalid`. A path that cannot be written raises
+    /// `path_not_writable`, and full or failing storage `file_write_failed`,
+    /// leaving the path as it was.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn save_recording(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> crate::connection::SaveFile<RecordingSaved> {
+        warn_operation(RECORDING_SAVE_AS.name);
+        let path = path.as_ref();
+        let filename = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned());
+        self.host.connection().save_file(
+            RECORDING_SAVE_AS.name,
+            &RecordingSaveAsParams {
+                run_id: self.host.id().clone(),
+                path: None,
+                filename,
+            },
+            path,
+            "save_recording",
+        )
     }
 
     /// Closes the view. Frees only the view: the Run goes on.

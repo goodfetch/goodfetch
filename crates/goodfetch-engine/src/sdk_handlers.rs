@@ -236,6 +236,82 @@ pub(crate) fn check_extractor_known(
     ))
 }
 
+/// Looks up a dotted key (such as `"content.extractor"`) in a settings map
+/// that may hold either nested objects (`{"content": {"extractor": ...}}`) or
+/// flat dotted keys (`{"content.extractor": ...}`).
+fn lookup_dotted<'a>(map: &'a Map<String, Value>, dotted: &str) -> Option<&'a Value> {
+    if let Some(value) = map.get(dotted) {
+        return Some(value);
+    }
+    let mut current: Option<&Value> = None;
+    for part in dotted.split('.') {
+        current = match current {
+            None => map.get(part),
+            Some(Value::Object(obj)) => obj.get(part),
+            Some(_) => return None,
+        };
+    }
+    current
+}
+
+/// Returns the setting key that chooses an SDK handler registered on this
+/// Connection (whether via `run_settings`, `connection_settings`, or the
+/// `registered` origin), if any (ADR 0104). Used to refuse `detached` starts
+/// with `detach_unsupported` naming that choosing key.
+pub(crate) fn chosen_sdk_handler_key(
+    handlers: &BTreeMap<String, BTreeSet<String>>,
+    registered: &Map<String, Value>,
+    run_settings: &Map<String, Value>,
+    connection_settings: &Map<String, Value>,
+) -> Option<String> {
+    if handlers.is_empty() {
+        return None;
+    }
+    if let Some(extractors) = handlers.get("extract") {
+        let effective = lookup_dotted(run_settings, CONTENT_EXTRACTOR.name)
+            .or_else(|| lookup_dotted(connection_settings, CONTENT_EXTRACTOR.name))
+            .or_else(|| registered.get(CONTENT_EXTRACTOR.name));
+        if let Some(name) = effective.and_then(Value::as_str)
+            && extractors.contains(name)
+        {
+            return Some(CONTENT_EXTRACTOR.name.to_owned());
+        }
+    }
+    if let Some(channels) = handlers.get("notification") {
+        for map in [run_settings, connection_settings] {
+            if let Some(Value::Object(entries)) = lookup_dotted(map, NOTIFICATIONS_CHANNELS.name) {
+                for (channel_name, entry) in entries {
+                    let chosen_type = entry
+                        .as_object()
+                        .and_then(|obj| obj.get("type"))
+                        .and_then(Value::as_str);
+                    if channels.contains(channel_name)
+                        || chosen_type.is_some_and(|t| channels.contains(t))
+                    {
+                        return Some(format!("{}.{channel_name}", NOTIFICATIONS_CHANNELS.name));
+                    }
+                }
+            }
+        }
+    }
+    if let Some(secrets) = handlers.get("secret") {
+        for map in [run_settings, connection_settings] {
+            if let Some(Value::Object(entries)) = lookup_dotted(map, "secrets") {
+                for (secret_name, entry) in entries {
+                    if let Some(reference) = entry.as_str()
+                        && let Some(rest) = reference.strip_prefix("plugin:")
+                        && let Some((scheme, _)) = rest.split_once(':')
+                        && secrets.contains(scheme)
+                    {
+                        return Some(format!("secrets.{secret_name}"));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 fn setting_invalid(key: &str, reason: String, fix: String) -> CallError {
     CallError::new(
         &SETTING_INVALID,

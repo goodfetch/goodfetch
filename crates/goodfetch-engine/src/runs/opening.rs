@@ -1370,6 +1370,34 @@ impl Opening {
         if recorded.is_empty() {
             return Ok(Vec::new());
         }
+        // Check that every SDK handler recorded in `run_plugins` is still
+        // registered on the resuming Connection before any work runs (ADR 0104).
+        let recorded_sdk: Vec<String> = recorded
+            .iter()
+            .filter(|plugin| plugin.form == goodfetch_protocol::run::PluginForm::SdkHandler)
+            .map(|plugin| plugin.name.clone())
+            .collect();
+        if !recorded_sdk.is_empty() {
+            let connection = self.connection;
+            let registered = self
+                .decisions
+                .decide(move |registry| registry.sdk_handlers.get(&connection).cloned())
+                .await?;
+            for handler in recorded_sdk {
+                let is_registered = registered.as_ref().is_some_and(|handlers| {
+                    handlers
+                        .declared()
+                        .values()
+                        .any(|names| names.contains(&handler))
+                });
+                if !is_registered {
+                    return Err(RunError::MissingSdkHandler {
+                        run_id: self.disk.run_id.clone(),
+                        handler,
+                    });
+                }
+            }
+        }
         let plugins_folder = self.plugins_folder.clone();
         let run_id = self.disk.run_id.clone();
         let accepted_names: Vec<String> = accept_plugin_change.to_vec();

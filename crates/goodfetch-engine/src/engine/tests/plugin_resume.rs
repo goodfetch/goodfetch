@@ -439,3 +439,242 @@ fn checkpoint_resumes_on_another_os_with_the_same_multi_platform_index_pin() {
     assert_eq!(report["result"]["plugins"][0]["name"], "acme-extract");
     assert_eq!(report["result"]["plugins"][0]["digest"], DIGEST_A);
 }
+
+fn hello_with_handlers(surface: &str, handlers: &Value, settings: &Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": 0,
+        "method": "hello",
+        "params": {
+            "protocol_version": "0.1",
+            "surface": surface,
+            "needs": "collie",
+            "product_version": "1.4.0",
+            "handlers": handlers,
+            "settings": settings,
+        },
+    })
+}
+
+fn run_epoch_of(home: &Path, run_id: &str) -> i64 {
+    Connection::open(run_file_of(home, run_id))
+        .unwrap()
+        .query_row("SELECT epoch FROM run", [], |row| row.get(0))
+        .unwrap()
+}
+
+/// `detached` on a Run that uses an SDK handler (chosen by `registered` or by
+/// explicit settings) fails with `detach_unsupported` naming the choosing key
+/// in both `details.key` and `details.fix`; overriding the key to a built-in
+/// avoids the handler refusal (ADR 0104).
+///
+/// Covers: story:7-75, error:detach_unsupported
+#[test]
+fn detached_start_using_sdk_handler_fails_with_detach_unsupported_naming_choosing_key() {
+    let env = TestEnv::new();
+    let engine = engine_with(Product::Collie, None);
+
+    // 1. Single handler chosen via `registered` -> detach_unsupported naming `content.extractor`.
+    let (via_registered, overridden) = attached_on(&engine, &env, |mut client| async move {
+        client
+            .send(&[hello_with_handlers(
+                "rust",
+                &json!({ "extract": ["my_ext"] }),
+                &json!({}),
+            )])
+            .await;
+        let greeted = client.next().await.unwrap();
+        assert!(greeted.get("result").is_some(), "hello: {greeted}");
+
+        let via_registered = call(
+            &mut client,
+            1,
+            "recipe.start",
+            json!({ "recipe": "demo", "detached": true }),
+        )
+        .await;
+
+        // Explicitly overriding `content.extractor` to a built-in does NOT fail
+        // on `content.extractor` (fails on `engine` because this is an Attached engine).
+        let overridden = call(
+            &mut client,
+            2,
+            "recipe.start",
+            json!({
+                "recipe": "demo",
+                "detached": true,
+                "settings": { "content": { "extractor": "dom_smoothie" } },
+            }),
+        )
+        .await;
+        (via_registered, overridden)
+    });
+    assert_eq!(
+        via_registered["error"]["data"]["code"], "detach_unsupported",
+        "{via_registered}"
+    );
+    assert_eq!(via_registered["error"]["data"]["key"], "content.extractor");
+    assert!(
+        via_registered["error"]["data"]["fix"]
+            .as_str()
+            .unwrap()
+            .contains("content.extractor"),
+        "{via_registered}"
+    );
+    assert_eq!(
+        overridden["error"]["data"]["code"], "detach_unsupported",
+        "{overridden}"
+    );
+    assert_eq!(
+        overridden["error"]["data"]["key"], "engine",
+        "built-in override must clear the SDK handler check: {overridden}"
+    );
+
+    // 2. Two handlers with explicit `content.extractor` in settings -> detach_unsupported naming `content.extractor`.
+    let via_settings = attached_on(&engine, &env, |mut client| async move {
+        client
+            .send(&[hello_with_handlers(
+                "rust",
+                &json!({ "extract": ["ext_a", "ext_b"] }),
+                &json!({ "content": { "extractor": "ext_a" } }),
+            )])
+            .await;
+        let greeted = client.next().await.unwrap();
+        assert!(greeted.get("result").is_some(), "hello: {greeted}");
+        call(
+            &mut client,
+            1,
+            "catalog_run.start",
+            json!({
+                "target": { "kind": "agent", "url": "https://example.test", "task": "check" },
+                "detached": true,
+            }),
+        )
+        .await
+    });
+    assert_eq!(
+        via_settings["error"]["data"]["code"], "detach_unsupported",
+        "{via_settings}"
+    );
+    assert_eq!(via_settings["error"]["data"]["key"], "content.extractor");
+    assert!(
+        via_settings["error"]["data"]["fix"]
+            .as_str()
+            .unwrap()
+            .contains("content.extractor"),
+        "{via_settings}"
+    );
+}
+
+/// Resuming a Run without an SDK handler it used is refused before any work
+/// (epoch stays unchanged); registering that handler allows the Run to resume
+/// cleanly (ADR 0104).
+///
+/// Covers: story:7-75, error:setting_invalid
+#[test]
+fn resume_without_recorded_sdk_handler_is_refused_before_work_and_resumes_when_registered() {
+    let env = TestEnv::new();
+    let engine = engine_with(Product::Collie, Some(record_plugins_contribution()));
+
+    // Start Run with SDK handler `inline-extract`, record its use, and stop cleanly (epoch 1).
+    attached_on(&engine, &env, |mut client| async move {
+        client
+            .send(&[hello_with_handlers(
+                "rust",
+                &json!({ "extract": ["inline-extract"] }),
+                &json!({}),
+            )])
+            .await;
+        let greeted = client.next().await.unwrap();
+        assert!(greeted.get("result").is_some(), "hello: {greeted}");
+        let started = call(
+            &mut client,
+            1,
+            "run.start",
+            json!({ "run_id": "sdk-res-1" }),
+        )
+        .await;
+        assert!(started.get("result").is_some(), "run.start: {started}");
+        let rec = call(
+            &mut client,
+            2,
+            "test.record_resume_plugins",
+            json!({
+                "run_id": "sdk-res-1",
+                "plugins": [],
+                "sdk_handler": "inline-extract"
+            }),
+        )
+        .await;
+        assert!(rec.get("result").is_some(), "record: {rec}");
+        let stopped = call(&mut client, 3, "run.stop", json!({ "run_id": "sdk-res-1" })).await;
+        assert!(stopped.get("result").is_some(), "run.stop: {stopped}");
+    });
+
+    assert_eq!(run_epoch_of(env.home(), "sdk-res-1"), 1);
+
+    // Reconnect WITHOUT `inline-extract` registered -> refused before any work.
+    let (refused_start, refused_resume) = attached_on(&engine, &env, |mut client| async move {
+        client.send(&[hello_message("rust")]).await;
+        client.next().await.unwrap();
+        let refused_start = call(
+            &mut client,
+            1,
+            "run.start",
+            json!({ "run_id": "sdk-res-1" }),
+        )
+        .await;
+        let refused_resume = call(
+            &mut client,
+            2,
+            "run.resume",
+            json!({ "run_id": "sdk-res-1" }),
+        )
+        .await;
+        (refused_start, refused_resume)
+    });
+    for refused in [&refused_start, &refused_resume] {
+        assert_eq!(
+            refused["error"]["data"]["code"], "setting_invalid",
+            "{refused}"
+        );
+        assert!(
+            refused["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("inline-extract"),
+            "{refused}"
+        );
+    }
+    assert_eq!(run_epoch_of(env.home(), "sdk-res-1"), 1);
+
+    // Reconnect WITH `inline-extract` registered -> resumes cleanly!
+    let (resumed, finished) = attached_on(&engine, &env, |mut client| async move {
+        client
+            .send(&[hello_with_handlers(
+                "rust",
+                &json!({ "extract": ["inline-extract"] }),
+                &json!({}),
+            )])
+            .await;
+        let greeted = client.next().await.unwrap();
+        assert!(greeted.get("result").is_some(), "hello: {greeted}");
+        let resumed = call(
+            &mut client,
+            1,
+            "run.start",
+            json!({ "run_id": "sdk-res-1" }),
+        )
+        .await;
+        let finished = call(
+            &mut client,
+            2,
+            "run.finish",
+            json!({ "run_id": "sdk-res-1" }),
+        )
+        .await;
+        (resumed, finished)
+    });
+    assert_eq!(resumed["result"]["started_as"], "resumed", "{resumed}");
+    assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
+}

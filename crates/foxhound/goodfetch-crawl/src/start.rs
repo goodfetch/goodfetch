@@ -236,6 +236,16 @@ fn seed_inputs(seeds: &[Seed]) -> BTreeMap<StartInput, serde_json::Value> {
     )])
 }
 
+fn check_client_start(params: &CrawlStartParams, context: &CallContext) -> Result<(), CallError> {
+    client_start(
+        &params.tags,
+        params.detached,
+        in_program(params),
+        &params.settings,
+        context,
+    )
+}
+
 async fn start(
     mut params: CrawlStartParams,
     context: CallContext,
@@ -245,7 +255,7 @@ async fn start(
     pages: code_free::Pages,
 ) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
-    client_start(&params.tags, params.detached, in_program(&params), &context)?;
+    check_client_start(&params, &context)?;
     let given = std::mem::take(&mut params.limits);
     let limits = StartLimits::checked(given, run_id.as_ref(), &context).await?;
     let work = context.runs().metrics().counted_work().clone();

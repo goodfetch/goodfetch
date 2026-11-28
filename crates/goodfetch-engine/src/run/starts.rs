@@ -25,7 +25,13 @@ async fn recipe_start(
     params: RecipeStartParams,
     context: CallContext,
 ) -> Result<RunStarted, CallError> {
-    super::client_start(&params.tags, params.detached, None, &context)?;
+    super::client_start(
+        &params.tags,
+        params.detached,
+        None,
+        &params.settings,
+        &context,
+    )?;
     Err(unbuilt(RECIPE_START.name, "recipe"))
 }
 
@@ -33,7 +39,13 @@ async fn catalog_run_start(
     params: CatalogRunStartParams,
     context: CallContext,
 ) -> Result<RunStarted, CallError> {
-    super::client_start(&params.tags, params.detached, None, &context)?;
+    super::client_start(
+        &params.tags,
+        params.detached,
+        None,
+        &params.settings,
+        &context,
+    )?;
     Err(unbuilt(CATALOG_RUN_START.name, params.target.kind()))
 }
 

@@ -8,6 +8,7 @@
 //! from detaching.
 
 use goodfetch_protocol::run::{DETACH_UNSUPPORTED, DetachUnsupportedDetails, Tags};
+use serde_json::{Map, Value};
 
 use crate::call_error::CallError;
 use crate::composition::CallContext;
@@ -24,17 +25,21 @@ pub struct InProgram {
 
 /// Checks a start from a Client before its Run begins: its `tags`, then,
 /// when `detached`, that its Run may outlive its Connection, `in_program`
-/// naming what gives it a handler in the program, if anything does.
+/// naming what gives it a handler in the program, if anything does, and
+/// `settings` checked against the Connection's registered SDK handlers
+/// (ADR 0104).
 ///
 /// # Errors
 ///
 /// `invalid_params` naming a tag only the Daemon's scheduler sets;
-/// `detach_unsupported` naming `in_program`'s key when it is some, else
-/// `engine` when the Connection's engine is no Daemon.
+/// `detach_unsupported` naming `in_program`'s key or the setting key that
+/// chose an SDK handler when any is active, else `engine` when the
+/// Connection's engine is no Daemon.
 pub fn client_start(
     tags: &Tags,
     detached: bool,
     in_program: Option<InProgram>,
+    settings: &Map<String, Value>,
     context: &CallContext,
 ) -> Result<(), CallError> {
     super::client_tags(tags)?;
@@ -48,6 +53,22 @@ pub fn client_start(
             ),
             key,
             fix,
+        ));
+    }
+    if let Some(key) = crate::sdk_handlers::chosen_sdk_handler_key(
+        context.sdk_handlers(),
+        context.registered_settings(),
+        settings,
+        context.connection_settings(),
+    ) {
+        return Err(refused(
+            format!(
+                "`{key}` chooses an SDK handler in the program, which would wait on a Connection gone, so it cannot be detached."
+            ),
+            &key,
+            &format!(
+                "Set `{key}` to a built-in or an installed Plugin, or start the Run without `detached`."
+            ),
         ));
     }
     if context.daemon().is_none() {

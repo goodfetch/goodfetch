@@ -717,6 +717,24 @@ fn plugin_changed(changed: crate::runs::PluginChanged) -> CallError {
 }
 
 /// The Error code a Run's failure answers `context`'s call with.
+fn missing_sdk_handler(run_id: &RunId, handler: &str) -> CallError {
+    CallError::new(
+        &goodfetch_protocol::settings::SETTING_INVALID,
+        format!(
+            "Run `{run_id}` used SDK handler `{handler}`, which is not registered on this Connection."
+        ),
+        &goodfetch_protocol::settings::SettingInvalidDetails {
+            key: "handlers".to_owned(),
+            layer: Some(goodfetch_protocol::settings::SettingsLayer::Run),
+            reason: format!("missing SDK handler `{handler}` on resume"),
+            limit: None,
+            fix: Some(format!(
+                "Register SDK handler `{handler}` on `connect()`, or install a Plugin named `{handler}`, before resuming Run `{run_id}`."
+            )),
+        },
+    )
+}
+
 pub fn run_error(error: RunError, context: &CallContext) -> CallError {
     match error {
         RunError::NotFound(run_id) => CallError::new(
@@ -769,6 +787,7 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
         RunError::BoundToMachine(run_id) => bound_to_machine(run_id),
         RunError::Behind(behind) => checkpoint_behind(behind),
         RunError::PluginChanged(changed) => plugin_changed(changed),
+        RunError::MissingSdkHandler { run_id, handler } => missing_sdk_handler(&run_id, &handler),
         RunError::WriteFailed {
             run_id,
             folder,

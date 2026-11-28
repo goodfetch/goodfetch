@@ -967,6 +967,15 @@ pub enum RunError {
     /// the resume and was not named in `accept_plugin_change` (ADR 0033).
     #[error("the third-party Plugin `{}` of `{}` changed digest", .0.plugin, .0.run_id)]
     PluginChanged(PluginChanged),
+    /// An SDK handler recorded in the Run's state is no longer registered on
+    /// the resuming Connection (ADR 0104).
+    #[error("SDK handler `{handler}` used by Run `{run_id}` is not registered")]
+    MissingSdkHandler {
+        /// The Run ID being resumed.
+        run_id: RunId,
+        /// The missing SDK handler's name.
+        handler: String,
+    },
     /// Its kind's [`Driving::reopen_check`] refused a reopen no start
     /// under the Run's ID declared again, with the error it carries.
     #[error("the reopen was refused: {0}")]

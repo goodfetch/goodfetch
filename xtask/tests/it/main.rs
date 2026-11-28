@@ -26,6 +26,7 @@ mod browser_releases;
 mod budgets;
 mod chromium_expectations;
 mod chromium_gate;
+mod chromium_launch_args;
 mod chromium_package;
 mod chromium_protocol;
 mod chromium_regenerate;

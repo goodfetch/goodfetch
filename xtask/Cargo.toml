@@ -62,6 +62,7 @@ goodfetch-counted-work.workspace = true
 goodfetch-test-support.workspace = true
 insta.workspace = true
 rstest.workspace = true
+goodfetch-dev-workspace-hack.workspace = true
 
 # Its tests run the Proving ground and both Products' executables through
 # the test tool manifest, so a change to any runs them (TESTING.md, Commands).

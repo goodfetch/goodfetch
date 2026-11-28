@@ -6,6 +6,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::checkpoint::FORMAT_VERSION_UNSUPPORTED;
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::formats::Compatibility;
+use goodfetch_protocol::hook::HOOK_DUPLICATE;
 use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, SETTING_INVALID, SETTING_LOCKED, SETTING_NOT_APPLICABLE,
     SETTING_UNKNOWN, SettingLimit, SettingsLayer,
@@ -140,6 +141,15 @@ pub enum SettingsError {
         /// The Product that carries it.
         needs: Product,
     },
+    /// A second Hook entry in `hooks` repeating a name already declared
+    /// (ADRs 0088 and 0104).
+    #[error("a second Hook named `{hook}` at stage `{stage}` is already declared in `hooks`")]
+    HookDuplicate {
+        /// The repeated Hook name.
+        hook: String,
+        /// The stage of the second entry, the one refused.
+        stage: String,
+    },
 }
 
 fn format_message(
@@ -199,6 +209,7 @@ impl SettingsError {
             Self::Unavailable { .. } => CAPABILITY_UNAVAILABLE.name,
             Self::Locked { .. } => SETTING_LOCKED.name,
             Self::NotInProduct { .. } => NOT_IN_PRODUCT.name,
+            Self::HookDuplicate { .. } => HOOK_DUPLICATE.name,
             Self::Format { .. } | Self::OlderMajorPolicy { .. } => FORMAT_VERSION_UNSUPPORTED.name,
         }
     }

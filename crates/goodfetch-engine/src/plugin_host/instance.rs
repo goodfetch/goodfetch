@@ -54,6 +54,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
+use futures_util::future::BoxFuture;
 use goodfetch_confinement::launch::Launch;
 use goodfetch_protocol::catalog::{ErrorCodeDefinition, OperationClass, Product};
 use goodfetch_protocol::connection::{CALL_CANCELLED, INTERNAL, WaitedFor};
@@ -67,7 +68,7 @@ use goodfetch_protocol::plugin::spend::{USAGE_REPORT, UsageReportParams, UsageRe
 use goodfetch_protocol::plugin::{
     CANCEL, CONFINEMENT_UNAVAILABLE, HELLO, HelloRefusal, PLUGIN_CRASHED, PLUGIN_MANIFEST_MISMATCH,
     PLUGIN_PROTOCOL, PLUGIN_PROTOCOL_UNSUPPORTED, PLUGIN_QUARANTINED, PluginCancelParams,
-    PluginHelloParams, PluginHelloResult, PluginManifest, check_hello,
+    PluginHelloParams, PluginHelloResult, PluginKindName, PluginManifest, check_hello,
 };
 use goodfetch_protocol::run::RunId;
 use serde::Serialize;
@@ -176,6 +177,18 @@ pub trait UncertainReporter: fmt::Debug + Send + Sync {
     fn report(&self, call: UncertainCall);
 }
 
+/// Executes a `page.*` or `locator.*` call back made by a process-Plugin Hook
+/// while its `hook.call` is in flight (ADRs 0033, 0088 and 0104; issue 954).
+pub trait PageCallBack: fmt::Debug + Send + Sync {
+    /// Serves `method` with its JSON `params` (already admitted under its
+    /// active `call_id`), returning the JSON result or a `CallError`.
+    fn call<'a>(
+        &'a self,
+        method: &'a str,
+        params: serde_json::Value,
+    ) -> BoxFuture<'a, Result<serde_json::Value, CallError>>;
+}
+
 /// How a call into a [`PluginInstance`] is classed, timed and bounded
 /// (ADRs 0029, 0033 and 0080).
 #[derive(Clone, Debug)]
@@ -194,6 +207,9 @@ pub struct CallOptions {
     pub lease: Option<Arc<dyn LeaseCheck>>,
     /// Where an abandoned Effect-class call is reported at once.
     pub uncertain: Option<Arc<dyn UncertainReporter>>,
+    /// Handler for `page.*` / `locator.*` calls back made while this call is
+    /// in flight (only set for page-stage Hook calls).
+    pub page_callback: Option<Arc<dyn PageCallBack>>,
 }
 
 impl Default for CallOptions {
@@ -204,6 +220,7 @@ impl Default for CallOptions {
             enclosing: None,
             lease: None,
             uncertain: None,
+            page_callback: None,
         }
     }
 }
@@ -254,6 +271,13 @@ impl CallOptions {
     #[must_use]
     pub fn with_uncertain(mut self, uncertain: Arc<dyn UncertainReporter>) -> Self {
         self.uncertain = Some(uncertain);
+        self
+    }
+
+    /// Serves `page.*` / `locator.*` calls back while this call is in flight.
+    #[must_use]
+    pub fn with_page_callback(mut self, callback: Arc<dyn PageCallBack>) -> Self {
+        self.page_callback = Some(callback);
         self
     }
 }
@@ -358,6 +382,7 @@ struct Call {
     line: Vec<u8>,
     class: OperationClass,
     uncertain: Option<Arc<dyn UncertainReporter>>,
+    page_callback: Option<Arc<dyn PageCallBack>>,
     sent: Arc<AtomicBool>,
     reported: Arc<std::sync::Mutex<ReportedSpend>>,
     answer: oneshot::Sender<Result<Received, CallFailure>>,
@@ -567,6 +592,7 @@ impl PluginInstance {
             line,
             class: options.class,
             uncertain: options.uncertain,
+            page_callback: options.page_callback,
             sent: Arc::clone(&sent),
             reported: Arc::clone(&reported),
             answer,
@@ -1097,6 +1123,21 @@ impl Running {
             };
             return write(&self.stopping, stdin, &line).await;
         }
+        if is_page_call_back(call.method()) {
+            return self.serve_page_call_back(instance, stdin, id, call).await;
+        }
+        if self.config.manifest.kinds.contains(&PluginKindName::HOOK)
+            && is_forbidden_hook_call_back(call.method())
+        {
+            let error = code(
+                &PLUGIN_CALL_BACK_REFUSED,
+                &format!(
+                    "a Hook Plugin may only call `net.fetch` and its stage's `page.*` operations, never `{}`",
+                    call.method()
+                ),
+            );
+            return write(&self.stopping, stdin, &call_back_line(id, Some(Err(error)))).await;
+        }
         let admitted = served(call).and_then(|params| {
             admit_call_back(
                 &instance.waiting,
@@ -1124,6 +1165,54 @@ impl Running {
             let outcome = stopped.run_until_cancelled(fetch.fetch(params)).await;
             // An instance that ended reads no answer.
             let _ = answers.send(call_back_line(id, outcome)).await;
+        });
+    }
+
+    /// Serves a `page.*` or `locator.*` call back from an in-flight Hook call.
+    async fn serve_page_call_back<W: AsyncWrite + Unpin>(
+        &self,
+        instance: &mut Instance,
+        stdin: &mut W,
+        id: RequestId,
+        call: &framing::Call,
+    ) {
+        let method = call.method().to_owned();
+        let parsed = parse_page_call_back(call).and_then(|(call_id, params)| {
+            admit_call_back(&instance.waiting, instance.call_backs.running, &call_id)?;
+            let callback = instance
+                .waiting
+                .get(&call_id)
+                .and_then(|active| active.page_callback.clone())
+                .ok_or_else(|| {
+                    code(
+                        &PLUGIN_CALL_BACK_REFUSED,
+                        &format!("`{method}` is not served outside a page-stage Hook call"),
+                    )
+                })?;
+            Ok((call_id, params, callback))
+        });
+        let (call_id, params, callback) = match parsed {
+            Ok(admitted) => admitted,
+            Err(error) => {
+                let line = wire::failure_line(Some(id), error.to_error_object());
+                return write(&self.stopping, stdin, &line).await;
+            }
+        };
+        let call_backs = &mut instance.call_backs;
+        let stopped = call_backs
+            .serving
+            .entry(call_id)
+            .or_insert_with(|| self.stopping.child_token())
+            .child_token();
+        call_backs.running += 1;
+        let answers = call_backs.answers.clone();
+        self.owner.spawn(async move {
+            let outcome = stopped
+                .run_until_cancelled(callback.call(&method, params))
+                .await;
+            let _ = answers
+                .send(page_call_back_line(id, &method, outcome))
+                .await;
         });
     }
 
@@ -1403,6 +1492,78 @@ fn late_result(id: &RequestId) {
         call_id = ?id,
         "refused a late result for an abandoned Plugin call"
     );
+}
+
+/// Whether `method` is a `page.*` or `locator.*` call back that a page-stage
+/// Hook may invoke on its active page.
+fn is_page_call_back(method: &str) -> bool {
+    method.starts_with("page.") || method.starts_with("locator.")
+}
+
+/// Whether `method` is a capability explicitly forbidden to a Hook Plugin
+/// (ADRs 0033, 0088 and 0104; issue 954): `net.connect`, the Run index,
+/// settings, Operator policy, accounts, or direct Session management.
+fn is_forbidden_hook_call_back(method: &str) -> bool {
+    method == "net.connect"
+        || method.starts_with("run.")
+        || method.starts_with("config.")
+        || method.starts_with("settings.")
+        || method.starts_with("policy.")
+        || method.starts_with("accounts.")
+        || method.starts_with("session.")
+}
+
+/// Parses a `page.*` / `locator.*` call back's JSON params, extracting its
+/// `call_id` and forwarding the remaining params object.
+fn parse_page_call_back(call: &framing::Call) -> Result<(RequestId, serde_json::Value), CallError> {
+    let mut value: serde_json::Value = serde_json::from_str(call.params().unwrap_or("null"))
+        .map_err(|error| {
+            CallError::protocol(
+                ProtocolFailure::InvalidParams,
+                format!("the params of `{}` cannot be read: {error}", call.method()),
+            )
+        })?;
+    let Some(fields) = value.as_object_mut() else {
+        return Err(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!("the params of `{}` must be a JSON object", call.method()),
+        ));
+    };
+    let raw_id = fields.remove("call_id").ok_or_else(|| {
+        CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!("`{}` must include `call_id`", call.method()),
+        )
+    })?;
+    let call_id: RequestId = serde_json::from_value(raw_id).map_err(|error| {
+        CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!("`{}` has an invalid `call_id`: {error}", call.method()),
+        )
+    })?;
+    Ok((call_id, value))
+}
+
+/// Encodes the reply line for a Hook's `page.*` / `locator.*` call back.
+fn page_call_back_line(
+    id: RequestId,
+    method: &str,
+    outcome: Option<Result<serde_json::Value, CallError>>,
+) -> Vec<u8> {
+    let failure = match outcome {
+        Some(Ok(result)) => match wire::success_line(&id, &result) {
+            Ok(line) => return line,
+            Err(error) => internal(&format!("a `{method}` result encodes: {error}")),
+        },
+        Some(Err(error)) => error,
+        None => code(
+            &CALL_CANCELLED,
+            &format!(
+                "the call the Plugin's `{method}` served was answered, or the instance stopped"
+            ),
+        ),
+    };
+    wire::failure_line(Some(id), failure.to_error_object())
 }
 
 /// The params of the Plugin's call back `call`, which the engine serves.

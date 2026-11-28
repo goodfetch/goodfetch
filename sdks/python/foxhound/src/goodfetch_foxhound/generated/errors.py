@@ -12,7 +12,7 @@ from typing import Final, Unpack
 from goodfetch_collie_client.generated.errors import PageError, ProgramError, RefusedError, UnavailableError
 from goodfetch_collie_client.goodfetch_error import BaseGoodfetchError, ErrorClass, ErrorFields, retry_after_of
 from goodfetch_collie_client.caller import details_of
-from .models import BrowserRequiredDetails, DatasetDuplicateDetails, DatasetKeyInvalidDetails, DatasetUnknownDetails, HandlerFailedDetails, HookDuplicateDetails, HookIneffectiveDetails, HookUndeclaredDetails, HookUnknownDetails, LabelUnknownDetails, PayloadInvalidDetails, PayloadSchemaChangedDetails, QueryInvalidDetails, QueryMemoryExceededDetails, RecordInvalidDetails, ResponseNotDocumentDetails, ResponseUnavailableDetails, SheetCapacityExceededDetails, StagingFullDetails
+from .models import BrowserRequiredDetails, DatasetDuplicateDetails, DatasetKeyInvalidDetails, DatasetUnknownDetails, HandlerFailedDetails, HookIneffectiveDetails, HookUndeclaredDetails, HookUnknownDetails, LabelUnknownDetails, PayloadInvalidDetails, PayloadSchemaChangedDetails, QueryInvalidDetails, QueryMemoryExceededDetails, RecordInvalidDetails, ResponseNotDocumentDetails, ResponseUnavailableDetails, SheetCapacityExceededDetails, StagingFullDetails
 
 
 class AttemptEndedError(BaseGoodfetchError):
@@ -108,18 +108,6 @@ class HandlerLostError(UnavailableError):
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="handler_lost", group="unavailable", retryable=True, **fields)
-
-
-class HookDuplicateError(ProgramError):
-    """The crawl declares a second Hook of a name one of its Hooks already carries, so the declaration failed at once, with no I/O: a name identifies one Hook, in `hook_failed`, in the Run trace and for a test's `runHook`. The details name the Hook and its stage. Give each Hook its own `name`."""
-
-    typed_details: HookDuplicateDetails | None
-    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
-
-    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
-        """Takes the message the engine rendered, and what it carries."""
-        super().__init__(message, code="hook_duplicate", group="program", retryable=False, **fields)
-        self.typed_details = details_of(HookDuplicateDetails, self.details)
 
 
 class HookIneffectiveError(ProgramError):
@@ -348,7 +336,6 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "effect_staging_refused": EffectStagingRefusedError,
     "handler_failed": HandlerFailedError,
     "handler_lost": HandlerLostError,
-    "hook_duplicate": HookDuplicateError,
     "hook_ineffective": HookIneffectiveError,
     "hook_undeclared": HookUndeclaredError,
     "hook_unknown": HookUnknownError,

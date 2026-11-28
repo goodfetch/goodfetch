@@ -399,3 +399,11 @@ reason = "An installed Plugin is a pinned artifact (ADR 0033, issue 889): `Artif
 [[announced]]
 entry = "typescript @goodfetch/collie-client/generated/types ArtifactKind"
 reason = "An installed Plugin is a pinned artifact (ADR 0033, issue 889): `ArtifactKind` gains `\"plugin\"`, so an `artifact_download_failed` or `artifact_unavailable_offline` refusal can name a Plugin's pull."
+
+[[announced]]
+entry = "python goodfetch_foxhound.generated.errors HookDuplicateError"
+reason = "`hook_duplicate` moves from Foxhound to Collie because Collie's `hooks` setting raises it too (ADR 0088, issue 954): `HookDuplicateError` now lives in `goodfetch_collie_client` and is inherited by Foxhound."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/generated HookDuplicateError"
+reason = "`hook_duplicate` moves from Foxhound to Collie because Collie's `hooks` setting raises it too (ADR 0088, issue 954): `HookDuplicateError` now lives in `@goodfetch/collie-client` and is inherited by Foxhound."

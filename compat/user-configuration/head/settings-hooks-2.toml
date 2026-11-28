@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[settings]
+hooks = [{ datasets = ["products"], labels = ["listing"], name = "block-ads", permissions = { domains = ["shop.example"], grants = ["page_script"], secrets = ["env:HOOK_TOKEN"] }, script = "hooks/block.js", stage = "page_ready" }]

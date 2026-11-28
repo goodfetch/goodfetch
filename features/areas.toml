@@ -231,11 +231,23 @@ number = 7
 kind = "error"
 prefix = "confinement_unavailable"
 
-# Each Plugin's settings, by its name (ADR 0033, issue 861).
+# Each Plugin's settings, by its name (ADR 0033, issue 861), the Plugin index
+# setting (`plugin.index.url`, issue 916), and settings-named Hooks (`hooks`,
+# ADR 0104, issue 954).
 [[area]]
 number = 7
 kind = "setting"
 prefix = "plugins"
+
+[[area]]
+number = 7
+kind = "setting"
+prefix = "plugin."
+
+[[area]]
+number = 7
+kind = "setting"
+prefix = "hooks"
 
 # `goodfetch plugin add`, its command and the operation it calls (ADR 0033,
 # issue 889).

@@ -2938,22 +2938,6 @@ export interface HandlerFailedDetails {
   exceptionType: string;
 }
 /**
- * What `hook_duplicate` details.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "HookDuplicateDetails".
- */
-export interface HookDuplicateDetails {
-  /**
-   * The name both Hooks carry.
-   */
-  hook: string;
-  /**
-   * The stage of the second Hook, the one refused.
-   */
-  stage: string;
-}
-/**
  * What `hook_ineffective` details.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema

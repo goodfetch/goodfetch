@@ -1590,6 +1590,18 @@ class HeaderValueInvalidDetails(BaseModel):
     """The header's name."""
 
 
+class HookDuplicateDetails(BaseModel):
+    """What `hook_duplicate` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    hook: str
+    """The name both Hooks carry."""
+    stage: str
+    """The stage of the second Hook, the one refused."""
+
+
 class HookFailedDetails(BaseModel):
     """
     What `hook_failed` details: the Hook, and the exception as

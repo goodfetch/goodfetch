@@ -12,7 +12,7 @@ use crate::foxhound::frontier::HttpMethod;
 use crate::run::RunId;
 
 #[rstest]
-#[case::duplicate("hook_duplicate", Product::Foxhound)]
+#[case::duplicate("hook_duplicate", Product::Collie)]
 #[case::ineffective("hook_ineffective", Product::Foxhound)]
 #[case::failed_also_by_a_collie_script_hook("hook_failed", Product::Collie)]
 #[case::undeclared("hook_undeclared", Product::Foxhound)]

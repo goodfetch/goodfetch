@@ -975,18 +975,6 @@ class HeldDomain(BaseModel):
     """When it is next admitted; none until a request in flight ends."""
 
 
-class HookDuplicateDetails(BaseModel):
-    """What `hook_duplicate` details."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    hook: str
-    """The name both Hooks carry."""
-    stage: str
-    """The stage of the second Hook, the one refused."""
-
-
 class HookIneffectiveDetails(BaseModel):
     """What `hook_ineffective` details."""
 

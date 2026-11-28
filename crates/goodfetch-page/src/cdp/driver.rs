@@ -1533,6 +1533,41 @@ impl PageDriver {
         self.browser.send(Some(&self.session), params, call).await
     }
 
+    /// Sets a browser cookie on this page's Session via CDP `Network.setCookie`,
+    /// used by Hook `page.set_cookie` callbacks (ADR 0088, issue 954).
+    ///
+    /// # Errors
+    ///
+    /// Returns the CDP failure translated for `operation`.
+    pub(crate) async fn set_cookie(
+        &self,
+        name: String,
+        value: String,
+        url: Option<String>,
+        domain: Option<String>,
+        path: Option<String>,
+        operation: &'static str,
+    ) -> Result<(), CallError> {
+        let call = crate::errors::Call::Action { operation };
+        let params = network::SetCookieParams {
+            name,
+            value,
+            url,
+            domain,
+            path,
+            secure: None,
+            http_only: None,
+            same_site: None,
+            expires: None,
+            priority: None,
+            source_scheme: None,
+            source_port: None,
+            partition_key: None,
+        };
+        let _ = self.command_for(&params, &call).await?;
+        Ok(())
+    }
+
     /// Sends `params` on the page's target, recorded in the Run trace,
     /// answering the failure itself: the interception's commands, whose
     /// request may be gone.

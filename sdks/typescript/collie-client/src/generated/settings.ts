@@ -308,6 +308,12 @@ export interface Settings {
      */
     readonly runShare?: number;
   };
+  /**
+   * Hooks named in settings: each entry names `{ name, stage, plugin | script, permissions? }`. Layers append in order from Operator policy to the run layer, never removing an earlier layer's Hooks; a lock on `hooks` in Operator policy forbids adding more, and a repeated `name` fails with `hook_duplicate`.
+   *
+   * `hooks`.
+   */
+  readonly hooks?: readonly ({ readonly datasets?: readonly string[]; readonly labels?: readonly string[]; readonly name: string; readonly permissions?: { readonly domains?: readonly string[]; readonly grants?: readonly ("secret_value" | "effects" | "page_script" | "session_credentials")[]; readonly secrets?: readonly string[] }; readonly plugin?: string; readonly script?: string; readonly stage: "before_navigation" | "after_navigation" | "page_ready" | "run_started" | "checkpoint_taken" | "run_migrated" | "limit_reached" | "run_ended" | string })[];
   readonly identified?: {
     /**
      * Where a site reads the key directory of an `identified` Session's key, sent with each signed request as `Signature-Agent`, in the string form Cloudflare accepts: the `https://` origin that serves `goodfetch signing-key directory`'s output at `/.well-known/http-message-signatures-directory`, such as `https://bot.example`, or an inline `data:application/http-message-signatures-directory;base64,` directory. None by default; an `identified` Session needs it, with `identified.signing_key`. Set where a Session that is not `identified` opens, `setting_not_applicable`; inherited, it yields to the Access mode. A Label refuses it with `setting_not_applicable`.
@@ -1052,6 +1058,12 @@ export interface RunSettings {
      */
     readonly runShare?: number;
   };
+  /**
+   * Hooks named in settings: each entry names `{ name, stage, plugin | script, permissions? }`. Layers append in order from Operator policy to the run layer, never removing an earlier layer's Hooks; a lock on `hooks` in Operator policy forbids adding more, and a repeated `name` fails with `hook_duplicate`.
+   *
+   * `hooks`.
+   */
+  readonly hooks?: readonly ({ readonly datasets?: readonly string[]; readonly labels?: readonly string[]; readonly name: string; readonly permissions?: { readonly domains?: readonly string[]; readonly grants?: readonly ("secret_value" | "effects" | "page_script" | "session_credentials")[]; readonly secrets?: readonly string[] }; readonly plugin?: string; readonly script?: string; readonly stage: "before_navigation" | "after_navigation" | "page_ready" | "run_started" | "checkpoint_taken" | "run_migrated" | "limit_reached" | "run_ended" | string })[];
   readonly identified?: {
     /**
      * Where a site reads the key directory of an `identified` Session's key, sent with each signed request as `Signature-Agent`, in the string form Cloudflare accepts: the `https://` origin that serves `goodfetch signing-key directory`'s output at `/.well-known/http-message-signatures-directory`, such as `https://bot.example`, or an inline `data:application/http-message-signatures-directory;base64,` directory. None by default; an `identified` Session needs it, with `identified.signing_key`. Set where a Session that is not `identified` opens, `setting_not_applicable`; inherited, it yields to the Access mode. A Label refuses it with `setting_not_applicable`.
@@ -1856,6 +1868,7 @@ const SPELLING: Spelling = {
     sampleInterval: "sample_interval",
     workerThreads: "worker_threads",
   }],
+  hooks: "hooks",
   identified: ["identified", {
     signatureAgent: "signature_agent",
     signingKey: "signing_key",

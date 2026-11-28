@@ -11,6 +11,10 @@
 //! only once the Operator policy lets it load and approves each Secret
 //! value its environment holds (issue 900). A Plugin declaring a language
 //! runtime runs from the shared runtime cache (issue 895).
+//!
+//! Size: one concern — one Run's lazy process-Plugin instance registry,
+//! shared startup/admission/confinement path and immediate revocation stop
+//! across Extractor, Secret provider and Hook kinds.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -27,11 +31,12 @@ use goodfetch_protocol::plugin::approvals::{
 };
 use goodfetch_protocol::plugin::index::{PluginIndex, SignerIdentity};
 use goodfetch_protocol::plugin::settings::{PLUGINS, PluginEntry};
-use goodfetch_protocol::plugin::{PluginKindName, PluginManifest, Runtime};
+use goodfetch_protocol::plugin::{HookStageName, PluginKindName, PluginManifest, Runtime};
 use goodfetch_protocol::run::RunId;
 use serde_json::Value;
 
 use super::extractor::{ProcessExtractor, unavailable};
+use super::hook::{ProcessHook, hook_failed};
 use super::secret::ProcessSecretProvider;
 use crate::audit::AuditLog;
 use crate::browser_cache::{BrowserCache, CacheLocation, HeldArtifact};
@@ -90,6 +95,9 @@ pub struct RunPlugins {
     /// started.
     secret_providers:
         tokio::sync::Mutex<BTreeMap<String, Arc<tokio::sync::OnceCell<ProcessSecretProvider>>>>,
+    /// The process-Plugin Hooks, by Plugin name, each set once its instance
+    /// started.
+    hooks: tokio::sync::Mutex<BTreeMap<String, Arc<tokio::sync::OnceCell<ProcessHook>>>>,
 }
 
 impl std::fmt::Debug for RunPlugins {
@@ -130,6 +138,7 @@ impl RunPlugins {
             running: tokio::sync::Mutex::new(BTreeMap::new()),
             extractors: tokio::sync::Mutex::new(BTreeMap::new()),
             secret_providers: tokio::sync::Mutex::new(BTreeMap::new()),
+            hooks: tokio::sync::Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -184,7 +193,16 @@ impl RunPlugins {
         if self.running.lock().await.contains_key(name) {
             return true;
         }
-        self.extractors
+        if self
+            .extractors
+            .lock()
+            .await
+            .get(name)
+            .is_some_and(|cell| cell.initialized())
+        {
+            return true;
+        }
+        self.hooks
             .lock()
             .await
             .get(name)
@@ -265,6 +283,7 @@ impl RunPlugins {
         let now = self.clock.timestamp();
         for (name, record, revocation) in to_stop {
             self.extractors.lock().await.remove(&name);
+            self.hooks.lock().await.remove(&name);
             self.secret_providers.lock().await.retain(|_, cell| {
                 cell.get()
                     .is_none_or(|provider| provider.name() != name.as_str())
@@ -440,7 +459,7 @@ impl RunPlugins {
                 }
             })?;
         let name = installed.manifest.name.clone();
-        let instance = self
+        let (instance, _) = self
             .start_instance(
                 installed,
                 settings,
@@ -451,6 +470,99 @@ impl RunPlugins {
             .await
             .map_err(SecretStartError::Start)?;
         Ok(ProcessSecretProvider::new(name, instance))
+    }
+
+    /// The process-Plugin Hook named `plugin_name`, started lazily on first
+    /// call for `stage` (ADRs 0033, 0088 and 0104; issue 954).
+    ///
+    /// # Errors
+    ///
+    /// [`StartError::Secret`] when resolving a secret setting fails;
+    /// [`StartError::Refused`] when the Plugin is missing, does not declare
+    /// the `hook` kind or `stage`, is denied by Operator policy, fails
+    /// settings validation, or cannot be confined on this host.
+    pub async fn hook(
+        &self,
+        plugin_name: &str,
+        hook_name: &str,
+        stage: &HookStageName,
+        settings: Option<&Resolved>,
+        secrets: &RunSecrets,
+        probe: &SandboxProbe,
+    ) -> Result<ProcessHook, StartError> {
+        let started = Arc::clone(
+            self.hooks
+                .lock()
+                .await
+                .entry(plugin_name.to_owned())
+                .or_default(),
+        );
+        let hook = started
+            .get_or_try_init(|| {
+                self.start_hook(plugin_name, hook_name, stage, settings, secrets, probe)
+            })
+            .await?
+            .clone();
+        if !hook.implements_stage(stage) {
+            return Err(StartError::Refused(hook_failed(
+                stage,
+                hook_name,
+                "HookStageUnsupported",
+                &format!(
+                    "the Plugin `{plugin_name}` does not declare Hook stage `{}` in its manifest",
+                    stage.as_str()
+                ),
+                None,
+            )));
+        }
+        Ok(hook)
+    }
+
+    async fn start_hook(
+        &self,
+        plugin_name: &str,
+        hook_name: &str,
+        stage: &HookStageName,
+        settings: Option<&Resolved>,
+        secrets: &RunSecrets,
+        probe: &SandboxProbe,
+    ) -> Result<ProcessHook, StartError> {
+        let store = self.store.clone();
+        let named = plugin_name.to_owned();
+        let installed = self
+            .owner
+            .blocking(move || store.resolve(&named, &PluginKindName::HOOK))
+            .await
+            .map_err(|error| {
+                tracing::warn!(plugin = plugin_name, hook = hook_name, %error, "a Hook Plugin cannot start");
+                StartError::Refused(hook_failed(
+                    stage,
+                    hook_name,
+                    "HookPluginUnavailable",
+                    &format!("the Hook Plugin `{plugin_name}` is not installed or is not a Hook: {error}"),
+                    None,
+                ))
+            })?;
+        let stages = installed.manifest.hook_stages.clone();
+        let stage_for_err = *stage;
+        let hook_name_owned = hook_name.to_owned();
+        let (instance, effects) = self
+            .start_instance(installed, settings, secrets, probe, move |name| {
+                hook_failed(
+                    &stage_for_err,
+                    &hook_name_owned,
+                    "HookPluginUnavailable",
+                    &format!("the Hook Plugin `{name}` could not start"),
+                    None,
+                )
+            })
+            .await?;
+        Ok(ProcessHook::new(
+            plugin_name.to_owned(),
+            instance,
+            effects,
+            stages,
+        ))
     }
 
     /// Starts the instance of the installed Plugin `name`, as
@@ -465,7 +577,7 @@ impl RunPlugins {
         probe: &SandboxProbe,
     ) -> Result<ProcessExtractor, StartError> {
         let installed = self.resolve_extractor(name).await?;
-        let instance = self
+        let (instance, _) = self
             .start_instance(installed, settings, secrets, probe, unavailable)
             .await?;
         Ok(ProcessExtractor::new(name.to_owned(), instance))
@@ -482,7 +594,7 @@ impl RunPlugins {
         secrets: &RunSecrets,
         probe: &SandboxProbe,
         unavailable_error: impl Fn(&str) -> CallError,
-    ) -> Result<PluginInstance, StartError> {
+    ) -> Result<(PluginInstance, Option<EffectsGate>), StartError> {
         let name = installed.manifest.name.clone();
         let cannot_start = |reason: &dyn std::fmt::Display| {
             tracing::warn!(plugin = %name, %reason, "a Plugin cannot start");
@@ -520,7 +632,7 @@ impl RunPlugins {
                 }
                 ungranted @ EnvironmentError::Ungranted { .. } => cannot_start(&ungranted),
             })?;
-        let fetch = self
+        let (fetch, effects) = self
             .build_fetch(
                 &name,
                 &installed.manifest,
@@ -572,7 +684,7 @@ impl RunPlugins {
         );
         self.track_instance(name, digest, None, instance.clone())
             .await;
-        Ok(instance)
+        Ok((instance, effects))
     }
 
     /// Builds a Plugin's [`PluginFetch`] wired with Secret insertion and the
@@ -584,7 +696,7 @@ impl RunPlugins {
         approved: &goodfetch_protocol::plugin::approvals::Approvals,
         resolved: &Resolved,
         secrets: &RunSecrets,
-    ) -> Result<PluginFetch, crate::egress::InvalidEntry> {
+    ) -> Result<(PluginFetch, Option<EffectsGate>), crate::egress::InvalidEntry> {
         let mut fetch = PluginFetch::of(resolved, name, self.clock, self.owner.blocking_threads())?
             .inserting(Inserting::new(
                 name,
@@ -593,9 +705,10 @@ impl RunPlugins {
                 secrets.clone(),
                 self.run_id.clone(),
             ));
+        let mut effects = None;
         if let Some(journal) = &self.effects_journal {
             let page_policy = fetch.page_policy().clone();
-            fetch = fetch.with_effects(EffectsGate::new(
+            let gate = EffectsGate::new(
                 name.to_owned(),
                 manifest.clone(),
                 approved.clone(),
@@ -604,9 +717,11 @@ impl RunPlugins {
                 self.run_id.clone(),
                 self.clock,
                 Arc::clone(journal),
-            ));
+            );
+            fetch = fetch.with_effects(gate.clone());
+            effects = Some(gate);
         }
-        Ok(fetch)
+        Ok((fetch, effects))
     }
 
     /// Checks the cached Plugin index for revocations and expiry, auditing

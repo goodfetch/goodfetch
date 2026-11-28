@@ -60,6 +60,8 @@ fn state_of(session: &SessionInterception, failure: Option<LeftFailure>) -> Page
         retrying: AtomicBool::new(false),
         lists_blocked: std::sync::atomic::AtomicU64::new(0),
         learned: Arc::new(Learned::default()),
+        hook_blocked: Mutex::new(Vec::new()),
+        has_hook_blocks: AtomicBool::new(false),
         on_document: None,
     }
 }

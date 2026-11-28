@@ -1986,6 +1986,7 @@ proptest! {
     }
 }
 
+mod hooks;
 mod operator_policy;
 mod placeholders;
 mod plugin_approvals;

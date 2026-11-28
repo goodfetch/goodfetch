@@ -16,7 +16,7 @@ use crate::{
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 78] = [
+pub const MODULES: [&Entries; 79] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &daemon::ENTRIES,
@@ -68,6 +68,7 @@ pub const MODULES: [&Entries; 78] = [
     &plugin::add::ENTRIES,
     &plugin::approvals::ENTRIES,
     &plugin::extractor::ENTRIES,
+    &plugin::hook::ENTRIES,
     &plugin::index::ENTRIES,
     &plugin::manage::ENTRIES,
     &plugin::net::ENTRIES,
@@ -158,6 +159,9 @@ pub struct OthersPart {
 /// names. A name neither Product knows is kept, as a newer engine's (ADR
 /// 0079).
 pub fn others_part(setting: &Setting, value: &Value, engine: Product) -> Option<OthersPart> {
+    if setting.name == plugin::hook::HOOKS.name {
+        return hook_others_part(value, engine);
+    }
     if setting.name != notifications::NOTIFICATIONS_CHANNELS.name {
         return None;
     }
@@ -189,6 +193,41 @@ pub fn others_part(setting: &Setting, value: &Value, engine: Product) -> Option<
         theirs: Value::Object(theirs),
         first,
         needs,
+    })
+}
+
+/// Foxhound-only fields (`labels`, `datasets`) on `hooks` entries when read on
+/// a Collie engine (ADRs 0088 and 0095; issue 954).
+fn hook_others_part(value: &Value, engine: Product) -> Option<OthersPart> {
+    if engine.contains(Product::Foxhound) {
+        return None;
+    }
+    let mut kept = value.clone();
+    let mut theirs = Vec::new();
+    let mut first = None;
+    for entry in kept.as_array_mut().into_iter().flatten() {
+        let Some(fields) = entry.as_object_mut() else {
+            continue;
+        };
+        let mut aside = Map::new();
+        for field in plugin::hook::HookEntry::FOXHOUND_FIELDS {
+            if let Some(removed) = fields.remove(field) {
+                first.get_or_insert_with(|| field.to_owned());
+                aside.insert(field.to_owned(), removed);
+            }
+        }
+        if !aside.is_empty() {
+            if let Some(name) = fields.get("name").cloned() {
+                aside.insert("name".to_owned(), name);
+            }
+            theirs.push(Value::Object(aside));
+        }
+    }
+    first.map(|first| OthersPart {
+        kept,
+        theirs: Value::Array(theirs),
+        first,
+        needs: Product::Foxhound,
     })
 }
 

@@ -187,26 +187,7 @@ pub const CRAWL_HOOK_HANDLE: HandlerRequest = HandlerRequest {
     arrived_in: ARRIVED_IN,
 };
 
-/// A second Hook of one name on one crawl (ADR 0104).
-pub const HOOK_DUPLICATE: ErrorCodeDefinition = ErrorCodeDefinition {
-    name: "hook_duplicate",
-    description: "The crawl declares a second Hook of a name one of its Hooks already carries, so the declaration failed at once, with no I/O: a name identifies one Hook, in `hook_failed`, in the Run trace and for a test's `runHook`. The details name the Hook and its stage. Give each Hook its own `name`.",
-    group: ErrorGroup::Program,
-    retryable: false,
-    exit_code: None,
-    arrived_in: ARRIVED_IN,
-};
-
-/// What `hook_duplicate` details.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct HookDuplicateDetails {
-    /// The name both Hooks carry.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub hook: String,
-    /// The stage of the second Hook, the one refused.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub stage: String,
-}
+pub use crate::hook::{HOOK_DUPLICATE, HookDuplicateDetails};
 
 /// A Hook that can never run (ADR 0104).
 pub const HOOK_INEFFECTIVE: ErrorCodeDefinition = ErrorCodeDefinition {
@@ -281,12 +262,7 @@ pub const ENTRIES: Entries = Entries {
     operations: &[],
     events: &[],
     handler_requests: &[CRAWL_HOOK_HANDLE],
-    error_codes: &[
-        HOOK_DUPLICATE,
-        HOOK_INEFFECTIVE,
-        HOOK_UNDECLARED,
-        HOOK_UNKNOWN,
-    ],
+    error_codes: &[HOOK_INEFFECTIVE, HOOK_UNDECLARED, HOOK_UNKNOWN],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[],

@@ -806,6 +806,41 @@ class ConnectionGovernorSettings(TypedDict):
     """
 
 
+class HooksItemPermissions(TypedDict):
+    """Permissions declared for a Script Hook."""
+
+    domains: NotRequired[list[str]]
+
+    grants: NotRequired[list[Literal["secret_value", "effects", "page_script", "session_credentials"]]]
+
+    secrets: NotRequired[list[str]]
+
+
+class HooksItem(TypedDict):
+    """A value of `HooksItem`."""
+
+    datasets: NotRequired[list[str]]
+    """Foxhound only: crawl Datasets this Hook is scoped to."""
+
+    labels: NotRequired[list[str]]
+    """Foxhound only: crawl Labels this Hook is scoped to."""
+
+    name: str
+    """The Hook's unique name across every layer of the scope."""
+
+    permissions: NotRequired[HooksItemPermissions]
+    """Permissions declared for a Script Hook."""
+
+    plugin: NotRequired[str]
+    """The installed Hook Plugin name (mutually exclusive with `script`)."""
+
+    script: NotRequired[str]
+    """An inline Script Hook (mutually exclusive with `plugin`)."""
+
+    stage: Literal["before_navigation", "after_navigation", "page_ready", "run_started", "checkpoint_taken", "run_migrated", "limit_reached", "run_ended"] | str
+    """The Hook stage, by its single catalog `snake_case` name."""
+
+
 class ConnectionIdentifiedSettings(TypedDict):
     """The `identified` settings of `FoxhoundSettings`."""
 
@@ -1940,6 +1975,12 @@ class FoxhoundSettings(TypedDict):
     frontier: NotRequired[ConnectionFrontierSettings]
 
     governor: NotRequired[ConnectionGovernorSettings]
+
+    hooks: NotRequired[list[HooksItem]]
+    """Hooks named in settings: each entry names `{ name, stage, plugin | script, permissions? }`. Layers append in order from Operator policy to the run layer, never removing an earlier layer's Hooks; a lock on `hooks` in Operator policy forbids adding more, and a repeated `name` fails with `hook_duplicate`.
+
+    `hooks`.
+    """
 
     identified: NotRequired[ConnectionIdentifiedSettings]
 
@@ -3468,6 +3509,12 @@ class CrawlSettings(TypedDict):
     frontier: NotRequired[RunFrontierSettings]
 
     governor: NotRequired[RunGovernorSettings]
+
+    hooks: NotRequired[list[HooksItem]]
+    """Hooks named in settings: each entry names `{ name, stage, plugin | script, permissions? }`. Layers append in order from Operator policy to the run layer, never removing an earlier layer's Hooks; a lock on `hooks` in Operator policy forbids adding more, and a repeated `name` fails with `hook_duplicate`.
+
+    `hooks`.
+    """
 
     identified: NotRequired[RunIdentifiedSettings]
 

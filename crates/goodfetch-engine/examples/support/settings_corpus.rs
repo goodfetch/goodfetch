@@ -50,6 +50,13 @@ pub(crate) fn shaped_examples(table: &str, holds: Holds) -> Vec<(String, String)
                     .map(|example| json!({ MAP_KEY: example }))
                     .collect(),
             )),
+            ValueKind::List(ValueKind::Shape(shape)) => Some((
+                setting,
+                (shape.examples)()
+                    .into_iter()
+                    .map(|example| json!([example]))
+                    .collect(),
+            )),
             _ => None,
         })
         .flat_map(|(setting, examples)| {

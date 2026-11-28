@@ -34,6 +34,7 @@ pub mod add;
 pub mod approvals;
 pub mod extractor;
 mod fuzz;
+pub mod hook;
 pub mod index;
 pub mod lockfile;
 pub mod manage;

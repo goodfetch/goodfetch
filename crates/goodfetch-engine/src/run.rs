@@ -435,6 +435,7 @@ fn keys_marked(error: &SettingsError) -> String {
             (Some(*layer), [Some(key.as_str()), None])
         }
         SettingsError::NotInProduct { .. }
+        | SettingsError::HookDuplicate { .. }
         | SettingsError::Format { .. }
         | SettingsError::OlderMajorPolicy { .. } => (None, [None, None]),
     };
@@ -528,22 +529,21 @@ pub(crate) fn translated(
                 identity.not_in_product(Requested::Name(key), *needs, behind_gateway);
             CallError::new(&NOT_IN_PRODUCT, message, &details)
         }
+        SettingsError::HookDuplicate { hook, stage } => CallError::new(
+            &goodfetch_protocol::hook::HOOK_DUPLICATE,
+            message,
+            &goodfetch_protocol::hook::HookDuplicateDetails {
+                hook: hook.clone(),
+                stage: stage.clone(),
+            },
+        ),
         SettingsError::Format {
             format,
             found,
             supported,
             install,
             ..
-        } => CallError::new(
-            &FORMAT_VERSION_UNSUPPORTED,
-            message,
-            &FormatVersionUnsupportedDetails {
-                format: (*format).to_owned(),
-                found: found.clone(),
-                supported: supported.clone(),
-                fix: format_fix(error, install.as_deref(), format, found),
-            },
-        ),
+        } => format_unsupported(error, message, format, found, supported, install.as_deref()),
         SettingsError::OlderMajorPolicy { major, current, .. } => CallError::new(
             &FORMAT_VERSION_UNSUPPORTED,
             message,
@@ -555,6 +555,26 @@ pub(crate) fn translated(
             },
         ),
     }
+}
+
+fn format_unsupported(
+    error: &SettingsError,
+    message: String,
+    format: &'static str,
+    found: &str,
+    supported: &str,
+    install: Option<&str>,
+) -> CallError {
+    CallError::new(
+        &FORMAT_VERSION_UNSUPPORTED,
+        message,
+        &FormatVersionUnsupportedDetails {
+            format: format.to_owned(),
+            found: found.to_owned(),
+            supported: supported.to_owned(),
+            fix: format_fix(error, install, format, found),
+        },
+    )
 }
 
 /// `setting_not_applicable` for a start or a resume that changes a key

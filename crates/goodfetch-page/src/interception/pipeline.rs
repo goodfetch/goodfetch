@@ -882,19 +882,23 @@ impl PageContext {
     /// failed carrying the refusal, and the navigation waiting on it raises
     /// it, or else the Run trace records it; for a `fetch`, `closed` when
     /// the request went before it was sent on.
-    async fn send_on(&self, held: &Held, fetch: bool) -> Result<(), CallError> {
-        let id = held.paused.id();
-        // Borrowed from the request where it can be, so no request
-        // allocates its source.
-        let document;
-        let source: &str = if held.navigation {
+    fn source_url<'a>(&self, held: &'a Held, document: &'a mut Option<Arc<str>>) -> &'a str {
+        if held.navigation {
             held.url()
         } else if let Some(referer) = held.paused.headers().get("referer") {
             referer
         } else {
-            document = Arc::clone(&*lock(&self.document));
-            &document
-        };
+            document.insert(Arc::clone(&*lock(&self.document)))
+        }
+    }
+
+    async fn send_on(&self, held: &Held, fetch: bool) -> Result<(), CallError> {
+        if !held.navigation && self.state.blocked_by_hook(held.url()) {
+            return Err(self.blocked(held).await);
+        }
+        let id = held.paused.id();
+        let mut document = None;
+        let source = self.source_url(held, &mut document);
         let paused = steps::Paused {
             id,
             url: held.url(),

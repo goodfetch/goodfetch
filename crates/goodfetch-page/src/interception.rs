@@ -403,6 +403,12 @@ pub(super) struct PageState {
     lists_blocked: AtomicU64,
     /// The domains its Run learned blocking off for.
     learned: Arc<Learned>,
+    /// URL patterns blocked on this page by a Hook (`page.block_url`, ADR 0088,
+    /// issue 954). Checked only when `has_hook_blocks` is true, so empty `hooks`
+    /// pays one relaxed atomic load and zero allocations.
+    hook_blocked: Mutex<Vec<UrlPattern>>,
+    /// Lock-free fast-path flag for `hook_blocked`.
+    has_hook_blocks: AtomicBool,
     /// What it does with each document its main frame receives, when a
     /// program opened it; none for a service worker's own.
     on_document: Option<Arc<dyn OnDocument>>,
@@ -418,6 +424,17 @@ struct OwnSent {
 }
 
 impl PageState {
+    /// Whether `url` matches a subresource block pattern added by a Hook on
+    /// this page.
+    pub(super) fn blocked_by_hook(&self, url: &str) -> bool {
+        if !self.has_hook_blocks.load(Ordering::Relaxed) {
+            return false;
+        }
+        lock(&self.hook_blocked)
+            .iter()
+            .any(|pattern| pattern.matches(url))
+    }
+
     /// The overrides of the crawl request's own document fetch for the
     /// main-frame request to `url` that no redirect sent, when the
     /// navigation call going on fetches that document.
@@ -788,6 +805,8 @@ impl Interception {
                 blocking: blocking.clone(),
                 signing: session.signing.clone(),
             },
+            hook_blocked: Mutex::new(Vec::new()),
+            has_hook_blocks: AtomicBool::new(false),
             on_document,
         });
         (state, session.lookups.clone())
@@ -934,6 +953,8 @@ impl Interception {
                             blocking: blocking.clone(),
                             signing: session.signing.clone(),
                         },
+                        hook_blocked: Mutex::new(Vec::new()),
+                        has_hook_blocks: AtomicBool::new(false),
                         on_document: None,
                     });
                     let context = Arc::new(
@@ -1217,6 +1238,21 @@ impl PageInterception {
             });
         }
         OwnFetchSent(state)
+    }
+
+    /// Registers a glob URL pattern blocked by a Hook on this page (ADR 0088,
+    /// issue 954). Matching non-navigation requests fail as `BlockedByClient`.
+    ///
+    /// # Errors
+    ///
+    /// `pattern_unsupported` if `glob` is not a valid URL pattern, or `closed`
+    /// if the page has closed.
+    pub(crate) fn block_url(&self, glob: &str) -> Result<(), CallError> {
+        let pattern = UrlPattern::glob(glob)?;
+        let state = self.held().ok_or_else(|| closed(Scope::Page(self)))?;
+        lock(&state.hook_blocked).push(pattern);
+        state.has_hook_blocks.store(true, Ordering::Release);
+        Ok(())
     }
 
     /// Judges whether the `javascript:` URL `url` may run in its page's

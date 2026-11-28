@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 
 use goodfetch_protocol::catalog::{Product, Setting};
 use goodfetch_protocol::entries::others_part;
+use goodfetch_protocol::plugin::hook::HOOKS;
 use goodfetch_protocol::plugin::settings::{PLUGINS, PluginEntry};
 use goodfetch_protocol::secrets::placeholders::SECRETS_PLACEHOLDERS;
 use goodfetch_protocol::settings::session_source::SessionSource;
@@ -330,6 +331,11 @@ pub(super) fn check_plugin_entries(
 /// `approved` of `below`'s entry that the nearer one leaves out.
 pub(crate) fn over(setting: &Setting, below: &Value, value: &Value) -> Value {
     match (below, value) {
+        (Value::Array(below), Value::Array(nearer)) if setting.name == HOOKS.name => {
+            let mut combined = below.clone();
+            combined.extend(nearer.iter().cloned());
+            Value::Array(combined)
+        }
         (Value::Object(below), Value::Object(nearer)) if by_entry(setting) => {
             let mut bound = below.clone();
             for (name, entry) in nearer {

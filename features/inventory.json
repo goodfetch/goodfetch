@@ -1861,6 +1861,7 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "collie",
         "foxhound"
       ]
     },
@@ -10586,6 +10587,17 @@
       ]
     },
     {
+      "id": "setting:hooks",
+      "kind": "setting",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:identified.signature_agent",
       "kind": "setting",
       "area": 8,
@@ -10870,7 +10882,7 @@
     {
       "id": "setting:plugin.index.url",
       "kind": "setting",
-      "area": null,
+      "area": 7,
       "milestone": null,
       "status": "active",
       "products": [

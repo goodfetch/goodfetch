@@ -4660,6 +4660,26 @@
       ],
       "type": "object"
     },
+    "HookDuplicateDetails": {
+      "description": "What `hook_duplicate` details.",
+      "properties": {
+        "hook": {
+          "arrived_in": "0.1",
+          "description": "The name both Hooks carry.",
+          "type": "string"
+        },
+        "stage": {
+          "arrived_in": "0.1",
+          "description": "The stage of the second Hook, the one refused.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hook",
+        "stage"
+      ],
+      "type": "object"
+    },
     "HookFailedDetails": {
       "description": "What `hook_failed` details: the Hook, and the exception as\n`handler_failed`'s details name a handler's (ADR 0079's notes of\n2026-10-24 and 2026-10-27).",
       "properties": {
@@ -18545,6 +18565,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A scope's `hooks` setting or a crawl declares a second Hook of a name one of its Hooks already carries, so opening the scope or declaring the Hook failed at once, with no I/O: a name identifies one Hook, in `hook_failed`, in the Run trace and for a test's `runHook`. The details name the Hook and its stage. Give each Hook its own `name`.",
+      "details": {
+        "$ref": "#/$defs/HookDuplicateDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "hook_duplicate",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A Hook raised, so its work failed: an attempt commits nothing, and one that failed at the Record stage commits none of what it staged. The message always names the exception. The details name the stage, the Hook, the request's Label (`null` at a lifecycle stage or outside a crawl), the exception's type, message and stack, and the Goodfetch code raised inside (`null` for the program's own exception). A wrapped code is retried when its own retryable flag says so; in a crawl, the program's own exception only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time, and either retry draws on `crawl.retry.max`.",
       "details": {
         "$ref": "#/$defs/HookFailedDetails"
@@ -20324,6 +20357,54 @@
     }
   ],
   "hook_stages": [
+    {
+      "arrived_in": "0.1",
+      "description": "Once a navigation's response arrived, before the engine's own page work.",
+      "name": "after_navigation",
+      "product": "collie"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Before a main-frame navigation is sent.",
+      "name": "before_navigation",
+      "product": "collie"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Once a Checkpoint was taken; observe-only.",
+      "name": "checkpoint_taken",
+      "product": "collie"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Once a Limit was reached; observe-only.",
+      "name": "limit_reached",
+      "product": "collie"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "At a navigation's `load`.",
+      "name": "page_ready",
+      "product": "collie"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Once a Run ended; observe-only.",
+      "name": "run_ended",
+      "product": "collie"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Once a Run moved to another Group member; observe-only.",
+      "name": "run_migrated",
+      "product": "collie"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Once a Run started; observe-only.",
+      "name": "run_started",
+      "product": "collie"
+    },
     {
       "arrived_in": "0.1",
       "description": "Before the sample operation repeats a text.",
@@ -24944,6 +25025,142 @@
             "description": "One thread a core."
           }
         ]
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": [],
+      "deprecated": null,
+      "description": "Hooks named in settings: each entry names `{ name, stage, plugin | script, permissions? }`. Layers append in order from Operator policy to the run layer, never removing an earlier layer's Hooks; a lock on `hooks` in Operator policy forbids adding more, and a repeated `name` fails with `hook_duplicate`.",
+      "fixed_for_run": false,
+      "name": "hooks",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "datasets": {
+              "description": "Foxhound only: crawl Datasets this Hook is scoped to.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "labels": {
+              "description": "Foxhound only: crawl Labels this Hook is scoped to.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "name": {
+              "description": "The Hook's unique name across every layer of the scope.",
+              "minLength": 1,
+              "type": "string"
+            },
+            "permissions": {
+              "additionalProperties": false,
+              "description": "Permissions declared for a Script Hook.",
+              "properties": {
+                "domains": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "grants": {
+                  "items": {
+                    "enum": [
+                      "secret_value",
+                      "effects",
+                      "page_script",
+                      "session_credentials"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "secrets": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "type": "object"
+            },
+            "plugin": {
+              "description": "The installed Hook Plugin name (mutually exclusive with `script`).",
+              "minLength": 1,
+              "type": "string"
+            },
+            "script": {
+              "description": "An inline Script Hook (mutually exclusive with `plugin`).",
+              "minLength": 1,
+              "type": "string"
+            },
+            "stage": {
+              "anyOf": [
+                {
+                  "const": "before_navigation",
+                  "description": "Before a main-frame navigation is sent."
+                },
+                {
+                  "const": "after_navigation",
+                  "description": "Once a navigation's response arrived, before the engine's own page work."
+                },
+                {
+                  "const": "page_ready",
+                  "description": "At a navigation's `load`."
+                },
+                {
+                  "const": "run_started",
+                  "description": "Once a Run started; observe-only."
+                },
+                {
+                  "const": "checkpoint_taken",
+                  "description": "Once a Checkpoint was taken; observe-only."
+                },
+                {
+                  "const": "run_migrated",
+                  "description": "Once a Run moved to another Group member; observe-only."
+                },
+                {
+                  "const": "limit_reached",
+                  "description": "Once a Limit was reached; observe-only."
+                },
+                {
+                  "const": "run_ended",
+                  "description": "Once a Run ended; observe-only."
+                },
+                {
+                  "description": "Another Product's or a newer engine's Hook stage name.",
+                  "pattern": "^[a-z][a-z0-9_]*$",
+                  "type": "string"
+                }
+              ],
+              "description": "The Hook stage, by its single catalog `snake_case` name."
+            }
+          },
+          "required": [
+            "name",
+            "stage"
+          ],
+          "type": "object"
+        },
+        "type": "array"
       },
       "weakening": null,
       "weakens": false

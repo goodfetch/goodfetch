@@ -68,6 +68,8 @@ mod extractor_suite;
 #[cfg(target_os = "linux")]
 mod governor;
 mod help;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod hooks;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")

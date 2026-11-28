@@ -33,6 +33,7 @@ use futures_util::future::BoxFuture;
 use goodfetch_protocol::catalog::{OperationClass, PluginKind, Setting};
 use goodfetch_protocol::entries;
 use goodfetch_protocol::plugin::extractor::{EXTRACT_CONTENT, EXTRACTOR};
+use goodfetch_protocol::plugin::hook::{HOOK, HOOK_CALL};
 use goodfetch_protocol::plugin::secret::{SECRET_PROVIDER, SECRET_RESOLVE};
 use goodfetch_protocol::plugin::{PLUGIN_CRASHED, PLUGIN_QUARANTINED, PluginKindName};
 use goodfetch_protocol::settings::{TIMEOUT_HOOK, TIMEOUT_MODEL, TIMEOUT_PLUGIN};
@@ -49,6 +50,7 @@ pub use crate::plugin_host::spend::{
 };
 
 pub mod extractor;
+pub mod hook;
 pub mod run_plugins;
 pub mod secret;
 
@@ -171,18 +173,21 @@ fn class_name<S: serde::Serializer>(
 pub enum Primitive {
     /// The Extractor's `extract.content`.
     ExtractContent,
+    /// The Hook's `hook.call`.
+    HookCall,
     /// The Secret provider's `secret.resolve`.
     SecretResolve,
 }
 
 impl Primitive {
     /// Every primitive of Collie's kinds.
-    pub const ALL: [Self; 2] = [Self::ExtractContent, Self::SecretResolve];
+    pub const ALL: [Self; 3] = [Self::ExtractContent, Self::HookCall, Self::SecretResolve];
 
     /// Its kind.
     pub fn kind(self) -> &'static PluginKind {
         match self {
             Self::ExtractContent => &EXTRACTOR,
+            Self::HookCall => &HOOK,
             Self::SecretResolve => &SECRET_PROVIDER,
         }
     }
@@ -191,15 +196,17 @@ impl Primitive {
     pub fn method(self) -> &'static str {
         match self {
             Self::ExtractContent => EXTRACT_CONTENT,
+            Self::HookCall => HOOK_CALL,
             Self::SecretResolve => SECRET_RESOLVE,
         }
     }
 
     /// The class the engine gives each of its calls: reading a page's main
-    /// content or resolving a secret changes nothing.
+    /// content, running a Hook (whose own Effects are gated and journaled
+    /// individually) or resolving a secret changes nothing by itself.
     pub fn class(self) -> OperationClass {
         match self {
-            Self::ExtractContent | Self::SecretResolve => OperationClass::Read,
+            Self::ExtractContent | Self::HookCall | Self::SecretResolve => OperationClass::Read,
         }
     }
 }

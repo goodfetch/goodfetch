@@ -133,6 +133,7 @@ mod arrival;
 mod blocked;
 mod blocking_off;
 mod clean_up;
+mod hooks;
 mod plugin_extractor;
 pub(crate) mod served_formats;
 mod waits;
@@ -1298,6 +1299,20 @@ impl Pages {
         if navigating == Navigating::Program {
             page.sending(destination.operation()).await?;
         }
+        let run_hooks = hooks::has_any(page.run.identity.settings().map(RunSettings::resolved));
+        if run_hooks {
+            let target = match destination {
+                Destination::Url(url) => Some(url),
+                Destination::Reload | Destination::Back | Destination::Forward => None,
+            };
+            hooks::dispatch(
+                page_id,
+                &page,
+                goodfetch_protocol::plugin::HookStageName::BEFORE_NAVIGATION,
+                target,
+            )
+            .await?;
+        }
         let navigated = page
             .life
             .call(
@@ -1311,15 +1326,43 @@ impl Pages {
                 ),
             )
             .await;
-        // A failure the interception left while the navigation ran, such
-        // as a route's handler failing on its document, is the
-        // navigation's.
         if let Some(failure) = Self::left_failure(&page) {
             return Err(failure);
         }
         let Some(response) = arrival::arrived(page_id, navigated?, events).await else {
             return Ok(Navigated { response: None });
         };
+        self.finish_navigation(
+            page_id,
+            &page,
+            (destination, wait_until, timeout),
+            (response, blocked_before, run_hooks),
+            events,
+        )
+        .await
+    }
+
+    #[expect(
+        clippy::option_option,
+        reason = "the param's three states as the protocol carries them (ADR 0080): absent, `null` or a duration"
+    )]
+    async fn finish_navigation(
+        &self,
+        page_id: &PageId,
+        page: &OpenPage,
+        (destination, wait_until, timeout): (Destination<'_>, WaitUntil, Option<Option<u64>>),
+        (response, blocked_before, run_hooks): (PageResponse, u64, bool),
+        events: &goodfetch_engine::events::Events,
+    ) -> Result<Navigated, CallError> {
+        if run_hooks {
+            hooks::dispatch(
+                page_id,
+                page,
+                goodfetch_protocol::plugin::HookStageName::AFTER_NAVIGATION,
+                Some(response.url.as_str()),
+            )
+            .await?;
+        }
         // Every document a Session's navigation reached is judged: its Block
         // cause first, which raises `blocked` (ADRs 0088 and 0092), unless
         // it checks the browser and the Filter lists touched its
@@ -1347,7 +1390,7 @@ impl Pages {
             return Err(blocked::blocked(block.clone(), &response, received));
         }
         let judged =
-            recovery::judge(&arrival::judging(&page, page_id, destination), &response).await;
+            recovery::judge(&arrival::judging(page, page_id, destination), &response).await;
         let first = blocking_off::FirstLoad {
             destination,
             wait_until,
@@ -1358,11 +1401,20 @@ impl Pages {
             touched,
         };
         let navigated = self
-            .unless_blocking_broke_it(page_id, &page, first, events)
+            .unless_blocking_broke_it(page_id, page, first, events)
             .await?;
         // A consent wall the runner found on the navigation's document is
         // the navigation's, once the runner judged it (ADR 0048).
-        self.consent_verdict(page_id, &page, true).await?;
+        self.consent_verdict(page_id, page, true).await?;
+        if run_hooks {
+            hooks::dispatch(
+                page_id,
+                page,
+                goodfetch_protocol::plugin::HookStageName::PAGE_READY,
+                navigated.response.as_ref().map(|resp| resp.url.as_str()),
+            )
+            .await?;
+        }
         Ok(navigated)
     }
 

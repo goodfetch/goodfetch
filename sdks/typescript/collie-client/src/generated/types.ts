@@ -5348,6 +5348,22 @@ export interface PrivateEndpoint {
   tokenFile: string;
 }
 /**
+ * What `hook_duplicate` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "HookDuplicateDetails".
+ */
+export interface HookDuplicateDetails {
+  /**
+   * The name both Hooks carry.
+   */
+  hook: string;
+  /**
+   * The stage of the second Hook, the one refused.
+   */
+  stage: string;
+}
+/**
  * What `hook_failed` details: the Hook, and the exception as
  * `handler_failed`'s details name a handler's (ADR 0079's notes of
  * 2026-10-24 and 2026-10-27).

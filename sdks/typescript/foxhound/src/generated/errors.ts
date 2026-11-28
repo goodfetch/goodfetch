@@ -2,7 +2,7 @@
 
 import { PageError, ProgramError, RefusedError, UnavailableError, detailsOf, isCollieError, isGoodfetchError, retryAfterOf } from "@goodfetch/collie-client/generated";
 import type { CollieError, ErrorClass, ErrorFields } from "@goodfetch/collie-client/generated";
-import type { BrowserRequiredDetails, DatasetDuplicateDetails, DatasetKeyInvalidDetails, DatasetUnknownDetails, HandlerFailedDetails, HookDuplicateDetails, HookIneffectiveDetails, HookUndeclaredDetails, HookUnknownDetails, LabelUnknownDetails, PayloadInvalidDetails, PayloadSchemaChangedDetails, QueryInvalidDetails, QueryMemoryExceededDetails, RecordInvalidDetails, ResponseNotDocumentDetails, ResponseUnavailableDetails, SheetCapacityExceededDetails, StagingFullDetails } from "./types.ts";
+import type { BrowserRequiredDetails, DatasetDuplicateDetails, DatasetKeyInvalidDetails, DatasetUnknownDetails, HandlerFailedDetails, HookIneffectiveDetails, HookUndeclaredDetails, HookUnknownDetails, LabelUnknownDetails, PayloadInvalidDetails, PayloadSchemaChangedDetails, QueryInvalidDetails, QueryMemoryExceededDetails, RecordInvalidDetails, ResponseNotDocumentDetails, ResponseUnavailableDetails, SheetCapacityExceededDetails, StagingFullDetails } from "./types.ts";
 import { foxhoundWire } from "./wire.ts";
 
 /**
@@ -118,22 +118,6 @@ export class HandlerFailedError extends ProgramError<"handler_failed"> {
 export class HandlerLostError extends UnavailableError<"handler_lost"> {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "HandlerLostError", code: "handler_lost", group: "unavailable", retryable: true });
-  }
-}
-
-/**
- * The crawl declares a second Hook of a name one of its Hooks already carries, so the declaration failed at once, with no I/O: a name identifies one Hook, in `hook_failed`, in the Run trace and for a test's `runHook`. The details name the Hook and its stage. Give each Hook its own `name`.
- */
-export class HookDuplicateError extends ProgramError<"hook_duplicate"> {
-  /**
-   * The code's details, typed; `undefined` when they lack a field the type
-   * requires, as those of an error a program builds without details do.
-   */
-  readonly typedDetails: Readonly<HookDuplicateDetails> | undefined;
-
-  constructor(message: string, fields: ErrorFields = {}) {
-    super(message, { ...fields, name: "HookDuplicateError", code: "hook_duplicate", group: "program", retryable: false });
-    this.typedDetails = detailsOf<HookDuplicateDetails>(fields.details, ["hook", "stage"]);
   }
 }
 
@@ -427,7 +411,6 @@ export const foxhoundErrorClasses: Readonly<Record<string, ErrorClass>> = {
   effect_staging_refused: EffectStagingRefusedError,
   handler_failed: HandlerFailedError,
   handler_lost: HandlerLostError,
-  hook_duplicate: HookDuplicateError,
   hook_ineffective: HookIneffectiveError,
   hook_undeclared: HookUndeclaredError,
   hook_unknown: HookUnknownError,
@@ -461,7 +444,6 @@ export type FoxhoundErrorCode =
   | "effect_staging_refused"
   | "handler_failed"
   | "handler_lost"
-  | "hook_duplicate"
   | "hook_ineffective"
   | "hook_undeclared"
   | "hook_unknown"
@@ -483,7 +465,7 @@ export type FoxhoundErrorCode =
   | "sheet_capacity_exceeded"
   | "staging_full";
 
-const foxhoundErrorCodes: ReadonlySet<string> = new Set<FoxhoundErrorCode>(["attempt_ended", "browser_required", "client_gone", "dataset_duplicate", "dataset_key_invalid", "dataset_unknown", "effect_staging_refused", "handler_failed", "handler_lost", "hook_duplicate", "hook_ineffective", "hook_undeclared", "hook_unknown", "label_duplicate", "label_unhandled", "label_unknown", "lease_lost", "payload_invalid", "payload_schema_changed", "query_failed", "query_invalid", "query_memory_exceeded", "record_invalid", "response_not_document", "response_not_ok", "response_unavailable", "retry_requested", "sample_crawl_refused", "sheet_capacity_exceeded", "staging_full"]);
+const foxhoundErrorCodes: ReadonlySet<string> = new Set<FoxhoundErrorCode>(["attempt_ended", "browser_required", "client_gone", "dataset_duplicate", "dataset_key_invalid", "dataset_unknown", "effect_staging_refused", "handler_failed", "handler_lost", "hook_ineffective", "hook_undeclared", "hook_unknown", "label_duplicate", "label_unhandled", "label_unknown", "lease_lost", "payload_invalid", "payload_schema_changed", "query_failed", "query_invalid", "query_memory_exceeded", "record_invalid", "response_not_document", "response_not_ok", "response_unavailable", "retry_requested", "sample_crawl_refused", "sheet_capacity_exceeded", "staging_full"]);
 
 /** An error with one of the Error codes Foxhound raises, which its `code` narrows to the code's class. */
 export type FoxhoundError =
@@ -497,7 +479,6 @@ export type FoxhoundError =
   | EffectStagingRefusedError
   | HandlerFailedError
   | HandlerLostError
-  | HookDuplicateError
   | HookIneffectiveError
   | HookUndeclaredError
   | HookUnknownError

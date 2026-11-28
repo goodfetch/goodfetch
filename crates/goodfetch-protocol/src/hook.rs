@@ -6,10 +6,32 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::catalog::{Entries, ErrorCodeDefinition, ErrorGroup, ProtocolVersion};
+use crate::catalog::{Entries, ErrorCodeDefinition, ErrorGroup, HookStage, ProtocolVersion};
 use crate::open_value::UnknownValue;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
+
+/// A second Hook of one name in a scope's `hooks` or on a crawl (ADRs 0088 and
+/// 0104).
+pub const HOOK_DUPLICATE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "hook_duplicate",
+    description: "A scope's `hooks` setting or a crawl declares a second Hook of a name one of its Hooks already carries, so opening the scope or declaring the Hook failed at once, with no I/O: a name identifies one Hook, in `hook_failed`, in the Run trace and for a test's `runHook`. The details name the Hook and its stage. Give each Hook its own `name`.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `hook_duplicate` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct HookDuplicateDetails {
+    /// The name both Hooks carry.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub hook: String,
+    /// The stage of the second Hook, the one refused.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub stage: String,
+}
 
 /// A Hook that raised (ADRs 0104, 0079 and 0109).
 pub const HOOK_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
@@ -100,17 +122,59 @@ pub struct HookFailedDetails {
     pub wrapped_code: Option<String>,
 }
 
-/// The Error code of a Hook that raised.
+/// The Error codes of Hooks shared by Collie and Foxhound, and Collie's Hook
+/// stages (ADRs 0033, 0088 and 0104).
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
     operations: &[],
     events: &[],
     handler_requests: &[],
-    error_codes: &[HOOK_FAILED],
+    error_codes: &[HOOK_DUPLICATE, HOOK_FAILED],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[],
-    hook_stages: &[],
+    hook_stages: &[
+        HookStage {
+            name: "before_navigation",
+            description: "Before a main-frame navigation is sent.",
+            arrived_in: ARRIVED_IN,
+        },
+        HookStage {
+            name: "after_navigation",
+            description: "Once a navigation's response arrived, before the engine's own page work.",
+            arrived_in: ARRIVED_IN,
+        },
+        HookStage {
+            name: "page_ready",
+            description: "At a navigation's `load`.",
+            arrived_in: ARRIVED_IN,
+        },
+        HookStage {
+            name: "run_started",
+            description: "Once a Run started; observe-only.",
+            arrived_in: ARRIVED_IN,
+        },
+        HookStage {
+            name: "checkpoint_taken",
+            description: "Once a Checkpoint was taken; observe-only.",
+            arrived_in: ARRIVED_IN,
+        },
+        HookStage {
+            name: "run_migrated",
+            description: "Once a Run moved to another Group member; observe-only.",
+            arrived_in: ARRIVED_IN,
+        },
+        HookStage {
+            name: "limit_reached",
+            description: "Once a Limit was reached; observe-only.",
+            arrived_in: ARRIVED_IN,
+        },
+        HookStage {
+            name: "run_ended",
+            description: "Once a Run ended; observe-only.",
+            arrived_in: ARRIVED_IN,
+        },
+    ],
     shared_type_values: &[],
 };
 

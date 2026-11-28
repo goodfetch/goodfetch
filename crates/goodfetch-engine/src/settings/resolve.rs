@@ -18,6 +18,7 @@ use goodfetch_protocol::catalog::{Authority, Product, Setting, ValueKind};
 use goodfetch_protocol::entries::YIELDING;
 use goodfetch_protocol::governor::{THREAD_COUNT_SHAPE, ThreadCount};
 use goodfetch_protocol::page::EXTRACTOR_NAME_SHAPE;
+use goodfetch_protocol::plugin::hook::HOOKS;
 use goodfetch_protocol::plugin::settings::PLUGINS;
 use goodfetch_protocol::recipe::RecipeManifest;
 use goodfetch_protocol::run::durability::{
@@ -1222,11 +1223,41 @@ fn take(
             }
         }
     }
-    state.effective.value = over(key.setting, &state.effective.value, value);
+    let next = over(key.setting, &state.effective.value, value);
+    if name == HOOKS.name {
+        check_duplicate_hooks(&next)?;
+    }
+    state.effective.value = next;
     state.effective.layer = layer;
     state.effective.origin = given.origin;
     state.effective.preset = None;
     state.effective.for_model = given.for_model;
+    Ok(())
+}
+
+/// Refuses a `hooks` list containing two entries with the same `name`
+/// (ADRs 0088 and 0104; issue 954).
+fn check_duplicate_hooks(value: &Value) -> Result<(), SettingsError> {
+    let Some(entries) = value.as_array() else {
+        return Ok(());
+    };
+    let mut seen = BTreeSet::new();
+    for entry in entries {
+        let Some(hook) = entry.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        if !seen.insert(hook) {
+            let stage = entry
+                .get("stage")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
+            return Err(SettingsError::HookDuplicate {
+                hook: hook.to_owned(),
+                stage,
+            });
+        }
+    }
     Ok(())
 }
 

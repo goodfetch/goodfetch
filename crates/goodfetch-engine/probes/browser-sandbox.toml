@@ -12,6 +12,17 @@ apparmor_restricts = false
 expected_probed = "starts"
 
 [[case]]
+rule = "browser_sandbox.environment.wsl1"
+mechanism = "user_namespace"
+positive_control = "starts"
+user_namespace = "wsl1"
+seccomp_filtered = false
+apparmor_restricts = false
+expected_probed = "refused"
+expected_environment = "wsl1"
+expected_error_code = "browser_sandbox_unavailable"
+
+[[case]]
 rule = "browser_sandbox.environment.docker_default_seccomp"
 mechanism = "user_namespace"
 positive_control = "starts"

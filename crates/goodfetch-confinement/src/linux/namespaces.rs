@@ -9,10 +9,15 @@
     unsafe_code,
     reason = "entering namespaces, forking, waiting and dropping capabilities are raw system calls"
 )]
+#![expect(
+    clippy::disallowed_types,
+    reason = "returns the loopback listener bound inside the Plugin's network namespace before exec (ADR 0033)"
+)]
 
 use std::io;
+use std::net::TcpListener;
 
-use super::{ConfineError, mounts};
+use super::{ConfineError, mounts, relay as proxy_relay};
 use crate::policy::Policy;
 
 /// `capset`'s version for 64-bit capability sets, held in two words
@@ -35,14 +40,20 @@ struct CapabilitySets {
 
 /// Enters a user namespace and a PID namespace of its own, mapping only the
 /// caller's own user and group, then forks. With `files`, it also enters a
-/// mount namespace, where the child sees only that policy's paths. The
-/// child, the PID namespace's first process, returns with no capability
-/// and ends when its parent does. The parent never returns: it waits for
-/// the child and ends with its status, or by its signal.
+/// mount namespace, where the child sees only that policy's paths. With
+/// `network`, it also enters a network namespace (`CLONE_NEWNET`), brings up
+/// `lo`, and when `bind_relay` is set binds a loopback TCP listener before
+/// dropping capabilities. The child, the PID namespace's first process,
+/// returns with no capability and ends when its parent does. The parent never
+/// returns: it waits for the child and ends with its status, or by its signal.
 ///
 /// The calling process must have one thread: the kernel refuses a user
 /// namespace to any other.
-pub(super) fn enter(files: Option<&Policy>) -> Result<(), ConfineError> {
+pub(super) fn enter(
+    files: Option<&Policy>,
+    network: bool,
+    bind_relay: bool,
+) -> Result<Option<(TcpListener, u16)>, ConfineError> {
     // SAFETY: neither call reads or writes memory.
     let (user, group) = unsafe { (libc::getuid(), libc::getgid()) };
     let mount = if files.is_some() {
@@ -50,24 +61,12 @@ pub(super) fn enter(files: Option<&Policy>) -> Result<(), ConfineError> {
     } else {
         0
     };
+    let net = if network { libc::CLONE_NEWNET } else { 0 };
     // SAFETY: `unshare` takes flags only.
-    if unsafe { libc::unshare(libc::CLONE_NEWUSER | libc::CLONE_NEWPID | mount) } == -1 {
-        let error = io::Error::last_os_error();
-        return Err(match error.raw_os_error() {
-            Some(libc::EPERM | libc::ENOSPC | libc::EUSERS) => ConfineError::Unavailable(
-                "this host refuses an unprivileged user namespace (a sysctl, a seccomp profile or AppArmor)",
-            ),
-            _ => ConfineError::Namespace {
-                call: "unshare",
-                error,
-            },
-        });
+    if unsafe { libc::unshare(libc::CLONE_NEWUSER | libc::CLONE_NEWPID | mount | net) } == -1 {
+        return Err(unshare_error(io::Error::last_os_error()));
     }
-    // The maps are written by the process itself, which the kernel allows
-    // for its own user and group once it denies `setgroups`.
-    written("/proc/self/setgroups", "deny")?;
-    written("/proc/self/uid_map", &format!("{user} {user} 1"))?;
-    written("/proc/self/gid_map", &format!("{group} {group} 1"))?;
+    map_self(user, group)?;
     // SAFETY: the process has one thread, as `unshare` checked, so the child
     // inherits no lock another thread holds.
     match unsafe { libc::fork() } {
@@ -75,9 +74,82 @@ pub(super) fn enter(files: Option<&Policy>) -> Result<(), ConfineError> {
             call: "fork",
             error: io::Error::last_os_error(),
         }),
-        0 => first_process(files),
+        0 => first_process(files, network, bind_relay),
         child => relay(child),
     }
+}
+
+/// Enters a user namespace and a network namespace (`CLONE_NEWUSER |
+/// CLONE_NEWNET`) without forking a PID namespace (for Landlock ABI 6 where
+/// Landlock already scopes signals). Brings up `lo`, optionally binds the
+/// relay's loopback listener, and drops all capabilities.
+pub(super) fn enter_network_only(
+    bind_relay: bool,
+) -> Result<Option<(TcpListener, u16)>, ConfineError> {
+    // SAFETY: neither call reads or writes memory.
+    let (user, group) = unsafe { (libc::getuid(), libc::getgid()) };
+    // SAFETY: `unshare` takes flags only.
+    if unsafe { libc::unshare(libc::CLONE_NEWUSER | libc::CLONE_NEWNET) } == -1 {
+        return Err(unshare_error(io::Error::last_os_error()));
+    }
+    map_self(user, group)?;
+    let bound = setup_network(bind_relay)?;
+    drop_capabilities()?;
+    Ok(bound)
+}
+
+fn unshare_error(error: io::Error) -> ConfineError {
+    match error.raw_os_error() {
+        Some(libc::EPERM | libc::ENOSPC | libc::EUSERS) => ConfineError::Unavailable(
+            "this host refuses an unprivileged user namespace (a sysctl, a seccomp profile or AppArmor)",
+        ),
+        _ => ConfineError::Namespace {
+            call: "unshare",
+            error,
+        },
+    }
+}
+
+fn map_self(user: libc::uid_t, group: libc::gid_t) -> Result<(), ConfineError> {
+    // The maps are written by the process itself, which the kernel allows
+    // for its own user and group once it denies `setgroups`.
+    written("/proc/self/setgroups", "deny")?;
+    written("/proc/self/uid_map", &format!("{user} {user} 1"))?;
+    written("/proc/self/gid_map", &format!("{group} {group} 1"))?;
+    Ok(())
+}
+
+fn setup_network(bind_relay: bool) -> Result<Option<(TcpListener, u16)>, ConfineError> {
+    proxy_relay::bring_up_loopback().map_err(|error| ConfineError::Namespace {
+        call: "SIOCSIFFLAGS",
+        error,
+    })?;
+    if bind_relay {
+        let bound = proxy_relay::bind_loopback().map_err(|error| ConfineError::Namespace {
+            call: "bind(127.0.0.1:0)",
+            error,
+        })?;
+        Ok(Some(bound))
+    } else {
+        Ok(None)
+    }
+}
+
+fn drop_capabilities() -> Result<(), ConfineError> {
+    let mut header = CapabilityHeader {
+        version: CAPABILITY_VERSION_3,
+        pid: 0,
+    };
+    let sets = [CapabilitySets::default(); 2];
+    // SAFETY: `header` and `sets` have the layout `capset` reads, version 3
+    // with its two words, and outlive the call; pid 0 is this thread.
+    if unsafe { libc::syscall(libc::SYS_capset, &raw mut header, sets.as_ptr()) } == -1 {
+        return Err(ConfineError::Namespace {
+            call: "capset",
+            error: io::Error::last_os_error(),
+        });
+    }
+    Ok(())
 }
 
 #[expect(
@@ -99,9 +171,14 @@ fn written(path: &'static str, map: &str) -> Result<(), ConfineError> {
     })
 }
 
-/// The child: ends with its parent, sees only `files`' paths when given,
-/// and drops every capability the new user namespace gave it.
-fn first_process(files: Option<&Policy>) -> Result<(), ConfineError> {
+/// The child: ends with its parent, brings up loopback when entering a network
+/// namespace, sees only `files`' paths when given, and drops every capability
+/// the new user namespace gave it.
+fn first_process(
+    files: Option<&Policy>,
+    network: bool,
+    bind_relay: bool,
+) -> Result<Option<(TcpListener, u16)>, ConfineError> {
     // SAFETY: `prctl` takes numbers only.
     if unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) } == -1 {
         return Err(ConfineError::Namespace {
@@ -109,23 +186,16 @@ fn first_process(files: Option<&Policy>) -> Result<(), ConfineError> {
             error: io::Error::last_os_error(),
         });
     }
+    let bound = if network {
+        setup_network(bind_relay)?
+    } else {
+        None
+    };
     if let Some(policy) = files {
         mounts::expose_only(policy)?;
     }
-    let mut header = CapabilityHeader {
-        version: CAPABILITY_VERSION_3,
-        pid: 0,
-    };
-    let sets = [CapabilitySets::default(); 2];
-    // SAFETY: `header` and `sets` have the layout `capset` reads, version 3
-    // with its two words, and outlive the call; pid 0 is this thread.
-    if unsafe { libc::syscall(libc::SYS_capset, &raw mut header, sets.as_ptr()) } == -1 {
-        return Err(ConfineError::Namespace {
-            call: "capset",
-            error: io::Error::last_os_error(),
-        });
-    }
-    Ok(())
+    drop_capabilities()?;
+    Ok(bound)
 }
 
 /// The parent: waits for `child`, then ends as it ended.

@@ -472,7 +472,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "RunStopParams": { fields: { "run_id": "runId" } },
     "RunStopping": { fields: { "cause": ["cause", { type: "StopReason" }], "run_id": "runId" } },
     "RunStorage": { fields: { "free_bytes": "freeBytes" } },
-    "RunUsage": { fields: { "browser_time": "browserTime", "limits": ["limits", { items: { type: "AppliedLimit" } }], "model": ["model", { type: "ModelUsage" }], "model_allowance": ["modelAllowance", { items: { type: "ModelAllowance" } }], "other": ["other", { items: { type: "KindUsage" } }], "paid_fetches": "paidFetches", "paid_solves": "paidSolves", "plugin_units": "pluginUnits", "proxy_bytes": "proxyBytes", "proxy_bytes_by_kind": "proxyBytesByKind", "proxy_price": "proxyPrice" } },
+    "RunUsage": { fields: { "browser_time": "browserTime", "limits": ["limits", { items: { type: "AppliedLimit" } }], "model": ["model", { type: "ModelUsage" }], "model_allowance": ["modelAllowance", { items: { type: "ModelAllowance" } }], "other": ["other", { items: { type: "KindUsage" } }], "paid_fetches": "paidFetches", "paid_solves": "paidSolves", "plugin_streams": "pluginStreams", "plugin_units": "pluginUnits", "proxy_bytes": "proxyBytes", "proxy_bytes_by_kind": "proxyBytesByKind", "proxy_price": "proxyPrice" } },
     "ScheduleCapExceededDetails": { fields: { "policy_version": "policyVersion" } },
     "ScheduleCreateParams": { fields: { "definition": ["definition", { type: "ScheduleDefinition" }] } },
     "ScheduleCreated": { fields: { "schedule_id": "scheduleId" } },

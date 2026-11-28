@@ -572,6 +572,11 @@ impl EndpointSettings {
         self.policy
     }
 
+    /// The clock these settings wait on.
+    pub(crate) fn clock(&self) -> Clock {
+        self.clock
+    }
+
     /// Sends `request` to `url`, as it was given, through `gate`, trusting
     /// `trust`, which [`Self::trust`] read, and answers as
     /// [`Self::send_whole`]: a Plugin's `net.fetch` (ADR 0033), whose
@@ -654,7 +659,26 @@ impl EndpointSettings {
         host: &str,
         port: u16,
     ) -> Result<TcpStream, WholeFailure> {
-        let judged = Gate::Endpoint(self.policy)
+        self.connect_through(kind, Gate::Endpoint(self.policy), named, host, port, true)
+            .await
+    }
+
+    /// Resolves `host` and checks every resolved address through `gate`; when
+    /// `dial` is true, connects via Happy Eyeballs to the validated addresses.
+    /// When `dial` is false, stops after validation and returns
+    /// `Err(WholeFailure::Network)` so callers can enforce higher-level
+    /// allowlists (such as `net.connect`'s endpoint/target restriction) after
+    /// running the canonical SSRF checks without opening any socket.
+    pub(crate) async fn connect_through(
+        &self,
+        kind: ConfiguredKind,
+        gate: Gate<'_>,
+        named: &str,
+        host: &str,
+        port: u16,
+        dial: bool,
+    ) -> Result<TcpStream, WholeFailure> {
+        let judged = gate
             .judge_host(host, named)
             .map_err(WholeFailure::Refused)?;
         let server = Server {
@@ -666,6 +690,9 @@ impl EndpointSettings {
             .await
             .map_err(WholeFailure::of)?;
         judged.addresses(&found).map_err(WholeFailure::Refused)?;
+        if !dial {
+            return Err(WholeFailure::Network);
+        }
         tracing::debug!(
             kind = kind.classed().name,
             "connecting to an Operator-configured endpoint"

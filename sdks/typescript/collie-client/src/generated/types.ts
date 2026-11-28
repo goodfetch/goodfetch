@@ -8786,6 +8786,27 @@ export interface PluginSignerChangedDetails {
   previousSigner: string;
 }
 /**
+ * Opaque stream traffic a Run's Plugins exchanged with one destination
+ * (`host:port`) over `net.connect` or `proxy_tcp` (ADR 0033, issue 833).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginStreamUsage".
+ */
+export interface PluginStreamUsage {
+  /**
+   * The bytes sent and received over streams to this destination.
+   */
+  bytes: number;
+  /**
+   * The destination, formatted as `host:port`.
+   */
+  destination: string;
+  /**
+   * The total time streams to this destination stayed open, in milliseconds.
+   */
+  time: number;
+}
+/**
  * What a Run used of one spend unit a Plugin reported, and its price when
  * priced (ADR 0033).
  *
@@ -10461,6 +10482,11 @@ export interface RunUsage {
    * Its paid solves, by currency (ADR 0035).
    */
   paidSolves?: UsageAmount[];
+  /**
+   * Its Plugins' opaque `net.connect` and `proxy_tcp` streams, by
+   * destination (`host:port`), in destination order (ADR 0033).
+   */
+  pluginStreams?: PluginStreamUsage[];
   /**
    * Its Plugins' reported raw spend units, by Plugin and unit, with each
    * unit's price when priced (ADR 0033), in Plugin then unit order.

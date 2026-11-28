@@ -126,6 +126,7 @@ impl Plugin {
             program: layout.bundle.join("plugin"),
             args: vec![played.to_string_lossy().into_owned()],
             folder: layout.instance.clone(),
+            proxy_relay: None,
         };
         Self {
             _root: root,
@@ -739,4 +740,157 @@ async fn a_call_past_its_deadline_cancels_refuses_late_result_and_reports_uncert
     );
     instance.stop().await;
     root.stop().await;
+}
+
+#[cfg(target_os = "linux")]
+fn proxy_tcp_plugin() -> Plugin {
+    let root = tempfile::tempdir().unwrap();
+    let layout = Layout::under(&fs::canonicalize(root.path()).unwrap());
+    for folder in [&layout.bundle, &layout.instance] {
+        fs::create_dir_all(folder).unwrap();
+    }
+    let scripted = tools()
+        .unwrap()
+        .path(Tool::ScriptedPlugin)
+        .unwrap()
+        .to_owned();
+    fs::copy(scripted, layout.bundle.join("plugin")).unwrap();
+    let script = json!({
+        "hello": {
+            "protocol_version": "0.1",
+            "name": "scripted",
+            "version": "1.0.0",
+            "kinds": [{ "kind": "proxy", "capabilities": [] }],
+            "network_level": "proxy_tcp",
+        }
+    });
+    let played = layout.bundle.join("script.json");
+    fs::write(&played, script.to_string()).unwrap();
+    let manifest = PluginManifest::read(
+        json!({
+            "manifest_version": "0.1",
+            "name": "scripted",
+            "version": "1.0.0",
+            "kinds": ["proxy"],
+            "protocol": { "min": "0.1", "max": "0.1" },
+            "entrypoint": "plugin",
+            "network_level": "proxy_tcp",
+        })
+        .to_string()
+        .as_bytes(),
+    )
+    .unwrap();
+    let instance = Instance {
+        bundle: layout.bundle.clone(),
+        runtime: None,
+        folders: vec![layout.instance.clone()],
+        env: BTreeMap::new(),
+    };
+    let policy = Policy::of(&manifest, &instance, &layout.places).unwrap();
+    let launch = Launch {
+        policy,
+        program: layout.bundle.join("plugin"),
+        args: vec![played.to_string_lossy().into_owned()],
+        folder: layout.instance.clone(),
+        proxy_relay: None,
+    };
+    Plugin {
+        _root: root,
+        layout,
+        manifest,
+        launch,
+    }
+}
+
+/// A real confined Linux Plugin at `proxy_tcp` (ADR 0033, issue 833) runs
+/// inside an isolated network namespace with `plugin-shim`'s loopback relay:
+/// it reaches its configured endpoint through `HTTP_PROXY` with its own
+/// per-instance credentials, is refused any other destination, and a second
+/// instance receives distinct credentials.
+///
+/// Covers: story:7-55, story:7-61
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_confined_proxy_tcp_plugin_reaches_allowed_destination_through_shim_relay_with_distinct_credentials()
+ {
+    use std::io::{Read as _, Write as _};
+
+    let host = goodfetch_confinement::linux::host::read();
+    if !matches!(
+        host.user_namespace,
+        goodfetch_confinement::host::UserNamespace::Created
+    ) {
+        return;
+    }
+
+    let allowed = TcpListener::bind("127.0.0.1:0").unwrap();
+    let allowed_addr = allowed.local_addr().unwrap();
+    let forbidden = TcpListener::bind("127.0.0.1:0").unwrap();
+    let forbidden_addr = forbidden.local_addr().unwrap();
+
+    let echo_thread = std::thread::spawn(move || {
+        for _ in 0..2 {
+            if let Ok((mut sock, _)) = allowed.accept() {
+                let mut buf = [0_u8; 32];
+                if let Ok(n) = sock.read(&mut buf) {
+                    let _ = sock.write_all(&buf[..n]);
+                }
+            }
+        }
+    });
+
+    let endpoint_url = format!("http://{allowed_addr}/");
+    let user = json!({
+        "plugins": { "scripted": { "settings": { "api": endpoint_url } } }
+    });
+    let plugin1 = proxy_tcp_plugin();
+    let plugin2 = proxy_tcp_plugin();
+    let root = TaskOwner::root(BlockingPolicy::Inline);
+    let inst1 = PluginInstance::start(&root, plugin1.instance_with(&user), Scope::Task(None));
+    let inst2 = PluginInstance::start(&root, plugin2.instance_with(&user), Scope::Task(None));
+
+    let ok1: Value = inst1
+        .call(
+            "scripted.proxy_connect",
+            &json!({ "target": allowed_addr.to_string(), "payload": "via-shim-1" }),
+        )
+        .await
+        .unwrap()
+        .read()
+        .unwrap();
+    assert_eq!(ok1["status"], json!(200), "{ok1}");
+    assert_eq!(ok1["response"], json!("via-shim-1"), "{ok1}");
+
+    let denied: Value = inst1
+        .call(
+            "scripted.proxy_connect",
+            &json!({ "target": forbidden_addr.to_string(), "payload": "nope" }),
+        )
+        .await
+        .unwrap()
+        .read()
+        .unwrap();
+    assert_eq!(denied["status"], json!(403), "{denied}");
+
+    let ok2: Value = inst2
+        .call(
+            "scripted.proxy_connect",
+            &json!({ "target": allowed_addr.to_string(), "payload": "via-shim-2" }),
+        )
+        .await
+        .unwrap()
+        .read()
+        .unwrap();
+    assert_eq!(ok2["status"], json!(200), "{ok2}");
+    assert_eq!(ok2["response"], json!("via-shim-2"), "{ok2}");
+
+    assert_ne!(
+        ok1["http_proxy"], ok2["http_proxy"],
+        "each confined proxy_tcp instance must receive distinct credentials"
+    );
+
+    inst1.stop().await;
+    inst2.stop().await;
+    root.stop().await;
+    let _ = echo_thread.join();
 }

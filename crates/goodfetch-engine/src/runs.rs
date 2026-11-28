@@ -109,7 +109,9 @@ pub use self::end::RunEnd;
 pub use self::import::fuzz_run_state_import;
 pub use self::keys::RunKeys;
 pub use self::plugin_effects::RunEffectJournal;
-pub use self::plugin_spend::{RunSpendAccountant, limit_not_understood, limit_reached};
+pub use self::plugin_spend::{
+    RunSpendAccountant, RunStreamAccountant, limit_not_understood, limit_reached,
+};
 pub use self::progress::{PartValue, PauseHeld, Progress, ProgressPart, TypedPart, TypedParts};
 pub use self::reader::{RunFileOpener, RunReader};
 pub use self::reindex::{Reindexed, reindex};
@@ -4623,6 +4625,7 @@ impl Registry {
             )
             .with_audit(self.setup.engine.audit().clone())
             .with_spend(RunSpendAccountant::new(charging.clone(), warnings.clone()))
+            .with_streams(RunStreamAccountant::new(charging.clone(), trace.clone()))
             .with_effects_journal(RunEffectJournal::new(state.clone(), clock)),
         );
         secrets.set_plugin_provider(Arc::new(PluginSecretResolver::new(

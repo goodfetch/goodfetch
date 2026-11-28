@@ -27,6 +27,19 @@ pub const LAUNCH_VARIABLE: &str = "GOODFETCH_PLUGIN_LAUNCH";
 /// The Product executable's argument that runs it as the launcher.
 pub const SHIM_COMMAND: &str = "plugin-shim";
 
+/// Parameters for the `plugin-shim` loopback relay at `proxy_tcp` (ADR 0033,
+/// issue 833): carries the inherited control FD and per-instance proxy
+/// credentials injected into the Plugin's proxy environment variables.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProxyRelay {
+    /// Inherited `AF_UNIX` control socket file descriptor (on Linux, FD 3).
+    pub control_fd: i32,
+    /// Per-instance proxy username.
+    pub username: String,
+    /// Per-instance proxy password.
+    pub password: String,
+}
+
 /// What the launcher starts, and under which policy.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Launch {
@@ -38,6 +51,10 @@ pub struct Launch {
     pub args: Vec<String>,
     /// The instance's private temporary folder, the Plugin's working folder.
     pub folder: PathBuf,
+    /// Present for `proxy_tcp` when `plugin-shim` relays loopback TCP inside
+    /// an isolated network namespace to the engine's per-instance proxy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy_relay: Option<ProxyRelay>,
 }
 
 impl Launch {
@@ -122,7 +139,7 @@ pub fn shim(launch: Option<&OsStr>) -> LaunchError {
 fn start(launch: &Launch) -> LaunchError {
     use std::os::unix::process::CommandExt as _;
 
-    use crate::linux::{ConfineError, confine_self};
+    use crate::linux::{ConfineError, MechanismKind, confine_self_with_relay};
 
     if let Err(error) = crate::linux::close_beyond_stdio() {
         return LaunchError::Handles(error);
@@ -135,13 +152,15 @@ fn start(launch: &Launch) -> LaunchError {
         Ok(folder) => folder,
         Err(error) => return LaunchError::Folder(error),
     };
-    match confine_self(&launch.policy) {
-        Ok(_) => {}
-        Err(ConfineError::Unavailable(reason)) => {
-            return LaunchError::Unavailable(reason.to_owned());
-        }
-        Err(error) => return LaunchError::Confine(error.to_string()),
-    }
+    let control_fd = launch.proxy_relay.as_ref().map(|relay| relay.control_fd);
+    let relay_port =
+        match confine_self_with_relay(&launch.policy, MechanismKind::of_kernel(), control_fd) {
+            Ok((_, port)) => port,
+            Err(ConfineError::Unavailable(reason)) => {
+                return LaunchError::Unavailable(reason.to_owned());
+            }
+            Err(error) => return LaunchError::Confine(error.to_string()),
+        };
     match std::env::current_dir() {
         Ok(working) if working == folder => {}
         Ok(working) => {
@@ -155,6 +174,26 @@ fn start(launch: &Launch) -> LaunchError {
     if let Err(error) = crate::linux::limits::limit_self(&launch.policy.limits) {
         return LaunchError::Limits(error);
     }
+    let mut env: Vec<(String, String)> = launch
+        .env()
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect();
+    if let (Some(relay), Some(port)) = (&launch.proxy_relay, relay_port) {
+        let http_url = format!(
+            "http://{}:{}@127.0.0.1:{port}",
+            relay.username, relay.password
+        );
+        let socks_url = format!(
+            "socks5h://{}:{}@127.0.0.1:{port}",
+            relay.username, relay.password
+        );
+        for key in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"] {
+            env.push((key.to_owned(), http_url.clone()));
+        }
+        for key in ["ALL_PROXY", "all_proxy"] {
+            env.push((key.to_owned(), socks_url.clone()));
+        }
+    }
     #[expect(
         clippy::disallowed_methods,
         reason = "the launcher's one thread replaces itself with the Plugin: no runtime runs here (ADR 0033)"
@@ -162,7 +201,7 @@ fn start(launch: &Launch) -> LaunchError {
     let error = std::process::Command::new(&launch.program)
         .args(&launch.args)
         .env_clear()
-        .envs(launch.env())
+        .envs(env)
         .exec();
     LaunchError::Start(error)
 }

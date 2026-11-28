@@ -127,7 +127,9 @@ pub(super) struct PathCase {
 
 /// Reads the workspace's Linux confinement rules from `goodfetch-confinement`.
 pub(super) fn read_workspace_confinement(root: &Path) -> Result<PolicySpec> {
-    let seccomp = read_seccomp_none(&root.join(SECCOMP_SOURCE))?;
+    let seccomp_path = root.join(SECCOMP_SOURCE);
+    let none = read_seccomp_level(&seccomp_path, "NONE")?;
+    let proxy_tcp = read_seccomp_level(&seccomp_path, "PROXY_TCP")?;
     let deny_list = read_linux_deny_list(&root.join(DENY_LIST_SOURCE))?;
     let (signal_rule, file_rules) = read_policy_rules(&root.join(POLICY_SOURCE))?;
     Ok(PolicySpec {
@@ -138,31 +140,37 @@ pub(super) fn read_workspace_confinement(root: &Path) -> Result<PolicySpec> {
             "mount_namespace".to_owned(),
         ],
         signal_rule: Some(signal_rule),
-        levels: vec![LevelSpec {
-            name: "none".to_owned(),
-            seccomp,
-        }],
+        levels: vec![
+            LevelSpec {
+                name: "none".to_owned(),
+                seccomp: none,
+            },
+            LevelSpec {
+                name: "proxy_tcp".to_owned(),
+                seccomp: proxy_tcp,
+            },
+        ],
         deny_list,
         file_rules,
     })
 }
 
-fn read_seccomp_none(path: &Path) -> Result<Vec<SeccompRule>> {
+fn read_seccomp_level(path: &Path, extra_const: &str) -> Result<Vec<SeccompRule>> {
     let file = parse(path)?;
     let baseline = parse_rule_slice(&file, "BASELINE", path)?;
     let ioctls = parse_ioctl_slice(&file, path)?;
     let refused = parse_rule_slice(&file, "REFUSED", path)?;
-    let mut none = parse_rule_slice(&file, "NONE", path)?;
-    for rule in &mut none {
+    let mut extra = parse_rule_slice(&file, extra_const, path)?;
+    for rule in &mut extra {
         if rule.name == "socket" {
             rule.socket_families = Some(LINUX_SOCKET_FAMILIES);
         }
     }
-    let mut rules = Vec::with_capacity(baseline.len() + ioctls.len() + refused.len() + none.len());
+    let mut rules = Vec::with_capacity(baseline.len() + ioctls.len() + refused.len() + extra.len());
     rules.extend(baseline);
     rules.extend(ioctls);
     rules.extend(refused);
-    rules.extend(none);
+    rules.extend(extra);
     Ok(rules)
 }
 

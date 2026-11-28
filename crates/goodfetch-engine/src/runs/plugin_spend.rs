@@ -12,7 +12,8 @@ use goodfetch_protocol::connection::INTERNAL;
 use goodfetch_protocol::run::warning::{PLUGIN_FIGURES, PLUGIN_QUANTITY_ABOVE_MAXIMUM};
 use goodfetch_protocol::run::{ReachedLimit, RunWarning};
 use goodfetch_protocol::usage::{
-    LIMIT_NOT_UNDERSTOOD, LIMIT_REACHED, Limit, LimitNotUnderstoodDetails, PLUGIN_UNITS,
+    LIMIT_NOT_UNDERSTOOD, LIMIT_REACHED, Limit, LimitNotUnderstoodDetails, PLUGIN_STREAM_BYTES,
+    PLUGIN_STREAM_TIME, PLUGIN_UNITS,
 };
 
 use super::report::ReportWarnings;
@@ -22,8 +23,10 @@ use crate::ledger::{
     RunCharging, plugin_unit_qty_part,
 };
 use crate::plugin_kinds::{
-    DeclaredUnit, ReportedSpend, SpendAccountant, SpendTicket, plugin_price_unknown,
+    DeclaredUnit, ReportedSpend, SpendAccountant, SpendTicket, StreamAccountant, StreamRecord,
+    plugin_price_unknown,
 };
+use crate::run_trace::RunTrace;
 
 /// `limit_reached`, naming the Limit's scope, Usage kind and period.
 pub fn limit_reached(reached: &ReachedLimit) -> CallError {
@@ -255,5 +258,77 @@ fn charge_error(error: ChargeError) -> CallError {
             format!("Plugin spend accounting failed: {other}"),
             &(),
         ),
+    }
+}
+
+/// Live-Run stream accountant backed by [`RunCharging`] and [`RunTrace`]
+/// (ADR 0033, issue 833): charges `plugin_stream_bytes` and
+/// `plugin_stream_time` per destination through held Slices (`charge_part`)
+/// and records each stream's destination through `RunTrace`'s writer.
+#[derive(Clone)]
+pub struct RunStreamAccountant {
+    charging: RunCharging,
+    trace: RunTrace,
+}
+
+impl fmt::Debug for RunStreamAccountant {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RunStreamAccountant")
+            .finish_non_exhaustive()
+    }
+}
+
+impl RunStreamAccountant {
+    /// Creates a stream accountant backed by `charging` and `trace`.
+    #[must_use]
+    pub fn new(charging: RunCharging, trace: RunTrace) -> Arc<Self> {
+        Arc::new(Self { charging, trace })
+    }
+}
+
+impl StreamAccountant for RunStreamAccountant {
+    fn record(&self, record: StreamRecord) -> BoxFuture<'static, ()> {
+        let charging = self.charging.clone();
+        let trace = self.trace.clone();
+        Box::pin(async move {
+            if record.bytes > 0
+                && let Err(error) = charging
+                    .charge_part(PLUGIN_STREAM_BYTES, &record.destination, record.bytes, None)
+                    .await
+            {
+                tracing::warn!(
+                    plugin = %record.plugin,
+                    destination = %record.destination,
+                    %error,
+                    "failed to charge `plugin_stream_bytes`"
+                );
+            }
+            if record.duration_ms > 0
+                && let Err(error) = charging
+                    .charge_part(
+                        PLUGIN_STREAM_TIME,
+                        &record.destination,
+                        record.duration_ms,
+                        None,
+                    )
+                    .await
+            {
+                tracing::warn!(
+                    plugin = %record.plugin,
+                    destination = %record.destination,
+                    %error,
+                    "failed to charge `plugin_stream_time`"
+                );
+            }
+            if let Err(error) = trace.plugin_stream(&record).await {
+                tracing::warn!(
+                    plugin = %record.plugin,
+                    destination = %record.destination,
+                    %error,
+                    "failed to write Plugin stream entry to Run trace"
+                );
+            }
+        })
     }
 }

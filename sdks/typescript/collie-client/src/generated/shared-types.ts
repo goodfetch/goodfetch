@@ -146,10 +146,12 @@ export type RunWarningCode = "baseline_unavailable" | "block_resources_visible" 
  * - `page_crashes`: Crashes of a run: one per renderer that crashed, and one per browser process that crashed, however many pages it held (ADR 0040). A crash racing the page's close does not count.
  * - `paid_solves`: Paid solves and their price, by currency (ADR 0035); its Limits carry must understand.
  * - `plugin_calls`: Calls a run made into Plugins, of every form, per implementation (ADR 0033).
+ * - `plugin_stream_bytes`: Opaque bytes a Plugin sent and received over `net.connect` or `proxy_tcp` streams, per destination (ADR 0033).
+ * - `plugin_stream_time`: Time a Plugin's `net.connect` or `proxy_tcp` streams stayed open, in milliseconds, per destination (ADR 0033).
  * - `plugin_time`: The time a run's calls into Plugins took, in milliseconds, per implementation (ADR 0033).
  * - `plugin_units`: Raw spend units a Plugin reported outside the engine, and their price by currency (ADR 0033).
  * - `proxy_bytes`: Bytes a run sent and received through a proxy, per proxy kind.
  * - `requests`: Requests a run sent: a crawl's Crawl requests, and a page's navigations.
  * - `sample_echoes`: Texts the sample operation repeated.
  */
-export type UsageKind = "browser_time" | "model_calls" | "model_tokens" | "page_crashes" | "paid_solves" | "plugin_calls" | "plugin_time" | "plugin_units" | "proxy_bytes" | "requests" | "sample_echoes" | (string & {});
+export type UsageKind = "browser_time" | "model_calls" | "model_tokens" | "page_crashes" | "paid_solves" | "plugin_calls" | "plugin_stream_bytes" | "plugin_stream_time" | "plugin_time" | "plugin_units" | "proxy_bytes" | "requests" | "sample_echoes" | (string & {});

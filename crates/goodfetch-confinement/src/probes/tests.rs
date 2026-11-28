@@ -200,5 +200,20 @@ fn only_linux_at_none_has_a_table_so_far() {
         .filter(|&(host, level)| committed(host, level).is_some())
         .collect();
 
-    assert_eq!(with_table, vec![(Host::Linux, NetworkLevel::None)]);
+    assert_eq!(
+        with_table,
+        vec![
+            (Host::Linux, NetworkLevel::None),
+            (Host::Linux, NetworkLevel::ProxyTcp),
+        ]
+    );
+}
+
+#[test]
+fn every_rule_entry_and_file_rule_at_proxy_tcp_on_linux_has_its_probe_and_no_probe_lacks_a_rule() {
+    let table = ProbeTable::read(committed(Host::Linux, NetworkLevel::ProxyTcp).unwrap()).unwrap();
+    let rules = crate::seccomp::rules(NetworkLevel::ProxyTcp);
+    let denied: Vec<_> = crate::deny_list::on(Host::Linux).collect();
+
+    assert_eq!(check(&table, &rules, &denied), Vec::new());
 }

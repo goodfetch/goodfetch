@@ -16799,6 +16799,20 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Opaque bytes a Plugin sent and received over `net.connect` or `proxy_tcp` streams, per destination (ADR 0033).",
+      "name": "plugin_stream_bytes",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Time a Plugin's `net.connect` or `proxy_tcp` streams stayed open, in milliseconds, per destination (ADR 0033).",
+      "name": "plugin_stream_time",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The time a run's calls into Plugins took, in milliseconds, per implementation (ADR 0033).",
       "name": "plugin_time",
       "product": "collie",

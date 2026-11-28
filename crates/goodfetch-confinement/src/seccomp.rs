@@ -6,8 +6,8 @@
 //!
 //! Some refusals are rules too, though the default refuses them already:
 //! ADR 0033 names them, and a rule of their own gives each its probe, so a
-//! later allow rule that lets one through fails that probe. Only `none` is
-//! built (#813); `proxy_tcp` and `direct` come with #833 and #855.
+//! later allow rule that lets one through fails that probe. `none` (#813) and
+//! `proxy_tcp` (#833) are built; `direct` comes with #855.
 
 use goodfetch_protocol::plugin::NetworkLevel;
 use serde::{Deserialize, Serialize};
@@ -224,8 +224,15 @@ const fn allow_when(name: &'static str, call: Call, when: Condition) -> Rule {
 
 /// `CLONE_THREAD`: a `clone` that makes a thread, not a process.
 pub const CLONE_THREAD: u64 = 0x0001_0000;
-/// `AF_UNIX`, the one family `socketpair` makes at any level.
+/// `AF_UNIX`, the one family `socketpair` makes at any level; refused to
+/// `socket` at `none` and `proxy_tcp`.
 pub const AF_UNIX: u64 = 1;
+/// `AF_INET`, IPv4 sockets allowed inside `proxy_tcp`'s network namespace.
+pub const AF_INET: u64 = 2;
+/// `AF_INET6`, IPv6 sockets allowed inside `proxy_tcp`'s network namespace.
+pub const AF_INET6: u64 = 10;
+/// `AF_NETLINK`, refused to `socket` at `proxy_tcp` (and every level).
+pub const AF_NETLINK: u64 = 16;
 
 /// The `ioctl` requests a runtime makes on its standard streams and pipes:
 /// `FIONBIO`, `FIOCLEX`, `FIONCLEX`, `FIONREAD`, `TCGETS` and `TIOCGWINSZ`.
@@ -409,7 +416,6 @@ const REFUSED: &[Rule] = &[
     refuse("accept", Call::Accept),
     refuse("accept4", Call::Accept4),
     refuse("bind", Call::Bind),
-    refuse("connect", Call::Connect),
     refuse_when(
         "clone.process",
         Call::Clone,
@@ -430,35 +436,78 @@ const REFUSED: &[Rule] = &[
     ),
 ];
 
-/// At `none`, no socket of any family: the probe table holds one case per
-/// family number Linux has.
-const NONE: &[Rule] = &[refuse("socket", Call::Socket)];
+/// At `none`, no socket of any family and no `connect`: the probe table holds
+/// one case per family number Linux has.
+const NONE: &[Rule] = &[
+    refuse("connect", Call::Connect),
+    refuse("socket", Call::Socket),
+];
+
+/// At `proxy_tcp`, the Plugin runs inside a network namespace holding only
+/// loopback (`lo`) with the `plugin-shim` relay: IP sockets (`AF_INET`,
+/// `AF_INET6`) and `connect` are allowed, while Unix-domain and netlink
+/// sockets (and any other non-IP family by default) are refused.
+const PROXY_TCP: &[Rule] = &[
+    allow("connect", Call::Connect),
+    allow_when(
+        "socket.inet",
+        Call::Socket,
+        Condition::Equals {
+            arg: 0,
+            value: AF_INET,
+        },
+    ),
+    allow_when(
+        "socket.inet6",
+        Call::Socket,
+        Condition::Equals {
+            arg: 0,
+            value: AF_INET6,
+        },
+    ),
+    refuse_when(
+        "socket.unix",
+        Call::Socket,
+        Condition::Equals {
+            arg: 0,
+            value: AF_UNIX,
+        },
+    ),
+    refuse_when(
+        "socket.netlink",
+        Call::Socket,
+        Condition::Equals {
+            arg: 0,
+            value: AF_NETLINK,
+        },
+    ),
+];
 
 /// The rules of the seccomp list at `level`; none for a level not built
 /// yet, which the applier refuses.
 pub fn rules(level: NetworkLevel) -> Vec<Rule> {
-    match level {
-        NetworkLevel::None => {
-            let ioctls = IOCTLS.iter().map(|&(name, request)| {
-                allow_when(
-                    name,
-                    Call::Ioctl,
-                    Condition::Equals {
-                        arg: 1,
-                        value: request,
-                    },
-                )
-            });
-            BASELINE
-                .iter()
-                .copied()
-                .chain(ioctls)
-                .chain(REFUSED.iter().copied())
-                .chain(NONE.iter().copied())
-                .collect()
-        }
-        NetworkLevel::ProxyTcp | NetworkLevel::Direct => Vec::new(),
-    }
+    let extra = match level {
+        NetworkLevel::None => NONE,
+        NetworkLevel::ProxyTcp => PROXY_TCP,
+        NetworkLevel::Direct => return Vec::new(),
+    };
+    let ioctls = IOCTLS.iter().map(|&(name, request)| {
+        allow_when(
+            name,
+            Call::Ioctl,
+            Condition::Equals {
+                arg: 1,
+                value: request,
+            },
+        )
+    });
+    BASELINE
+        .iter()
+        .copied()
+        .chain(ioctls)
+        .chain(REFUSED.iter().copied())
+        .chain(extra.iter().copied())
+        .collect()
 }
 
 #[cfg(test)]

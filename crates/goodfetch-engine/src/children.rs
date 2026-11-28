@@ -163,6 +163,51 @@ impl Children {
         Ok(child)
     }
 
+    /// Starts `command` on Linux as [`Self::spawn`] does, duplicating `fd`
+    /// onto `target_fd` (without `O_CLOEXEC`) in the child before `exec` so
+    /// the child inherits that one extra descriptor (such as `plugin-shim`'s
+    /// `proxy_tcp` relay control socket, ADR 0033).
+    ///
+    /// # Errors
+    ///
+    /// When the OS refuses to start the child or duplicate `fd`.
+    #[cfg(target_os = "linux")]
+    pub fn spawn_with_fd(
+        &mut self,
+        mut command: tokio::process::Command,
+        fd: std::os::unix::io::OwnedFd,
+        target_fd: libc::c_int,
+    ) -> io::Result<tokio::process::Child> {
+        use std::os::fd::AsRawFd as _;
+        let raw_fd = fd.as_raw_fd();
+        command.process_group(0);
+        // SAFETY: the closure runs in the child between fork and exec, and
+        // makes only async-signal-safe system calls (`prctl`, `dup2`/`fcntl`).
+        unsafe {
+            let started_with = huge_pages::started_with();
+            command.pre_exec(move || {
+                libc::prctl(libc::PR_SET_THP_DISABLE, started_with, 0, 0, 0);
+                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                if raw_fd == target_fd {
+                    if libc::fcntl(target_fd, libc::F_SETFD, 0) == -1 {
+                        return Err(io::Error::last_os_error());
+                    }
+                } else if libc::dup2(raw_fd, target_fd) == -1 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let child = command.kill_on_drop(true).spawn()?;
+        drop(fd);
+        if let Some(id) = child.id().and_then(|id| i32::try_from(id).ok()) {
+            self.groups.push(id);
+        }
+        Ok(child)
+    }
+
     /// Starts `command` as one of them, as [`Self::spawn`] does, the child
     /// inheriting `handles`, which close here once it started, such as a
     /// browser's ends of its debugging pipe. No other child the engine

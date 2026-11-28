@@ -193,6 +193,10 @@ fn call_template(rule: &SeccompRule) -> Result<CallTemplate> {
         "msgget" => tpl([num(0x6766), num(0)], "ENOENT"),
         "semget" | "shmget" => tpl([num(0x6766), num(0), num(0)], "ENOENT"),
         "socket" => tpl([num(0), num(15), num(0)], "EINVAL"),
+        "socket.inet" => tpl([num(2), num(15), num(0)], "EINVAL"),
+        "socket.inet6" => tpl([num(10), num(15), num(0)], "EINVAL"),
+        "socket.unix" => tpl([num(1), num(15), num(0)], "EINVAL"),
+        "socket.netlink" => tpl([num(16), num(15), num(0)], "EINVAL"),
         other => bail!("no probe template registered for seccomp rule `{other}`"),
     };
     Ok(template)

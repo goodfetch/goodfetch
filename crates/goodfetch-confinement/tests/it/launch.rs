@@ -89,6 +89,7 @@ impl Plugin {
             program: self.layout.bundle.join("probe"),
             args: vec![serde_json::to_string(&request).unwrap()],
             folder: self.layout.instance.clone(),
+            proxy_relay: None,
         };
         let status = Command::new(PROBE)
             .arg(SHIM_COMMAND)

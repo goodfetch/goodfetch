@@ -23,6 +23,82 @@ const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 /// The Plugin's method that asks the engine to send an HTTP request.
 pub const NET_FETCH: &str = "net.fetch";
 
+/// The Plugin's method that asks the engine to open an opaque TCP stream
+/// (ADR 0033, issue 833).
+pub const NET_CONNECT: &str = "net.connect";
+
+/// Notification carrying bytes on an open `net.connect` stream, in either
+/// direction, bounded by credits.
+pub const NET_STREAM_DATA: &str = "net.stream.data";
+
+/// Notification granting additional byte credits on an open `net.connect`
+/// stream, in either direction.
+pub const NET_STREAM_CREDITS: &str = "net.stream.credits";
+
+/// Notification closing an open `net.connect` stream, in either direction.
+pub const NET_STREAM_CLOSE: &str = "net.stream.close";
+
+/// What `net.connect` asks the engine to connect to (ADR 0033).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct NetConnectParams {
+    /// The id of the engine's call the Plugin is serving.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub call_id: RequestId,
+    /// The destination host name or IP address.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub host: String,
+    /// The destination TCP port.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub port: u16,
+}
+
+/// What the engine answers to `net.connect`: the new stream's id and initial
+/// write credits (bytes the Plugin may send before receiving more credits).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct NetConnectResult {
+    /// The stream's id, unique within the instance.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub stream_id: String,
+    /// Initial byte credits granted to the Plugin for sending `net.stream.data`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub credits: u64,
+}
+
+/// Bytes carried on a `net.connect` stream (`net.stream.data`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct NetStreamDataParams {
+    /// The stream's id.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub stream_id: String,
+    /// The opaque chunk bytes, encoded as Base64 with padding.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub data: NetFetchBody,
+}
+
+/// Additional byte credits granted on a `net.connect` stream
+/// (`net.stream.credits`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct NetStreamCreditsParams {
+    /// The stream's id.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub stream_id: String,
+    /// Additional bytes the peer is allowed to send.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub bytes: u64,
+}
+
+/// Closing notification for a `net.connect` stream (`net.stream.close`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct NetStreamCloseParams {
+    /// The stream's id.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub stream_id: String,
+    /// Why the stream closed, when it did not end cleanly (e.g., `lease_ended`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub reason: Option<String>,
+}
+
 /// What `net.fetch` asks the engine to send.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct NetFetchParams {

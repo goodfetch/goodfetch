@@ -114,7 +114,7 @@ impl Plugin {
 /// Covers: story:7-54
 #[test]
 fn every_probe_at_the_none_level_gives_its_outcome_unconfined_then_exactly_its_refusal_confined() {
-    assert_every_probe_at_none(None);
+    assert_every_probe_at(NetworkLevel::None, None);
 }
 
 /// The PID-namespace mechanism, which a kernel before Landlock ABI 6 gets,
@@ -123,7 +123,7 @@ fn every_probe_at_the_none_level_gives_its_outcome_unconfined_then_exactly_its_r
 /// Covers: story:7-54
 #[test]
 fn every_probe_at_the_none_level_gives_its_refusal_under_the_pid_namespace_mechanism_too() {
-    assert_every_probe_at_none(Some(MechanismKind::PidNamespace));
+    assert_every_probe_at(NetworkLevel::None, Some(MechanismKind::PidNamespace));
 }
 
 /// The mount-namespace mechanism, which a kernel without Landlock gets,
@@ -132,7 +132,19 @@ fn every_probe_at_the_none_level_gives_its_refusal_under_the_pid_namespace_mecha
 /// Covers: story:7-54
 #[test]
 fn every_probe_at_the_none_level_gives_its_refusal_under_the_mount_namespace_mechanism_too() {
-    assert_every_probe_at_none(Some(MechanismKind::MountNamespace));
+    assert_every_probe_at(NetworkLevel::None, Some(MechanismKind::MountNamespace));
+}
+
+/// Every probe at the `proxy_tcp` network level (ADR 0033, issue 833): IP
+/// sockets and `connect` are allowed inside the isolated network namespace,
+/// while Unix-domain and netlink sockets, `bind`, `listen`, `accept`, signals
+/// outside, and deny-list paths are refused.
+///
+/// Covers: story:7-55
+#[test]
+fn every_probe_at_the_proxy_tcp_level_gives_its_outcome_unconfined_then_exactly_its_refusal_confined()
+ {
+    assert_every_probe_at(NetworkLevel::ProxyTcp, None);
 }
 
 /// The engine's startup probe reads this host as the launcher finds it: it
@@ -163,15 +175,14 @@ fn the_startup_probe_says_a_plugin_is_confined_exactly_where_the_launcher_confin
     );
 }
 
-/// Makes every case of the `none` table unconfined, then confined with
+/// Makes every case of `level`'s table unconfined, then confined with
 /// `kind` (the kernel's when none), after asserting the mechanism against
 /// the kernel's own answers to the raw calls: Landlock where it scopes
 /// signals, a namespace where user namespaces are allowed, a refusal to
 /// confine elsewhere.
-fn assert_every_probe_at_none(kind: Option<MechanismKind>) {
-    let table =
-        ProbeTable::read(probes::committed(Host::Linux, NetworkLevel::None).unwrap()).unwrap();
-    let plugin = Plugin::new(&table, NetworkLevel::None);
+fn assert_every_probe_at(level: NetworkLevel, kind: Option<MechanismKind>) {
+    let table = ProbeTable::read(probes::committed(Host::Linux, level).unwrap()).unwrap();
+    let plugin = Plugin::new(&table, level);
     let confined = Confined {
         policy: &plugin.policy,
         kind,
@@ -313,8 +324,11 @@ fn assert_mechanism(confined: Confined<'_>) -> (MechanismKind, bool) {
         abi if abi < SIGNAL_SCOPE_ABI => MechanismKind::PidNamespace,
         _ => MechanismKind::Landlock,
     });
+    let needs_network_namespace = confined.policy.network_level == NetworkLevel::ProxyTcp;
     let enforced = match used {
-        MechanismKind::Landlock => kernel >= SIGNAL_SCOPE_ABI,
+        MechanismKind::Landlock => {
+            kernel >= SIGNAL_SCOPE_ABI && (!needs_network_namespace || namespaces)
+        }
         MechanismKind::PidNamespace => kernel > 0 && namespaces,
         MechanismKind::MountNamespace => namespaces,
     };

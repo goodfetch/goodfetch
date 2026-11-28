@@ -66,8 +66,8 @@ use std::sync::{Arc, OnceLock};
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::Event;
 use goodfetch_protocol::home::{
-    RUN_TRACE_CALLS, RUN_TRACE_CDP_COMMANDS, RUN_TRACE_PLUGIN_CALLS, RUN_TRACE_PROVENANCE,
-    RUN_TRACE_REQUESTS, RUN_TRACE_SETTINGS,
+    RUN_TRACE_CALLS, RUN_TRACE_CDP_COMMANDS, RUN_TRACE_PLUGIN_CALLS, RUN_TRACE_PLUGIN_STREAMS,
+    RUN_TRACE_PROVENANCE, RUN_TRACE_REQUESTS, RUN_TRACE_SETTINGS,
 };
 use goodfetch_protocol::page::events::PAGE_REQUEST_FAILED;
 use goodfetch_protocol::page::{RequestFailed, SERVICE_WORKER_REQUEST, ServiceWorkerRequest};
@@ -129,16 +129,18 @@ enum Log {
     Calls,
     Settings,
     PluginCalls,
+    PluginStreams,
 }
 
 impl Log {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 7] = [
         Self::Provenance,
         Self::Requests,
         Self::CdpCommands,
         Self::Calls,
         Self::Settings,
         Self::PluginCalls,
+        Self::PluginStreams,
     ];
 
     /// How many files the writer holds.
@@ -153,6 +155,7 @@ impl Log {
             Self::Calls => 3,
             Self::Settings => 4,
             Self::PluginCalls => 5,
+            Self::PluginStreams => 6,
         }
     }
 
@@ -165,6 +168,7 @@ impl Log {
             Self::Calls => RUN_TRACE_CALLS,
             Self::Settings => RUN_TRACE_SETTINGS,
             Self::PluginCalls => RUN_TRACE_PLUGIN_CALLS,
+            Self::PluginStreams => RUN_TRACE_PLUGIN_STREAMS,
         }
     }
 }
@@ -287,6 +291,25 @@ impl RunTrace {
     pub async fn plugin_call(&self, call: &impl Serialize) -> io::Result<()> {
         let mut entry = serde_json::to_value(call)?;
         self.written_masked(Log::PluginCalls, &mut entry).await
+    }
+
+    /// Appends `stream`, one opaque `net.connect` or `proxy_tcp` stream a
+    /// Plugin opened (ADR 0033, issue 833), as a line of the Plugin stream
+    /// log, masked by the Run's `Mask` as a kept output, and returns once it
+    /// is written.
+    ///
+    /// # Errors
+    ///
+    /// When the line cannot be encoded, the writer cannot start, or the
+    /// file cannot be opened or written; the next entry opens it again.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future never stops a line being written once it was
+    /// sent to the writer.
+    pub async fn plugin_stream(&self, stream: &impl Serialize) -> io::Result<()> {
+        let mut entry = serde_json::to_value(stream)?;
+        self.written_masked(Log::PluginStreams, &mut entry).await
     }
 
     /// Writes `entry`, masked by the Run's `Mask` as a kept output, as one

@@ -44,7 +44,7 @@ use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::home::Home;
 use crate::plugin_gate::{
-    EffectsGate, Inserting, PluginEffectJournal, PluginFetch, permission_denied,
+    EffectsGate, Inserting, PluginEffectJournal, PluginFetch, StreamAccountant, permission_denied,
 };
 use crate::plugin_host::instance::{self, PluginInstance, Scope};
 use crate::plugin_host::settings::{self as plugin_settings, EnvironmentError, PluginSettings};
@@ -71,6 +71,7 @@ pub struct RunPlugins {
     index_store: PluginIndexStore,
     audit: Option<AuditLog>,
     spend: Option<Arc<dyn SpendAccountant>>,
+    streams: Option<Arc<dyn StreamAccountant>>,
     effects_journal: Option<Arc<dyn PluginEffectJournal>>,
     cache: CacheLocation,
     instances: PathBuf,
@@ -126,6 +127,7 @@ impl RunPlugins {
             index_store: PluginIndexStore::new(home.plugin_index()),
             audit: None,
             spend: None,
+            streams: None,
             effects_journal: None,
             cache: CacheLocation::new(home.root(), home.browsers_path().map(Path::to_path_buf)),
             instances: home.plugin_instances(),
@@ -155,6 +157,15 @@ impl RunPlugins {
     #[must_use]
     pub fn with_spend(mut self, spend: Arc<dyn SpendAccountant>) -> Self {
         self.spend = Some(spend);
+        self
+    }
+
+    /// Attaches the Run's stream accountant so `net.connect` and `proxy_tcp`
+    /// streams charge `plugin_stream_bytes`/`plugin_stream_time` and write to
+    /// the Run trace (ADR 0033, issue 833).
+    #[must_use]
+    pub fn with_streams(mut self, streams: Arc<dyn StreamAccountant>) -> Self {
+        self.streams = Some(streams);
         self
     }
 
@@ -721,6 +732,9 @@ impl RunPlugins {
             fetch = fetch.with_effects(gate.clone());
             effects = Some(gate);
         }
+        if let Some(streams) = &self.streams {
+            fetch = fetch.with_streams(Arc::clone(streams));
+        }
         Ok((fetch, effects))
     }
 
@@ -959,6 +973,7 @@ fn set_up(
             program,
             args,
             folder,
+            proxy_relay: None,
         },
         manifest: installed.manifest,
     })

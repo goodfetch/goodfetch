@@ -38,8 +38,10 @@
 pub mod effects;
 mod inserting;
 pub mod policy;
+pub mod proxy;
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use bytes::Bytes;
 use goodfetch_protocol::egress::EgressRule;
@@ -63,6 +65,9 @@ use url::{Origin, Url};
 
 pub use self::effects::{EffectsGate, PluginEffectEntry, PluginEffectJournal};
 pub use self::inserting::Inserting;
+pub use self::proxy::{
+    PluginProxy, ProxyCredentials, StreamAccountant, StreamRecord, StreamTransport,
+};
 use crate::call_error::{CallError, named};
 use crate::clock::Clock;
 use crate::egress::{
@@ -145,6 +150,9 @@ pub struct PluginFetch {
     /// Optional Effects / `page_script` / navigation-scope gate for a live
     /// Run's Plugin (ADR 0033, issue 845).
     effects: Option<EffectsGate>,
+    /// Optional stream accountant for `net.connect` and `proxy_tcp` streams
+    /// (ADR 0033, issue 833).
+    streams: Option<Arc<dyn StreamAccountant>>,
 }
 
 impl PluginFetch {
@@ -178,7 +186,24 @@ impl PluginFetch {
             trust: OnceCell::new(),
             inserting: None,
             effects: None,
+            streams: None,
         })
+    }
+
+    /// Attaches a [`StreamAccountant`] to record `net.connect` and `proxy_tcp`
+    /// stream Usage and Run trace entries (ADR 0033, issue 833).
+    #[must_use]
+    pub fn with_streams(self, streams: Arc<dyn StreamAccountant>) -> Self {
+        Self {
+            streams: Some(streams),
+            ..self
+        }
+    }
+
+    /// The attached [`StreamAccountant`], if any.
+    #[must_use]
+    pub fn stream_accountant(&self) -> Option<Arc<dyn StreamAccountant>> {
+        self.streams.clone()
     }
 
     /// This `net.fetch`, inserting the Secrets a request names as
@@ -212,6 +237,109 @@ impl PluginFetch {
     #[must_use]
     pub fn page_policy(&self) -> &Policy {
         &self.page
+    }
+
+    /// The clock used for Happy Eyeballs and stream duration accounting.
+    #[must_use]
+    pub fn clock(&self) -> Clock {
+        self.settings.clock()
+    }
+
+    /// Opens an opaque TCP stream for `net.connect` or `proxy_tcp` (ADR 0033,
+    /// issue 833) to `(host, port)`.
+    ///
+    /// Every destination is checked through the canonical egress gate first
+    /// (with the Plugin's operator-configured endpoints under
+    /// [`Gate::PluginEndpoint`] and all other hosts under [`Gate::Session`]
+    /// with `egress.private_ranges` stripped and `security.resolved_ip_check`
+    /// forced on). After passing egress, a destination that is neither an
+    /// operator-configured endpoint nor the active call's `fetch_target` is
+    /// refused with `plugin_call_back_refused` before any socket is opened.
+    ///
+    /// # Errors
+    ///
+    /// `invalid_params` for an empty host or port 0; `egress_refused` when the
+    /// egress class or DNS check refuses the host or any resolved IP;
+    /// `plugin_call_back_refused` when the host is neither an operator
+    /// endpoint nor `fetch_target`; `plugin_fetch_failed` when the TCP
+    /// connection cannot be established.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future closes any in-progress connection attempt.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "Plugin `net.connect` and `proxy_tcp` streams open TCP connections behind the egress gate (ADR 0060)"
+    )]
+    pub async fn connect(
+        &self,
+        host: &str,
+        port: u16,
+        fetch_target: Option<&Origin>,
+    ) -> Result<tokio::net::TcpStream, CallError> {
+        if host.is_empty() || port == 0 {
+            return Err(CallError::protocol(
+                ProtocolFailure::InvalidParams,
+                "`net.connect` requires a non-empty host and non-zero port",
+            ));
+        }
+        let stripped = host
+            .strip_prefix('[')
+            .and_then(|s| s.strip_suffix(']'))
+            .unwrap_or(host);
+        let named = if stripped.contains(':') {
+            format!("http://[{stripped}]:{port}/")
+        } else {
+            format!("http://{stripped}:{port}/")
+        };
+        let parsed = Url::parse(&named).ok();
+        let is_endpoint = self.matches_endpoint(stripped, port, parsed.as_ref());
+        let is_target = fetch_target.is_some_and(|target| origin_matches(target, stripped, port));
+        let class = if is_endpoint {
+            EgressClass::OperatorConfigured
+        } else {
+            EgressClass::PageReachable
+        };
+        let gate = match class {
+            EgressClass::OperatorConfigured => Gate::PluginEndpoint(self.settings.policy()),
+            EgressClass::PageReachable => Gate::Session {
+                policy: &self.page,
+                kind: RequestKind::Fetch,
+            },
+        };
+        let dial = is_endpoint || is_target;
+        match self
+            .settings
+            .connect_through(
+                ConfiguredKind::PluginEndpoint,
+                gate,
+                &named,
+                stripped,
+                port,
+                dial,
+            )
+            .await
+        {
+            Ok(stream) => Ok(stream),
+            Err(WholeFailure::Refused(refused)) => {
+                Err(self.failed(&named, class, WholeFailure::Refused(refused)))
+            }
+            Err(WholeFailure::Network) if !dial => Err(refused(
+                "`net.connect` reaches only the Plugin's operator-configured endpoints and its fetch call's target",
+            )),
+            Err(failure) => Err(self.failed(&named, class, failure)),
+        }
+    }
+
+    fn matches_endpoint(&self, host: &str, port: u16, parsed: Option<&Url>) -> bool {
+        if let Some(url) = parsed
+            && self.endpoints.contains(&url.origin())
+        {
+            return true;
+        }
+        self.endpoints
+            .iter()
+            .any(|origin| origin_matches(origin, host, port))
     }
 
     /// The egress class of `url`: Operator-configured when its origin is
@@ -648,6 +776,23 @@ fn origins_in(value: &Value, origins: &mut Vec<Origin>) {
         }
         Value::Null | Value::Bool(_) | Value::Number(_) => {}
     }
+}
+
+/// Whether `origin` names the same host (ASCII case-insensitive) and effective
+/// TCP port as `(host, port)`.
+fn origin_matches(origin: &Origin, host: &str, port: u16) -> bool {
+    let Origin::Tuple(_, origin_host, origin_port) = origin else {
+        return false;
+    };
+    if *origin_port != port {
+        return false;
+    }
+    let origin_text = origin_host.to_string();
+    let origin_stripped = origin_text
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .unwrap_or(&origin_text);
+    origin_stripped.eq_ignore_ascii_case(host)
 }
 
 #[cfg(test)]

@@ -243,6 +243,11 @@ pub struct RunUsage {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub plugin_units: Vec<PluginUnitUsage>,
+    /// Its Plugins' opaque `net.connect` and `proxy_tcp` streams, by
+    /// destination (`host:port`), in destination order (ADR 0033).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub plugin_streams: Vec<PluginStreamUsage>,
     /// What it used of a Usage kind this engine does not name, kept as the
     /// ledger holds it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -372,6 +377,21 @@ pub struct PluginUnitUsage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub price: Option<UsageAmount>,
+}
+
+/// Opaque stream traffic a Run's Plugins exchanged with one destination
+/// (`host:port`) over `net.connect` or `proxy_tcp` (ADR 0033, issue 833).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PluginStreamUsage {
+    /// The destination, formatted as `host:port`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub destination: String,
+    /// The bytes sent and received over streams to this destination.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub bytes: u64,
+    /// The total time streams to this destination stayed open, in milliseconds.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub time: u64,
 }
 
 /// An amount of a Usage kind counted in a currency, or as a count.

@@ -18,13 +18,13 @@ use goodfetch_protocol::page::proxy::ProxyKind;
 use goodfetch_protocol::run::completeness::{FAILED, STOPPED};
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, KindUsage, Lifecycle,
-    NothingDone, PluginUnitUsage, PluginUsage, ProxyKindBytes, RunId, RunReport, RunUsage,
-    RunWarning, StopReason, UNCERTAIN_EFFECTS, UsageAmount, Verdict,
+    NothingDone, PluginStreamUsage, PluginUnitUsage, PluginUsage, ProxyKindBytes, RunId, RunReport,
+    RunUsage, RunWarning, StopReason, UNCERTAIN_EFFECTS, UsageAmount, Verdict,
 };
 use goodfetch_protocol::settings::{ExplainedSetting, WeakenedSetting};
 use goodfetch_protocol::usage::{
-    BROWSER_TIME, MODEL_CALLS, MODEL_TOKENS, PAID_SOLVES, PLUGIN_CALLS, PLUGIN_TIME, PLUGIN_UNITS,
-    PROXY_BYTES, REQUESTS,
+    BROWSER_TIME, MODEL_CALLS, MODEL_TOKENS, PAID_SOLVES, PLUGIN_CALLS, PLUGIN_STREAM_BYTES,
+    PLUGIN_STREAM_TIME, PLUGIN_TIME, PLUGIN_UNITS, PROXY_BYTES, REQUESTS,
 };
 use rusqlite::{Connection, OptionalExtension as _};
 
@@ -257,6 +257,7 @@ pub(super) fn usage(
         proxy_bytes_by_kind: proxy_bytes_by_kind(connection)?,
         plugins: plugins(connection)?,
         plugin_units: plugin_units(connection)?,
+        plugin_streams: plugin_streams(connection)?,
         ..RunUsage::default()
     };
     let mut statement = connection.prepare_cached(
@@ -285,8 +286,9 @@ pub(super) fn usage(
             (REQUESTS, None) => usage.requests = amount,
             (PAID_SOLVES, currency) => usage.paid_solves.push(UsageAmount { currency, amount }),
             (PAID_FETCH, currency) => usage.paid_fetches.push(UsageAmount { currency, amount }),
-            // `plugins` and `plugin_units` hold them, by implementation and unit.
-            (PLUGIN_CALLS | PLUGIN_TIME, None) | (PLUGIN_UNITS, _) => {}
+            // `plugins`, `plugin_units` and `plugin_streams` hold them.
+            (PLUGIN_CALLS | PLUGIN_TIME | PLUGIN_STREAM_BYTES | PLUGIN_STREAM_TIME, None)
+            | (PLUGIN_UNITS, _) => {}
             (_, currency) => usage.other.push(KindUsage {
                 usage_kind,
                 currency,
@@ -360,6 +362,46 @@ fn plugins(connection: &Connection) -> rusqlite::Result<Vec<PluginUsage>> {
         }
     }
     Ok(plugins)
+}
+
+/// Opaque stream bytes and duration per destination (`host:port`), in
+/// destination order: the parts of `plugin_stream_bytes` and
+/// `plugin_stream_time` (ADR 0033, issue 833).
+fn plugin_streams(connection: &Connection) -> rusqlite::Result<Vec<PluginStreamUsage>> {
+    let mut statement = connection.prepare_cached(
+        "SELECT part, usage_kind, amount FROM usage_parts WHERE usage_kind IN (?1, ?2) ORDER BY part",
+    )?;
+    let parts = statement.query_map([PLUGIN_STREAM_BYTES, PLUGIN_STREAM_TIME], |row| {
+        let amount: i64 = row.get(2)?;
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            u64::try_from(amount).unwrap_or(0),
+        ))
+    })?;
+    let mut streams: Vec<PluginStreamUsage> = Vec::new();
+    for part in parts {
+        let (destination, usage_kind, amount) = part?;
+        if streams
+            .last()
+            .is_none_or(|last| last.destination != destination)
+        {
+            streams.push(PluginStreamUsage {
+                destination,
+                bytes: 0,
+                time: 0,
+            });
+        }
+        let usage = streams
+            .last_mut()
+            .expect("invariant: the destination's entry is the last");
+        if usage_kind == PLUGIN_STREAM_BYTES {
+            usage.bytes = amount;
+        } else {
+            usage.time = amount;
+        }
+    }
+    Ok(streams)
 }
 
 /// What the Run used of each Plugin's declared spend units, in Plugin then

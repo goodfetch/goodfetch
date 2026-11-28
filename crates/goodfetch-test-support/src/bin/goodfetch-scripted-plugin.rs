@@ -216,6 +216,10 @@ fn answer(script: &Value, method: &str, params: &Value, calls: &[Value]) -> Valu
                 Err(reason) => error(INTERNAL_ERROR, &reason),
             }
         }
+        "scripted.proxy_connect" => match proxy_connect(params) {
+            Ok(result) => json!({ "result": result }),
+            Err(reason) => error(INTERNAL_ERROR, &reason),
+        },
         _ => match script["answers"].get(method).cloned() {
             Some(Value::Object(mut scripted)) => {
                 let scripted = if scripted.remove("with_environment") == Some(json!(true)) {
@@ -299,6 +303,74 @@ fn expanded_text(text: &str) -> String {
 
 fn error(code: i64, message: &str) -> Value {
     json!({ "error": { "code": code, "message": message } })
+}
+
+/// Opens an HTTP `CONNECT` tunnel through `HTTP_PROXY` (using the embedded
+/// Basic credentials), optionally writes `payload` and reads back up to 256
+/// bytes, returning `{ status, response, http_proxy }`.
+#[expect(
+    clippy::disallowed_types,
+    reason = "test-only scripted Plugin connects to its own HTTP_PROXY loopback relay inside confinement (ADR 0033)"
+)]
+fn proxy_connect(params: &Value) -> Result<Value, String> {
+    use std::io::Read as _;
+    use std::net::TcpStream;
+
+    let target = params["target"]
+        .as_str()
+        .ok_or_else(|| "`scripted.proxy_connect` requires `target` (host:port)".to_owned())?;
+    let payload = params["payload"].as_str().unwrap_or("");
+    let proxy = std::env::var("HTTP_PROXY")
+        .map_err(|_| "HTTP_PROXY is not set in the Plugin environment".to_owned())?;
+    let rest = proxy
+        .strip_prefix("http://")
+        .ok_or_else(|| format!("unexpected HTTP_PROXY scheme: {proxy}"))?;
+    let (userinfo, addr) = rest
+        .split_once('@')
+        .ok_or_else(|| "HTTP_PROXY carries no credentials".to_owned())?;
+    let auth = data_encoding::BASE64.encode(userinfo.as_bytes());
+    let mut stream =
+        TcpStream::connect(addr).map_err(|err| format!("connect to proxy {addr}: {err}"))?;
+    let req = format!(
+        "CONNECT {target} HTTP/1.1\r\nHost: {target}\r\nProxy-Authorization: Basic {auth}\r\n\r\n"
+    );
+    stream
+        .write_all(req.as_bytes())
+        .map_err(|err| format!("write CONNECT: {err}"))?;
+    let mut head = Vec::new();
+    let mut byte = [0_u8; 1];
+    while !head.ends_with(b"\r\n\r\n") && head.len() < 4096 {
+        let n = stream
+            .read(&mut byte)
+            .map_err(|err| format!("read CONNECT response: {err}"))?;
+        if n == 0 {
+            break;
+        }
+        head.push(byte[0]);
+    }
+    let head_str = String::from_utf8_lossy(&head);
+    let status: u16 = head_str
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|code| code.parse().ok())
+        .unwrap_or(0);
+    let mut response = String::new();
+    if status == 200 && !payload.is_empty() {
+        stream
+            .write_all(payload.as_bytes())
+            .map_err(|err| format!("write tunnel payload: {err}"))?;
+        let mut reply = [0_u8; 256];
+        let n = stream
+            .read(&mut reply)
+            .map_err(|err| format!("read tunnel reply: {err}"))?;
+        response = String::from_utf8_lossy(&reply[..n]).into_owned();
+    }
+    Ok(json!({
+        "status": status,
+        "response": response,
+        "http_proxy": proxy,
+    }))
 }
 
 /// `answer` as the reply to the request `id`.

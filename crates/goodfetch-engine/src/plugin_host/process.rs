@@ -49,17 +49,37 @@ impl PluginProcess {
     ///
     /// [`stop`]: Self::stop
     pub fn start(launcher: &Path, launch: &Launch) -> io::Result<(Self, Pipes)> {
-        let request = serde_json::to_string(launch).map_err(io::Error::other)?;
-        let mut command = Command::new(launcher);
-        command
-            .arg(SHIM_COMMAND)
-            .env_clear()
-            .env(LAUNCH_VARIABLE, request)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
+        let command = shim_command(launcher, launch)?;
         let mut group = Children::new()?;
         let mut child = group.spawn(command)?;
+        let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
+            return Err(io::Error::other("the instance's pipes were not opened"));
+        };
+        let process = Self {
+            child,
+            group,
+            folder: launch.folder.clone(),
+        };
+        Ok((process, Pipes { stdin, stdout }))
+    }
+
+    /// Starts the Plugin on Linux as [`Self::start`] does, passing
+    /// `control_fd` inherited at `target_fd` for `plugin-shim`'s `proxy_tcp`
+    /// loopback relay (ADR 0033, issue 833).
+    ///
+    /// # Errors
+    ///
+    /// When the OS refuses to start the launcher.
+    #[cfg(target_os = "linux")]
+    pub fn start_with_fd(
+        launcher: &Path,
+        launch: &Launch,
+        control_fd: std::os::unix::io::OwnedFd,
+        target_fd: libc::c_int,
+    ) -> io::Result<(Self, Pipes)> {
+        let command = shim_command(launcher, launch)?;
+        let mut group = Children::new()?;
+        let mut child = group.spawn_with_fd(command, control_fd, target_fd)?;
         let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
             return Err(io::Error::other("the instance's pipes were not opened"));
         };
@@ -132,6 +152,19 @@ impl Ended {
             code => Self::Exited(code),
         }
     }
+}
+
+fn shim_command(launcher: &Path, launch: &Launch) -> io::Result<Command> {
+    let request = serde_json::to_string(launch).map_err(io::Error::other)?;
+    let mut command = Command::new(launcher);
+    command
+        .arg(SHIM_COMMAND)
+        .env_clear()
+        .env(LAUNCH_VARIABLE, request)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    Ok(command)
 }
 
 #[cfg(all(test, unix))]

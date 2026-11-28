@@ -35,9 +35,11 @@ extend-exclude = ["rnd/", "vendor/", "crates/goodfetch-cdp/protocol.json", "crat
 # WebAuthn's `COSE` keys (RFC 9052), which the Accounts store keeps. And
 # `mail-send`'s `Error::UnparseableReply`, as the crate spells it. And the
 # `whpk_` key the webhook verification tests give with no endpoint (#1391).
+# And POSIX `msghdr.msg_controllen` for `SCM_RIGHTS` descriptor passing (#833).
 # One entry a line, so two branches that each add one do not edit the same
 # line.
 extend-ignore-re = [
+  "\\bmsg_controllen\\b",
   "2zPwzAhd9xyyTX6hydEXQjvUWwvpqA",
   "\\bUnparseableReply\\b",
   "(?i)abck",

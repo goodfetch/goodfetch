@@ -25,6 +25,9 @@ use crate::seccomp::{Call, Rule, Verdict};
 pub fn committed(host: Host, level: NetworkLevel) -> Option<&'static str> {
     match (host, level) {
         (Host::Linux, NetworkLevel::None) => Some(include_str!("../probes/linux/none.toml")),
+        (Host::Linux, NetworkLevel::ProxyTcp) => {
+            Some(include_str!("../probes/linux/proxy_tcp.toml"))
+        }
         _ => None,
     }
 }

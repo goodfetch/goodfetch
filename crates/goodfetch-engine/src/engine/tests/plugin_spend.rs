@@ -672,3 +672,126 @@ fn an_operator_price_override_replaces_the_declared_price_in_reservation() {
         }])
     );
 }
+
+fn record_stream_contribution() -> Contribution {
+    use crate::plugin_gate::proxy::{StreamAccountant as _, StreamRecord, StreamTransport};
+    use crate::runs::RunStreamAccountant;
+
+    let op: &'static Operation = Box::leak(Box::new(Operation {
+        name: "test.record_stream",
+        description: "Test operation that records a Plugin stream",
+        class: OperationClass::Read,
+        kind: OperationKind::RoundTrip,
+        reach: Reach::AllSurfaces,
+        params: schema_of::<Value>,
+        result: schema_of::<Value>,
+        events: &[],
+        cancellable: false,
+        input: None,
+        bound: None,
+        stability: Stability::Experimental,
+        deprecated: None,
+        arrived_in: ProtocolVersion { major: 0, minor: 1 },
+    }));
+    Contribution::new("test-plugin-streams").with_handler(Handler::new(
+        op,
+        |params: Value, context| async move {
+            let id: RunId = serde_json::from_value(params["run_id"].clone()).unwrap();
+            let parts = context.runs().live(id).await.unwrap();
+            let accountant = RunStreamAccountant::new(parts.charging.clone(), parts.trace.clone());
+            accountant
+                .record(StreamRecord {
+                    plugin: "kettle".to_owned(),
+                    destination: "api.shop.test:443".to_owned(),
+                    transport: StreamTransport::NetConnect,
+                    bytes: 1_536,
+                    duration_ms: 42,
+                })
+                .await;
+            Ok::<_, crate::CallError>(json!({ "ok": true }))
+        },
+    ))
+}
+
+/// Recording a Plugin stream through `RunStreamAccountant` adds its bytes and
+/// time to `run.report`'s `usage.plugin_streams` (without leaking into
+/// `usage.other`) and writes a destination record to `trace/plugin-streams.jsonl`
+/// through `RunTrace`'s writer (ADR 0033, issue 833).
+///
+/// Covers: story:7-55, story:7-61
+#[test]
+fn run_stream_accountant_records_bytes_and_time_in_usage_and_destination_in_run_trace() {
+    use goodfetch_protocol::home::RUN_TRACE_PLUGIN_STREAMS;
+
+    let env = TestEnv::new();
+    let engine = engine_with(Product::Collie, Some(record_stream_contribution()));
+    let report = attached_on(&engine, &env, |mut client| async move {
+        client
+            .send(&[json!({
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "hello",
+                "params": {
+                    "protocol_version": "0.1",
+                    "surface": "cli",
+                    "needs": "collie",
+                    "product_version": "1.4.0",
+                },
+            })])
+            .await;
+        client.next().await.unwrap();
+        let started = call(&mut client, 1, "run.start", json!({ "run_id": "streams" })).await;
+        assert!(
+            started.get("result").is_some(),
+            "run.start failed: {started}"
+        );
+        let rec = call(
+            &mut client,
+            2,
+            "test.record_stream",
+            json!({ "run_id": "streams" }),
+        )
+        .await;
+        assert!(
+            rec.get("result").is_some(),
+            "test.record_stream failed: {rec}"
+        );
+        let finished = call(&mut client, 3, "run.finish", json!({ "run_id": "streams" })).await;
+        assert!(
+            finished.get("result").is_some(),
+            "run.finish failed: {finished}"
+        );
+        finished["result"].clone()
+    });
+
+    assert_eq!(
+        report["usage"]["plugin_streams"],
+        json!([{
+            "destination": "api.shop.test:443",
+            "bytes": 1_536,
+            "time": 42,
+        }])
+    );
+    assert!(
+        report["usage"].get("other").is_none()
+            || report["usage"]["other"]
+                .as_array()
+                .is_some_and(Vec::is_empty),
+        "plugin_stream_bytes/time must not leak into usage.other: {}",
+        report["usage"]
+    );
+
+    let trace_path = env
+        .home()
+        .join("1")
+        .join("runs")
+        .join("streams")
+        .join(RUN_TRACE_PLUGIN_STREAMS);
+    let trace_text = std::fs::read_to_string(&trace_path)
+        .unwrap_or_else(|err| panic!("failed reading {}: {err}", trace_path.display()));
+    let entry: Value = serde_json::from_str(trace_text.lines().next().unwrap()).unwrap();
+    assert_eq!(entry["plugin"], json!("kettle"));
+    assert_eq!(entry["destination"], json!("api.shop.test:443"));
+    assert_eq!(entry["bytes"], json!(1_536));
+    assert_eq!(entry["duration_ms"], json!(42));
+}

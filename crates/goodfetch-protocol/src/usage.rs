@@ -83,6 +83,16 @@ pub const PLUGIN_TIME: &str = "plugin_time";
 /// and their price by currency (ADR 0033; area 7 reserves and settles it).
 pub const PLUGIN_UNITS: &str = "plugin_units";
 
+/// The Usage kind of opaque bytes a Plugin sent and received over
+/// `net.connect` or `proxy_tcp` streams, counted per destination (ADR 0033;
+/// area 7 charges it).
+pub const PLUGIN_STREAM_BYTES: &str = "plugin_stream_bytes";
+
+/// The Usage kind of time a Plugin's `net.connect` or `proxy_tcp` streams
+/// stayed open, in milliseconds, counted per destination (ADR 0033; area 7
+/// charges it).
+pub const PLUGIN_STREAM_TIME: &str = "plugin_stream_time";
+
 /// One Limit of the Usage ledger: a generic row, which a newer engine may
 /// write with a scope kind, a Usage kind, a currency or a period this one
 /// does not know (ADR 0041).
@@ -508,6 +518,18 @@ pub const ENTRIES: Entries = Entries {
             shared_type: SharedType::UsageKind,
             name: PLUGIN_UNITS,
             description: "Raw spend units a Plugin reported outside the engine, and their price by currency (ADR 0033).",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::UsageKind,
+            name: PLUGIN_STREAM_BYTES,
+            description: "Opaque bytes a Plugin sent and received over `net.connect` or `proxy_tcp` streams, per destination (ADR 0033).",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::UsageKind,
+            name: PLUGIN_STREAM_TIME,
+            description: "Time a Plugin's `net.connect` or `proxy_tcp` streams stayed open, in milliseconds, per destination (ADR 0033).",
             arrived_in: ARRIVED_IN,
         },
         SharedTypeValue {

@@ -3449,6 +3449,23 @@ class PluginSettingsSchema(BaseModel):
     """The version installed."""
 
 
+class PluginStreamUsage(BaseModel):
+    """
+    Opaque stream traffic a Run's Plugins exchanged with one destination
+    (`host:port`) over `net.connect` or `proxy_tcp` (ADR 0033, issue 833).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    bytes: Annotated[int, Field(ge=0)]
+    """The bytes sent and received over streams to this destination."""
+    destination: str
+    """The destination, formatted as `host:port`."""
+    time: Annotated[int, Field(ge=0)]
+    """The total time streams to this destination stayed open, in milliseconds."""
+
+
 class PluginUsage(BaseModel):
     """
     What a Run's calls into one implementation of a Plugin kind used: its
@@ -11300,6 +11317,11 @@ class RunUsage(BaseModel):
     """Its Paid fetches, by currency (ADR 0045)."""
     paid_solves: list[UsageAmount] | None = None
     """Its paid solves, by currency (ADR 0035)."""
+    plugin_streams: list[PluginStreamUsage] | None = None
+    """
+    Its Plugins' opaque `net.connect` and `proxy_tcp` streams, by
+    destination (`host:port`), in destination order (ADR 0033).
+    """
     plugin_units: list[PluginUnitUsage] | None = None
     """
     Its Plugins' reported raw spend units, by Plugin and unit, with each

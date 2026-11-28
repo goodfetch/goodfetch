@@ -44,7 +44,10 @@ use crate::deadline::Deadline;
 use crate::plugin_host::instance::CallFailure;
 use crate::settings::Resolved;
 
-pub use crate::plugin_gate::{EffectsGate, PluginEffectEntry, PluginEffectJournal};
+pub use crate::plugin_gate::{
+    EffectsGate, PluginEffectEntry, PluginEffectJournal, StreamAccountant, StreamRecord,
+    StreamTransport,
+};
 pub use crate::plugin_host::spend::{
     DeclaredUnit, ReportedSpend, SpendAccountant, SpendTicket, plugin_price_unknown,
 };

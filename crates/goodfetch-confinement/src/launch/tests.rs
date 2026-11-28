@@ -24,6 +24,7 @@ fn launch(env: &[(&str, &str)]) -> Launch {
         program: PathBuf::from("/plugin/run"),
         args: Vec::new(),
         folder: PathBuf::from("/instance/tmp"),
+        proxy_relay: None,
     }
 }
 

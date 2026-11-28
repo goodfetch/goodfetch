@@ -62,7 +62,9 @@ use goodfetch_protocol::effect::UncertainReason;
 use goodfetch_protocol::error_code::ErrorCode;
 use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure, RequestId};
 use goodfetch_protocol::plugin::net::{
-    NET_FETCH, NetFetchParams, NetFetchResult, PLUGIN_CALL_BACK_REFUSED,
+    NET_CONNECT, NET_FETCH, NET_STREAM_CLOSE, NET_STREAM_CREDITS, NET_STREAM_DATA,
+    NetConnectParams, NetConnectResult, NetFetchParams, NetFetchResult, NetStreamCloseParams,
+    NetStreamCreditsParams, NetStreamDataParams, PLUGIN_CALL_BACK_REFUSED,
 };
 use goodfetch_protocol::plugin::spend::{USAGE_REPORT, UsageReportParams, UsageReportResult};
 use goodfetch_protocol::plugin::{
@@ -82,6 +84,7 @@ use super::lifecycle::{
 };
 use super::process::{Ended, Pipes, PluginProcess};
 use super::spend::{DeclaredSpend, PluginSpend, ReportedSpend};
+use super::streams::{INITIAL_CREDITS, STREAM_EVENTS, StreamEvent, StreamRegistry};
 use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::deadline::{Deadline, Enclosing};
@@ -784,6 +787,8 @@ struct Instance {
     hello_awaited: bool,
     /// The Plugin's call backs that run.
     call_backs: CallBacks,
+    /// Open `net.connect` streams carried as `net.stream.*` frames.
+    streams: StreamRegistry,
 }
 
 /// The Plugin's call backs that run, each a task of the instance's owner.
@@ -810,7 +815,11 @@ impl CallBacks {
 impl Instance {
     /// A new instance in `Starting`, bounded to `max_concurrency` in-flight
     /// calls.
-    fn new(max_concurrency: u32, answers: mpsc::Sender<Vec<u8>>) -> Self {
+    fn new(
+        max_concurrency: u32,
+        answers: mpsc::Sender<Vec<u8>>,
+        stream_events: mpsc::Sender<StreamEvent>,
+    ) -> Self {
         Self {
             state: InstanceState::Starting,
             max_concurrency: usize::try_from(max_concurrency)
@@ -826,6 +835,7 @@ impl Instance {
                 running: 0,
                 answers,
             },
+            streams: StreamRegistry::new(stream_events),
         }
     }
 
@@ -877,7 +887,39 @@ enum Exit {
 }
 
 impl Running {
-    async fn run_process(self, start: ProcessStart) {
+    async fn run_process(self, mut start: ProcessStart) {
+        #[cfg(target_os = "linux")]
+        let (_proxy_guard, started) = if self.config.manifest.network_level
+            == goodfetch_protocol::plugin::NetworkLevel::ProxyTcp
+            && start.launch.proxy_relay.is_none()
+        {
+            match crate::plugin_gate::PluginProxy::start_linux_relay(
+                &self.owner,
+                self.config.manifest.name.clone(),
+                Arc::clone(&self.config.fetch),
+                self.config.fetch.stream_accountant(),
+            ) {
+                Ok((proxy, control_fd)) => {
+                    let creds = proxy.credentials();
+                    start.launch.proxy_relay = Some(goodfetch_confinement::launch::ProxyRelay {
+                        control_fd: goodfetch_confinement::linux::relay::CONTROL_FD,
+                        username: creds.username.clone(),
+                        password: creds.password.clone(),
+                    });
+                    let started = PluginProcess::start_with_fd(
+                        &start.launcher,
+                        &start.launch,
+                        control_fd,
+                        goodfetch_confinement::linux::relay::CONTROL_FD,
+                    );
+                    (Some(proxy), started)
+                }
+                Err(error) => (None, Err(error)),
+            }
+        } else {
+            (None, PluginProcess::start(&start.launcher, &start.launch))
+        };
+        #[cfg(not(target_os = "linux"))]
         let started = PluginProcess::start(&start.launcher, &start.launch);
         let (process, Pipes { stdin, stdout }) = match started {
             Ok(started) => started,
@@ -899,15 +941,18 @@ impl Running {
         stdout: R,
     ) {
         let (answers, call_backs_answered) = mpsc::channel(CALL_BACKS);
-        let mut instance = Instance::new(self.config.manifest.limits.concurrency, answers);
+        let (stream_tx, stream_rx) = mpsc::channel(STREAM_EVENTS);
+        let mut instance =
+            Instance::new(self.config.manifest.limits.concurrency, answers, stream_tx);
         let exit = match self.hello_line() {
             Ok(line) => {
                 write(&self.stopping, &mut stdin, &line).await;
-                let pipes = (&mut stdin, stdout, call_backs_answered);
+                let pipes = (&mut stdin, stdout, call_backs_answered, stream_rx);
                 self.serve(&mut instance, &mut backend, pipes).await
             }
             Err(reason) => Exit::Failed(reason),
         };
+        instance.streams.close_all();
         let reason = match exit {
             Exit::Stopped(event) => {
                 // `run_ended` and `stop` stop the instance in every state.
@@ -948,7 +993,12 @@ impl Running {
         &mut self,
         instance: &mut Instance,
         backend: &mut Backend,
-        (stdin, mut stdout, mut call_backs_answered): (&mut W, R, mpsc::Receiver<Vec<u8>>),
+        (stdin, mut stdout, mut call_backs_answered, mut stream_events): (
+            &mut W,
+            R,
+            mpsc::Receiver<Vec<u8>>,
+            mpsc::Receiver<StreamEvent>,
+        ),
     ) -> Exit {
         let mut framer = Framer::new(MAX_MESSAGE_BYTES);
         let (mut buffer, mut parsed) = (vec![0; READ_BYTES], Vec::new());
@@ -1017,6 +1067,9 @@ impl Running {
                 Some(line) = call_backs_answered.recv() => {
                     instance.call_backs.running = instance.call_backs.running.saturating_sub(1);
                     write(&self.stopping, stdin, &line).await;
+                }
+                Some(event) = stream_events.recv() => {
+                    self.handle_stream_event(instance, stdin, event).await;
                 }
                 call = self.mailbox.recv() => {
                     let Some(call) = call else {
@@ -1126,6 +1179,9 @@ impl Running {
         if is_page_call_back(call.method()) {
             return self.serve_page_call_back(instance, stdin, id, call).await;
         }
+        if call.method() == NET_CONNECT {
+            return self.serve_net_connect(instance, stdin, id, call).await;
+        }
         if self.config.manifest.kinds.contains(&PluginKindName::HOOK)
             && is_forbidden_hook_call_back(call.method())
         {
@@ -1166,6 +1222,156 @@ impl Running {
             // An instance that ended reads no answer.
             let _ = answers.send(call_back_line(id, outcome)).await;
         });
+    }
+
+    /// Serves a `net.connect` call back (ADR 0033, issue 833): refuses Hook
+    /// and Extractor Plugins, admits the call under its active `call_id`, and
+    /// opens the validated TCP stream on a spawned task bound to the call's
+    /// lease token.
+    async fn serve_net_connect<W: AsyncWrite + Unpin>(
+        &self,
+        instance: &mut Instance,
+        stdin: &mut W,
+        id: RequestId,
+        call: &framing::Call,
+    ) {
+        if self
+            .config
+            .manifest
+            .kinds
+            .iter()
+            .any(|k| *k == PluginKindName::HOOK || *k == PluginKindName::EXTRACT)
+        {
+            let error = code(
+                &PLUGIN_CALL_BACK_REFUSED,
+                "Hooks and Extractors may declare only `none` and never get `net.connect`",
+            );
+            return write(&self.stopping, stdin, &call_back_line(id, Some(Err(error)))).await;
+        }
+        let parsed = serde_json::from_str::<NetConnectParams>(call.params().unwrap_or("{}"))
+            .map_err(|error| {
+                CallError::protocol(
+                    ProtocolFailure::InvalidParams,
+                    format!("the params of `{NET_CONNECT}` cannot be read: {error}"),
+                )
+            })
+            .and_then(|params| {
+                admit_call_back(
+                    &instance.waiting,
+                    instance.call_backs.running,
+                    &params.call_id,
+                )
+                .map(|()| params)
+            });
+        let params = match parsed {
+            Ok(params) => params,
+            Err(error) => {
+                return write(&self.stopping, stdin, &call_back_line(id, Some(Err(error)))).await;
+            }
+        };
+        let call_backs = &mut instance.call_backs;
+        let stopped = call_backs
+            .serving
+            .entry(params.call_id.clone())
+            .or_insert_with(|| self.stopping.child_token())
+            .child_token();
+        call_backs.running += 1;
+        let events = instance.streams.sender();
+        let fetch = Arc::clone(&self.config.fetch);
+        self.owner.spawn(async move {
+            let outcome = stopped
+                .run_until_cancelled(fetch.connect(&params.host, params.port, None))
+                .await;
+            let _ = events
+                .send(StreamEvent::Connected {
+                    reply_id: id,
+                    call_id: params.call_id,
+                    host: params.host,
+                    port: params.port,
+                    outcome,
+                })
+                .await;
+        });
+    }
+
+    /// Processes a completed `net.connect` or an outbound `net.stream.*`
+    /// notification frame.
+    async fn handle_stream_event<W: AsyncWrite + Unpin>(
+        &self,
+        instance: &mut Instance,
+        stdin: &mut W,
+        event: StreamEvent,
+    ) {
+        match event {
+            StreamEvent::Connected {
+                reply_id,
+                call_id,
+                host,
+                port,
+                outcome,
+            } => {
+                instance.call_backs.running = instance.call_backs.running.saturating_sub(1);
+                let line = match outcome {
+                    Some(Ok(tcp)) => {
+                        if let Some(lease_token) = instance.call_backs.serving.get(&call_id)
+                            && instance.waiting.contains_key(&call_id)
+                        {
+                            let stream_id = instance.streams.open(
+                                &self.owner,
+                                self.config.manifest.name.clone(),
+                                &host,
+                                port,
+                                tcp,
+                                lease_token.clone(),
+                                self.config.fetch.clock(),
+                                self.config.fetch.stream_accountant(),
+                            );
+                            let result = NetConnectResult {
+                                stream_id,
+                                credits: INITIAL_CREDITS,
+                            };
+                            match wire::success_line(&reply_id, &result) {
+                                Ok(line) => line,
+                                Err(error) => wire::failure_line(
+                                    Some(reply_id),
+                                    internal(&format!("a `{NET_CONNECT}` result encodes: {error}"))
+                                        .to_error_object(),
+                                ),
+                            }
+                        } else {
+                            drop(tcp);
+                            let error = code(
+                                &PLUGIN_CALL_BACK_REFUSED,
+                                "the call the Plugin's `net.connect` served was answered, or the instance stopped",
+                            );
+                            wire::failure_line(Some(reply_id), error.to_error_object())
+                        }
+                    }
+                    Some(Err(error)) => wire::failure_line(Some(reply_id), error.to_error_object()),
+                    None => {
+                        let error = code(
+                            &PLUGIN_CALL_BACK_REFUSED,
+                            "the call the Plugin's `net.connect` served was answered, or the instance stopped",
+                        );
+                        wire::failure_line(Some(reply_id), error.to_error_object())
+                    }
+                };
+                write(&self.stopping, stdin, &line).await;
+            }
+            StreamEvent::Frame(frame) => write(&self.stopping, stdin, &frame).await,
+            StreamEvent::CreditsReturned {
+                stream_id,
+                bytes,
+                frame,
+            } => {
+                instance.streams.credit_returned(&stream_id, bytes);
+                write(&self.stopping, stdin, &frame).await;
+            }
+            StreamEvent::Closed { stream_id, frame } => {
+                instance.streams.remove(&stream_id);
+                write(&self.stopping, stdin, &frame).await;
+            }
+        }
     }
 
     /// Serves a `page.*` or `locator.*` call back from an in-flight Hook call.
@@ -1287,6 +1493,36 @@ impl Running {
         }
     }
 
+    /// Handles a notification sent by the Plugin (`usage.report` or
+    /// `net.stream.*`).
+    async fn received_notification(&self, instance: &mut Instance, call: &crate::framing::Call) {
+        let params = call.params().unwrap_or("{}");
+        match call.method() {
+            USAGE_REPORT => {
+                if let Err(error) = self.record_usage_report(instance, call) {
+                    stray(&format!("refused `{USAGE_REPORT}` notification: {error}"));
+                }
+            }
+            NET_STREAM_DATA => match serde_json::from_str::<NetStreamDataParams>(params) {
+                Ok(parsed) => instance.streams.on_data(parsed).await,
+                Err(error) => stray(&format!("invalid `{NET_STREAM_DATA}`: {error}")),
+            },
+            NET_STREAM_CREDITS => match serde_json::from_str::<NetStreamCreditsParams>(params) {
+                Ok(parsed) => instance.streams.on_credits(&parsed),
+                Err(error) => stray(&format!("invalid `{NET_STREAM_CREDITS}`: {error}")),
+            },
+            NET_STREAM_CLOSE => match serde_json::from_str::<NetStreamCloseParams>(params) {
+                Ok(parsed) => instance.streams.on_close(&parsed),
+                Err(error) => stray(&format!("invalid `{NET_STREAM_CLOSE}`: {error}")),
+            },
+            method => {
+                stray(&format!(
+                    "the Plugin sent the notification `{method}`, which the host does not serve"
+                ));
+            }
+        }
+    }
+
     /// A frame the Plugin sent: the exit it leads to, if any.
     async fn received<W: AsyncWrite + Unpin>(
         &self,
@@ -1310,16 +1546,7 @@ impl Running {
                 return None;
             }
             Ok(Incoming::Notification(call)) => {
-                if call.method() == USAGE_REPORT {
-                    if let Err(error) = self.record_usage_report(instance, &call) {
-                        stray(&format!("refused `{USAGE_REPORT}` notification: {error}"));
-                    }
-                    return None;
-                }
-                stray(&format!(
-                    "the Plugin sent the notification `{}`, which the host does not serve",
-                    call.method()
-                ));
+                self.received_notification(instance, &call).await;
                 return None;
             }
             Err(error) => match error.id {

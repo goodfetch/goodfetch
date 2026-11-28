@@ -341,17 +341,13 @@ fn load_generated_sandbox_cases() -> Vec<GeneratedSandboxCase> {
         .collect()
 }
 
-fn starts_host() -> Host {
-    Host {
-        user_namespace: UserNamespace::Created,
-        seccomp_filtered: false,
-        apparmor_restricts: false,
-    }
+fn starts_host() -> HostFacts {
+    host(UserNamespace::Created)
 }
 
 fn run_generated_case(
     case: &GeneratedSandboxCase,
-    positive_control_host: fn() -> Host,
+    positive_control_host: fn() -> HostFacts,
 ) -> Result<(), String> {
     let mut env = BTreeMap::new();
     if let (Some(var), Some(val)) = (&case.env_var, &case.env_value) {
@@ -365,23 +361,19 @@ fn run_generated_case(
             positive.probed()
         ));
     }
-    let host_fn: fn() -> Host = match (
+    let host_fn: fn() -> HostFacts = match (
         case.user_namespace.as_str(),
         case.seccomp_filtered,
         case.apparmor_restricts,
     ) {
         ("created", false, false) => starts_host,
-        ("refused", true, false) => || Host {
-            user_namespace: UserNamespace::Refused(EPERM),
-            seccomp_filtered: true,
-            apparmor_restricts: false,
-        },
+        ("refused", true, false) => seccomp_refusing,
         ("refused", false, false) => refusing_host,
-        ("unmapped", false, true) => || Host {
-            user_namespace: UserNamespace::Unmapped(EPERM),
-            seccomp_filtered: false,
+        ("unmapped", false, true) => || HostFacts {
             apparmor_restricts: true,
+            ..host(UserNamespace::Unmapped(EPERM))
         },
+        ("wsl1", false, false) => wsl1,
         other => return Err(format!("{}: unhandled host tuple {other:?}", case.rule)),
     };
     let probe = SandboxProbe::of(host_fn, env);

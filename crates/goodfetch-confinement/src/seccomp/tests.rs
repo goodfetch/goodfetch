@@ -145,8 +145,35 @@ fn socketpair_makes_only_unix_sockets() {
 }
 
 #[rstest]
-#[case(NetworkLevel::ProxyTcp)]
-#[case(NetworkLevel::Direct)]
-fn a_level_not_built_yet_has_no_list(#[case] level: NetworkLevel) {
-    assert_eq!(rules(level), Vec::<Rule>::new());
+#[case::proxy_tcp(NetworkLevel::ProxyTcp, false)]
+#[case::direct(NetworkLevel::Direct, true)]
+fn a_level_not_built_yet_has_no_list(#[case] level: NetworkLevel, #[case] empty: bool) {
+    assert_eq!(rules(level).is_empty(), empty);
+}
+
+#[test]
+fn proxy_tcp_allows_inet_sockets_and_connect_and_refuses_unix_and_netlink() {
+    let list = rules(NetworkLevel::ProxyTcp);
+    let names: BTreeSet<&str> = list.iter().map(|rule| rule.name).collect();
+    assert_eq!(names.len(), list.len());
+    assert!(
+        list.iter()
+            .any(|r| r.name == "connect" && r.verdict == Verdict::Allow)
+    );
+    assert!(
+        list.iter()
+            .any(|r| r.name == "socket.inet" && r.verdict == Verdict::Allow)
+    );
+    assert!(
+        list.iter()
+            .any(|r| r.name == "socket.inet6" && r.verdict == Verdict::Allow)
+    );
+    assert!(
+        list.iter()
+            .any(|r| r.name == "socket.unix" && r.verdict == Verdict::Refuse)
+    );
+    assert!(
+        list.iter()
+            .any(|r| r.name == "socket.netlink" && r.verdict == Verdict::Refuse)
+    );
 }

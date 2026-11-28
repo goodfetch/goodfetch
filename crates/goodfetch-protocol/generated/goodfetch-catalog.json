@@ -14839,6 +14839,36 @@
       ],
       "type": "object"
     },
+    "PluginStreamUsage": {
+      "description": "Opaque stream traffic a Run's Plugins exchanged with one destination\n(`host:port`) over `net.connect` or `proxy_tcp` (ADR 0033, issue 833).",
+      "properties": {
+        "bytes": {
+          "arrived_in": "0.1",
+          "description": "The bytes sent and received over streams to this destination.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "destination": {
+          "arrived_in": "0.1",
+          "description": "The destination, formatted as `host:port`.",
+          "type": "string"
+        },
+        "time": {
+          "arrived_in": "0.1",
+          "description": "The total time streams to this destination stayed open, in milliseconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "destination",
+        "bytes",
+        "time"
+      ],
+      "type": "object"
+    },
     "PluginUnitUsage": {
       "description": "What a Run used of one spend unit a Plugin reported, and its price when\npriced (ADR 0033).",
       "properties": {
@@ -19805,6 +19835,14 @@
           "description": "Its paid solves, by currency (ADR 0035).",
           "items": {
             "$ref": "#/$defs/UsageAmount"
+          },
+          "type": "array"
+        },
+        "plugin_streams": {
+          "arrived_in": "0.1",
+          "description": "Its Plugins' opaque `net.connect` and `proxy_tcp` streams, by\ndestination (`host:port`), in destination order (ADR 0033).",
+          "items": {
+            "$ref": "#/$defs/PluginStreamUsage"
           },
           "type": "array"
         },
@@ -41755,6 +41793,20 @@
         "name": "plugin_secret_value_released",
         "product": "collie",
         "type": "audit_kind"
+      },
+      {
+        "arrived_in": "0.1",
+        "description": "Opaque bytes a Plugin sent and received over `net.connect` or `proxy_tcp` streams, per destination (ADR 0033).",
+        "name": "plugin_stream_bytes",
+        "product": "collie",
+        "type": "usage_kind"
+      },
+      {
+        "arrived_in": "0.1",
+        "description": "Time a Plugin's `net.connect` or `proxy_tcp` streams stayed open, in milliseconds, per destination (ADR 0033).",
+        "name": "plugin_stream_time",
+        "product": "collie",
+        "type": "usage_kind"
       },
       {
         "arrived_in": "0.1",

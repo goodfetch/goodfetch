@@ -7,7 +7,11 @@
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::net::{NET_FETCH, NetFetchParams};
+use super::net::{
+    NET_CONNECT, NET_FETCH, NET_STREAM_CLOSE, NET_STREAM_CREDITS, NET_STREAM_DATA,
+    NetConnectParams, NetFetchParams, NetStreamCloseParams, NetStreamCreditsParams,
+    NetStreamDataParams,
+};
 use super::secret::{SECRET_RESOLVE, SecretResolveParams};
 use super::spend::{USAGE_REPORT, UsageReportParams};
 use super::{
@@ -83,6 +87,8 @@ pub fn fuzz_plugin_messages(data: &[u8]) {
                     let _ = PluginPingParams::deserialize(&params);
                 } else if method == NET_FETCH {
                     let _ = NetFetchParams::deserialize(&params);
+                } else if method == NET_CONNECT {
+                    let _ = NetConnectParams::deserialize(&params);
                 } else if method == USAGE_REPORT {
                     let _ = UsageReportParams::deserialize(&params);
                 } else if method == SECRET_RESOLVE {
@@ -91,6 +97,21 @@ pub fn fuzz_plugin_messages(data: &[u8]) {
             }
             Message::Notification(Notification { method, params, .. }) if method == CANCEL => {
                 let _ = PluginCancelParams::deserialize(&params.unwrap_or_default());
+            }
+            Message::Notification(Notification { method, params, .. })
+                if method == NET_STREAM_DATA =>
+            {
+                let _ = NetStreamDataParams::deserialize(&params.unwrap_or_default());
+            }
+            Message::Notification(Notification { method, params, .. })
+                if method == NET_STREAM_CREDITS =>
+            {
+                let _ = NetStreamCreditsParams::deserialize(&params.unwrap_or_default());
+            }
+            Message::Notification(Notification { method, params, .. })
+                if method == NET_STREAM_CLOSE =>
+            {
+                let _ = NetStreamCloseParams::deserialize(&params.unwrap_or_default());
             }
             Message::Response(Response { result, .. }) => hold_hello(&approved, &result),
             Message::Notification(_) | Message::Error(_) => {}

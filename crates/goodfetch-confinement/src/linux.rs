@@ -27,6 +27,7 @@ pub mod limits;
 mod mounts;
 mod namespaces;
 pub mod probe;
+pub mod relay;
 
 use std::collections::BTreeMap;
 use std::io;
@@ -131,30 +132,60 @@ pub fn confine_self(policy: &Policy) -> Result<Mechanism, ConfineError> {
 /// and ends as it ends. On an error, the process may be confined in part
 /// and must start nothing.
 pub fn confine_self_with(policy: &Policy, kind: MechanismKind) -> Result<Mechanism, ConfineError> {
+    confine_self_with_relay(policy, kind, None).map(|(mechanism, _)| mechanism)
+}
+
+/// Confines the calling process to `policy` with `kind`, and when
+/// `proxy_control_fd` is given at [`NetworkLevel::ProxyTcp`], starts the
+/// loopback relay child inside the new network namespace before installing
+/// Landlock and seccomp, returning the bound loopback port.
+pub(crate) fn confine_self_with_relay(
+    policy: &Policy,
+    kind: MechanismKind,
+    proxy_control_fd: Option<libc::c_int>,
+) -> Result<(Mechanism, Option<u16>), ConfineError> {
     let rules = seccomp::rules(policy.network_level);
     if rules.is_empty() {
         return Err(ConfineError::LevelNotBuilt(policy.network_level));
     }
     let programs = programs(&rules)?;
-    let mechanism = match kind {
-        MechanismKind::Landlock => restrict_files(policy, true)?,
+    let isolate_network = policy.network_level == NetworkLevel::ProxyTcp;
+    let bind_relay = isolate_network && proxy_control_fd.is_some();
+    let (mechanism, bound) = match kind {
+        MechanismKind::Landlock => {
+            let bound = if isolate_network {
+                namespaces::enter_network_only(bind_relay)?
+            } else {
+                None
+            };
+            (restrict_files(policy, true)?, bound)
+        }
         MechanismKind::PidNamespace => {
             if kernel_abi() == 0 {
                 return Err(not_enabled());
             }
-            namespaces::enter(None)?;
-            restrict_files(policy, false)?
+            let bound = namespaces::enter(None, isolate_network, bind_relay)?;
+            (restrict_files(policy, false)?, bound)
         }
         MechanismKind::MountNamespace => {
-            namespaces::enter(Some(policy))?;
-            Mechanism::MountNamespace
+            let bound = namespaces::enter(Some(policy), isolate_network, bind_relay)?;
+            (Mechanism::MountNamespace, bound)
         }
+    };
+    let relay_port = if let (Some(control_fd), Some((listener, port))) = (proxy_control_fd, bound) {
+        relay::spawn_in_netns(control_fd, listener).map_err(|error| ConfineError::Namespace {
+            call: "fork(relay)",
+            error,
+        })?;
+        Some(port)
+    } else {
+        None
     };
     // The allows refuse `seccomp` itself, so they go last.
     for program in &programs {
         seccompiler::apply_filter(program)?;
     }
-    Ok(mechanism)
+    Ok((mechanism, relay_port))
 }
 
 fn restrict_files(policy: &Policy, scoped: bool) -> Result<Mechanism, ConfineError> {

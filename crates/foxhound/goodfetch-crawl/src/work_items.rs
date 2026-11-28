@@ -22,7 +22,7 @@
 //! commit writes, not a concern of their own.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::sync::{Arc, LazyLock};
 use std::time::SystemTime;
 
 use goodfetch_counted_work::CountedWork;
@@ -1771,23 +1771,62 @@ pub(crate) struct Committed<'a> {
     pub(crate) clean_up_rules: &'a CleanUpRules,
 }
 
-/// The digest of the Clean-up rules a Run holds to, which the Provenance of
-/// each of its Records names. The Run's start records it and nothing
-/// changes it, so a crawl reads it from its run file once, in its first
-/// commit that keeps Records, and for no Record after (ADR 0140's F4). A
-/// clone shares what was read.
+/// Cached state of a Run's Clean-up rules digest: unread until the first
+/// commit that keeps Records or the first Safe-point switch.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct CleanUpRules(Arc<OnceLock<Option<String>>>);
+enum CachedDigest {
+    #[default]
+    Unread,
+    Read(Option<String>),
+}
+
+/// The digest of the Clean-up rules a Run holds to, which the Provenance of
+/// each of its Records names. A crawl reads it from its run file once, in
+/// its first commit that keeps Records, and for no Record after (ADR 0140's
+/// F4); a Continuous crawl under `clean_up.follow_latest` updates it in
+/// memory at each Safe point where the Run adopts a new version (ADR 0139).
+/// A clone shares what was read.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CleanUpRules(
+    #[expect(
+        clippy::disallowed_types,
+        reason = "uncontended in-memory cache of the Run's current Clean-up rules digest, never held across `.await` (ADR 0060)"
+    )]
+    Arc<std::sync::Mutex<CachedDigest>>,
+);
 
 impl CleanUpRules {
     /// The digest, read from the run file `connection` holds unless a
-    /// commit read it before.
+    /// commit read it before or a Safe-point switch updated it.
     fn digest(&self, connection: &Connection) -> rusqlite::Result<Option<String>> {
-        if let Some(read) = self.0.get() {
+        if let CachedDigest::Read(read) = &*self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+        {
             return Ok(read.clone());
         }
         let digest = run_row::clean_up_digest(connection)?;
-        Ok(self.0.get_or_init(|| digest).clone())
+        let mut guard = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match &*guard {
+            CachedDigest::Read(read) => Ok(read.clone()),
+            CachedDigest::Unread => {
+                *guard = CachedDigest::Read(digest.clone());
+                Ok(digest)
+            }
+        }
+    }
+
+    /// Updates the cached digest after a Safe-point Clean-up rules switch
+    /// (ADR 0139), so subsequent Records carry the new version in Provenance.
+    pub(crate) fn set(&self, digest: Option<String>) {
+        *self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = CachedDigest::Read(digest);
     }
 }
 

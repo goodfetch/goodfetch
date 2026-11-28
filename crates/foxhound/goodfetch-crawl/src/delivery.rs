@@ -127,6 +127,7 @@ use goodfetch_protocol::page::{SITE_PREFERENCES_REFUSED, SessionId};
 use goodfetch_protocol::run::{
     EndingError, NothingDone, RUN_STATE_UNAVAILABLE, RunDetails, RunWarning, StopReason,
 };
+use goodfetch_protocol::settings::CLEAN_UP_FOLLOW_LATEST;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::usage::REQUESTS;
 use goodfetch_session_pool::{
@@ -437,6 +438,10 @@ struct Read {
     longest_wait: Option<Duration>,
     /// Whether this Run is a Continuous crawl (`crawl.continuous`, ADR 0139).
     continuous: bool,
+    /// Whether this Run adopts newly published Clean-up rules versions at
+    /// Safe points (`clean_up.follow_latest`, on in a Continuous crawl and
+    /// off elsewhere, ADRs 0047 and 0139).
+    follow_latest: bool,
     /// Run-level `revisit.policy` fallback for Labels that set none.
     run_revisit_policy: RevisitPolicy,
 }
@@ -444,12 +449,17 @@ struct Read {
 impl Read {
     /// What `resolved` gives the loop.
     fn of(resolved: &Resolved) -> Self {
+        let continuous: bool = resolved.get(&CRAWL_CONTINUOUS);
+        let follow_latest = resolved
+            .get::<Option<bool>>(&CLEAN_UP_FOLLOW_LATEST)
+            .unwrap_or(continuous);
         Self {
             policy: CrawlPolicy::of(resolved),
             pool: PoolSettings::of(resolved),
             proxied: proxied(resolved),
             longest_wait: goodfetch_frontier::longest_wait(resolved),
-            continuous: resolved.get(&CRAWL_CONTINUOUS),
+            continuous,
+            follow_latest,
             run_revisit_policy: RevisitPolicy::read(resolved.value(&REVISIT_POLICY))
                 .unwrap_or(RevisitPolicy::Never),
         }
@@ -557,6 +567,45 @@ fn next_wake_at(
     }
 }
 
+/// Runs the start-of-turn Safe-point Clean-up rules refresh (under
+/// `clean_up.follow_latest`), enqueues due revisits, and leases pending work
+/// items to connected servers. Returns `false` if the Run failed and ended.
+async fn prepare_and_lease(
+    (run, read, run_leases): (&std::sync::Arc<CrawlRun>, &Read, &Leases),
+    (admission, state): (&mut Admission, &mut RunState),
+    (servers, pages): (&mut [Serving], &mut Pages),
+    (fetching, handing): (&Fetching<'_>, &std::sync::Arc<RunHandOver>),
+    (stopping, settling_empty): (bool, bool),
+) -> bool {
+    let at_safe_point = !stopping && pages.idle() && settling_empty && state.undrawn() == 0;
+    if read.follow_latest
+        && at_safe_point
+        && let Some(switched) = run.refresh_clean_up_rules().await
+    {
+        run_leases.set_clean_up_rules(Some(switched.to_version));
+    }
+    if !advance_revisits(run, read, stopping, admission, state).await {
+        return false;
+    }
+    if !stopping
+        && let Err(error) = lease_to_servers(
+            run,
+            run_leases,
+            read.policy,
+            Pooled::of(state, read.pool, (fetching, handing)),
+            admission,
+            servers,
+            pages,
+        )
+        .await
+    {
+        tracing::error!(%error, run_id = %run.identity.id(), "the crawl's work items could not be leased");
+        end(run, admission, failed(&run.identity, &error)).await;
+        return false;
+    }
+    true
+}
+
 /// (ADR 0142).
 async fn deliver(
     run: &std::sync::Arc<CrawlRun>,
@@ -585,23 +634,15 @@ async fn deliver(
     // (ADR 0138).
     let (resolved, read) = (settings.resolved(), Read::of(settings.resolved()));
     loop {
-        if !advance_revisits(run, &read, stop.is_some(), &mut admission, &mut state).await {
-            return;
-        }
-        if stop.is_none()
-            && let Err(error) = lease_to_servers(
-                run,
-                &run_leases,
-                read.policy,
-                Pooled::of(&mut state, read.pool, (fetching, handing)),
-                &mut admission,
-                servers,
-                &mut pages,
-            )
-            .await
+        if !prepare_and_lease(
+            (run, &read, &run_leases),
+            (&mut admission, &mut state),
+            (servers, &mut pages),
+            (fetching, handing),
+            (stop.is_some(), settling.is_empty()),
+        )
+        .await
         {
-            tracing::error!(%error, run_id = %run.identity.id(), "the crawl's work items could not be leased");
-            end(run, &mut admission, failed(&run.identity, &error)).await;
             return;
         }
         let starved = run.governor.share().waits(WorkKind::Http);

@@ -85,6 +85,7 @@ pub(super) fn assemble(
     report.usage = usage;
     report.warnings = warnings(connection)?;
     report.nothing_done = nothing_done(connection)?;
+    report.clean_up_rules = crate::run_state::run_row::clean_up_rules_report(connection)?;
     for part in parts {
         if let Err(error) = part.fill(connection, &mut report) {
             tracing::warn!(%error, run_id = %report.run_id, "a part of the Run's report could not be read; the report goes without it");
@@ -131,6 +132,7 @@ impl EndFacts {
             plugins: None,
             warnings: Vec::new(),
             recording: None,
+            clean_up_rules: None,
             checkpoint: self.checkpoint.clone(),
             nothing_done: None,
             uncertain_effects: None,

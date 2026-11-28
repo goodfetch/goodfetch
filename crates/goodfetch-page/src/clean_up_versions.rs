@@ -25,6 +25,11 @@
 //!
 //! This release pins no full set (#207 pins the first), so `release` holds
 //! to the embedded part.
+//!
+//! Size: one concern, the lifecycle of Clean-up rules versions held by live
+//! Runs — selection at start/resume, Browser-cache artifact holding,
+//! compilation sharing, and Safe-point version switching under
+//! `clean_up.follow_latest`.
 #![expect(
     clippy::disallowed_methods,
     reason = "a version's files are read on the tasks module's blocking policy, never on an async worker"
@@ -55,11 +60,14 @@ use goodfetch_engine::run_state::{RunState, run_row};
 use goodfetch_engine::run_trace::RunTrace;
 use goodfetch_engine::runs::{
     Answering, Chosen, CleanUpVersions, Fallback, Holding, ReportWarnings, RulesContext, RunParts,
+    Switched,
 };
 use goodfetch_engine::settings::{Resolved, RunSettings, get_or_default};
 use goodfetch_engine::tasks::{TaskOwner, TaskStarter};
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
-use goodfetch_protocol::clean_up_rules::{CleanUpRulesManifest, MANIFEST_FILE, RulesSource};
+use goodfetch_protocol::clean_up_rules::{
+    CleanUpRulesManifest, CleanUpRulesSwitch, MANIFEST_FILE, RulesSource,
+};
 use goodfetch_protocol::formats::{CLEAN_UP_RULES, Compatibility};
 use goodfetch_protocol::run::warning::{CLEAN_UP_RULES_FALLBACK, CLEAN_UP_RULES_STALE};
 use goodfetch_protocol::run::{RunId, RunKind, RunWarning};
@@ -100,6 +108,11 @@ const KEPT_VERSIONS: usize = 2;
 /// authors, and the URLs it came from.
 const STATE_FILE: &str = "clean-up-rules.json";
 
+/// Callback invoked when a live Run adopts a newer Clean-up rules version at
+/// a Safe point, dropping its `filter_lists.host_cache` entries and cached
+/// served cosmetic rules (spec #2164 story 11, #1873).
+pub(crate) type OnSwitch = Arc<dyn Fn(&RunId) + Send + Sync>;
+
 /// The engine's versions of the Clean-up rules: those loaded, by digest,
 /// and the version each live Run holds to.
 pub(crate) struct Versions {
@@ -119,6 +132,10 @@ pub(crate) struct Versions {
     holding: Mutex<BTreeMap<RunId, Held>>,
     /// The fetches of the Filter lists from their authors' URLs.
     upstream: upstream::Fetches,
+    /// Called when a live Run switches to a newer Clean-up rules version at
+    /// a Safe point, to drop its `filter_lists.host_cache` entries and cached
+    /// served cosmetic rules (spec #2164 story 11, #1873).
+    on_switch: Option<OnSwitch>,
 }
 
 /// One version's load: the version once loaded, while a Run holds it or
@@ -518,6 +535,19 @@ impl Versions {
     /// Run's lists as it starts when `needs_lists` says its settings turn
     /// one on.
     pub(crate) fn new(needs_lists: fn(&RunIdentity) -> bool) -> Arc<Self> {
+        Self::build(needs_lists, None)
+    }
+
+    /// As [`Versions::new`], notifying `on_switch` whenever a live Run
+    /// switches to a newer Clean-up rules version at a Safe point.
+    pub(crate) fn with_on_switch(
+        needs_lists: fn(&RunIdentity) -> bool,
+        on_switch: OnSwitch,
+    ) -> Arc<Self> {
+        Self::build(needs_lists, Some(on_switch))
+    }
+
+    fn build(needs_lists: fn(&RunIdentity) -> bool, on_switch: Option<OnSwitch>) -> Arc<Self> {
         Arc::new_cyclic(|this| Self {
             this: Weak::clone(this),
             needs_lists,
@@ -526,6 +556,7 @@ impl Versions {
             kept: Mutex::default(),
             holding: Mutex::default(),
             upstream: upstream::Fetches::default(),
+            on_switch,
         })
     }
 
@@ -622,6 +653,17 @@ impl Versions {
             }
         };
         self.hold(run, &version.digest, artifact);
+        let version_digest = version.digest.clone();
+        let published_at = version.manifest.published_at;
+        if let Err(error) = run
+            .state
+            .write(move |connection| {
+                run_row::set_clean_up_version(connection, &version_digest, published_at)
+            })
+            .await
+        {
+            tracing::warn!(%error, "the Run's Clean-up rules version date was not recorded");
+        }
         // A program's pages all match the lists; a crawl's may read none of
         // them, so its crawl asks for them once it knows (#2573).
         if context.kind == RunKind::Collie {
@@ -662,6 +704,90 @@ impl Versions {
                 tracing::warn!(%error, "the warning of the Run's Clean-up rules was not kept");
             }
         }
+    }
+
+    /// Checks, at a Safe point of `run` under `clean_up.follow_latest`,
+    /// whether a newly published Clean-up rules version is available; when
+    /// one is, adopts it, drops `filter_lists.host_cache` entries and cached
+    /// served cosmetic rules, loads the new version's generic set, persists
+    /// the switch in run state and Provenance, and returns what switched.
+    async fn refresh_run(&self, run: &ListsRun, context: RulesContext<'_>) -> Option<Switched> {
+        self.remember(context.home);
+        let asked = Asked::of(context.settings.map(RunSettings::resolved));
+        if asked.version.is_some() || asked.update != Update::Upstream {
+            return None;
+        }
+        let current = lock(&self.holding)
+            .get(run.identity.id())
+            .map(|held| held.digest.clone());
+        let current = match current {
+            Some(digest) => digest,
+            None => recorded_digest(run).await?,
+        };
+        let now = now_of(context.clock);
+        let sources = Sources::of(&context).await;
+        let newest = self
+            .upstream
+            .newest(&sources, now, context.clock, asked.timeout)
+            .await
+            .ok()?;
+        if newest.digest == current {
+            return None;
+        }
+        let artifact = sources
+            .kept
+            .cached(&newest.digest, now)
+            .await
+            .map(|(_, held)| held);
+        self.hold(run, &newest.digest, artifact);
+        if let Some(on_switch) = &self.on_switch {
+            on_switch(run.identity.id());
+        }
+        if (self.needs_lists)(&run.identity) {
+            let _ = self.lists(run).await;
+        }
+        let switched_at = SystemTime::from(now);
+        let switch = CleanUpRulesSwitch {
+            from_version: current,
+            to_version: newest.digest.clone(),
+            published_at: newest.manifest.published_at,
+            switched_at,
+        };
+        let persisted = switch.clone();
+        if let Err(error) = run
+            .state
+            .write(move |connection| {
+                run_row::set_clean_up_version(
+                    connection,
+                    &persisted.to_version,
+                    persisted.published_at,
+                )?;
+                run_row::record_clean_up_switch(connection, &persisted)
+            })
+            .await
+        {
+            tracing::warn!(%error, "the Run's Clean-up rules switch was not recorded");
+        }
+        let entry = json!({
+            "action": "clean_up_rules",
+            "digest": newest.digest,
+            "switched_from": switch.from_version,
+            "source": newest.manifest.source,
+            "published_at": clock::rfc3339(newest.manifest.published_at),
+            "applied_by": { "product": context.product, "product_version": context.product_version },
+            "update": get_or_default::<&str>(
+                context.settings.map(RunSettings::resolved),
+                &CLEAN_UP_UPDATE,
+            ),
+            "resumed": false,
+        });
+        trace::provenance(&run.trace, entry).await;
+        Some(Switched {
+            from_version: switch.from_version,
+            to_version: switch.to_version,
+            published_at: switch.published_at,
+            switched_at: switch.switched_at,
+        })
     }
 
     /// `run` holds to the version of `digest`, whose files `artifact` holds
@@ -992,6 +1118,15 @@ impl CleanUpVersions for Versions {
     ) -> Answering<'a, ()> {
         let run = ListsRun::of(run);
         Box::pin(async move { self.record(&run, holding, context).await })
+    }
+
+    fn refresh<'a>(
+        &'a self,
+        run: &'a RunParts,
+        context: RulesContext<'a>,
+    ) -> Answering<'a, Option<Switched>> {
+        let run = ListsRun::of(run);
+        Box::pin(async move { self.refresh_run(&run, context).await })
     }
 }
 

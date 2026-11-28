@@ -18,9 +18,12 @@ use goodfetch_engine::robots_txt::OwnCopies;
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_state::RunState;
 use goodfetch_engine::run_trace::RunTrace;
-use goodfetch_engine::runs::{Progress, ReportWarnings, RunEnd, RunKeys, RunParts};
+use goodfetch_engine::runs::{
+    CleanUpRefresher, Progress, ReportWarnings, RunEnd, RunKeys, RunParts, Switched,
+};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::BrowserRun;
+use goodfetch_protocol::run::RunKind;
 
 /// A crawl's record of its live Run, which its delivery, its attempts and
 /// the calls that reach the live crawl share.
@@ -54,6 +57,9 @@ pub(crate) struct CrawlRun {
     /// The page crate's record of the Run, which the fetch tier's
     /// interfaces take.
     pub(crate) browser: Arc<BrowserRun>,
+    /// Handle to adopt newer Clean-up rules versions at Safe points under
+    /// `clean_up.follow_latest` (ADRs 0047 and 0139).
+    clean_up_refresher: Option<CleanUpRefresher>,
 }
 
 impl CrawlRun {
@@ -75,7 +81,16 @@ impl CrawlRun {
             own_robots_txt: parts.own_robots_txt.clone(),
             gates: context.runs().admission_gates().cloned(),
             browser: BrowserRun::of(parts, context.engine()),
+            clean_up_refresher: context.runs().clean_up_refresher(parts, RunKind::Crawl),
         })
+    }
+
+    /// Checks for and adopts a newly published Clean-up rules version at a
+    /// Safe point when `clean_up.follow_latest` is enabled (ADRs 0047 and
+    /// 0139).
+    pub(crate) async fn refresh_clean_up_rules(&self) -> Option<Switched> {
+        let refresher = self.clean_up_refresher.as_ref()?;
+        refresher.refresh().await
     }
 
     /// The Run's admission under `settings`: [`admission::of_run`] over its

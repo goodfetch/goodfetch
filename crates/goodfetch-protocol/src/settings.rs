@@ -844,6 +844,21 @@ pub const CLEAN_UP_FETCH_TIMEOUT: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `clean_up.follow_latest` (ADRs 0047 and 0139).
+pub const CLEAN_UP_FOLLOW_LATEST: Setting = Setting {
+    name: "clean_up.follow_latest",
+    description: "Whether a Run adopts a newly published Clean-up rules version at its next Safe point instead of keeping the version it started with pinned for its whole life. Unset (`null`, the default) is on in a Continuous crawl (`crawl.continuous: true`) and off elsewhere; `false` keeps the rules pinned even in a Continuous crawl. A `clean_up.version` digest still pins the exact version.",
+    kind: ValueKind::Boolean,
+    default: null,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// The Filter lists' authors' own URLs, by list, which `clean_up.lists`
 /// holds by default.
 pub const UPSTREAM_LISTS: [(&str, &str); 4] = [
@@ -1303,6 +1318,7 @@ pub const ENTRIES: Entries = Entries {
         CLEAN_UP_CHANNEL,
         CLEAN_UP_LISTS,
         CLEAN_UP_FETCH_TIMEOUT,
+        CLEAN_UP_FOLLOW_LATEST,
         SESSION_SOURCE,
         SESSION_PAGE_CHECK,
         SECRETS_BY_REFERENCE,

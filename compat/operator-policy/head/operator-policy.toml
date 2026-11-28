@@ -314,6 +314,7 @@ version = "example"
 channel = "example"
 lists = { "example.test" = "example" }
 fetch_timeout = 30000
+follow_latest = true
 
 [settings.session]
 source = { kind = "saved_identity", name = "example" }
@@ -809,6 +810,7 @@ version = "example"
 channel = "example"
 lists = { "example.test" = "example" }
 fetch_timeout = 30000
+follow_latest = true
 
 [lock.session]
 source = { kind = "saved_identity", name = "example" }

@@ -302,3 +302,91 @@ async fn versions_no_run_holds_are_kept_within_their_bound() {
         (true, KEPT_VERSIONS + 1, true, KEPT_VERSIONS + 2)
     );
 }
+
+/// Switching Clean-up rules versions drops the Run's `filter_lists.host_cache`
+/// entries and reads the new version's generic set so no page mixes versions
+/// (spec #2164 story 11, #1873).
+#[test]
+fn switching_clean_up_rules_drops_host_cache_and_uses_new_generic_set() {
+    use goodfetch_clean_up_rules::matching::Choices;
+    use goodfetch_clean_up_rules::removal::{self, HostCache, Rules};
+    use goodfetch_counted_work::{CountedWork, ParsedHtml};
+
+    let v1 = FilterLists::compile(&ListTexts {
+        ads: "##.v1-ad\n",
+        trackers: "",
+        annoyances: "",
+        unbreak: "",
+    });
+    let v2 = FilterLists::compile(&ListTexts {
+        ads: "##.v2-ad\n",
+        trackers: "",
+        annoyances: "",
+        unbreak: "",
+    });
+    let choices = Choices {
+        ads: true,
+        trackers: false,
+        annoyances: false,
+        first_party_scripts: false,
+        block_resources: Vec::new(),
+    };
+    let hosts = HostCache::new(64);
+    let work = CountedWork::default();
+    let html = "<html><body><div class=\"v1-ad\">old</div><div class=\"v2-ad\">new</div><p>keep</p></body></html>";
+
+    // Page 1 under v1 populates host_cache and removes only .v1-ad.
+    let doc1 = ParsedHtml::from(html);
+    let removed1 = removal::remove(
+        &doc1,
+        "https://news.test/story",
+        Rules {
+            lists: &v1,
+            version: "sha256:v1",
+            choices: &choices,
+            hosts: &hosts,
+        },
+        &work,
+    );
+    assert_eq!(
+        removed1
+            .removed
+            .iter()
+            .map(|r| r.rule.as_str())
+            .collect::<Vec<_>>(),
+        vec![".v1-ad"]
+    );
+    assert_eq!(hosts.entries(), 1, "v1 must populate the host cache");
+
+    // At the Safe-point switch: drop host_cache so v2's generic set is read
+    // fresh with no cached host entries from v1.
+    hosts.clear();
+    assert_eq!(
+        hosts.entries(),
+        0,
+        "host_cache must be empty right after the switch"
+    );
+
+    // Page 2 on the same host under v2 removes only .v2-ad, never mixing v1.
+    let doc2 = ParsedHtml::from(html);
+    let removed2 = removal::remove(
+        &doc2,
+        "https://news.test/story",
+        Rules {
+            lists: &v2,
+            version: "sha256:v2",
+            choices: &choices,
+            hosts: &hosts,
+        },
+        &work,
+    );
+    assert_eq!(
+        removed2
+            .removed
+            .iter()
+            .map(|r| r.rule.as_str())
+            .collect::<Vec<_>>(),
+        vec![".v2-ad"]
+    );
+    assert_eq!(hosts.entries(), 1, "v2 populates only its own host entry");
+}

@@ -2192,6 +2192,66 @@
       ],
       "open": true
     },
+    "CleanUpRulesReport": {
+      "description": "What a Run's report records of the Clean-up rules it held to (ADRs 0047\nand 0139): the digest and publication date of the current version, and\neach switch adopted at a Safe point under `clean_up.follow_latest`.",
+      "properties": {
+        "published_at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When that version was published, in RFC 3339."
+        },
+        "switches": {
+          "arrived_in": "0.1",
+          "description": "Every switch to a newer Clean-up rules version adopted at a Safe point\nunder `clean_up.follow_latest`, in order; absent when none occurred.",
+          "items": {
+            "$ref": "#/$defs/CleanUpRulesSwitch"
+          },
+          "type": "array"
+        },
+        "version": {
+          "arrived_in": "0.1",
+          "description": "The digest, `sha256:<hex>`, of the Clean-up rules version the Run held\nto (the latest version adopted when `clean_up.follow_latest` switched).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "published_at"
+      ],
+      "type": "object"
+    },
+    "CleanUpRulesSwitch": {
+      "description": "One switch to a newer Clean-up rules version adopted at a Safe point\nunder `clean_up.follow_latest` (ADR 0139).",
+      "properties": {
+        "from_version": {
+          "arrived_in": "0.1",
+          "description": "The digest, `sha256:<hex>`, the Run held before the switch.",
+          "type": "string"
+        },
+        "published_at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When the adopted version was published, in RFC 3339."
+        },
+        "switched_at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When the Run adopted the new version at its Safe point, in RFC 3339."
+        },
+        "to_version": {
+          "arrived_in": "0.1",
+          "description": "The digest, `sha256:<hex>`, the Run adopted at the switch.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "from_version",
+        "to_version",
+        "published_at",
+        "switched_at"
+      ],
+      "type": "object"
+    },
     "ClickParams": {
       "additionalProperties": false,
       "description": "What `locator.click` takes: the locator whose element it clicks.",
@@ -3805,6 +3865,18 @@
           ],
           "arrived_in": "0.1",
           "description": "The last Checkpoint written of it in this engine, when one was."
+        },
+        "clean_up_rules": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CleanUpRulesReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Clean-up rules version and publication date the Run held to, and\nany switches adopted under `clean_up.follow_latest` (ADRs 0047 and\n0139)."
         },
         "completeness": {
           "$ref": "#/$defs/Completeness",
@@ -17322,6 +17394,18 @@
           "arrived_in": "0.1",
           "description": "The last Checkpoint written of it in this engine, when one was."
         },
+        "clean_up_rules": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CleanUpRulesReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Clean-up rules version and publication date the Run held to, and\nany switches adopted under `clean_up.follow_latest` (ADRs 0047 and\n0139)."
+        },
         "completeness": {
           "$ref": "#/$defs/Completeness",
           "arrived_in": "0.1",
@@ -29853,6 +29937,30 @@
           "description": "A duration in milliseconds.",
           "minimum": 0,
           "type": "integer"
+        },
+        "weakening": null,
+        "weakens": false
+      },
+      {
+        "arrived_in": "0.1",
+        "authority": "every",
+        "clearable": true,
+        "default": null,
+        "deprecated": null,
+        "description": "Whether a Run adopts a newly published Clean-up rules version at its next Safe point instead of keeping the version it started with pinned for its whole life. Unset (`null`, the default) is on in a Continuous crawl (`crawl.continuous: true`) and off elsewhere; `false` keeps the rules pinned even in a Continuous crawl. A `clean_up.version` digest still pins the exact version.",
+        "fixed_for_run": false,
+        "name": "clean_up.follow_latest",
+        "product": "collie",
+        "products": [
+          "collie",
+          "foxhound"
+        ],
+        "scopes": [
+          "connection",
+          "run"
+        ],
+        "value": {
+          "type": "boolean"
         },
         "weakening": null,
         "weakens": false

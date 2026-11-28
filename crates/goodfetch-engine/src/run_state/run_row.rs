@@ -6,10 +6,15 @@
 //! keeps its statement in the connection's cache, so a reader called per
 //! page prepares nothing more.
 
+use std::time::SystemTime;
+
+use goodfetch_protocol::clean_up_rules::{CleanUpRulesReport, CleanUpRulesSwitch};
 use goodfetch_protocol::run::{Lifecycle, RunKind};
 use rusqlite::{Connection, OptionalExtension as _};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+
+use crate::StoredTime;
 
 /// Whether the Run is of the kind `kind`: not, for a kind this engine does
 /// not know, which a newer minor's run file may hold, so a part of its
@@ -44,6 +49,95 @@ pub fn clean_up_digest(connection: &Connection) -> rusqlite::Result<Option<Strin
         .and_then(|mut cached| cached.query_row([], |row| row.get::<_, Option<String>>(0)))
         .optional()?
         .flatten())
+}
+
+/// Records the Clean-up rules version digest and publication date that the
+/// Run currently holds to (ADRs 0047 and 0139).
+///
+/// # Errors
+///
+/// SQLite's.
+pub fn set_clean_up_version(
+    connection: &Connection,
+    digest: &str,
+    published_at: SystemTime,
+) -> rusqlite::Result<()> {
+    connection
+        .prepare_cached("UPDATE run SET clean_up_digest = ?1, clean_up_published_at = ?2")
+        .and_then(|mut cached| cached.execute((digest, StoredTime(published_at))))?;
+    Ok(())
+}
+
+/// Appends one Clean-up rules version switch adopted at a Safe point under
+/// `clean_up.follow_latest` (ADR 0139).
+///
+/// # Errors
+///
+/// SQLite's.
+pub fn record_clean_up_switch(
+    connection: &Connection,
+    switch: &CleanUpRulesSwitch,
+) -> rusqlite::Result<()> {
+    connection
+        .prepare_cached(
+            "INSERT INTO clean_up_switches (from_version, to_version, published_at, switched_at) \
+             VALUES (?1, ?2, ?3, ?4)",
+        )
+        .and_then(|mut cached| {
+            cached.execute((
+                &switch.from_version,
+                &switch.to_version,
+                StoredTime(switch.published_at),
+                StoredTime(switch.switched_at),
+            ))
+        })?;
+    Ok(())
+}
+
+/// The Clean-up rules report of the Run, when its state records a version
+/// and publication date; none otherwise.
+///
+/// # Errors
+///
+/// SQLite's.
+pub fn clean_up_rules_report(
+    connection: &Connection,
+) -> rusqlite::Result<Option<CleanUpRulesReport>> {
+    let row = connection
+        .prepare_cached("SELECT clean_up_digest, clean_up_published_at FROM run")
+        .and_then(|mut cached| {
+            cached.query_row([], |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<StoredTime>>(1)?,
+                ))
+            })
+        })
+        .optional()?;
+    let Some((Some(version), Some(StoredTime(published_at)))) = row else {
+        return Ok(None);
+    };
+    let mut statement = connection.prepare_cached(
+        "SELECT from_version, to_version, published_at, switched_at \
+         FROM clean_up_switches ORDER BY position ASC",
+    )?;
+    let switches = statement
+        .query_map([], |row| {
+            let StoredTime(published_at) = row.get(2)?;
+            let StoredTime(switched_at) = row.get(3)?;
+            Ok(CleanUpRulesSwitch {
+                from_version: row.get(0)?,
+                to_version: row.get(1)?,
+                published_at,
+                switched_at,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(Some(CleanUpRulesReport {
+        version,
+        published_at,
+        switches,
+    }))
 }
 
 /// The Run's run epoch (ADR 0003).

@@ -121,6 +121,7 @@ const SCHEMA: &[&str] = &[
         journal_position INTEGER NOT NULL DEFAULT 0,
         binding TEXT,
         clean_up_digest TEXT,
+        clean_up_published_at TEXT,
         fixed_settings TEXT NOT NULL DEFAULT '{}',
         setting_digests TEXT NOT NULL DEFAULT '{}',
         uncapped INTEGER NOT NULL DEFAULT 0,
@@ -169,6 +170,15 @@ const SCHEMA: &[&str] = &[
         message TEXT NOT NULL,
         sessions TEXT NOT NULL,
         folder TEXT
+    ) STRICT",
+    // Each switch to a newer Clean-up rules version adopted at a Safe point
+    // under `clean_up.follow_latest` (ADRs 0047 and 0139).
+    "CREATE TABLE IF NOT EXISTS clean_up_switches (
+        position INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        from_version TEXT NOT NULL,
+        to_version TEXT NOT NULL,
+        published_at TEXT NOT NULL,
+        switched_at TEXT NOT NULL
     ) STRICT",
 ];
 

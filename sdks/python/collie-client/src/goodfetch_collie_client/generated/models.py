@@ -606,6 +606,26 @@ class ChromeChannel(StrEnum):
     """Chrome Canary."""
 
 
+class CleanUpRulesSwitch(BaseModel):
+    """
+    One switch to a newer Clean-up rules version adopted at a Safe point
+    under `clean_up.follow_latest` (ADR 0139).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    from_version: str
+    """The digest, `sha256:<hex>`, the Run held before the switch."""
+    published_at: PointInTime
+    """When the adopted version was published, in RFC 3339."""
+    switched_at: PointInTime
+    """When the Run adopted the new version at its Safe point, in RFC 3339."""
+    to_version: str
+    """The digest, `sha256:<hex>`, the Run adopted at the switch."""
+
+
 class Completeness(StrEnum):
     """
     Whether a Run's results cover everything in its scope (ADRs 0005 and
@@ -6391,6 +6411,31 @@ class Chunk(BaseModel):
     """Where its bytes start in the body."""
 
 
+class CleanUpRulesReport(BaseModel):
+    """
+    What a Run's report records of the Clean-up rules it held to (ADRs 0047
+    and 0139): the digest and publication date of the current version, and
+    each switch adopted at a Safe point under `clean_up.follow_latest`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    published_at: PointInTime
+    """When that version was published, in RFC 3339."""
+    switches: list[CleanUpRulesSwitch] | None = None
+    """
+    Every switch to a newer Clean-up rules version adopted at a Safe point
+    under `clean_up.follow_latest`, in order; absent when none occurred.
+    """
+    version: str
+    """
+    The digest, `sha256:<hex>`, of the Clean-up rules version the Run held
+    to (the latest version adopted when `clean_up.follow_latest` switched).
+    """
+
+
 class Concurrency(BaseModel):
     """Every kind's concurrency."""
 
@@ -10337,6 +10382,12 @@ class RunReport(BaseModel):
     )
     checkpoint: Checkpoint | None = None
     """The last Checkpoint written of it in this engine, when one was."""
+    clean_up_rules: CleanUpRulesReport | None = None
+    """
+    The Clean-up rules version and publication date the Run held to, and
+    any switches adopted under `clean_up.follow_latest` (ADRs 0047 and
+    0139).
+    """
     completeness: Completeness
     """Whether its results cover its scope."""
     completeness_reasons: list[AxisReason] | None = None

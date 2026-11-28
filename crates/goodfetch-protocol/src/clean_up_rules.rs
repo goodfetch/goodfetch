@@ -15,6 +15,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::ProtocolVersion;
+use crate::point_in_time::PointInTime;
 
 /// The manifest's file name in a version's files.
 pub const MANIFEST_FILE: &str = "manifest.json";
@@ -99,4 +100,44 @@ impl RulesLists {
             ("unbreak", &self.unbreak),
         ]
     }
+}
+
+/// What a Run's report records of the Clean-up rules it held to (ADRs 0047
+/// and 0139): the digest and publication date of the current version, and
+/// each switch adopted at a Safe point under `clean_up.follow_latest`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CleanUpRulesReport {
+    /// The digest, `sha256:<hex>`, of the Clean-up rules version the Run held
+    /// to (the latest version adopted when `clean_up.follow_latest` switched).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub version: String,
+    /// When that version was published, in RFC 3339.
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub published_at: SystemTime,
+    /// Every switch to a newer Clean-up rules version adopted at a Safe point
+    /// under `clean_up.follow_latest`, in order; absent when none occurred.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub switches: Vec<CleanUpRulesSwitch>,
+}
+
+/// One switch to a newer Clean-up rules version adopted at a Safe point
+/// under `clean_up.follow_latest` (ADR 0139).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CleanUpRulesSwitch {
+    /// The digest, `sha256:<hex>`, the Run held before the switch.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub from_version: String,
+    /// The digest, `sha256:<hex>`, the Run adopted at the switch.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub to_version: String,
+    /// When the adopted version was published, in RFC 3339.
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub published_at: SystemTime,
+    /// When the Run adopted the new version at its Safe point, in RFC 3339.
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub switched_at: SystemTime,
 }

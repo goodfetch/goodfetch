@@ -36,6 +36,14 @@ CREATE TABLE bounds_refusals (
             setting TEXT NOT NULL PRIMARY KEY,
             count INTEGER NOT NULL
         ) STRICT, WITHOUT ROWID;
+CREATE TABLE clean_up_switches (
+        position INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        from_version TEXT NOT NULL,
+        to_version TEXT NOT NULL,
+        published_at TEXT NOT NULL,
+        switched_at TEXT NOT NULL
+    ) STRICT;
+INSERT INTO "clean_up_switches" VALUES(1,'6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','2026-01-05T08:00:51.361Z','2026-01-05T09:00:51.361Z');
 CREATE TABLE code_free_declaration (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
             declaration TEXT NOT NULL
@@ -311,6 +319,7 @@ CREATE TABLE run (
         journal_position INTEGER NOT NULL DEFAULT 0,
         binding TEXT,
         clean_up_digest TEXT,
+        clean_up_published_at TEXT,
         fixed_settings TEXT NOT NULL DEFAULT '{}',
         setting_digests TEXT NOT NULL DEFAULT '{}',
         uncapped INTEGER NOT NULL DEFAULT 0,
@@ -319,7 +328,7 @@ CREATE TABLE run (
         report TEXT,
         charges TEXT NOT NULL DEFAULT 'synced' CHECK (charges IN ('synced', 'deferred', 'unsynced'))
     ) STRICT;
-INSERT INTO "run" VALUES('paused','collie','collie','os_user',1,'{}','stopped','{"kind":"pause"}','needs_review','incomplete','2026-01-05T09:00:51.361Z','2026-01-05T09:00:51.361Z',NULL,'[]',13,'{"kind":"browser_host","browser_host":"laptop"}','6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b','{}','{}',0,'Waiting for the next page','{"reason":"nothing_pending"}','{"run_id":"paused","lifecycle":"stopped","stop_reason":{"kind":"pause"},"verdict":"needs_review","verdict_reasons":[{"code":"uncertain_effects","message":"1 Effect(s) left uncertain: a person says whether each happened.","count":1}],"completeness":"incomplete","completeness_reasons":[{"code":"stopped","message":"It stopped early: paused."}],"started_at":"2026-01-05T09:00:51.361Z","ended_at":"2026-01-05T09:00:51.361Z","usage":{"model":{"calls":0,"tokens":0,"input_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"output_tokens":0,"reasoning_tokens":0,"price":null},"browser_time":0,"proxy_bytes":4096,"proxy_bytes_by_kind":[{"kind":"datacenter","bytes":4096}],"requests":0,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":983,"set_by":"client"}]},"warnings":[{"code":"clean_up_rules_fallback","message":"The Run''s Clean-up rules are not the version asked for: the Run''s recorded Clean-up rules, 6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b, is not on this machine, and no source the Run names fetches it: the Run holds to the embedded part, sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9, instead."},{"code":"storage_low","message":"The run folder''s filesystem met the `low` storage level.","sessions":["laptop"],"folder":"runs/paused"}],"nothing_done":{"reason":"nothing_pending"},"uncertain_effects":[{"entry":"1","key":"label","reason":"interrupted","first_command":"Input.dispatchMouseEvent","since":"2026-01-05T09:00:01Z"}]}','synced');
+INSERT INTO "run" VALUES('paused','collie','collie','os_user',1,'{}','stopped','{"kind":"pause"}','needs_review','incomplete','2026-01-05T09:00:51.361Z','2026-01-05T09:00:51.361Z',NULL,'[]',15,'{"kind":"browser_host","browser_host":"laptop"}','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','2026-01-05T08:00:51.361Z','{}','{}',0,'Waiting for the next page','{"reason":"nothing_pending"}','{"run_id":"paused","lifecycle":"stopped","stop_reason":{"kind":"pause"},"verdict":"needs_review","verdict_reasons":[{"code":"uncertain_effects","message":"1 Effect(s) left uncertain: a person says whether each happened.","count":1}],"completeness":"incomplete","completeness_reasons":[{"code":"stopped","message":"It stopped early: paused."}],"started_at":"2026-01-05T09:00:51.361Z","ended_at":"2026-01-05T09:00:51.361Z","usage":{"model":{"calls":0,"tokens":0,"input_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"output_tokens":0,"reasoning_tokens":0,"price":null},"browser_time":0,"proxy_bytes":4096,"proxy_bytes_by_kind":[{"kind":"datacenter","bytes":4096}],"requests":0,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":983,"set_by":"client"}]},"warnings":[{"code":"clean_up_rules_fallback","message":"The Run''s Clean-up rules are not the version asked for: the Run''s recorded Clean-up rules, 6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b, is not on this machine, and no source the Run names fetches it: the Run holds to the embedded part, sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9, instead."},{"code":"storage_low","message":"The run folder''s filesystem met the `low` storage level.","sessions":["laptop"],"folder":"runs/paused"}],"clean_up_rules":{"version":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","published_at":"2026-01-05T08:00:51.361Z","switches":[{"from_version":"6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b","to_version":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","published_at":"2026-01-05T08:00:51.361Z","switched_at":"2026-01-05T09:00:51.361Z"}]},"nothing_done":{"reason":"nothing_pending"},"uncertain_effects":[{"entry":"1","key":"label","reason":"interrupted","first_command":"Input.dispatchMouseEvent","since":"2026-01-05T09:00:01Z"}]}','synced');
 CREATE TABLE run_file_chunks (sha256 TEXT NOT NULL, offset INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (sha256, offset)) STRICT;
 CREATE TABLE run_files (position INTEGER NOT NULL PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL) STRICT;
 INSERT INTO "run_files" VALUES(1,'download','books.csv','a5413d351b5da27721fae2446832bdbb181cf8c62f5131ba4101d4f47bcb8f56',22);

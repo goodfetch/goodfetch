@@ -185,6 +185,12 @@ class ConnectionCleanUpSettings(TypedDict):
     `clean_up.fetch_timeout`.
     """
 
+    follow_latest: NotRequired[bool | None]
+    """Whether a Run adopts a newly published Clean-up rules version at its next Safe point instead of keeping the version it started with pinned for its whole life. Unset (`null`, the default) is on in a Continuous crawl (`crawl.continuous: true`) and off elsewhere; `false` keeps the rules pinned even in a Continuous crawl. A `clean_up.version` digest still pins the exact version.
+
+    `clean_up.follow_latest`.
+    """
+
     update: NotRequired[Literal["release", "daily", "upstream"]]
     """Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination, refused with `capability_unavailable` until the engine checks the channel's signature; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.
 
@@ -1460,6 +1466,12 @@ class RunCleanUpSettings(TypedDict):
     """How long fetching a version of the Clean-up rules from its sources may take at a Run's start or resume: past it, a Run holds to the newest version this machine has, and a `clean_up.version` it cannot fetch refuses the start. 30 s.
 
     `clean_up.fetch_timeout`.
+    """
+
+    follow_latest: NotRequired[bool | None]
+    """Whether a Run adopts a newly published Clean-up rules version at its next Safe point instead of keeping the version it started with pinned for its whole life. Unset (`null`, the default) is on in a Continuous crawl (`crawl.continuous: true`) and off elsewhere; `false` keeps the rules pinned even in a Continuous crawl. A `clean_up.version` digest still pins the exact version.
+
+    `clean_up.follow_latest`.
     """
 
     update: NotRequired[Literal["release", "daily", "upstream"]]

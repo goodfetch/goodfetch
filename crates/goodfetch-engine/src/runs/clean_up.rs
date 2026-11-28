@@ -6,6 +6,8 @@
 
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
+use std::time::SystemTime;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
@@ -97,4 +99,62 @@ pub trait CleanUpVersions: Send + Sync {
         holding: Holding,
         context: RulesContext<'a>,
     ) -> Answering<'a, ()>;
+
+    /// Checks, at a Safe point of `run` under `clean_up.follow_latest`,
+    /// whether a newly published Clean-up rules version is available; when
+    /// one is, adopts it for `run`, drops its `filter_lists.host_cache`
+    /// entries, records the switch in run state and Provenance, and returns
+    /// what switched (ADRs 0047 and 0139).
+    fn refresh<'a>(
+        &'a self,
+        _run: &'a RunParts,
+        _context: RulesContext<'a>,
+    ) -> Answering<'a, Option<Switched>> {
+        Box::pin(async { None })
+    }
+}
+
+/// One Clean-up rules version switch adopted at a Safe point under
+/// `clean_up.follow_latest` (ADRs 0047 and 0139).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Switched {
+    /// The digest the Run held before the switch.
+    pub from_version: String,
+    /// The digest the Run adopted.
+    pub to_version: String,
+    /// When the adopted version was published.
+    pub published_at: SystemTime,
+    /// When the Run adopted it at its Safe point.
+    pub switched_at: SystemTime,
+}
+
+/// A live Run's handle to check for and adopt a newer Clean-up rules version
+/// at a Safe point under `clean_up.follow_latest` (ADRs 0047 and 0139).
+#[derive(Clone)]
+pub struct CleanUpRefresher {
+    pub(super) versions: Arc<dyn CleanUpVersions>,
+    pub(super) run: RunParts,
+    pub(super) kind: RunKind,
+    pub(super) home: Home,
+    pub(super) clock: Clock,
+    pub(super) product: Product,
+    pub(super) product_version: ProductVersion,
+    pub(super) owner: Arc<TaskOwner>,
+}
+
+impl CleanUpRefresher {
+    /// Checks for a newly published Clean-up rules version and adopts it at
+    /// this Safe point when one is available.
+    pub async fn refresh(&self) -> Option<Switched> {
+        let context = RulesContext {
+            settings: self.run.identity.settings(),
+            kind: self.kind,
+            home: &self.home,
+            clock: self.clock,
+            product: self.product,
+            product_version: &self.product_version,
+            owner: &self.owner,
+        };
+        self.versions.refresh(&self.run, context).await
+    }
 }

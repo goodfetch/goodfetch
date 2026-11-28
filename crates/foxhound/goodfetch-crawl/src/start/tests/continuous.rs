@@ -1185,3 +1185,410 @@ fn revisits_never_teach_learned_rules_or_trap_paths() {
         "revisits must not teach any learned rules or trap paths: {learned:?}"
     );
 }
+
+/// Test double for `CleanUpVersions` that starts on `v1`, then exposes `v2`
+/// once `published` flips to true, recording version/date/switches into run
+/// state just as `goodfetch-page::Versions` does.
+struct SwitchableRules {
+    v1_digest: String,
+    v1_published: std::time::SystemTime,
+    v2_digest: String,
+    v2_published: std::time::SystemTime,
+    v2_available: std::sync::atomic::AtomicBool,
+    switched: std::sync::atomic::AtomicBool,
+    refresh_calls: std::sync::atomic::AtomicUsize,
+}
+
+impl SwitchableRules {
+    fn new() -> std::sync::Arc<Self> {
+        let base = std::time::UNIX_EPOCH + Duration::from_hours(490_000);
+        std::sync::Arc::new(Self {
+            v1_digest: format!("sha256:{:064}", 1),
+            v1_published: base,
+            v2_digest: format!("sha256:{:064}", 2),
+            v2_published: base + Duration::from_hours(24),
+            v2_available: std::sync::atomic::AtomicBool::new(false),
+            switched: std::sync::atomic::AtomicBool::new(false),
+            refresh_calls: std::sync::atomic::AtomicUsize::new(0),
+        })
+    }
+
+    fn publish_v2(&self) {
+        self.v2_available
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl goodfetch_engine::runs::CleanUpVersions for SwitchableRules {
+    fn choose<'a>(
+        &'a self,
+        _context: goodfetch_engine::runs::RulesContext<'a>,
+    ) -> goodfetch_engine::runs::Answering<
+        'a,
+        Result<goodfetch_engine::runs::Chosen, goodfetch_engine::CallError>,
+    > {
+        let digest = self.v1_digest.clone();
+        Box::pin(async move {
+            Ok(goodfetch_engine::runs::Chosen {
+                digest,
+                fallback: None,
+            })
+        })
+    }
+
+    fn held<'a>(
+        &'a self,
+        run: &'a goodfetch_engine::runs::RunParts,
+        _holding: goodfetch_engine::runs::Holding,
+        _context: goodfetch_engine::runs::RulesContext<'a>,
+    ) -> goodfetch_engine::runs::Answering<'a, ()> {
+        let digest = self.v1_digest.clone();
+        let published_at = self.v1_published;
+        Box::pin(async move {
+            run.state
+                .write(move |connection| {
+                    goodfetch_engine::run_state::run_row::set_clean_up_version(
+                        connection,
+                        &digest,
+                        published_at,
+                    )
+                })
+                .await
+                .unwrap();
+        })
+    }
+
+    fn refresh<'a>(
+        &'a self,
+        run: &'a goodfetch_engine::runs::RunParts,
+        context: goodfetch_engine::runs::RulesContext<'a>,
+    ) -> goodfetch_engine::runs::Answering<'a, Option<goodfetch_engine::runs::Switched>> {
+        self.refresh_calls
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let should_switch = self.v2_available.load(std::sync::atomic::Ordering::SeqCst)
+            && !self
+                .switched
+                .swap(true, std::sync::atomic::Ordering::SeqCst);
+        if !should_switch {
+            return Box::pin(async { None });
+        }
+        let from_version = self.v1_digest.clone();
+        let to_version = self.v2_digest.clone();
+        let published_at = self.v2_published;
+        let switched_at = std::time::SystemTime::from(context.clock.timestamp());
+        Box::pin(async move {
+            let switch = goodfetch_protocol::clean_up_rules::CleanUpRulesSwitch {
+                from_version: from_version.clone(),
+                to_version: to_version.clone(),
+                published_at,
+                switched_at,
+            };
+            run.state
+                .write(move |connection| {
+                    goodfetch_engine::run_state::run_row::set_clean_up_version(
+                        connection,
+                        &switch.to_version,
+                        switch.published_at,
+                    )?;
+                    goodfetch_engine::run_state::run_row::record_clean_up_switch(
+                        connection, &switch,
+                    )
+                })
+                .await
+                .unwrap();
+            Some(goodfetch_engine::runs::Switched {
+                from_version,
+                to_version,
+                published_at,
+                switched_at,
+            })
+        })
+    }
+}
+
+fn engine_with_rules(rules: std::sync::Arc<SwitchableRules>) -> goodfetch_engine::Engine {
+    let identity = goodfetch_engine::Identity {
+        product: goodfetch_protocol::catalog::Product::Foxhound,
+        product_version: goodfetch_protocol::connection::ProductVersion::parse("1.4.0").unwrap(),
+        channel: goodfetch_engine::Channel::CratesIo,
+    };
+    let composition = goodfetch_engine::Composition::default()
+        .with(goodfetch_engine::contribution())
+        .with(goodfetch_frontier::contribution())
+        .with(goodfetch_session_pool::contribution())
+        .with(goodfetch_dataset::contribution(crate::url_of))
+        .with(crate::contribution(super::tiers()))
+        .with(goodfetch_engine::Contribution::new("test-clean-up").with_clean_up_versions(rules));
+    goodfetch_engine::Engine::new(identity, &composition).unwrap()
+}
+
+/// Under `clean_up.follow_latest` (on by default in a Continuous crawl),
+/// the Run adopts a newly published Clean-up rules version at its next Safe
+/// point, stamps subsequent Records' Provenance with the new version so
+/// change tracking reports the crossing, and records the version, date and
+/// switch in its Run report (ADR 0047, ADR 0139, #1873).
+///
+/// Covers: setting:clean_up.follow_latest, setting:crawl.continuous
+#[test]
+fn a_continuous_crawl_adopts_new_clean_up_rules_at_its_next_safe_point_and_reports_version_date_and_crossing()
+ {
+    let env = TestEnv::new();
+    let rules = SwitchableRules::new();
+    let engine = engine_with_rules(std::sync::Arc::clone(&rules));
+    let seen = Rc::new(Cell::new(0_u64));
+    let seen_h = Rc::clone(&seen);
+    let mut handler = move |_params: &Value| {
+        let visit = seen_h.get() + 1;
+        seen_h.set(visit);
+        Reply::Records(vec![json!({ "visit": visit })])
+    };
+
+    let report = super::crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let started = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "follow-latest",
+                        "labels": every_label(1_000),
+                        "datasets": [{ "name": "pages" }],
+                        "seeds": [seed("https://news.test/front")],
+                        "settings": { "crawl": { "continuous": true } },
+                    }),
+                    &mut handler,
+                )
+                .await;
+            assert!(started["error"].is_null(), "crawl.start failed: {started}");
+            let _ = progress_matching(
+                client,
+                "follow-latest",
+                |p| p["idle"] == true && seen.get() >= 1,
+                &mut handler,
+            )
+            .await;
+
+            // Publish v2 while idle, then advance clock past revisit interval.
+            rules.publish_v2();
+            advance(Duration::from_millis(1_100)).await;
+            let _ = progress_matching(
+                client,
+                "follow-latest",
+                |p| p["idle"] == true && seen.get() >= 2,
+                &mut handler,
+            )
+            .await;
+
+            client
+                .call(
+                    "run.finish",
+                    json!({ "run_id": "follow-latest" }),
+                    &mut handler,
+                )
+                .await
+        },
+    )
+    .0;
+
+    let connection = super::run_file(&env, "follow-latest");
+    let items = goodfetch_dataset::read(
+        &connection,
+        goodfetch_dataset::Query {
+            dataset: "pages",
+            after: 0,
+            through: None,
+            wall: None,
+        },
+        10,
+    )
+    .unwrap();
+    assert_eq!(items.len(), 2);
+    let first = &items[0].provenance;
+    let second = &items[1].provenance;
+    assert_eq!(
+        first.clean_up_rules.as_deref(),
+        Some(rules.v1_digest.as_str())
+    );
+    assert_eq!(
+        second.clean_up_rules.as_deref(),
+        Some(rules.v2_digest.as_str())
+    );
+    assert_eq!(
+        first.clean_up_rules_crossing(second),
+        Some(
+            goodfetch_protocol::foxhound::provenance::CleanUpRulesCrossing {
+                from_version: Some(rules.v1_digest.clone()),
+                to_version: Some(rules.v2_digest.clone()),
+            }
+        )
+    );
+
+    let report_rules = &report["result"]["clean_up_rules"];
+    assert_eq!(report_rules["version"], rules.v2_digest);
+    assert!(report_rules["published_at"].is_string());
+    let switches = report_rules["switches"].as_array().expect("switches array");
+    assert_eq!(switches.len(), 1);
+    assert_eq!(switches[0]["from_version"], rules.v1_digest);
+    assert_eq!(switches[0]["to_version"], rules.v2_digest);
+    assert!(switches[0]["published_at"].is_string());
+    assert!(switches[0]["switched_at"].is_string());
+}
+
+/// `clean_up.follow_latest: false` keeps the Clean-up rules pinned for the
+/// Continuous crawl's whole life (ADR 0047, #1873).
+///
+/// Covers: setting:clean_up.follow_latest
+#[test]
+fn clean_up_follow_latest_false_keeps_rules_pinned_in_a_continuous_crawl() {
+    let env = TestEnv::new();
+    let rules = SwitchableRules::new();
+    let engine = engine_with_rules(std::sync::Arc::clone(&rules));
+    let seen = Rc::new(Cell::new(0_u64));
+    let seen_h = Rc::clone(&seen);
+    let mut handler = move |_params: &Value| {
+        let visit = seen_h.get() + 1;
+        seen_h.set(visit);
+        Reply::Records(vec![json!({ "visit": visit })])
+    };
+
+    let report = super::crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let started = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "pinned-rules",
+                        "labels": every_label(1_000),
+                        "datasets": [{ "name": "pages" }],
+                        "seeds": [seed("https://news.test/front")],
+                        "settings": {
+                            "crawl": { "continuous": true },
+                            "clean_up": { "follow_latest": false },
+                        },
+                    }),
+                    &mut handler,
+                )
+                .await;
+            assert!(started["error"].is_null(), "crawl.start failed: {started}");
+            let _ = progress_matching(
+                client,
+                "pinned-rules",
+                |p| p["idle"] == true && seen.get() >= 1,
+                &mut handler,
+            )
+            .await;
+
+            rules.publish_v2();
+            advance(Duration::from_millis(1_100)).await;
+            let _ = progress_matching(
+                client,
+                "pinned-rules",
+                |p| p["idle"] == true && seen.get() >= 2,
+                &mut handler,
+            )
+            .await;
+
+            client
+                .call(
+                    "run.finish",
+                    json!({ "run_id": "pinned-rules" }),
+                    &mut handler,
+                )
+                .await
+        },
+    )
+    .0;
+
+    assert_eq!(
+        rules
+            .refresh_calls
+            .load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "refresh must not run when clean_up.follow_latest is false"
+    );
+    let connection = super::run_file(&env, "pinned-rules");
+    let items = goodfetch_dataset::read(
+        &connection,
+        goodfetch_dataset::Query {
+            dataset: "pages",
+            after: 0,
+            through: None,
+            wall: None,
+        },
+        10,
+    )
+    .unwrap();
+    assert_eq!(items.len(), 2);
+    let first = &items[0].provenance;
+    let second = &items[1].provenance;
+    assert_eq!(
+        first.clean_up_rules.as_deref(),
+        Some(rules.v1_digest.as_str())
+    );
+    assert_eq!(
+        second.clean_up_rules.as_deref(),
+        Some(rules.v1_digest.as_str())
+    );
+    assert_eq!(first.clean_up_rules_crossing(second), None);
+    assert_eq!(
+        report["result"]["clean_up_rules"]["version"],
+        rules.v1_digest
+    );
+    assert!(report["result"]["clean_up_rules"]["switches"].is_null());
+}
+
+/// `clean_up.follow_latest` is off by default in a batch crawl (#1873).
+///
+/// Covers: setting:clean_up.follow_latest
+#[test]
+fn clean_up_follow_latest_is_off_by_default_in_a_batch_crawl() {
+    let env = TestEnv::new();
+    let rules = SwitchableRules::new();
+    rules.publish_v2();
+    let engine = engine_with_rules(std::sync::Arc::clone(&rules));
+    let mut handler = |_params: &Value| Reply::Records(vec![json!({ "ok": true })]);
+
+    let report = super::crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let started = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "batch-pinned",
+                        "labels": { "page": {} },
+                        "datasets": [{ "name": "pages" }],
+                        "seeds": [seed("https://news.test/front")],
+                    }),
+                    &mut handler,
+                )
+                .await;
+            assert!(started["error"].is_null(), "crawl.start failed: {started}");
+            client
+                .call(
+                    "run.finish",
+                    json!({ "run_id": "batch-pinned" }),
+                    &mut handler,
+                )
+                .await
+        },
+    )
+    .0;
+
+    assert_eq!(
+        rules
+            .refresh_calls
+            .load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "batch crawl must not refresh Clean-up rules by default"
+    );
+    assert_eq!(
+        report["result"]["clean_up_rules"]["version"],
+        rules.v1_digest
+    );
+    assert!(report["result"]["clean_up_rules"]["switches"].is_null());
+}

@@ -16,6 +16,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::clean_up_rules::CleanUpRulesReport;
 use crate::model::ModelTokens;
 use crate::settings::{ExplainedSetting, SettingLimit, WeakenedSetting};
 
@@ -92,6 +93,12 @@ pub struct RunReport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub recording: Option<RecordingReport>,
+    /// The Clean-up rules version and publication date the Run held to, and
+    /// any switches adopted under `clean_up.follow_latest` (ADRs 0047 and
+    /// 0139).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub clean_up_rules: Option<CleanUpRulesReport>,
     /// The last Checkpoint written of it in this engine, when one was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]

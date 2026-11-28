@@ -57,6 +57,15 @@ impl HostCaches {
         );
         cache
     }
+
+    /// Drops every entry in `run_id`'s host cache, used at a Clean-up rules
+    /// version switch so no page mixes versions (spec #2164 story 11, #1873).
+    pub(super) fn clear_run(&self, run_id: &RunId) {
+        let held = lock(&self.0);
+        if let Some(held) = held.get(run_id) {
+            held.cache.clear();
+        }
+    }
 }
 
 /// `run`'s `filter_lists.host_cache`; its catalog default without settings.

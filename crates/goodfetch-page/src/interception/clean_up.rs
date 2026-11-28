@@ -17,6 +17,7 @@ use goodfetch_engine::settings::{
 };
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::page::{BROWSER_BLOCK_RESOURCES, LIVE_VIEW_HIDING};
+use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::{
     CONSENT_HANDLING, FILTER_LISTS_ADS, FILTER_LISTS_ANNOYANCES, FILTER_LISTS_FIRST_PARTY_SCRIPTS,
     FILTER_LISTS_TRACKERS,
@@ -69,6 +70,15 @@ impl Default for CleanUp {
 }
 
 impl CleanUp {
+    /// Clean-up rules whose `Versions` notifies `on_switch` whenever a live
+    /// Run adopts a newer Clean-up rules version at a Safe point.
+    pub(super) fn with_on_switch(on_switch: Arc<dyn Fn(&RunId) + Send + Sync>) -> Self {
+        Self {
+            never_block: OnceCell::new(),
+            versions: Versions::with_on_switch(run_needs_lists, on_switch),
+        }
+    }
+
     /// The versions of the Clean-up rules the engine's Runs hold to.
     pub(super) fn versions(&self) -> Arc<Versions> {
         Arc::clone(&self.versions)

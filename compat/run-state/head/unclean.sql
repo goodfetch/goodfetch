@@ -36,6 +36,13 @@ CREATE TABLE bounds_refusals (
             setting TEXT NOT NULL PRIMARY KEY,
             count INTEGER NOT NULL
         ) STRICT, WITHOUT ROWID;
+CREATE TABLE clean_up_switches (
+        position INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        from_version TEXT NOT NULL,
+        to_version TEXT NOT NULL,
+        published_at TEXT NOT NULL,
+        switched_at TEXT NOT NULL
+    ) STRICT;
 CREATE TABLE code_free_declaration (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
             declaration TEXT NOT NULL
@@ -302,6 +309,7 @@ CREATE TABLE run (
         journal_position INTEGER NOT NULL DEFAULT 0,
         binding TEXT,
         clean_up_digest TEXT,
+        clean_up_published_at TEXT,
         fixed_settings TEXT NOT NULL DEFAULT '{}',
         setting_digests TEXT NOT NULL DEFAULT '{}',
         uncapped INTEGER NOT NULL DEFAULT 0,
@@ -310,7 +318,7 @@ CREATE TABLE run (
         report TEXT,
         charges TEXT NOT NULL DEFAULT 'synced' CHECK (charges IN ('synced', 'deferred', 'unsynced'))
     ) STRICT;
-INSERT INTO "run" VALUES('unclean','collie','collie','os_user',1,'{}','stopped','{"kind":"abort","by":"client"}','verified','incomplete','2026-01-05T09:00:51.361Z','2026-01-05T09:00:51.361Z','sha256:0227dc879fda140d','[{"key":"run_state.batch.sync","value":"off","layer":"run","origin":"settings","preset":{"key":"run_state.durability","value":"off"}},{"key":"run_state.durability","value":"off","layer":"run","origin":"settings"}]',2,NULL,'sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9','{}','{"run_state.batch.sync":"9f3becba6e4b1583b3e19441dde4d59622537d9bd54a94d22262785e485384d0","run_state.durability":"9f3becba6e4b1583b3e19441dde4d59622537d9bd54a94d22262785e485384d0"}',0,NULL,NULL,'{"run_id":"unclean","lifecycle":"stopped","stop_reason":{"kind":"abort","by":"client"},"verdict":"verified","completeness":"incomplete","completeness_reasons":[{"code":"stopped","message":"It stopped early: aborted by its Client."}],"started_at":"2026-01-05T09:00:51.361Z","ended_at":"2026-01-05T09:00:51.361Z","usage":{"model":{"calls":0,"tokens":0,"input_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"output_tokens":0,"reasoning_tokens":0,"price":null},"browser_time":0,"proxy_bytes":0,"requests":0,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":983,"set_by":"client"}]},"weakened":[{"key":"run_state.batch.sync","value":"off","layer":"run","origin":"settings","preset":{"key":"run_state.durability","value":"off"}},{"key":"run_state.durability","value":"off","layer":"run","origin":"settings"}],"policy_version":"sha256:0227dc879fda140d"}','unsynced');
+INSERT INTO "run" VALUES('unclean','collie','collie','os_user',1,'{}','stopped','{"kind":"abort","by":"client"}','verified','incomplete','2026-01-05T09:00:51.361Z','2026-01-05T09:00:51.361Z','sha256:0227dc879fda140d','[{"key":"run_state.batch.sync","value":"off","layer":"run","origin":"settings","preset":{"key":"run_state.durability","value":"off"}},{"key":"run_state.durability","value":"off","layer":"run","origin":"settings"}]',3,NULL,'sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9','2026-10-22T23:42:37Z','{}','{"run_state.batch.sync":"9f3becba6e4b1583b3e19441dde4d59622537d9bd54a94d22262785e485384d0","run_state.durability":"9f3becba6e4b1583b3e19441dde4d59622537d9bd54a94d22262785e485384d0"}',0,NULL,NULL,'{"run_id":"unclean","lifecycle":"stopped","stop_reason":{"kind":"abort","by":"client"},"verdict":"verified","completeness":"incomplete","completeness_reasons":[{"code":"stopped","message":"It stopped early: aborted by its Client."}],"started_at":"2026-01-05T09:00:51.361Z","ended_at":"2026-01-05T09:00:51.361Z","usage":{"model":{"calls":0,"tokens":0,"input_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"output_tokens":0,"reasoning_tokens":0,"price":null},"browser_time":0,"proxy_bytes":0,"requests":0,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":983,"set_by":"client"}]},"weakened":[{"key":"run_state.batch.sync","value":"off","layer":"run","origin":"settings","preset":{"key":"run_state.durability","value":"off"}},{"key":"run_state.durability","value":"off","layer":"run","origin":"settings"}],"policy_version":"sha256:0227dc879fda140d","clean_up_rules":{"version":"sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9","published_at":"2026-10-22T23:42:37Z"}}','unsynced');
 CREATE TABLE run_file_chunks (sha256 TEXT NOT NULL, offset INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (sha256, offset)) STRICT;
 CREATE TABLE run_files (position INTEGER NOT NULL PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL) STRICT;
 CREATE TABLE run_key (

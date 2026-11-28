@@ -9331,6 +9331,17 @@
       ]
     },
     {
+      "id": "setting:clean_up.follow_latest",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:clean_up.lists",
       "kind": "setting",
       "area": 5,

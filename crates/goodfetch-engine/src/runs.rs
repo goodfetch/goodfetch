@@ -104,7 +104,9 @@ use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 
-pub use self::clean_up::{Answering, Chosen, CleanUpVersions, Fallback, Holding, RulesContext};
+pub use self::clean_up::{
+    Answering, Chosen, CleanUpRefresher, CleanUpVersions, Fallback, Holding, RulesContext, Switched,
+};
 pub use self::end::RunEnd;
 pub use self::import::fuzz_run_state_import;
 pub use self::keys::RunKeys;
@@ -1900,6 +1902,24 @@ impl Runs {
             product_version: &rules.product_version,
             owner: &self.limits.owner,
         }
+    }
+
+    /// A handle for `run` (of `kind`) to adopt newly published Clean-up rules
+    /// versions at Safe points under `clean_up.follow_latest`, when this
+    /// composition carries Clean-up rules (ADRs 0047 and 0139).
+    #[must_use]
+    pub fn clean_up_refresher(&self, run: &RunParts, kind: RunKind) -> Option<CleanUpRefresher> {
+        let rules = self.clean_up.as_ref()?;
+        Some(CleanUpRefresher {
+            versions: Arc::clone(&rules.versions),
+            run: run.clone(),
+            kind,
+            home: self.engine.home().clone(),
+            clock: self.engine.clock(),
+            product: self.limits.product,
+            product_version: rules.product_version.clone(),
+            owner: Arc::clone(&self.limits.owner),
+        })
     }
 
     /// [`Runs::start`] once its Clean-up rules are chosen: a new Run whose

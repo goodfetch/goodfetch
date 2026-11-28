@@ -151,6 +151,12 @@ impl Leases {
         self
     }
 
+    /// Updates the Clean-up rules digest stamped on subsequent Records'
+    /// Provenance after a Safe-point switch (ADR 0139).
+    pub(crate) fn set_clean_up_rules(&self, digest: Option<String>) {
+        self.clean_up_rules.set(digest);
+    }
+
     /// The same, each commit's Records counting their work on `work`
     /// (ADR 0140).
     #[must_use]

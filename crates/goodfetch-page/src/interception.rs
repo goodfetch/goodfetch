@@ -252,9 +252,9 @@ struct Shared {
     /// held until the Run ends: a Run whose pages a fetch tier serves may
     /// hold no Session that keeps its Filter lists loaded, and without
     /// this each served document would compile them again.
-    served: Mutex<BTreeMap<RunId, ServedCosmetic>>,
+    served: Arc<Mutex<BTreeMap<RunId, ServedCosmetic>>>,
     /// The host cache each live Run's pages share, held until it ends.
-    hosts: HostCaches,
+    hosts: Arc<HostCaches>,
     /// The Product's Block classifier, which keeps blocked pages out of the
     /// Response cache (ADR 0046).
     blocks: Arc<dyn BlockClassifier>,
@@ -262,12 +262,20 @@ struct Shared {
 
 impl Default for Shared {
     fn default() -> Self {
+        let served: Arc<Mutex<BTreeMap<RunId, ServedCosmetic>>> = Arc::default();
+        let hosts = Arc::new(HostCaches::default());
+        let served_for_switch = Arc::clone(&served);
+        let hosts_for_switch = Arc::clone(&hosts);
+        let clean_up = CleanUp::with_on_switch(Arc::new(move |run_id| {
+            hosts_for_switch.clear_run(run_id);
+            lock(&served_for_switch).remove(run_id);
+        }));
         Self {
             answers: Answers::default(),
-            clean_up: CleanUp::default(),
+            clean_up,
             learned: Mutex::default(),
-            served: Mutex::default(),
-            hosts: HostCaches::default(),
+            served,
+            hosts,
             blocks: Arc::new(NoBlocks),
         }
     }

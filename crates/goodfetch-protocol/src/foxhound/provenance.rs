@@ -265,3 +265,74 @@ pub enum CertificateExceptionKind {
     /// Its domain was listed with `any`, and the host has no pin.
     Any,
 }
+
+/// Evidence that a change-tracking comparison between two Records crossed a
+/// Clean-up rules version change — either across a Baseline (ADR 0036) or
+/// across a Safe-point switch in a Continuous crawl under
+/// `clean_up.follow_latest` (ADR 0139) — so a difference the rules caused is
+/// explained rather than mistaken for a change on the site.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CleanUpRulesCrossing {
+    /// The Clean-up rules version digest of the earlier Record (Baseline or
+    /// prior visit), if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub from_version: Option<String>,
+    /// The Clean-up rules version digest of the later Record, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub to_version: Option<String>,
+}
+
+impl RecordProvenance {
+    /// Returns [`Some`] when comparing an earlier Record (`self`) with a
+    /// later Record (`later`) crosses a Clean-up rules version change (ADRs
+    /// 0036, 0047 and 0139), or [`None`] when both Records used the same
+    /// Clean-up rules version.
+    #[must_use]
+    pub fn clean_up_rules_crossing(&self, later: &Self) -> Option<CleanUpRulesCrossing> {
+        if self.clean_up_rules == later.clean_up_rules {
+            return None;
+        }
+        Some(CleanUpRulesCrossing {
+            from_version: self.clean_up_rules.clone(),
+            to_version: later.clean_up_rules.clone(),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CleanUpRulesCrossing, RecordProvenance};
+
+    fn provenance(clean_up_rules: Option<&str>) -> RecordProvenance {
+        RecordProvenance {
+            request_id: "1".to_owned(),
+            tier: None,
+            encoding: None,
+            origin: None,
+            clean_up_rules: clean_up_rules.map(str::to_owned),
+            wall: None,
+            payment: None,
+            certificate_exception: None,
+            robots_txt: None,
+            value_transforms: Vec::new(),
+            unread_fields: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn clean_up_rules_crossing_reports_switch_between_different_versions() {
+        let before = provenance(Some("sha256:1111"));
+        let after = provenance(Some("sha256:2222"));
+
+        assert_eq!(
+            before.clean_up_rules_crossing(&after),
+            Some(CleanUpRulesCrossing {
+                from_version: Some("sha256:1111".to_owned()),
+                to_version: Some("sha256:2222".to_owned()),
+            })
+        );
+        assert_eq!(before.clean_up_rules_crossing(&before), None);
+    }
+}

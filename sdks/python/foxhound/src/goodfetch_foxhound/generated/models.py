@@ -12,6 +12,7 @@ from goodfetch_collie_client.generated.models import (
     AllowanceSource,
     AxisReason,
     Checkpoint,
+    CleanUpRulesReport,
     Completeness,
     EndingError,
     ExplainedSetting,
@@ -3248,6 +3249,12 @@ class CrawlRunReport(RunReport):
     )
     checkpoint: Checkpoint | None = None
     """The last Checkpoint written of it in this engine, when one was."""
+    clean_up_rules: CleanUpRulesReport | None = None
+    """
+    The Clean-up rules version and publication date the Run held to, and
+    any switches adopted under `clean_up.follow_latest` (ADRs 0047 and
+    0139).
+    """
     completeness: Completeness
     """Whether its results cover its scope."""
     completeness_reasons: list[AxisReason] | None = None

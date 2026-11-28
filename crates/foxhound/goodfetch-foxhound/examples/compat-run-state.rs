@@ -838,6 +838,27 @@ async fn bind(_: Value, context: CallContext) -> Result<Value, CallError> {
             .charge_part("proxy_bytes", "datacenter", 4_096, None)
             .await
             .expect("the proxy bytes are counted");
+        let switched_at = std::time::SystemTime::from(context.engine().clock().timestamp());
+        let published_at = switched_at - Duration::from_hours(1);
+        run.state
+            .write(move |connection| {
+                let switch = goodfetch_protocol::clean_up_rules::CleanUpRulesSwitch {
+                    from_version: CLEAN_UP_DIGEST.to_owned(),
+                    to_version:
+                        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                            .to_owned(),
+                    published_at,
+                    switched_at,
+                };
+                goodfetch_engine::run_state::run_row::set_clean_up_version(
+                    connection,
+                    &switch.to_version,
+                    switch.published_at,
+                )?;
+                goodfetch_engine::run_state::run_row::record_clean_up_switch(connection, &switch)
+            })
+            .await
+            .expect("the clean-up rules switch is kept");
         // Its program's own navigation read two origins' robots.txt
         // into the Run's own copies (ADR 0098): one the site
         // answered, one it never did.

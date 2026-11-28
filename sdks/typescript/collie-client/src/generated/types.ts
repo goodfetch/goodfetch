@@ -3191,6 +3191,55 @@ export interface Chunk {
   offset: number;
 }
 /**
+ * What a Run's report records of the Clean-up rules it held to (ADRs 0047
+ * and 0139): the digest and publication date of the current version, and
+ * each switch adopted at a Safe point under `clean_up.follow_latest`.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CleanUpRulesReport".
+ */
+export interface CleanUpRulesReport {
+  /**
+   * When that version was published, in RFC 3339.
+   */
+  publishedAt: PointInTime;
+  /**
+   * Every switch to a newer Clean-up rules version adopted at a Safe point
+   * under `clean_up.follow_latest`, in order; absent when none occurred.
+   */
+  switches?: CleanUpRulesSwitch[];
+  /**
+   * The digest, `sha256:<hex>`, of the Clean-up rules version the Run held
+   * to (the latest version adopted when `clean_up.follow_latest` switched).
+   */
+  version: string;
+}
+/**
+ * One switch to a newer Clean-up rules version adopted at a Safe point
+ * under `clean_up.follow_latest` (ADR 0139).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CleanUpRulesSwitch".
+ */
+export interface CleanUpRulesSwitch {
+  /**
+   * The digest, `sha256:<hex>`, the Run held before the switch.
+   */
+  fromVersion: string;
+  /**
+   * When the adopted version was published, in RFC 3339.
+   */
+  publishedAt: PointInTime;
+  /**
+   * When the Run adopted the new version at its Safe point, in RFC 3339.
+   */
+  switchedAt: PointInTime;
+  /**
+   * The digest, `sha256:<hex>`, the Run adopted at the switch.
+   */
+  toVersion: string;
+}
+/**
  * What `locator.click` takes: the locator whose element it clicks.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -9104,6 +9153,12 @@ export interface RunReport {
    * The last Checkpoint written of it in this engine, when one was.
    */
   checkpoint?: Checkpoint | null;
+  /**
+   * The Clean-up rules version and publication date the Run held to, and
+   * any switches adopted under `clean_up.follow_latest` (ADRs 0047 and
+   * 0139).
+   */
+  cleanUpRules?: CleanUpRulesReport | null;
   /**
    * Whether its results cover its scope.
    */

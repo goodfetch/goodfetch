@@ -154,6 +154,12 @@ export interface Settings {
      */
     readonly fetchTimeout?: number;
     /**
+     * Whether a Run adopts a newly published Clean-up rules version at its next Safe point instead of keeping the version it started with pinned for its whole life. Unset (`null`, the default) is on in a Continuous crawl (`crawl.continuous: true`) and off elsewhere; `false` keeps the rules pinned even in a Continuous crawl. A `clean_up.version` digest still pins the exact version.
+     *
+     * `clean_up.follow_latest`.
+     */
+    readonly followLatest?: boolean | null;
+    /**
      * Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination, refused with `capability_unavailable` until the engine checks the channel's signature; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.
      *
      * `clean_up.update`.
@@ -1049,6 +1055,12 @@ export interface RunSettings {
      * `clean_up.fetch_timeout`.
      */
     readonly fetchTimeout?: number;
+    /**
+     * Whether a Run adopts a newly published Clean-up rules version at its next Safe point instead of keeping the version it started with pinned for its whole life. Unset (`null`, the default) is on in a Continuous crawl (`crawl.continuous: true`) and off elsewhere; `false` keeps the rules pinned even in a Continuous crawl. A `clean_up.version` digest still pins the exact version.
+     *
+     * `clean_up.follow_latest`.
+     */
+    readonly followLatest?: boolean | null;
     /**
      * Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination, refused with `capability_unavailable` until the engine checks the channel's signature; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.
      *
@@ -2114,6 +2126,7 @@ const SPELLING: Spelling = {
   cleanUp: ["clean_up", {
     channel: "channel",
     fetchTimeout: "fetch_timeout",
+    followLatest: "follow_latest",
     lists: "lists",
     update: "update",
     version: "version",

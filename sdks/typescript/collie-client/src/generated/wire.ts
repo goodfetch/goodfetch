@@ -31,6 +31,8 @@ export type CollieWireType =
   | "CertsListed"
   | "Checkpoint"
   | "CheckpointBehindDetails"
+  | "CleanUpRulesReport"
+  | "CleanUpRulesSwitch"
   | "ClickParams"
   | "Concurrency"
   | "ConfigExplainParams"
@@ -269,6 +271,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "CertsListed": { fields: { "pins": ["pins", { items: { type: "CertificatePin" } }] } },
     "Checkpoint": { fields: { "journal_position": "journalPosition", "run_epoch": "runEpoch", "run_id": "runId", "time": ["time", "time"] } },
     "CheckpointBehindDetails": { fields: { "checkpoint": ["checkpoint", { type: "RunStatePosition" }], "run_file": ["runFile", { type: "RunStatePosition" }] } },
+    "CleanUpRulesReport": { fields: { "published_at": ["publishedAt", "time"], "switches": ["switches", { items: { type: "CleanUpRulesSwitch" } }] } },
+    "CleanUpRulesSwitch": { fields: { "from_version": "fromVersion", "published_at": ["publishedAt", "time"], "switched_at": ["switchedAt", "time"], "to_version": "toVersion" } },
     "ClickParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
     "Concurrency": { fields: { "browser_page": ["browserPage", { type: "KindConcurrency" }], "http": ["http", { type: "KindConcurrency" }], "model_call": ["modelCall", { type: "KindConcurrency" }] } },
     "ConfigExplainParams": { fields: { "missing_project": "missingProject", "run_id": "runId" } },
@@ -419,7 +423,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "RunParams": { fields: { "run_id": "runId" } },
     "RunProgress": { fields: { "at": ["at", "time"], "checkpoint_at": ["checkpointAt", "time"], "pauses": ["pauses", { items: { type: "HumanPause" } }], "run_id": "runId", "stop_reason": ["stopReason", { type: "StopReason" }], "storage": ["storage", { type: "RunStorage" }] } },
     "RunProgressParams": { fields: { "run_id": "runId" } },
-    "RunReport": { fields: { "checkpoint": ["checkpoint", { type: "Checkpoint" }], "completeness_reasons": ["completenessReasons", { items: { type: "AxisReason" } }], "ended_at": ["endedAt", "time"], "nothing_done": ["nothingDone", { type: "NothingDone" }], "plan": ["plan", { type: "PlanReport" }], "plugins": ["plugins", { items: { type: "PluginRun" } }], "policy_version": "policyVersion", "recording": ["recording", { type: "RecordingReport" }], "run_id": "runId", "settings": ["settings", { items: { type: "ExplainedSetting" } }], "started_at": ["startedAt", "time"], "stop_reason": ["stopReason", { type: "StopReason" }], "uncertain_effects": ["uncertainEffects", { items: { type: "UncertainEffect" } }], "usage": ["usage", { type: "RunUsage" }], "verdict_reasons": ["verdictReasons", { items: { type: "AxisReason" } }] } },
+    "RunReport": { fields: { "checkpoint": ["checkpoint", { type: "Checkpoint" }], "clean_up_rules": ["cleanUpRules", { type: "CleanUpRulesReport" }], "completeness_reasons": ["completenessReasons", { items: { type: "AxisReason" } }], "ended_at": ["endedAt", "time"], "nothing_done": ["nothingDone", { type: "NothingDone" }], "plan": ["plan", { type: "PlanReport" }], "plugins": ["plugins", { items: { type: "PluginRun" } }], "policy_version": "policyVersion", "recording": ["recording", { type: "RecordingReport" }], "run_id": "runId", "settings": ["settings", { items: { type: "ExplainedSetting" } }], "started_at": ["startedAt", "time"], "stop_reason": ["stopReason", { type: "StopReason" }], "uncertain_effects": ["uncertainEffects", { items: { type: "UncertainEffect" } }], "usage": ["usage", { type: "RunUsage" }], "verdict_reasons": ["verdictReasons", { items: { type: "AxisReason" } }] } },
     "RunResumeParams": { fields: { "run_id": "runId" } },
     "RunSetProgressMessageParams": { fields: { "run_id": "runId" } },
     "RunStartParams": { fields: { "accept_plugin_change": "acceptPluginChange", "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId" } },

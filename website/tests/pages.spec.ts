@@ -4,8 +4,35 @@
 // the header's switcher, the version switcher, the copy buttons and the
 // section-scoped search work.
 import { expect, expectAccessible, test } from "@goodfetch/test-support/playwright";
-import type { Locator, Page } from "@playwright/test";
+import type { BrowserContext, Locator, Page } from "@playwright/test";
 import { keptVersions, nextPages, serveSite, sitemapPages, type Site } from "./site.ts";
+
+const PAGE_CONCURRENCY = 4;
+
+/** Visits every path in `paths` across a bounded pool of pages in `context`. */
+async function visitAll(
+  context: BrowserContext,
+  paths: readonly string[],
+  check: (page: Page, path: string) => Promise<void>,
+): Promise<void> {
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    const tab = await context.newPage();
+    try {
+      while (cursor < paths.length) {
+        const path = paths[cursor++];
+        if (path !== undefined) {
+          await check(tab, path);
+        }
+      }
+    } finally {
+      await tab.close();
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(PAGE_CONCURRENCY, Math.max(1, paths.length)) }, () => worker()),
+  );
+}
 
 let site: Site;
 
@@ -27,12 +54,10 @@ async function open(page: Page, path: string): Promise<void> {
 test(
   "every page of every kept version loads with no console, hydration or request error",
   { annotation: { type: "covers", description: "story:1-48" } },
-  async ({ page }) => {
+  async ({ context }) => {
     const pages = sitemapPages();
     expect(pages).toContain("collie/install");
-    for (const path of pages) {
-      await test.step(path, () => open(page, path));
-    }
+    await visitAll(context, pages, (tab, path) => open(tab, path));
   },
 );
 
@@ -43,14 +68,12 @@ for (const colorScheme of ["light", "dark"] as const) {
     test(
       "every page of next passes axe",
       { annotation: { type: "covers", description: "story:1-116" } },
-      async ({ page }) => {
-        for (const path of nextPages(sitemapPages())) {
-          await test.step(path, async () => {
-            await open(page, path);
-            await expect(page.locator("html")).toHaveAttribute("data-theme", colorScheme);
-            await expectAccessible(page);
-          });
-        }
+      async ({ context }) => {
+        await visitAll(context, nextPages(sitemapPages()), async (tab, path) => {
+          await open(tab, path);
+          await expect(tab.locator("html")).toHaveAttribute("data-theme", colorScheme);
+          await expectAccessible(tab);
+        });
       },
     );
   });
@@ -59,17 +82,15 @@ for (const colorScheme of ["light", "dark"] as const) {
 test(
   "the accessibility statement is served and every page's footer links it",
   { annotation: { type: "covers", description: "story:1-116" } },
-  async ({ page }) => {
+  async ({ context, page }) => {
     await open(page, "accessibility");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Accessibility statement");
-    for (const path of sitemapPages()) {
-      await test.step(path, async () => {
-        await open(page, path);
-        await expect(
-          page.getByRole("contentinfo").getByRole("link", { name: "Accessibility statement" }),
-        ).toHaveAttribute("href", "/docs/accessibility");
-      });
-    }
+    await visitAll(context, sitemapPages(), async (tab, path) => {
+      await open(tab, path);
+      await expect(
+        tab.getByRole("contentinfo").getByRole("link", { name: "Accessibility statement" }),
+      ).toHaveAttribute("href", "/docs/accessibility");
+    });
   },
 );
 

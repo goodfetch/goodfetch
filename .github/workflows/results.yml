@@ -26,7 +26,8 @@ name: results ingest
 # JUnit files as data, never as code.
 on: # zizmor: ignore[dangerous-triggers]
   workflow_run:
-    workflows: [test health, diagnostic, release suite, coverage, docs, nightly, live]
+    workflows:
+      [test health, diagnostic, release suite, coverage, docs, nightly, live, clean-up-rules-daily]
     types: [completed]
   schedule:
     - cron: "53 4 * * *"

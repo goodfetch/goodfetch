@@ -18,7 +18,9 @@ use std::fmt::Write as _;
 use goodfetch_protocol::catalog::{
     Metric, Operation, Product as ProtocolProduct, Reach, Setting, Stability,
 };
+use goodfetch_protocol::connection::Form;
 use goodfetch_protocol::entries::MODULES;
+use goodfetch_protocol::naming;
 use serde_json::{Value, json};
 
 use crate::products::Product;
@@ -150,22 +152,6 @@ fn stability_label(stability: Stability) -> &'static str {
     }
 }
 
-fn camel_case(snake: &str) -> String {
-    let mut out = String::with_capacity(snake.len());
-    let mut upper = false;
-    for ch in snake.chars() {
-        if ch == '_' {
-            upper = true;
-        } else if upper {
-            out.push(ch.to_ascii_uppercase());
-            upper = false;
-        } else {
-            out.push(ch);
-        }
-    }
-    out
-}
-
 fn render_index(product: Product, ops: usize, settings: usize, metrics: usize) -> String {
     let title = product_title(product);
     let key = product.key();
@@ -214,26 +200,35 @@ fn render_operation(section: Product, owner: ProtocolProduct, op: &Operation) ->
     }
     let _ = writeln!(out, "\n{}\n", op.description);
 
-    let (ns, member) = op.name.split_once('.').unwrap_or(("", op.name));
-    let ts_method = camel_case(member);
+    let ts_call = naming::operation(Form::Typescript, op.name);
+    let py_call = naming::operation(Form::Python, op.name);
+    let rust_call = naming::operation(Form::Rust, op.name);
     let cli_bin = match section {
         Product::Collie => "goodfetch-collie",
         Product::Foxhound => "goodfetch-foxhound",
     };
-    let cli_sub = member.replace('_', "-");
+    let cli_cmd: Vec<String> = op
+        .name
+        .split('.')
+        .map(|part| part.replace('_', "-"))
+        .collect();
     let mcp_tool = op.name.replace('.', "_");
 
     let _ = writeln!(out, "## Surfaces\n");
-    let _ = writeln!(out, "### TypeScript\n");
-    let _ = writeln!(out, "```text\n{ns}.{ts_method}(params)\n```\n");
-    let _ = writeln!(out, "### Python\n");
-    let _ = writeln!(out, "```text\n{ns}.{member}(...)\n```\n");
-    let _ = writeln!(out, "### Rust\n");
-    let _ = writeln!(out, "```text\n{ns}.{member}(...)\n```\n");
+    if op.reach != Reach::PersonOnly {
+        let _ = writeln!(out, "### TypeScript\n");
+        let _ = writeln!(out, "```text\n{ts_call}(params)\n```\n");
+        let _ = writeln!(out, "### Python\n");
+        let _ = writeln!(out, "```text\n{py_call}(...)\n```\n");
+        let _ = writeln!(out, "### Rust\n");
+        let _ = writeln!(out, "```text\n{rust_call}(...)\n```\n");
+    }
 
-    if op.reach == Reach::AllSurfaces {
+    if op.reach == Reach::AllSurfaces || op.reach == Reach::PersonOnly {
         let _ = writeln!(out, "### CLI\n");
-        let _ = writeln!(out, "```text\n{cli_bin} {ns} {cli_sub}\n```\n");
+        let _ = writeln!(out, "```text\n{cli_bin} {}\n```\n", cli_cmd.join(" "));
+    }
+    if op.reach == Reach::AllSurfaces {
         let _ = writeln!(out, "### MCP\n");
         let _ = writeln!(out, "```text\n{mcp_tool}\n```\n");
     }

@@ -89,7 +89,7 @@ manifest=$(jq -cn \
       "dev.goodfetch.clean-up-rules.line": $line,
       "dev.goodfetch.clean-up-rules.format_major": $format_major,
       "dev.goodfetch.clean-up-rules.version": $version,
-      "dev.goodfetch.clean-up-rules.gate": "pass"
+      "dev.goodfetch.clean-up-rules.gate": "passed"
     }
   }')
 

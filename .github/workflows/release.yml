@@ -42,10 +42,6 @@
 name: release
 
 on:
-  push:
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
-      - "v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"
   workflow_dispatch:
     inputs:
       version:
@@ -355,7 +351,7 @@ jobs:
       - name: Download signed binaries
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: release-binaries-signed
+          name: signed-binaries
           path: target/release-binaries
       - name: Download attested release outputs
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -384,10 +380,11 @@ jobs:
             exit 1
           fi
       - name: Check Size budget ceilings (issue 203) and render release size table
-        env:
-          RELEASE_VERSION: ${{ needs.validate-version.outputs.version }}
         run: |
-          ci/release/size-manifest.sh target/release-attested target/release-size-files.toml "$RELEASE_VERSION"
+          cargo run --quiet --locked --bin xtask -- release size-manifest \
+            --binaries target/release-binaries \
+            --packaged target/release-attested \
+            --out target/release-size-files.toml
           cargo run --quiet --locked --bin xtask -- size ceilings \
             --files target/release-size-files.toml > target/release-size-table.md
       - name: Scan release size table for secrets
@@ -437,6 +434,7 @@ jobs:
           fi
           gh release create "v${RELEASE_VERSION}" \
             --draft \
+            --target "$GITHUB_SHA" \
             "${extra_flags[@]}" \
             --title "v${RELEASE_VERSION}" \
             --notes-file target/release-notes.md \
@@ -460,11 +458,18 @@ jobs:
         uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
         with:
           target: x86_64-unknown-linux-gnu
-      - name: Publish goodfetch-collie-client, goodfetch-collie and goodfetch-foxhound to crates.io via OIDC
+      - name: Download attested release outputs for archive digests (ADR 0051)
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-attested
+          path: target/release-attested
+      - name: Publish workspace crates and both Products to crates.io via OIDC
         env:
-          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
+          RELEASE_VERSION: ${{ needs.validate-version.outputs.version }}
         run: |
+          cargo run --quiet --locked --bin xtask -- release digests \
+            --version "$RELEASE_VERSION" \
+            --assets target/release-attested/assets
           jwt=$(curl -fsSL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=crates.io" | jq -r .value)
           CARGO_REGISTRY_TOKEN=$(curl -fsSL -X POST \
@@ -472,9 +477,17 @@ jobs:
             -d "{\"jwt\":\"${jwt}\"}" \
             "https://crates.io/api/v1/trusted_publishing/tokens" | jq -r .token)
           export CARGO_REGISTRY_TOKEN
-          for crate in goodfetch-collie-client goodfetch-collie goodfetch-foxhound; do
-            cargo publish --locked -p "$crate"
-          done
+          # Strip goodfetch-workspace-hack on publish (ADR 0094 note 2026-11-06)
+          # and publish in dependency order from xtask release plan.
+          cargo run --quiet --locked --bin xtask -- release plan \
+            --version "$RELEASE_VERSION" \
+            --assets target/release-attested/assets \
+            --json \
+            | jq -r '.[] | select(.registry == "crates.io" and .state == "publish") | .name' \
+            | while IFS= read -r crate; do
+                [[ -n "$crate" ]] || continue
+                ci/tool.sh cargo-hakari cargo hakari publish -- --locked -p "$crate"
+              done
 
   publish-npm:
     name: publish-npm
@@ -681,7 +694,11 @@ jobs:
             "$RELEASE_VERSION" \
             target/release-attested/assets/SHA256SUMS \
             target/homebrew-tap
-          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/goodfetch/homebrew-tap.git" target/tap-checkout
+          auth=$(printf 'x-access-token:%s' "$HOMEBREW_TAP_TOKEN" | base64 | tr -d '\n')
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          export GIT_CONFIG_VALUE_0="Authorization: basic ${auth}"
+          git clone "https://github.com/goodfetch/homebrew-tap.git" target/tap-checkout
           mkdir -p target/tap-checkout/Formula
           cp target/homebrew-tap/Formula/goodfetch-collie.rb target/tap-checkout/Formula/
           cp target/homebrew-tap/Formula/goodfetch-foxhound.rb target/tap-checkout/Formula/
@@ -704,10 +721,11 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - name: Check out main
+      - name: Check out main with release tags
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
+          fetch-depth: 0
           persist-credentials: false
       - name: Install xtask
         uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
@@ -724,7 +742,10 @@ jobs:
           git add compat/
           if ! git diff --cached --quiet; then
             git commit -s -m "chore(release): freeze compat corpus for v${RELEASE_VERSION}"
-            git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')
+            export GIT_CONFIG_COUNT=1
+            export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+            export GIT_CONFIG_VALUE_0="Authorization: basic ${auth}"
             git push origin "$branch"
             gh pr create \
               --base main \
@@ -750,16 +771,33 @@ jobs:
         with:
           target: x86_64-unknown-linux-gnu
           runtimes: release-linux
-      - name: Stage published GitHub Release assets before the deny
+      - name: Download pushed OCI image digests before outbound-traffic deny
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-oci-digests
+          path: target/smoke-staged/oci-digests
+      - name: Stage published release channels before the deny
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ needs.validate-version.outputs.version }}
         run: |
-          mkdir -p target/smoke-staged/github target/smoke-staged/wheels
+          mkdir -p target/smoke-staged/github target/smoke-staged/wheels target/smoke-staged/npm target/smoke-staged/oci
           gh release download "v${RELEASE_VERSION}" --dir target/smoke-staged/github \
             --pattern 'goodfetch-*-x86_64-unknown-linux-musl.tar.xz'
           gh release download "v${RELEASE_VERSION}" --dir target/smoke-staged/wheels \
             --pattern '*.whl'
+          npm pack --pack-destination target/smoke-staged/npm \
+            "@goodfetch/collie-client@${RELEASE_VERSION}" \
+            "@goodfetch/collie-linux-x64@${RELEASE_VERSION}" \
+            "@goodfetch/collie@${RELEASE_VERSION}" \
+            "@goodfetch/foxhound-linux-x64@${RELEASE_VERSION}" \
+            "@goodfetch/foxhound@${RELEASE_VERSION}"
+          for product in collie foxhound; do
+            digest=$(cat "target/smoke-staged/oci-digests/${product}.digest")
+            image_ref="ghcr.io/goodfetch/${product}@${digest}"
+            docker pull "$image_ref"
+            docker save -o "target/smoke-staged/oci/goodfetch-${product}.tar" "$image_ref"
+          done
       - name: Set up the OS services the tests use
         run: ci/os-services.sh setup
       - name: Deny outbound traffic
@@ -796,16 +834,22 @@ jobs:
         with:
           target: x86_64-pc-windows-msvc
           runtimes: release-other
-      - name: Stage published GitHub Release assets before the deny
+      - name: Stage published release channels before the deny
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ needs.validate-version.outputs.version }}
         run: |
-          mkdir -p target/smoke-staged/github target/smoke-staged/wheels
+          mkdir -p target/smoke-staged/github target/smoke-staged/wheels target/smoke-staged/npm
           gh release download "v${RELEASE_VERSION}" --dir target/smoke-staged/github \
             --pattern 'goodfetch-*-x86_64-pc-windows-msvc.tar.xz'
           gh release download "v${RELEASE_VERSION}" --dir target/smoke-staged/wheels \
             --pattern '*.whl'
+          npm pack --pack-destination target/smoke-staged/npm \
+            "@goodfetch/collie-client@${RELEASE_VERSION}" \
+            "@goodfetch/collie-win32-x64@${RELEASE_VERSION}" \
+            "@goodfetch/collie@${RELEASE_VERSION}" \
+            "@goodfetch/foxhound-win32-x64@${RELEASE_VERSION}" \
+            "@goodfetch/foxhound@${RELEASE_VERSION}"
       - name: Set up the OS services the tests use
         run: ci/os-services.sh setup
       - name: Deny outbound traffic
@@ -837,16 +881,22 @@ jobs:
         with:
           target: aarch64-apple-darwin
           runtimes: release-other
-      - name: Stage published GitHub Release assets
+      - name: Stage published release channels
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ needs.validate-version.outputs.version }}
         run: |
-          mkdir -p target/smoke-staged/github target/smoke-staged/wheels
+          mkdir -p target/smoke-staged/github target/smoke-staged/wheels target/smoke-staged/npm
           gh release download "v${RELEASE_VERSION}" --dir target/smoke-staged/github \
             --pattern 'goodfetch-*-aarch64-apple-darwin.tar.xz'
           gh release download "v${RELEASE_VERSION}" --dir target/smoke-staged/wheels \
             --pattern '*.whl'
+          npm pack --pack-destination target/smoke-staged/npm \
+            "@goodfetch/collie-client@${RELEASE_VERSION}" \
+            "@goodfetch/collie-darwin-arm64@${RELEASE_VERSION}" \
+            "@goodfetch/collie@${RELEASE_VERSION}" \
+            "@goodfetch/foxhound-darwin-arm64@${RELEASE_VERSION}" \
+            "@goodfetch/foxhound@${RELEASE_VERSION}"
       - name: Set up the OS services the tests use
         run: ci/os-services.sh setup
       - name: "Test: smoke-install macOS release channels"

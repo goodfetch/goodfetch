@@ -98,11 +98,12 @@ jobs:
         run: ci/egress/egress.sh canary
       - name: Build Clean-up rules set for release line and format major
         env:
+          LINE_NAME: ${{ matrix.line }}
           LINE_SLUG: ${{ matrix.slug }}
           FORMAT_MAJOR: ${{ matrix.format_major }}
         run: >-
           ci/egress/under-deny.sh ci/release/build-clean-up-set.sh
-          "$LINE_SLUG" "$FORMAT_MAJOR" "target/clean-up-daily/${LINE_SLUG}-v${FORMAT_MAJOR}"
+          "${LINE_NAME#release/}" "$FORMAT_MAJOR" "target/clean-up-daily/${LINE_SLUG}-v${FORMAT_MAJOR}"
       - name: "Test: clean-up-rules-daily Live check gate"
         id: gate
         run: >-
@@ -133,7 +134,7 @@ jobs:
         if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: junit-clean-up-rules-daily-live-${{ matrix.slug }}-v${{ matrix.format_major }}-1
+          name: junit-cleanup-live-linux-x64-1
           path: target/junit/
           if-no-files-found: ignore
       - name: Upload gated Clean-up rules OCI artifact (pass only)

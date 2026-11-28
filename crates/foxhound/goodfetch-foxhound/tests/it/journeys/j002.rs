@@ -306,6 +306,7 @@ fn sdk_rust() {
     let mut outcomes: Vec<Value> = Vec::new();
     let mut exports: Vec<(String, u64, u64)> = Vec::new();
     let mut foxhound_handle: Option<Foxhound> = None;
+    let mut daemon_handle: Option<goodfetch_test_support::Daemon> = None;
     let mut crawl_run: Option<goodfetch_foxhound::CrawlRun> = None;
     let mut dummy_crawl = Crawl::new();
     let pages = dummy_crawl.dataset::<Value>(CODE_FREE_DATASET).unwrap();
@@ -338,9 +339,20 @@ fn sdk_rust() {
                 .set(egress::PRIVATE_RANGES, hosts)
                 .set(fetch::TIER, fetch::Tier::Http)
                 .set(politeness::domain::DELAY, Some(std::time::Duration::ZERO));
+            // Start the shipped Foxhound executable as a Daemon in this
+            // Journey's Goodfetch home so `sdk-rust` drives the shipped
+            // executable through the client, never the linked engine
+            // (docs/testing/journeys.md, ADR 0069).
+            let started_daemon = goodfetch_test_support::Daemon::start_program(
+                run.env(),
+                run.engine(),
+                goodfetch_test_support::DAEMON_DEADLINE,
+            )
+            .expect("J-002's Foxhound Daemon starts");
+            daemon_handle = Some(started_daemon);
             let options = ConnectOptions::default()
-                .environment(run.env().env_os())
-                .settings(settings);
+                .engine(goodfetch_foxhound::EngineChoice::Daemon)
+                .environment(run.env().env_os());
             let extraction: CrawlExtraction = serde_json::from_value(json!({
                 "formats": { "markdown": true },
                 "follow": "scope",
@@ -352,6 +364,7 @@ fn sdk_rust() {
                 let started = foxhound
                     .start_crawl(extraction, [Seed::named(&start, CODE_FREE_LABEL)])
                     .run_id(&RunId::parse(RUN).unwrap())
+                    .settings(settings)
                     .await
                     .unwrap();
                 (foxhound, started)
@@ -570,6 +583,15 @@ fn sdk_rust() {
             assert_eq!(held, expected);
         },
     );
+    drop(crawl_run);
+    if let Some(foxhound) = foxhound_handle.take() {
+        runtime.block_on(foxhound.close()).unwrap();
+    }
+    if let Some(daemon) = daemon_handle.take() {
+        daemon
+            .stop(run.env())
+            .expect("J-002's Foxhound Daemon stops");
+    }
     run.finish()
         .expect("J-002's sdk-rust document is written")
         .assert_proved();

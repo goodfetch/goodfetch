@@ -1138,6 +1138,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
         })
         .transpose()?;
     let recording_mode = params.recording.clone();
+    let recording_bytes = params.recording_bytes;
     let inputs = start_inputs(params.plan, params.recording);
     let limits = StartLimits::checked(params.limits, run_id.as_ref(), &context).await?;
     let (settings, _) = context
@@ -1155,7 +1156,13 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
         })
         .await
         .map_err(|error| settings_error(&error, &context))?;
-    let prepared = prepare_recording(recording_mode, settings.resolved(), &context).await?;
+    let prepared = prepare_recording(
+        recording_mode,
+        recording_bytes,
+        settings.resolved(),
+        &context,
+    )
+    .await?;
     let timeout = given_timeout.unwrap_or_else(|| settings.resolved().get(&TIMEOUT_RUN));
     let started = context
         .runs()
@@ -1241,23 +1248,43 @@ async fn restore_recording(
     let Ok(recording) = serde_json::from_value::<Recording>(recording_val.clone()) else {
         return Ok(());
     };
-    let prepared = prepare_recording(Some(recording), settings, context).await?;
+    let prepared = prepare_recording(Some(recording), None, settings, context).await?;
     prepared.attach(context, run.identity.id(), Some(run.state.clone()));
     Ok(())
 }
 
 async fn prepare_recording(
     recording: Option<Recording>,
+    recording_bytes: Option<String>,
     settings: &crate::settings::Resolved,
     context: &CallContext,
 ) -> Result<PreparedRecording, CallError> {
     let replayed = match recording.as_ref() {
-        Some(recording) if recording.mode == RecordingMode::Replay => Some(
-            context
-                .engine()
-                .open_replay(&recording.path, settings)
-                .await?,
-        ),
+        Some(recording) if recording.mode == RecordingMode::Replay => {
+            if let Some(encoded) = recording_bytes {
+                let bytes = data_encoding::BASE64
+                    .decode(encoded.as_bytes())
+                    .map_err(|error| {
+                        crate::response_recording::recording_invalid_error(
+                            &recording.path,
+                            format!("invalid base64 recording bytes: {error}"),
+                        )
+                    })?;
+                Some(
+                    context
+                        .engine()
+                        .open_replay_bytes(&recording.path, bytes::Bytes::from(bytes), settings)
+                        .await?,
+                )
+            } else {
+                Some(
+                    context
+                        .engine()
+                        .open_replay(&recording.path, settings)
+                        .await?,
+                )
+            }
+        }
         _ => None,
     };
     let record_path = recording
@@ -1288,10 +1315,13 @@ impl PreparedRecording {
                 .recordings()
                 .attach(run_id.clone(), replayed);
         } else if let Some(path) = self.record_path {
-            let recorder =
-                context
-                    .engine()
-                    .new_recorder(path, run_id.clone(), self.software, false);
+            let recorder = context.engine().new_recorder(
+                path,
+                run_id.clone(),
+                self.software,
+                false,
+                context.daemon().is_none(),
+            );
             if let Some(state) = state {
                 recorder.attach_run_state(state);
             }

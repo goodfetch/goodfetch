@@ -8,6 +8,7 @@
 //   node bench/src/cli.ts provider-check [--junit <path>]
 //   node bench/src/cli.ts eval-pr|eval-nightly|eval-weekly [--proving-ground <address>]
 //   node bench/src/cli.ts skills
+import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { BenchError } from "./errors.ts";
 import {
@@ -23,12 +24,21 @@ import {
   loadModelsManifest,
   runProviderCheck,
 } from "./provider-check.ts";
+import {
+  evaluateReleaseGate,
+  parseReleaseGateInput,
+  type ReleaseGateMode,
+} from "./release-gate.ts";
 import { runCampaign } from "./runner.ts";
 import { createPromptfooTrialRunner, runSkillEvaluations } from "./skill-evals.ts";
 
+/** Exit code for an inconclusive Live check (`EX_TEMPFAIL`, matching `xtask/src/live_checks.rs`). */
+const INCONCLUSIVE_EXIT_CODE = 75;
+
 const usage = [
   "usage:",
-  "  node bench/src/cli.ts run <campaign.json> --proving-ground <address> --out <folder>",
+  "  node bench/src/cli.ts run <campaign.json> --proving-ground <address> --out <folder> [--host-machine-id <id>]",
+  "  node bench/src/cli.ts release-gate <input.json> [--mode release|patch-correctness-only]",
   "  node bench/src/cli.ts live-gate --job <job> [--models <m1,m2>] [--trials <n>] [--max-input-tokens <n>] [--max-output-tokens <n>]",
   "  node bench/src/cli.ts provider-check [--junit <path>]",
   "  node bench/src/cli.ts eval-pr|eval-nightly|eval-weekly",
@@ -149,6 +159,8 @@ async function main(argv: readonly string[]): Promise<number> {
     options: {
       "proving-ground": { type: "string" },
       out: { type: "string" },
+      "host-machine-id": { type: "string" },
+      mode: { type: "string" },
       job: { type: "string" },
       models: { type: "string" },
       trials: { type: "string" },
@@ -161,6 +173,40 @@ async function main(argv: readonly string[]): Promise<number> {
   try {
     if (command === "live-gate") {
       return runLiveGateCommand(values);
+    }
+    if (command === "release-gate") {
+      if (campaignPath === undefined) {
+        process.stderr.write(usage);
+        return 2;
+      }
+      let raw: unknown;
+      try {
+        raw = JSON.parse(readFileSync(campaignPath, "utf8"));
+      } catch (error) {
+        throw new BenchError(
+          "invalid_document",
+          `failed to read JSON release-gate input ${campaignPath}`,
+          { cause: error },
+        );
+      }
+      const parsed = parseReleaseGateInput(raw, campaignPath);
+      const modeOverride = values.mode;
+      let effectiveMode: ReleaseGateMode = parsed.mode;
+      if (modeOverride !== undefined) {
+        if (modeOverride !== "release" && modeOverride !== "patch-correctness-only") {
+          throw new BenchError(
+            "invalid_document",
+            `--mode must be release or patch-correctness-only, got ${modeOverride}`,
+          );
+        }
+        effectiveMode = modeOverride;
+      }
+      const decision = evaluateReleaseGate({ ...parsed, mode: effectiveMode });
+      process.stdout.write(`${JSON.stringify(decision)}\n`);
+      if (decision.live_check.status === "inconclusive") {
+        return INCONCLUSIVE_EXIT_CODE;
+      }
+      return decision.decision === "pass" ? 0 : 1;
     }
     if (command === "provider-check") {
       const caps = loadCapsTable();
@@ -221,8 +267,21 @@ async function main(argv: readonly string[]): Promise<number> {
       process.stderr.write(usage);
       return 2;
     }
-    const { directory, record } = await runCampaign({ campaignPath, provingGround: address, out });
-    process.stdout.write(`${JSON.stringify({ run: directory, status: record.status })}\n`);
+    const { directory, record } = await runCampaign({
+      campaignPath,
+      provingGround: address,
+      out,
+      hostMachineId: values["host-machine-id"],
+    });
+    process.stdout.write(
+      `${JSON.stringify({
+        run: directory,
+        status: record.status,
+        views: record.views.length,
+        raw_summaries: record.raw_summaries,
+        governor_ceiling: record.governor_ceilings?.default_ceiling ?? null,
+      })}\n`,
+    );
     return 0;
   } catch (error) {
     if (error instanceof BenchError) {

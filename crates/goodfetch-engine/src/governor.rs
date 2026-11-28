@@ -48,12 +48,14 @@ use crate::tasks::TaskOwner;
 mod browsers;
 mod controller;
 mod ladder;
+pub mod published;
 mod shares;
 mod storage;
 mod system;
 
 pub use browsers::{BrowserUse, GovernedBrowser, PageHold};
 pub use ladder::{Weight, last_resort_run};
+pub use published::{PublishedCeilingsError, PublishedGovernorCeilings, PublishedWorkKindCeilings};
 pub use shares::{Permit, RunShare};
 pub use storage::{
     Filesystem, FilesystemInodes, FilesystemReading, FilesystemSource, Held, StorageSample,

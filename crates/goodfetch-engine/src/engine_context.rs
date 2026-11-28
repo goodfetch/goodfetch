@@ -413,6 +413,7 @@ impl EngineContext {
         run_id: RunId,
         software: String,
         stage_for_attempt: bool,
+        write_on_end: bool,
     ) -> Arc<crate::response_recording::Recorder> {
         crate::response_recording::Recorder::new(
             path,
@@ -421,7 +422,10 @@ impl EngineContext {
             self.held.masks.clone(),
             self.clock,
             self.draw_u64(),
-            stage_for_attempt,
+            crate::response_recording::RecorderPolicy {
+                stage_for_attempt,
+                write_on_end,
+            },
         )
     }
 
@@ -451,6 +455,35 @@ impl EngineContext {
         self.stores
             .recordings
             .open_replay(path, self.held.masks.clone(), ratio, &self.stores.owner)
+            .await
+    }
+
+    /// Parses and indexes the WARC bytes `bytes` for replay under `settings`'s
+    /// `network.max_decompression_ratio` (ADR 0105).
+    ///
+    /// # Errors
+    ///
+    /// `recording_invalid` when `bytes` is not a WARC recording the engine replays.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Recordings::open_replay_bytes`]'s.
+    pub async fn open_replay_bytes(
+        &self,
+        display: &str,
+        bytes: bytes::Bytes,
+        settings: &Resolved,
+    ) -> Result<Replayed, CallError> {
+        let ratio = settings.get::<u64>(&NETWORK_MAX_DECOMPRESSION_RATIO);
+        self.stores
+            .recordings
+            .open_replay_bytes(
+                display,
+                bytes,
+                self.held.masks.clone(),
+                ratio,
+                &self.stores.owner,
+            )
             .await
     }
 

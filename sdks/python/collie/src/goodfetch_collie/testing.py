@@ -133,6 +133,7 @@ class StartingTestEngine:
                 settings=parts.settings,
                 project=parts.project,
             )
+            connection._connection.enable_empty_replay_by_default()  # pyright: ignore[reportPrivateUsage]
         except BaseException:
             with anyio.CancelScope(shield=True):
                 await anyio.to_thread.run_sync(remove_home, home)
@@ -166,6 +167,7 @@ class TestEngine:
                 settings=parts.settings,
                 project=parts.project,
             )
+            connection._connection.enable_empty_replay_by_default()  # pyright: ignore[reportPrivateUsage]
         except BaseException:
             remove_home(home)
             raise

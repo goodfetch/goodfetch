@@ -1872,6 +1872,70 @@
       "id": "site-tools/2",
       "kind": "extract",
       "start_url": "https://2.site-tools.test/tools"
+    },
+    {
+      "description": "Pay for this page using Cloudflare pay-per-crawl headers signed with Web Bot Auth and return its Record.",
+      "digest": "b943a28b703a7627bfa058b0cc8d1bc63216629753961346f120acf867174869",
+      "family": "paid",
+      "id": "paid/1",
+      "kind": "extract",
+      "start_url": "http://1.paid.test/page"
+    },
+    {
+      "description": "Pay for this page using x402 `exact` settled on the local chain and return its Record.",
+      "digest": "ade816dadf978838eb4f8fef7b63c04b5769deb9105d2614ad67d226707543e7",
+      "family": "paid",
+      "id": "paid/2",
+      "kind": "extract",
+      "start_url": "http://2.paid.test/page"
+    },
+    {
+      "description": "Pay for this page using x402 `upto` settled on the local chain and return its Record.",
+      "digest": "cbe28fe99ffcdbbce2a54ac159150925454e79c4096ccf4c71b2642d0b342c5f",
+      "family": "paid",
+      "id": "paid/3",
+      "kind": "extract",
+      "start_url": "http://3.paid.test/page"
+    },
+    {
+      "description": "Pay for this page using x402 `batch-settlement` signed with Web Bot Auth and return its Record.",
+      "digest": "e729c1be4c068e357332a8fc34a9daf60012bb816dba023057de05b36f96c0f5",
+      "family": "paid",
+      "id": "paid/4",
+      "kind": "extract",
+      "start_url": "http://4.paid.test/page"
+    },
+    {
+      "description": "Refuse to pay this page and report `payment_required` without paying.",
+      "digest": "cd999cd5bd9b268a77989791347f0d6e67fb308ce1638fd6ad7414c42f41a205",
+      "family": "paid",
+      "id": "paid/5",
+      "kind": "extract",
+      "start_url": "http://5.paid.test/page"
+    },
+    {
+      "description": "Attempt an x402 `exact` payment whose response is interrupted after on-chain settlement.",
+      "digest": "ac6b066654377f113e080f3ea2efd3d8bfa04ba9a3c0b21e517e7c59805d9a0c",
+      "family": "paid",
+      "id": "paid/6",
+      "kind": "extract",
+      "start_url": "http://6.paid.test/page"
+    },
+    {
+      "description": "Attempt an x402 `exact` payment whose response is interrupted while the payment can still settle.",
+      "digest": "697f5991806f44ba1c3eec9d1f1cdc579850e9d2045e22c8a7f64283f59345c9",
+      "family": "paid",
+      "id": "paid/7",
+      "kind": "extract",
+      "start_url": "http://7.paid.test/page"
+    },
+    {
+      "description": "Attempt an x402 `exact` payment whose response is interrupted after expiry makes it unable to settle.",
+      "digest": "69667420f84e988b13f0dda47b38ec97c7dced9b37a5ca93a359a884e8b16c33",
+      "family": "paid",
+      "id": "paid/8",
+      "kind": "extract",
+      "start_url": "http://8.paid.test/page"
     }
   ]
 }

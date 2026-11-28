@@ -3,8 +3,9 @@
 // cannot be measured fails: a quiet host must be shown, never assumed.
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { arch, cpus, loadavg, platform, totalmem } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import { parserOf } from "./schema.ts";
 
@@ -40,6 +41,10 @@ export interface HostSnapshot {
   readonly controller_cpu_percent: number | null;
   readonly cpu_governor: string | null;
   readonly virtualized: boolean | null;
+  /** Whether CPU turbo boost is enabled (`false` required for `reference`, ADR 0025). */
+  readonly turbo_enabled: boolean | null;
+  /** Whether simultaneous multithreading (SMT) is enabled (`true` required for `reference`, ADR 0025). */
+  readonly smt_enabled: boolean | null;
 }
 
 const gateIds = [
@@ -47,6 +52,8 @@ const gateIds = [
   "os",
   "virtualized",
   "cpu_governor",
+  "turbo_enabled",
+  "smt_enabled",
   "load_per_cpu_1m",
   "memory_free_percent",
   "thermal_warning",
@@ -135,6 +142,10 @@ function gateValue(id: GateId, snapshot: HostSnapshot, gitClean: boolean): GateR
       return snapshot.virtualized;
     case "cpu_governor":
       return snapshot.cpu_governor;
+    case "turbo_enabled":
+      return snapshot.turbo_enabled;
+    case "smt_enabled":
+      return snapshot.smt_enabled;
     case "load_per_cpu_1m":
       return snapshot.logical_cpus > 0 ? snapshot.load_average_1m / snapshot.logical_cpus : null;
     case "memory_free_percent":
@@ -312,6 +323,8 @@ type PlatformValues = Pick<
   | "low_power_mode"
   | "cpu_governor"
   | "virtualized"
+  | "turbo_enabled"
+  | "smt_enabled"
 >;
 
 const unmeasured: PlatformValues = {
@@ -321,6 +334,8 @@ const unmeasured: PlatformValues = {
   low_power_mode: null,
   cpu_governor: null,
   virtualized: null,
+  turbo_enabled: null,
+  smt_enabled: null,
 };
 
 async function darwinValues(): Promise<PlatformValues> {
@@ -342,7 +357,98 @@ async function darwinValues(): Promise<PlatformValues> {
     low_power_mode: low ? low[1] === "1" : settings === null ? null : false,
     cpu_governor: null,
     virtualized: hypervisor === null ? null : hypervisor.trim() === "1",
+    turbo_enabled: null,
+    smt_enabled: null,
   };
+}
+
+async function linuxTurboEnabled(): Promise<boolean | null> {
+  const noTurbo = await contents("/sys/devices/system/cpu/intel_pstate/no_turbo");
+  if (noTurbo !== null) {
+    const trimmed = noTurbo.trim();
+    if (trimmed === "1") {
+      return false;
+    }
+    if (trimmed === "0") {
+      return true;
+    }
+  }
+  const boost = await contents("/sys/devices/system/cpu/cpufreq/boost");
+  if (boost !== null) {
+    const trimmed = boost.trim();
+    if (trimmed === "0") {
+      return false;
+    }
+    if (trimmed === "1") {
+      return true;
+    }
+  }
+  return null;
+}
+
+async function linuxSmtEnabled(): Promise<boolean | null> {
+  const active = await contents("/sys/devices/system/cpu/smt/active");
+  if (active === null) {
+    return null;
+  }
+  const trimmed = active.trim();
+  if (trimmed === "1") {
+    return true;
+  }
+  if (trimmed === "0") {
+    return false;
+  }
+  return null;
+}
+
+/**
+ * Reads Linux `/sys/class/power_supply/*` to determine whether the host is on
+ * AC power. Reports `false` when a Mains/AC supply reads `0` or a Battery
+ * reports `Discharging`; reports `true` when an AC/Mains supply reads `1`, or
+ * on a mains-only server/VM with no power supply entries or batteries.
+ */
+export async function linuxOnAc(
+  powerSupplyDir = "/sys/class/power_supply",
+): Promise<boolean | null> {
+  let entries: string[];
+  try {
+    entries = await readdir(powerSupplyDir);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      // Mains-only servers and VMs often expose no /sys/class/power_supply.
+      return true;
+    }
+    return null;
+  }
+  if (entries.length === 0) {
+    return true;
+  }
+  let sawMainsOnline = false;
+  let sawBattery = false;
+  for (const entry of entries) {
+    const dir = join(powerSupplyDir, entry);
+    const kind = (await contents(join(dir, "type")))?.trim();
+    if (kind === "Mains" || kind === "USB" || kind === "AC") {
+      const online = (await contents(join(dir, "online")))?.trim();
+      if (online === "0") {
+        return false;
+      }
+      if (online === "1") {
+        sawMainsOnline = true;
+      }
+    } else if (kind === "Battery") {
+      sawBattery = true;
+      const status = (await contents(join(dir, "status")))?.trim();
+      if (status === "Discharging") {
+        return false;
+      }
+    }
+  }
+  if (sawMainsOnline || !sawBattery) {
+    return true;
+  }
+  // Batteries exist and none are discharging, with no explicit mains online file.
+  return true;
 }
 
 async function linuxValues(): Promise<PlatformValues> {
@@ -357,10 +463,12 @@ async function linuxValues(): Promise<PlatformValues> {
         ? null
         : Math.round((Number(available) * 100) / Number(total)),
     thermal_warning: temperature === null ? null : Number(temperature) > 90_000,
-    on_ac: true,
+    on_ac: await linuxOnAc(),
     low_power_mode: false,
     cpu_governor: governor?.trim() ?? null,
     virtualized: await linuxVirtualized(),
+    turbo_enabled: await linuxTurboEnabled(),
+    smt_enabled: await linuxSmtEnabled(),
   };
 }
 
@@ -398,5 +506,105 @@ export async function snapshotHost(ownProcessGroups: readonly number[]): Promise
     load_average_1m: loadavg()[0] ?? 0,
     ...load,
     ...values,
+  };
+}
+
+/** How a run's host class governs publication (ADR 0025 notes of 2026-11-10). */
+export type PublishedHostClassification =
+  | {
+      readonly publishable: false;
+      readonly reason: string;
+    }
+  | {
+      readonly publishable: true;
+      readonly publish_as: "reference";
+      readonly class_granted: "reference";
+      readonly machine_label: string;
+      readonly compare_scope: "reference-series";
+    }
+  | {
+      readonly publishable: true;
+      readonly publish_as: "non-reference-labelled";
+      readonly class_granted: Exclude<HostClass, "reference">;
+      readonly machine_label: string;
+      readonly compare_scope: "within-report-only";
+      readonly downgraded_from_reference: boolean;
+    };
+
+/**
+ * Classifies a host assessment for publication: only a host that passed every
+ * `reference` gate may be published as the `reference` class; any downgraded
+ * or non-reference run carries its own class and machine label and is compared
+ * within one report only.
+ */
+export function classifyForPublication(input: {
+  readonly assessment: HostAssessment;
+  readonly machineLabel: string;
+}): PublishedHostClassification {
+  const { assessment, machineLabel } = input;
+  if (assessment.refused) {
+    const failed = assessment.gates
+      .filter((gate) => !gate.ok)
+      .map((gate) => gate.id)
+      .join(", ");
+    return {
+      publishable: false,
+      reason: `host refused for ${assessment.class_requested} (failed gates: ${failed || "unknown"})`,
+    };
+  }
+  if (assessment.class_granted === "reference") {
+    return {
+      publishable: true,
+      publish_as: "reference",
+      class_granted: "reference",
+      machine_label: machineLabel,
+      compare_scope: "reference-series",
+    };
+  }
+  return {
+    publishable: true,
+    publish_as: "non-reference-labelled",
+    class_granted: assessment.class_granted,
+    machine_label: machineLabel,
+    compare_scope: "within-report-only",
+    downgraded_from_reference: assessment.class_requested === "reference",
+  };
+}
+
+/** Declared network profiles from ADR 0025 (added RTT in ms). */
+export const NETWORK_PROFILE_RTT_MS = [0, 20, 100, 300] as const;
+export type NetworkProfileRttMs = (typeof NETWORK_PROFILE_RTT_MS)[number];
+
+/** Calibration record for a `tc netem` or user-space latency proxy profile (ADR 0025). */
+export interface NetworkProfileCalibration {
+  readonly mechanism: "tc_netem" | "userspace_proxy";
+  readonly declared_rtt_ms: NetworkProfileRttMs;
+  readonly declared_loss_percent: number;
+  readonly measured_rtt_ms: number;
+  readonly tolerance_ms: number;
+  readonly within_tolerance: boolean;
+  /** Outside tolerance keeps correctness results but loses time metrics (ADR 0025). */
+  readonly time_metrics_valid: boolean;
+  readonly correctness_metrics_valid: true;
+}
+
+/** Checks a network profile's measured added delay against its declared RTT and tolerance. */
+export function calibrateNetworkProfile(input: {
+  readonly mechanism: "tc_netem" | "userspace_proxy";
+  readonly declaredRttMs: NetworkProfileRttMs;
+  readonly declaredLossPercent: number;
+  readonly measuredRttMs: number;
+  readonly toleranceMs: number;
+}): NetworkProfileCalibration {
+  const within = Math.abs(input.measuredRttMs - input.declaredRttMs) <= input.toleranceMs;
+  return {
+    mechanism: input.mechanism,
+    declared_rtt_ms: input.declaredRttMs,
+    declared_loss_percent: input.declaredLossPercent,
+    measured_rtt_ms: input.measuredRttMs,
+    tolerance_ms: input.toleranceMs,
+    within_tolerance: within,
+    time_metrics_valid: within,
+    correctness_metrics_valid: true,
   };
 }

@@ -1,0 +1,21 @@
+{
+  "id": "D-repeated-runs-drift",
+  "title": "Repeated runs with Drift latency (Collie)",
+  "question": "Does Collie keep verified latency bounded across repeated runs with Drift compared to its baseline?",
+  "status": "evidence-pending",
+  "declared_at": "2026-11-28T00:00:00.000Z",
+  "options": [
+    { "id": "collie-candidate", "description": "Collie candidate", "adapter": "collie-candidate" },
+    { "id": "collie-baseline", "description": "Collie baseline", "adapter": "collie-baseline" }
+  ],
+  "baseline": "collie-baseline",
+  "primary_metric": "task_p50_ms_verified",
+  "secondary_metrics": ["failure_rate"],
+  "contract_gates": ["oracle_exact", "false_success_count"],
+  "delta": 0.1,
+  "rule": { "kind": "non-inferiority", "alpha": 0.05, "power": 0.8, "noisy_blocks": "exclude" },
+  "host_class": { "decision": "local-controlled", "publication": "local-controlled" },
+  "evidence": [],
+  "depends_on": [],
+  "notes": "Declared before measuring (ADR 0025, issue 188)."
+}

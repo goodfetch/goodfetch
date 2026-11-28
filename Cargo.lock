@@ -2934,6 +2934,7 @@ dependencies = [
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "hmac 0.12.1",
+ "jsonschema",
  "libc",
  "loom",
  "proptest",

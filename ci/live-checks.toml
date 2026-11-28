@@ -88,3 +88,9 @@ id = "n8n-scanner"
 area = 11
 job = "nightly.yml#releases"
 run = "node ci/live/n8n-scanner.ts"
+
+# Benchmark release-gate Live check (ADRs 0025, 0064 and 0076; issue 176).
+# Exit 75 marks inconclusive (e.g. host-gate refusal), never a pass.
+[[live-check]]
+id = "release-gate"
+area = 2

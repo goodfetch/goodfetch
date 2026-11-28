@@ -218,6 +218,7 @@ expression: "serde_json::to_string_pretty(&snapshot_value).unwrap()"
         "plan",
         "project",
         "recording",
+        "recording_bytes",
         "run_id",
         "settings",
         "tags",
@@ -283,5 +284,5 @@ expression: "serde_json::to_string_pretty(&snapshot_value).unwrap()"
       "operation": "session.pages"
     }
   ],
-  "tools_list_bytes": 54737
+  "tools_list_bytes": 55273
 }

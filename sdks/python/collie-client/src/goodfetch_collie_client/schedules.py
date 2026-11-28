@@ -429,6 +429,11 @@ class _AsyncScheduleHost:
         del id
         _nothing_held("opens no value")
 
+    @property
+    def connection(self) -> NoReturn:
+        """A Schedule carries no copy connection."""
+        _nothing_held("carries no copy connection")
+
     async def close(self, operation: str, params: BaseModel) -> NoReturn:
         """A Schedule has no `close()`."""
         del operation, params
@@ -471,6 +476,16 @@ class _SyncScheduleHost:
     def id(self) -> ScheduleId:
         """The ID each of the handle's calls carries."""
         return self._host.id
+
+    @property
+    def connection(self) -> NoReturn:
+        """A Schedule carries no copy connection."""
+        _nothing_held("carries no copy connection")
+
+    @property
+    def loop(self) -> NoReturn:
+        """A Schedule carries no copy loop."""
+        _nothing_held("carries no copy loop")
 
     def call(
         self, operation: str, params: BaseModel, *, timeout_setting: str | None = None

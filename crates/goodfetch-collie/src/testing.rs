@@ -66,6 +66,7 @@ impl TestEngine {
             COLLIE_ENGINE_PATH_VARIABLE,
         ))
         .await?;
+        connection.as_ref().enable_empty_replay_by_default();
         Ok(Self { connection, home })
     }
 

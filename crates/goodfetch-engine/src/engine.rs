@@ -1102,12 +1102,7 @@ impl ReportPart for RecordingReportPart {
         connection: &rusqlite::Connection,
         report: &mut goodfetch_protocol::run::RunReport,
     ) -> rusqlite::Result<()> {
-        match self.0.finish_run(&report.run_id, connection)? {
-            Some(Ok(recording)) => report.recording = Some(recording),
-            Some(Err(error)) if report.error.is_none() => report.error = Some(error),
-            Some(Err(_)) | None => {}
-        }
-        Ok(())
+        self.0.apply_to_report(connection, report)
     }
 }
 

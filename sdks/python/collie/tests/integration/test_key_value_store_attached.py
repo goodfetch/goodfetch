@@ -22,6 +22,8 @@ from goodfetch_collie import (
     AsyncCollie,
     AsyncKeyValueStore,
     AsyncRun,
+    JSONObject,
+    JSONSchema,
     StoredBytes,
     ValueInvalidError,
 )
@@ -181,23 +183,31 @@ async def test_refuses_to_read_bytes_with_get_and_json_with_get_bytes(
         assert "`get`" in (json_with_get_bytes.fix or "")
 
 
-@pytest.mark.covers("story:11-66", "error:value_invalid")
+@pytest.mark.covers("story:11-66", "story:11-69", "error:value_invalid")
+@pytest.mark.client_case(id="typed-value-round-trip", mode="attached")
 @three_ways
 async def test_types_a_value_by_a_model_a_list_a_dataclass_and_refuses_the_rest(
-    way: Way, env: Mapping[str, str]
+    way: Way, env: Mapping[str, str], client_case: ClientCaseRecord
 ) -> None:
     """A value comes back in its schema's own type, and a refusal names its path."""
     opened = await _open(way, env, "shelved")
     store = opened.store
     dune = Book(title="Dune", price=Decimal("12.50"))
     shelf = Shelf(name="sf", books=["Dune"])
+    hand_written: JSONSchema = {
+        "type": "object",
+        "properties": {"title": {"type": "string"}, "year": {"type": "string"}},
+        "required": ["title", "year"],
+    }
 
     await store.set("book", dune)
     await store.set("books", [dune], list[Book])
     await store.set("shelf", shelf, Shelf)
+    await store.set("hand", {"title": "Dune", "year": "1965"}, hand_written)
     book = await store.get("book", Book)
     books = await store.get("books", list[Book])
     read_shelf = await store.get("shelf", Shelf)
+    read_hand = await store.get("hand", hand_written)
     as_json = await store.get("book")
     absent = await store.get("absent", Book)
     not_json = await failure(store.set("price", {"amount": float("nan")}))
@@ -208,17 +218,73 @@ async def test_types_a_value_by_a_model_a_list_a_dataclass_and_refuses_the_rest(
     unchanged = await store.get("book")
     await opened.end()
 
-    assert (book, books, read_shelf, absent) == (dune, [dune], shelf, None)
-    assert as_json == {"title": "Dune", "price": "12.50"}
-    assert [(type(error), error.details) for error in (not_json, rejected, other)] == [
-        (
-            ValueInvalidError,
-            {"key": key, "refused": "value", "reason": reason, "path": path},
-        )
-        for key, reason, path in (
-            ("price", "value_not_json", "/amount"),
-            ("book", "value_schema", "/price"),
-            ("shelf", "value_schema", "/title"),
-        )
-    ]
-    assert unchanged == as_json
+    with client_case.check(
+        "typed reads answer each schema's type (model, list, dataclass, JSON Schema)"
+    ):
+        assert (book, books, read_shelf, absent) == (dune, [dune], shelf, None)
+        assert read_hand == {"title": "Dune", "year": "1965"}
+        assert as_json == {"title": "Dune", "price": "12.50"}
+    with client_case.check(
+        "values rejected by the schema fail with value_invalid naming their path"
+    ):
+        assert [
+            (type(error), error.details) for error in (not_json, rejected, other)
+        ] == [
+            (
+                ValueInvalidError,
+                {"key": key, "refused": "value", "reason": reason, "path": path},
+            )
+            for key, reason, path in (
+                ("price", "value_not_json", "/amount"),
+                ("book", "value_schema", "/price"),
+                ("shelf", "value_schema", "/title"),
+            )
+        ]
+        assert unchanged == as_json
+
+
+@pytest.mark.covers("story:11-68", "error:value_invalid")
+@pytest.mark.client_case(id="non-json-value-refused", mode="attached")
+@three_ways
+async def test_refuses_non_json_values_before_sending_and_keeps_proto_keys(
+    way: Way, env: Mapping[str, str], client_case: ClientCaseRecord
+) -> None:
+    """Non-JSON values fail with value_not_json naming their path; __proto__ crosses."""
+    opened = await _open(way, env, "strict")
+    store = opened.store
+
+    not_a_number = await failure(store.set("price", {"amount": float("nan")}))
+    decimal_raw = await failure(
+        store.set("exact", cast("Any", {"cost": Decimal("1.25")}))
+    )
+    tuple_raw = await failure(store.set("items", cast("Any", [1, (2, 3)])))
+    proto: JSONObject = {"__proto__": {"polluted": True}, "constructor": "kept"}
+    await store.set("user-data", proto)
+    read_proto = await store.get("user-data")
+    await opened.end()
+
+    with client_case.check(
+        "each non-JSON value fails with value_invalid naming the key and path"
+    ):
+        for refused in (not_a_number, decimal_raw, tuple_raw):
+            assert isinstance(refused, ValueInvalidError)
+        assert not_a_number.details == {
+            "key": "price",
+            "refused": "value",
+            "reason": "value_not_json",
+            "path": "/amount",
+        }
+        assert decimal_raw.details == {
+            "key": "exact",
+            "refused": "value",
+            "reason": "value_not_json",
+            "path": "/cost",
+        }
+        assert tuple_raw.details == {
+            "key": "items",
+            "refused": "value",
+            "reason": "value_not_json",
+            "path": "/1",
+        }
+    with client_case.check("__proto__ and constructor keys cross untouched"):
+        assert read_proto == proto

@@ -189,6 +189,21 @@ struct RecorderState {
     id_counter: u64,
 }
 
+/// Construction options for a [`Recorder`] (`mode: "record"`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RecorderPolicy {
+    /// When true (Foxhound crawls), captured responses are staged in memory and
+    /// flushed inside each attempt outcome's own transaction so recording adds
+    /// no transaction to F2; otherwise (Collie Sessions) each capture is
+    /// persisted through the Run's `run_state` writer.
+    pub stage_for_attempt: bool,
+    /// Whether the engine writes the target path on its own filesystem at Run
+    /// end (`true` for Attached/Linked engines, `false` for a Daemon where the
+    /// SDK streams the WARC via `recording.save_as` and writes on the program's
+    /// machine).
+    pub write_on_end: bool,
+}
+
 /// Captures responses for one live Run in `mode: "record"` and writes the WARC
 /// file atomically when the Run ends.
 #[derive(Debug)]
@@ -200,17 +215,12 @@ pub struct Recorder {
     clock: Clock,
     id_seed: u64,
     stage_for_attempt: bool,
+    write_on_end: bool,
     state: Mutex<RecorderState>,
 }
 
 impl Recorder {
-    /// Creates a new recorder for `run_id`, targeting `path`.
-    ///
-    /// When `stage_for_attempt` is true (Foxhound crawls), captured responses
-    /// are staged in memory and flushed inside each attempt outcome's own
-    /// transaction so recording adds no transaction to F2; otherwise (Collie
-    /// Sessions) each capture is persisted through the Run's `run_state`
-    /// writer, which groups concurrent writes automatically.
+    /// Creates a new recorder for `run_id`, targeting `path`, under `policy`.
     pub fn new(
         path: String,
         run_id: RunId,
@@ -218,7 +228,7 @@ impl Recorder {
         masks: Masks,
         clock: Clock,
         id_seed: u64,
-        stage_for_attempt: bool,
+        policy: RecorderPolicy,
     ) -> Arc<Self> {
         Arc::new(Self {
             path,
@@ -227,7 +237,8 @@ impl Recorder {
             masks,
             clock,
             id_seed,
-            stage_for_attempt,
+            stage_for_attempt: policy.stage_for_attempt,
+            write_on_end: policy.write_on_end,
             state: Mutex::new(RecorderState::default()),
         })
     }
@@ -277,6 +288,17 @@ impl Recorder {
         let rows = read_exchanges(connection)?;
         let recorded_from = rows.iter().map(|row| row.recorded_at).min();
         let recorded_to = rows.iter().map(|row| row.recorded_at).max();
+        if !self.write_on_end {
+            return Ok(Ok(RecordingReport {
+                mode: "record".to_owned(),
+                file: self.path.clone(),
+                responses_used: u64::try_from(rows.len()).unwrap_or(u64::MAX),
+                recorded_from: recorded_from.map(SystemTime::from),
+                recorded_to: recorded_to.map(SystemTime::from),
+                written_by: Some(self.software.clone()),
+                misses: Vec::new(),
+            }));
+        }
         let target = Path::new(&self.path);
         let gzip_per_record = target
             .extension()
@@ -326,40 +348,40 @@ impl Recorder {
     fn next_uuid(&self) -> String {
         let mut state = self.lock();
         state.id_counter = state.id_counter.wrapping_add(1);
-        let hi = super::determinism::mix64(self.id_seed ^ state.id_counter);
-        let lo = super::determinism::mix64(
-            self.id_seed.wrapping_add(
-                state
-                    .id_counter
-                    .wrapping_mul(super::determinism::SPLITMIX_INCREMENT),
-            ),
-        );
-        // RFC 4122 version 4, variant 1 layout.
-        let mut b = [0u8; 16];
-        b[..8].copy_from_slice(&hi.to_be_bytes());
-        b[8..].copy_from_slice(&lo.to_be_bytes());
-        b[6] = (b[6] & 0x0f) | 0x40;
-        b[8] = (b[8] & 0x3f) | 0x80;
-        format!(
-            "urn:uuid:{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-            b[0],
-            b[1],
-            b[2],
-            b[3],
-            b[4],
-            b[5],
-            b[6],
-            b[7],
-            b[8],
-            b[9],
-            b[10],
-            b[11],
-            b[12],
-            b[13],
-            b[14],
-            b[15]
-        )
+        format_uuid(self.id_seed, state.id_counter)
     }
+}
+
+fn format_uuid(id_seed: u64, counter: u64) -> String {
+    let hi = super::determinism::mix64(id_seed ^ counter);
+    let lo = super::determinism::mix64(
+        id_seed.wrapping_add(counter.wrapping_mul(super::determinism::SPLITMIX_INCREMENT)),
+    );
+    // RFC 4122 version 4, variant 1 layout.
+    let mut b = [0u8; 16];
+    b[..8].copy_from_slice(&hi.to_be_bytes());
+    b[8..].copy_from_slice(&lo.to_be_bytes());
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    format!(
+        "urn:uuid:{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        b[0],
+        b[1],
+        b[2],
+        b[3],
+        b[4],
+        b[5],
+        b[6],
+        b[7],
+        b[8],
+        b[9],
+        b[10],
+        b[11],
+        b[12],
+        b[13],
+        b[14],
+        b[15]
+    )
 }
 
 impl Capture for Recorder {
@@ -500,6 +522,58 @@ fn write_all_records<W: std::io::Write>(
         })?;
     }
     Ok(())
+}
+
+/// Encodes all committed `recorded_responses` rows of `connection` into a
+/// WARC 1.1 byte buffer (gzipped per record when `gzip_per_record` is true).
+/// When `rows` is empty and `allow_empty` is false, returns `Ok(None)`; when
+/// `allow_empty` is true (a `mode: "record"` Run that recorded 0 responses),
+/// returns a valid `warcinfo`-only WARC matching [`Recorder::finish_and_write`].
+///
+/// # Errors
+///
+/// Returns any SQLite error from reading `recorded_responses`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "WARC encoding parameters mirror WarcInfo fields plus allow_empty for 0-response record Runs"
+)]
+pub fn encode_warc(
+    connection: &Connection,
+    run_id: &RunId,
+    software: &str,
+    filename: Option<String>,
+    gzip_per_record: bool,
+    now: jiff::Timestamp,
+    id_seed: u64,
+    allow_empty: bool,
+) -> rusqlite::Result<Option<Vec<u8>>> {
+    let rows = read_exchanges(connection)?;
+    if rows.is_empty() && !allow_empty {
+        return Ok(None);
+    }
+    let recorded_from = rows.iter().map(|row| row.recorded_at).min();
+    let recorded_to = rows.iter().map(|row| row.recorded_at).max();
+    let mut counter: u64 = 0;
+    let mut next_uuid = || {
+        counter = counter.wrapping_add(1);
+        format_uuid(id_seed, counter)
+    };
+    let info = WarcInfo {
+        record_id: next_uuid(),
+        date: now,
+        filename,
+        software: software.to_owned(),
+        run_id: Some(run_id.to_string()),
+        mode: Some("record".to_owned()),
+        recorded_from,
+        recorded_to,
+        writer_version: WRITER_VERSION.to_owned(),
+    };
+    let mut buffer = Vec::new();
+    let mut writer = Writer::new(&mut buffer, gzip_per_record);
+    write_all_records(&mut writer, &info, &rows, next_uuid)
+        .expect("invariant: encoding WARC records into a Vec<u8> is infallible");
+    Ok(Some(buffer))
 }
 
 /// Inserts `exchange` into `recorded_responses`, returning its row position.

@@ -1,0 +1,25 @@
+{
+  "id": "D-startup-binding",
+  "title": "Startup and binding overhead on both Product executables (ADR 0094)",
+  "question": "What is the startup and binding overhead of Collie and Foxhound executables?",
+  "status": "evidence-pending",
+  "declared_at": "2026-11-28T00:00:00.000Z",
+  "options": [
+    { "id": "collie-default", "description": "Collie executable", "adapter": "collie-default" },
+    {
+      "id": "foxhound-default",
+      "description": "Foxhound executable",
+      "adapter": "foxhound-default"
+    }
+  ],
+  "baseline": "collie-default",
+  "primary_metric": "startup_ms",
+  "secondary_metrics": ["pss_peak_bytes"],
+  "contract_gates": ["oracle_exact", "false_success_count"],
+  "delta": 0.1,
+  "rule": { "kind": "non-inferiority", "alpha": 0.05, "power": 0.8, "noisy_blocks": "exclude" },
+  "host_class": { "decision": "local-controlled", "publication": "local-controlled" },
+  "evidence": [],
+  "depends_on": [],
+  "notes": "Runs on each Product executable (ADR 0094, issue 188)."
+}

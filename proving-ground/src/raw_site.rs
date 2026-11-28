@@ -16,7 +16,6 @@
 mod body_limits;
 mod cache;
 mod coding;
-mod directory;
 mod edge;
 mod identity;
 mod incidents;
@@ -26,6 +25,7 @@ mod shelf;
 
 use std::collections::HashMap;
 
+use crate::directory;
 use crate::observation;
 use crate::raw::{self, Answer, Request};
 use crate::sync::Mutex;
@@ -159,7 +159,13 @@ impl RawSite {
 
 impl raw::Pages for RawSite {
     async fn answer(&self, request: &Request) -> Answer {
-        if let Some(verification) = directory::verify(request).await
+        if let Some(verification) = directory::verify_headers(
+            &request.authority,
+            &request.method,
+            &request.target,
+            &request.headers,
+        )
+        .await
             && let Some(recorded) = request.recorded
         {
             request.observed.verified(recorded, verification);

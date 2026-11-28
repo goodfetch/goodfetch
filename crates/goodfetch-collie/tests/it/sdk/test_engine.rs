@@ -207,7 +207,10 @@ fn a_loopback_resolve_entry_is_reached_live_any_other_host_is_refused_and_the_ca
         (status, refusal)
     });
 
-    assert_eq!((status, refusal), (Some(200), ErrorCode::EGRESS_REFUSED));
+    assert_eq!(
+        (status, refusal),
+        (Some(200), ErrorCode::RESPONSE_NOT_RECORDED)
+    );
     assert_eq!(tree(&cache), before);
 }
 

@@ -279,7 +279,7 @@ async def test_j002(run: JourneyRun) -> None:
         tiers = {
             record.provenance.tier.tier
             for record in committed
-            if record.provenance is not None and record.provenance.tier is not None
+            if record.provenance.tier is not None
         }
         kinds = {outcome.root.kind for outcome in outcomes}
         assert tiers == {"http"}

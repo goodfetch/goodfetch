@@ -1,0 +1,38 @@
+#:schema ./journey.schema.json
+id = "J-049"
+title = "Crawl offline with browsers installed beforehand, a missing artifact refused with artifact_unavailable_offline"
+goal = """
+A person installs Foxhound's pinned browser build beforehand with \
+`browser install`, then crawls a site with `egress.offline` turned on, \
+and finally runs a crawl with `egress.offline` turned on against an empty \
+Browser cache that lacks the pinned browser artifact. The offline crawl \
+with the pre-installed browser MUST finish and return the site's Records \
+without opening any download connection, and the crawl missing its \
+artifact MUST be refused with `artifact_unavailable_offline` naming \
+`browser install` as the command that supplies it, without opening any \
+download connection (ADR 0043)."""
+area = 4
+product = "foxhound"
+status = "active"
+covers = ["story:4-82"]
+
+[proving_ground]
+seed = 42
+
+[surfaces]
+cli = "M1"
+
+[[steps]]
+text = "Install the pinned browser build into the Browser cache with `browser install`"
+
+[[steps]]
+text = "Crawl a site with `egress.offline` turned on using the installed browser build"
+
+[[steps]]
+text = "Run a crawl with `egress.offline` turned on against an empty Browser cache that needs a missing artifact"
+
+[[expect]]
+text = "The offline crawl with the pre-installed browser finishes and returns the site's Records with no download connection"
+
+[[expect]]
+text = "The crawl missing its browser artifact is refused with `artifact_unavailable_offline` naming `browser install`, with no download connection"

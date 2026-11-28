@@ -143,7 +143,8 @@ jiff.workspace = true
 jsonschema.workspace = true
 # The settings flags' duration reader, over generated durations.
 proptest.workspace = true
-rmcp = { workspace = true, features = ["client", "transport-async-rw", "transport-child-process"] }
+reqwest = { workspace = true, features = ["json", "stream"] }
+rmcp = { workspace = true, features = ["client", "transport-async-rw", "transport-child-process", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
 rstest.workspace = true
 # The program's type a page's fields are read into (tests/it/sdk/page.rs).
 serde.workspace = true

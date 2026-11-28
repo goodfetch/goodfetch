@@ -389,11 +389,12 @@ Arguments for the `mcp` command
 Usage: goodfetch-collie mcp [OPTIONS]
 
 Options:
-      --profile <NAME>  Tool profile to serve (`browser`, `agent`, `run`, `code` or `full`). Overrides `mcp.profile` (`browser` by default) [possible values: browser, agent, run, code, full]
-      --attached        Runs the call on an Attached engine in this process, even when a Daemon runs
-      --daemon          Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
-      --color <WHEN>    When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help            Print help
+      --profile <NAME>    Tool profile to serve (`browser`, `agent`, `run`, `code` or `full`). Overrides `mcp.profile` (`browser` by default) [possible values: browser, agent, run, code, full]
+      --http [<ADDRESS>]  Serve MCP over Streamable HTTP instead of stdio, binding `ADDRESS` (`127.0.0.1:0` by default). Prints one `{ address, token }` JSON record on stdout before serving
+      --attached          Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon            Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>      When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help              Print help
 
 $ goodfetch-collie needs-you --help
 Lists what waits for a person, and takes them through it

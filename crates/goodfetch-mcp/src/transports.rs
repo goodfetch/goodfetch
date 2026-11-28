@@ -1,11 +1,19 @@
-//! Transports for serving [`McpServer`]: stdio (default) and generic
-//! `AsyncRead + AsyncWrite` (used by in-memory tests). Streamable HTTP joins
-//! in ticket #1365.
+//! Transports for serving [`McpServer`]: stdio (default), generic
+//! `AsyncRead + AsyncWrite` (used by in-memory tests), and Streamable HTTP
+//! (`http`, ADRs 0017, 0067, 0070; ticket #1365).
+
+pub mod http;
 
 use rmcp::ServiceExt as _;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::server::McpServer;
+
+pub use http::{
+    BoundHttpServer, DEFAULT_HTTP_BIND, HttpAuth, HttpAuthorities, HttpRefusalRecorder,
+    HttpServerConfig, MCP_HTTP_PATH, REFUSAL_TARGET, bearer_token, new_launch_token,
+    query_carries_token, same_token,
+};
 
 /// Errors serving the MCP server over a transport.
 #[derive(Debug, thiserror::Error)]

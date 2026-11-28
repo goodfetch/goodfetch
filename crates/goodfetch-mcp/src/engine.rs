@@ -7,6 +7,8 @@
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
+use std::future::Future;
+use std::pin::Pin;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{
@@ -69,6 +71,16 @@ pub enum EngineLinkError {
     /// The underlying transport closed or failed during handshake.
     #[error("engine connection failed: {0}")]
     Transport(String),
+}
+
+/// Async factory that opens one fresh [`EngineLink`] per MCP session so each
+/// Streamable HTTP session gets its own engine Connection, per-Connection
+/// Limits (ADR 0041) and independent cancellation (ADR 0070).
+pub trait EngineConnector: Send + Sync + 'static {
+    /// Opens a fresh engine Connection and completes its `hello` handshake.
+    fn connect(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Result<EngineLink, EngineLinkError>> + Send + '_>>;
 }
 
 /// An active handle to a Goodfetch engine JSON-RPC Connection.
@@ -250,6 +262,13 @@ impl EngineLink {
         let _ = self.commands.send(Command::Close).await;
         self.tasks.close();
         self.tasks.wait().await;
+    }
+
+    /// Signals the engine actor to close without waiting, for use in `Drop`
+    /// when a Streamable HTTP session ends.
+    pub fn close_now(&self) {
+        let _ = self.commands.try_send(Command::Close);
+        self.tasks.close();
     }
 }
 

@@ -416,3 +416,236 @@ fn mcp_stdio_serves_embedded_docs_and_skills_matching_skill_install_digests() {
         let _ = client.cancel().await;
     });
 }
+
+/// Covers: story:11-220, command:mcp
+#[test]
+fn mcp_http_startup_record_pure_stdout_and_endpoint_table() {
+    use std::io::{BufRead as _, BufReader, Read as _};
+    use std::net::SocketAddr;
+
+    use goodfetch_test_support::{Endpoint, EndpointRunner, Listener, ListenerKind};
+    use rmcp::transport::StreamableHttpClientTransport;
+    use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
+
+    let env = TestEnv::new();
+    // Turn logging up to `trace` via user config so any stray log line on
+    // stdout is caught (ADR 0070).
+    let config_dir = env.home().join("0.0");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::write(
+        config_dir.join("configuration.toml"),
+        "version = \"0.1\"\n\n[settings.log]\nlevel = \"trace\"\n",
+    )
+    .unwrap();
+
+    // Helper to launch `goodfetch-collie mcp --http --attached` and read its one stdout record,
+    // draining stderr on a reader thread so trace logs never block the pipe.
+    let spawn_http = |env: &TestEnv| {
+        let mut command = std::process::Command::new(COLLIE);
+        command
+            .env_clear()
+            .envs(env.env_os())
+            .args(["mcp", "--http", "--attached"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let process = env.spawn(&mut command).unwrap();
+        let stdout = process.child().stdout.take().unwrap();
+        let stderr = process.child().stderr.take().unwrap();
+        let stderr_thread = std::thread::spawn(move || {
+            let mut buf = String::new();
+            let mut reader = BufReader::new(stderr);
+            let _ = reader.read_to_string(&mut buf);
+            buf
+        });
+        let mut reader = BufReader::new(stdout);
+        let mut line = String::new();
+        let read = reader.read_line(&mut line).unwrap();
+        assert!(read > 0, "mcp --http must print startup record on stdout");
+        let record: Value = serde_json::from_str(line.trim()).expect("valid JSON startup record");
+        let address = record["address"]
+            .as_str()
+            .expect("address field")
+            .to_owned();
+        let token = record["token"].as_str().expect("token field").to_owned();
+        (process, reader, stderr_thread, address, token)
+    };
+
+    // Launch once to get an expired per-launch token from an earlier launch.
+    let (earlier, _earlier_stdout, earlier_stderr, _earlier_addr, expired_token) = spawn_http(&env);
+    let _ = earlier.child().kill();
+    let _ = earlier.child().wait();
+    let _ = earlier_stderr.join();
+
+    // Launch the server under test.
+    let (process, mut stdout_reader, stderr_thread, url, token) = spawn_http(&env);
+    assert_ne!(
+        token, expired_token,
+        "each launch generates a fresh random token"
+    );
+    assert_eq!(token.len(), 64);
+    assert!(
+        url.starts_with("http://127.0.0.1:") && url.ends_with("/mcp"),
+        "loopback default expected: {url}"
+    );
+    let parsed_url = url::Url::parse(&url).unwrap();
+    let socket_addr: SocketAddr = format!(
+        "{}:{}",
+        parsed_url.host_str().unwrap(),
+        parsed_url.port().unwrap()
+    )
+    .parse()
+    .unwrap();
+
+    // Run every applicable row of the endpoint table (`mcp_http`) and verify Audit log entries.
+    let listener = Listener::new(
+        ListenerKind::McpHttp,
+        Endpoint::McpHttp {
+            address: socket_addr,
+        },
+        token.clone(),
+    )
+    .with_other_listener_token("other-listener-token-00000000000000000000000000000000000000000000")
+    .with_expired_token(expired_token);
+
+    let ran = EndpointRunner::new(crate::endpoint::audit_verifier(&env, "mcp_http")).run(&listener);
+    assert_eq!(ran, Ok(()), "EndpointRunner failed on mcp_http: {ran:?}");
+
+    // Verify a real `rmcp` Streamable HTTP client connects and executes tools.
+    let rt = goodfetch_runtime::multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let http = reqwest::Client::builder().build().unwrap();
+        let transport = StreamableHttpClientTransport::with_client(
+            http,
+            StreamableHttpClientTransportConfig::with_uri(url).auth_header(token),
+        );
+        let client = ().serve(transport).await.expect("rmcp http initialized");
+        let tools = client.list_all_tools().await.expect("list_all_tools");
+        assert!(tools.iter().any(|t| t.name == "run_start"));
+        let started = client
+            .call_tool(CallToolRequestParams::new("run_start").with_arguments(Map::new()))
+            .await
+            .expect("run_start over HTTP");
+        assert_ne!(started.is_error, Some(true));
+        let run_id = started
+            .structured_content
+            .as_ref()
+            .and_then(|v| v["run_id"].as_str())
+            .expect("run_id")
+            .to_owned();
+        let mut finish_args = Map::new();
+        finish_args.insert("run_id".to_owned(), Value::String(run_id));
+        let finished = client
+            .call_tool(CallToolRequestParams::new("run_finish").with_arguments(finish_args))
+            .await
+            .expect("run_finish over HTTP");
+        assert_ne!(finished.is_error, Some(true));
+        let _ = client.cancel().await;
+    });
+
+    // Stop server and assert stdout carried NOTHING beyond the single startup record,
+    // while trace logs went to stderr.
+    let _ = process.child().kill();
+    let _ = process.child().wait();
+    let mut trailing = String::new();
+    stdout_reader.read_to_string(&mut trailing).unwrap();
+    let stderr = stderr_thread.join().unwrap();
+    assert!(
+        trailing.is_empty(),
+        "stdout must carry nothing after the startup record: {trailing:?}"
+    );
+    assert!(
+        !stderr.is_empty(),
+        "trace logs must go to stderr, never stdout"
+    );
+}
+
+/// Covers: story:11-231
+#[test]
+fn mcp_http_two_concurrent_sessions_run_independently_on_binary() {
+    use std::io::{BufRead as _, BufReader};
+
+    use rmcp::transport::StreamableHttpClientTransport;
+    use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
+
+    let env = TestEnv::new();
+    let mut command = std::process::Command::new(COLLIE);
+    command
+        .env_clear()
+        .envs(env.env_os())
+        .args(["mcp", "--http", "--attached"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let process = env.spawn(&mut command).unwrap();
+    let stdout = process.child().stdout.take().unwrap();
+    let mut reader = BufReader::new(stdout);
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    let record: Value = serde_json::from_str(line.trim()).unwrap();
+    let url = record["address"].as_str().unwrap().to_owned();
+    let token = record["token"].as_str().unwrap().to_owned();
+
+    let rt = goodfetch_runtime::multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let client_a = ()
+            .serve(StreamableHttpClientTransport::with_client(
+                reqwest::Client::builder().build().unwrap(),
+                StreamableHttpClientTransportConfig::with_uri(url.clone())
+                    .auth_header(token.clone()),
+            ))
+            .await
+            .expect("client A initialized");
+
+        let client_b = ()
+            .serve(StreamableHttpClientTransport::with_client(
+                reqwest::Client::builder().build().unwrap(),
+                StreamableHttpClientTransportConfig::with_uri(url).auth_header(token),
+            ))
+            .await
+            .expect("client B initialized");
+
+        let (res_a, res_b) = tokio::join!(
+            client_a.call_tool(CallToolRequestParams::new("run_start").with_arguments(Map::new())),
+            client_b.call_tool(CallToolRequestParams::new("run_start").with_arguments(Map::new())),
+        );
+        let run_a = res_a
+            .expect("session A run_start")
+            .structured_content
+            .unwrap()["run_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let run_b = res_b
+            .expect("session B run_start")
+            .structured_content
+            .unwrap()["run_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_ne!(run_a, run_b);
+
+        // Cancel session A while session B finishes its run unaffected.
+        let _ = client_a.cancel().await;
+        let mut finish_b = Map::new();
+        finish_b.insert("run_id".to_owned(), Value::String(run_b));
+        let finished_b = client_b
+            .call_tool(CallToolRequestParams::new("run_finish").with_arguments(finish_b))
+            .await
+            .expect("session B run_finish succeeds after session A closes");
+        assert_ne!(finished_b.is_error, Some(true));
+
+        let _ = client_b.cancel().await;
+    });
+
+    let _ = process.child().kill();
+    let _ = process.child().wait();
+}

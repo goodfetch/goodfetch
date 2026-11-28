@@ -1388,3 +1388,525 @@ fn resources_and_skills_served_over_mcp_with_verified_digests() {
         tasks.wait().await;
     });
 }
+
+#[derive(Clone, Default)]
+struct RecordingRefusals {
+    reasons: Arc<Mutex<Vec<goodfetch_protocol::audit::RefusalReason>>>,
+}
+
+impl transports::HttpRefusalRecorder for RecordingRefusals {
+    fn record(
+        &self,
+        reason: goodfetch_protocol::audit::RefusalReason,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+        self.reasons.lock().unwrap().push(reason);
+        Box::pin(std::future::ready(()))
+    }
+}
+
+struct ScriptedSessionConnector {
+    tasks: TaskTracker,
+    next_session: Arc<std::sync::atomic::AtomicUsize>,
+    per_session_limit: usize,
+    hold_method: Option<&'static str>,
+    cancelled_sessions: Arc<Mutex<Vec<usize>>>,
+    release_held: Arc<tokio::sync::Notify>,
+}
+
+async fn run_scripted_session_actor(
+    engine_stream: tokio::io::DuplexStream,
+    session_num: usize,
+    limit: usize,
+    hold_method: Option<&'static str>,
+    cancelled_sessions: Arc<Mutex<Vec<usize>>>,
+    release_held: Arc<tokio::sync::Notify>,
+) {
+    let (read_half, mut write_half) = tokio::io::split(engine_stream);
+    let mut lines = BufReader::new(read_half).lines();
+
+    let Message::Request(hello_req) = read_message(&mut lines).await else {
+        return;
+    };
+    write_line(&mut write_half, &hello_ok(&hello_req.id)).await;
+
+    let mut calls = 0usize;
+    while let Ok(Some(line)) = lines.next_line().await {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let Ok(message) = serde_json::from_str::<Message>(&line) else {
+            continue;
+        };
+        match message {
+            Message::Request(req) if req.method == "events.subscribe" => {}
+            Message::Notification(notif) if notif.method == "$/cancel" => {
+                cancelled_sessions.lock().unwrap().push(session_num);
+            }
+            Message::Request(req) if hold_method == Some(req.method.as_str()) => {
+                let cancel_fut = async {
+                    while let Ok(Some(next_line)) = lines.next_line().await {
+                        if let Ok(Message::Notification(notif)) =
+                            serde_json::from_str::<Message>(&next_line)
+                            && notif.method == "$/cancel"
+                        {
+                            cancelled_sessions.lock().unwrap().push(session_num);
+                            return true;
+                        }
+                    }
+                    false
+                };
+                tokio::select! {
+                    biased;
+                    cancelled = cancel_fut => {
+                        if cancelled {
+                            break;
+                        }
+                    }
+                    () = release_held.notified() => {
+                        write_line(
+                            &mut write_half,
+                            &json!({
+                                "jsonrpc": "2.0",
+                                "id": req.id,
+                                "result": {
+                                    "run_id": format!("held-session-{session_num}"),
+                                    "lifecycle": "finished"
+                                }
+                            }),
+                        )
+                        .await;
+                    }
+                }
+            }
+            Message::Request(req) => {
+                calls += 1;
+                let reply = if calls > limit {
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": req.id,
+                        "error": {
+                            "code": -32000,
+                            "message": "Per-connection limit reached",
+                            "data": {
+                                "code": "limit_exceeded",
+                                "retryable": false,
+                                "details": {
+                                    "fix": "Raise the limit with `goodfetch-collie usage raise`."
+                                }
+                            }
+                        }
+                    })
+                } else {
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": req.id,
+                        "result": {
+                            "run_id": format!("run-session-{session_num}-call-{calls}")
+                        }
+                    })
+                };
+                write_line(&mut write_half, &reply).await;
+            }
+            _ => {}
+        }
+    }
+}
+
+impl crate::engine::EngineConnector for ScriptedSessionConnector {
+    fn connect(
+        &self,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<EngineLink, crate::engine::EngineLinkError>>
+                + Send
+                + '_,
+        >,
+    > {
+        let session_num = self
+            .next_session
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let (client_stream, engine_stream) = tokio::io::duplex(64 * 1024);
+
+        self.tasks.spawn(run_scripted_session_actor(
+            engine_stream,
+            session_num,
+            self.per_session_limit,
+            self.hold_method,
+            Arc::clone(&self.cancelled_sessions),
+            Arc::clone(&self.release_held),
+        ));
+
+        Box::pin(async move {
+            let (link, _) = EngineLink::connect(
+                client_stream,
+                EngineLinkConfig {
+                    product: Product::Collie,
+                    product_version: ProductVersion::parse("0.1.0").unwrap(),
+                    token: None,
+                    live_view_base_url: None,
+                },
+            )
+            .await?;
+            Ok(link)
+        })
+    }
+}
+
+/// Covers: story:11-220
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "integration test builds a plain reqwest client to send raw HTTP refusal attempts"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end Streamable HTTP refusal matrix verifies missing, wrong, query-string tokens, foreign Host/Origin, and rmcp client access"
+)]
+fn streamable_http_refuses_missing_wrong_query_token_and_foreign_host_or_origin() {
+    use goodfetch_protocol::audit::RefusalReason;
+    use rmcp::transport::StreamableHttpClientTransport;
+    use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
+    use secrecy::SecretString;
+    use tokio_util::sync::CancellationToken;
+
+    let rt = test_runtime();
+    rt.block_on(async {
+        let tasks = TaskTracker::new();
+        let token = transports::new_launch_token().expect("OS random token");
+        assert_eq!(token.len(), 64);
+
+        let refusals = Arc::new(RecordingRefusals::default());
+        let cancellation = CancellationToken::new();
+        let connector = Arc::new(ScriptedSessionConnector {
+            tasks: tasks.clone(),
+            next_session: Arc::new(std::sync::atomic::AtomicUsize::new(1)),
+            per_session_limit: 10,
+            hold_method: None,
+            cancelled_sessions: Arc::new(Mutex::new(Vec::new())),
+            release_held: Arc::new(tokio::sync::Notify::new()),
+        });
+        let options = ServerOptions {
+            product: Product::Collie,
+            version: "0.1.0".to_owned(),
+            profile: ResolvedProfile::for_product(Product::Collie, ProfileName::Browser),
+            resources: crate::resources::ResourceStore::default(),
+        };
+        let bound = transports::BoundHttpServer::bind(
+            transports::HttpServerConfig {
+                bind: transports::DEFAULT_HTTP_BIND.parse().unwrap(),
+                auth: transports::HttpAuth::LaunchToken(SecretString::from(token.clone())),
+                refusals: Some(Arc::<RecordingRefusals>::clone(&refusals)),
+                cancellation: cancellation.clone(),
+            },
+            options,
+            connector,
+        )
+        .await
+        .expect("bind loopback MCP HTTP");
+        assert!(bound.local_addr().ip().is_loopback());
+        let url = bound.url().to_owned();
+        assert!(url.starts_with("http://127.0.0.1:") && url.ends_with("/mcp"));
+
+        tasks.spawn(async move {
+            let _ = bound.serve().await;
+        });
+
+        let http = reqwest::Client::builder().build().unwrap();
+        let init_body = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": { "name": "http-refusal-test", "version": "1.0.0" }
+            }
+        });
+
+        // 1. Missing token -> 401 + WWW-Authenticate: Bearer
+        let resp = http
+            .post(&url)
+            .header("Accept", "application/json, text/event-stream")
+            .json(&init_body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 401);
+        assert_eq!(resp.headers().get("www-authenticate").unwrap(), "Bearer");
+
+        // 2. Wrong token -> 401
+        let resp = http
+            .post(&url)
+            .header("Authorization", "Bearer deadbeef")
+            .header("Accept", "application/json, text/event-stream")
+            .json(&init_body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 401);
+
+        // 3. Token in query string only -> 401
+        let resp = http
+            .post(format!("{url}?access_token={token}"))
+            .header("Accept", "application/json, text/event-stream")
+            .json(&init_body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 401);
+
+        // 4. Token in query string even with valid Authorization header -> 401
+        let resp = http
+            .post(format!("{url}?token={token}"))
+            .header("Authorization", format!("Bearer {token}"))
+            .header("Accept", "application/json, text/event-stream")
+            .json(&init_body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 401);
+
+        // 5. Foreign Host -> 403
+        let resp = http
+            .post(&url)
+            .header("Host", "foreign.invalid")
+            .header("Authorization", format!("Bearer {token}"))
+            .header("Accept", "application/json, text/event-stream")
+            .json(&init_body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 403);
+
+        // 6. Foreign Origin -> 403
+        let resp = http
+            .post(&url)
+            .header("Origin", "https://foreign.invalid")
+            .header("Authorization", format!("Bearer {token}"))
+            .header("Accept", "application/json, text/event-stream")
+            .json(&init_body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 403);
+
+        let recorded = refusals.reasons.lock().unwrap().clone();
+        assert_eq!(
+            recorded,
+            vec![
+                RefusalReason::TokenMissing,
+                RefusalReason::TokenWrong,
+                RefusalReason::TokenMissing,
+                RefusalReason::TokenWrong,
+                RefusalReason::HostForeign,
+                RefusalReason::OriginForeign,
+            ]
+        );
+
+        // 7. Valid rmcp Streamable HTTP client connects, lists tools, and calls a tool.
+        let transport = StreamableHttpClientTransport::with_client(
+            http,
+            StreamableHttpClientTransportConfig::with_uri(url).auth_header(token),
+        );
+        let client = ().serve(transport).await.expect("rmcp http initialized");
+        let tools = client.list_all_tools().await.expect("list_all_tools");
+        assert!(tools.iter().any(|t| t.name == "run_start"));
+        let result = client
+            .call_tool(CallToolRequestParams::new("run_start").with_arguments(Map::new()))
+            .await
+            .expect("call run_start");
+        assert_ne!(result.is_error, Some(true));
+        assert_eq!(
+            result.structured_content.as_ref().unwrap()["run_id"],
+            "run-session-1-call-1"
+        );
+
+        let _ = client.cancel().await;
+        cancellation.cancel();
+        tasks.close();
+        tasks.wait().await;
+    });
+}
+
+/// Covers: story:11-231
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "integration test builds plain reqwest clients for two concurrent rmcp Streamable HTTP sessions"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "verifies per-session Limit isolation and independent cancellation across two concurrent Streamable HTTP sessions"
+)]
+fn streamable_http_two_concurrent_sessions_keep_independent_limits_and_cancellation() {
+    use rmcp::transport::StreamableHttpClientTransport;
+    use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
+    use secrecy::SecretString;
+    use tokio_util::sync::CancellationToken;
+
+    let rt = test_runtime();
+    rt.block_on(async {
+        let tasks = TaskTracker::new();
+        let token = transports::new_launch_token().expect("OS random token");
+        let cancellation = CancellationToken::new();
+        let cancelled_sessions = Arc::new(Mutex::new(Vec::new()));
+        let release_held = Arc::new(tokio::sync::Notify::new());
+        let connector = Arc::new(ScriptedSessionConnector {
+            tasks: tasks.clone(),
+            next_session: Arc::new(std::sync::atomic::AtomicUsize::new(1)),
+            per_session_limit: 1,
+            hold_method: Some("run.finish"),
+            cancelled_sessions: Arc::clone(&cancelled_sessions),
+            release_held: Arc::clone(&release_held),
+        });
+        let options = ServerOptions {
+            product: Product::Collie,
+            version: "0.1.0".to_owned(),
+            profile: ResolvedProfile::for_product(Product::Collie, ProfileName::Browser),
+            resources: crate::resources::ResourceStore::default(),
+        };
+        let bound = transports::BoundHttpServer::bind(
+            transports::HttpServerConfig {
+                bind: transports::DEFAULT_HTTP_BIND.parse().unwrap(),
+                auth: transports::HttpAuth::LaunchToken(SecretString::from(token.clone())),
+                refusals: None,
+                cancellation: cancellation.clone(),
+            },
+            options,
+            connector,
+        )
+        .await
+        .expect("bind loopback MCP HTTP");
+        let url = bound.url().to_owned();
+
+        tasks.spawn(async move {
+            let _ = bound.serve().await;
+        });
+
+        let client_a = ()
+            .serve(StreamableHttpClientTransport::with_client(
+                reqwest::Client::builder().build().unwrap(),
+                StreamableHttpClientTransportConfig::with_uri(url.clone())
+                    .auth_header(token.clone()),
+            ))
+            .await
+            .expect("client A initialized");
+
+        let client_b = ()
+            .serve(StreamableHttpClientTransport::with_client(
+                reqwest::Client::builder().build().unwrap(),
+                StreamableHttpClientTransportConfig::with_uri(url).auth_header(token),
+            ))
+            .await
+            .expect("client B initialized");
+
+        // 1. Session A spends its allowance (1 call), then hits `limit_exceeded`.
+        let a_ok = client_a
+            .call_tool(CallToolRequestParams::new("run_start").with_arguments(Map::new()))
+            .await
+            .expect("session A call 1");
+        assert_ne!(a_ok.is_error, Some(true));
+        let a_limit = client_a
+            .call_tool(CallToolRequestParams::new("run_start").with_arguments(Map::new()))
+            .await
+            .expect("session A call 2 returns isError");
+        assert_eq!(a_limit.is_error, Some(true));
+        assert_eq!(
+            a_limit.structured_content.as_ref().unwrap()["code"],
+            "limit_exceeded"
+        );
+
+        // 2. Session B keeps its own independent allowance: its first call succeeds,
+        // and only its second call hits its own limit.
+        let b_ok = client_b
+            .call_tool(CallToolRequestParams::new("run_start").with_arguments(Map::new()))
+            .await
+            .expect("session B call 1");
+        assert_ne!(b_ok.is_error, Some(true));
+        assert_ne!(
+            a_ok.structured_content.as_ref().unwrap()["run_id"],
+            b_ok.structured_content.as_ref().unwrap()["run_id"],
+            "each session must use its own engine Connection"
+        );
+        let b_limit = client_b
+            .call_tool(CallToolRequestParams::new("run_start").with_arguments(Map::new()))
+            .await
+            .expect("session B call 2 returns isError");
+        assert_eq!(b_limit.is_error, Some(true));
+        assert_eq!(
+            b_limit.structured_content.as_ref().unwrap()["code"],
+            "limit_exceeded"
+        );
+
+        // 3. Independent cancellation: both sessions start a held `run_finish` call;
+        // session A cancels via PeerRequestOptions timeout while session B completes.
+        let mut args_a = Map::new();
+        args_a.insert("run_id".to_owned(), Value::String("r-a".to_owned()));
+        let mut args_b = Map::new();
+        args_b.insert("run_id".to_owned(), Value::String("r-b".to_owned()));
+
+        let peer_a = client_a.peer().clone();
+        let peer_b = client_b.peer().clone();
+        let handle_a = peer_a
+            .send_cancellable_request(
+                ClientRequest::CallToolRequest(CallToolRequest::new(
+                    CallToolRequestParams::new("run_finish").with_arguments(args_a),
+                )),
+                PeerRequestOptions::no_options(),
+            )
+            .await
+            .expect("send request A");
+        let handle_b = peer_b
+            .send_cancellable_request(
+                ClientRequest::CallToolRequest(CallToolRequest::new(
+                    CallToolRequestParams::new("run_finish").with_arguments(args_b),
+                )),
+                PeerRequestOptions::no_options(),
+            )
+            .await
+            .expect("send request B");
+
+        // Wait briefly so both calls reach their respective engine connections, then cancel A only.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        handle_a.cancel(None).await.expect("cancel request A");
+
+        // Poll until $/cancel reaches session A's engine actor.
+        let mut saw_cancel = false;
+        for _ in 0..40 {
+            if !cancelled_sessions.lock().unwrap().is_empty() {
+                saw_cancel = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert!(
+            saw_cancel,
+            "session A's engine Connection must receive $/cancel"
+        );
+        assert_eq!(
+            cancelled_sessions.lock().unwrap().as_slice(),
+            &[1],
+            "only session A's engine Connection should receive $/cancel"
+        );
+        release_held.notify_waiters();
+
+        let res_b = handle_b
+            .await_response()
+            .await
+            .expect("session B call completes unaffected");
+        let rmcp::model::ServerResult::CallToolResult(tool_b) = res_b else {
+            panic!("expected CallToolResult");
+        };
+        assert_ne!(tool_b.is_error, Some(true));
+        assert_eq!(
+            tool_b.structured_content.as_ref().unwrap()["run_id"],
+            "held-session-2"
+        );
+
+        let _ = client_a.cancel().await;
+        let _ = client_b.cancel().await;
+        cancellation.cancel();
+        tasks.close();
+        tasks.wait().await;
+    });
+}

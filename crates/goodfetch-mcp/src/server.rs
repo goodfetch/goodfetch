@@ -21,10 +21,10 @@ use rmcp::model::{
     ServerCapabilities, ServerConfig, Tool,
 };
 use rmcp::service::{RequestContext, RoleServer};
-use tokio::sync::mpsc;
+use tokio::sync::{OnceCell, mpsc};
 use tokio_util::task::TaskTracker;
 
-use crate::engine::{EngineLink, ProgressUpdate};
+use crate::engine::{EngineConnector, EngineLink, ProgressUpdate};
 use crate::profiles::ResolvedProfile;
 use crate::projection::{error_tool_result, success_tool_result};
 use crate::resources::ResourceStore;
@@ -46,12 +46,38 @@ pub struct ServerOptions {
     pub resources: ResourceStore,
 }
 
+enum SessionEngine {
+    Connected(EngineLink),
+    Lazy {
+        connector: Arc<dyn EngineConnector>,
+        link: OnceCell<EngineLink>,
+    },
+}
+
+struct SessionState {
+    engine: SessionEngine,
+    tasks: TaskTracker,
+}
+
+impl Drop for SessionState {
+    fn drop(&mut self) {
+        match &self.engine {
+            SessionEngine::Connected(link) => link.close_now(),
+            SessionEngine::Lazy { link, .. } => {
+                if let Some(connected) = link.get() {
+                    connected.close_now();
+                }
+            }
+        }
+        self.tasks.close();
+    }
+}
+
 /// The Goodfetch MCP server handler, backed by one [`EngineLink`] per session.
 #[derive(Clone)]
 pub struct McpServer {
     options: Arc<ServerOptions>,
-    engine: EngineLink,
-    tasks: TaskTracker,
+    session: Arc<SessionState>,
 }
 
 impl McpServer {
@@ -60,8 +86,28 @@ impl McpServer {
     pub fn new(options: ServerOptions, engine: EngineLink) -> Self {
         Self {
             options: Arc::new(options),
-            engine,
-            tasks: TaskTracker::new(),
+            session: Arc::new(SessionState {
+                engine: SessionEngine::Connected(engine),
+                tasks: TaskTracker::new(),
+            }),
+        }
+    }
+
+    /// Creates a fresh MCP server session that opens its own dedicated
+    /// [`EngineLink`] lazily via `connector` on its first tool call, keeping
+    /// per-session Limits and cancellation isolated across concurrent
+    /// Streamable HTTP sessions (ADRs 0041, 0070).
+    #[must_use]
+    pub fn with_connector(options: ServerOptions, connector: Arc<dyn EngineConnector>) -> Self {
+        Self {
+            options: Arc::new(options),
+            session: Arc::new(SessionState {
+                engine: SessionEngine::Lazy {
+                    connector,
+                    link: OnceCell::new(),
+                },
+                tasks: TaskTracker::new(),
+            }),
         }
     }
 
@@ -81,9 +127,26 @@ impl McpServer {
     ///
     /// Safe to cancel; closing is idempotent.
     pub async fn shutdown(&self) {
-        self.engine.close().await;
-        self.tasks.close();
-        self.tasks.wait().await;
+        match &self.session.engine {
+            SessionEngine::Connected(link) => link.close().await,
+            SessionEngine::Lazy { link, .. } => {
+                if let Some(connected) = link.get() {
+                    connected.close().await;
+                }
+            }
+        }
+        self.session.tasks.close();
+        self.session.tasks.wait().await;
+    }
+
+    async fn engine_link(&self) -> Result<&EngineLink, McpError> {
+        match &self.session.engine {
+            SessionEngine::Connected(link) => Ok(link),
+            SessionEngine::Lazy { connector, link } => link
+                .get_or_try_init(|| connector.connect())
+                .await
+                .map_err(|err| McpError::internal_error(err.to_string(), None)),
+        }
     }
 }
 
@@ -202,7 +265,7 @@ impl ServerHandler for McpServer {
             Some(token) => {
                 let (tx, rx) = mpsc::channel::<ProgressUpdate>(PROGRESS_BUFFER);
                 let peer = context.peer.clone();
-                let handle = self.tasks.spawn(async move {
+                let handle = self.session.tasks.spawn(async move {
                     let mut rx = rx;
                     while let Some(update) = rx.recv().await {
                         let mut param =
@@ -222,9 +285,9 @@ impl ServerHandler for McpServer {
             None => (None, None),
         };
 
+        let engine = self.engine_link().await?;
         let arguments = request.arguments.unwrap_or_default();
-        let outcome = self
-            .engine
+        let outcome = engine
             .call(
                 projected.operation,
                 arguments,

@@ -3823,6 +3823,61 @@
       ]
     },
     {
+      "id": "integration:activepieces/get-run-progress",
+      "kind": "integration",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "integration:activepieces/get-run-report",
+      "kind": "integration",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "integration:activepieces/notification",
+      "kind": "integration",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "integration:activepieces/start-catalog-run",
+      "kind": "integration",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "integration:activepieces/start-recipe",
+      "kind": "integration",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "integration:n8n/get-run-progress",
       "kind": "integration",
       "area": 11,

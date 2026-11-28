@@ -23,7 +23,7 @@ const DATAMODEL_CODEGEN: &str = concat!(
 
 const CATALOG: &str = "crates/goodfetch-protocol/generated/catalog.json";
 
-fn codegen(workspace: &Workspace) -> Outcome {
+pub(crate) fn codegen(workspace: &Workspace) -> Outcome {
     let outcome = workspace.xtask(&[
         "codegen",
         "--json2ts",

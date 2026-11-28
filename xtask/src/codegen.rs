@@ -50,6 +50,7 @@ mod executables;
 mod facts;
 mod handles;
 mod helpers;
+mod launch_args;
 mod layer;
 mod members;
 mod names;
@@ -596,6 +597,16 @@ pub(crate) fn write(cargo: &OsStr, generators: &Generators, root: &Path) -> Resu
         write_file(&root.join(&external.output), &output)?;
         digests.record(&external.output, &external.recipe(), &tools, &output);
     }
+    if let Some(recipe) = launch_args::recipe(root)? {
+        let output = launch_args::generate(cargo, root)?;
+        write_file(&root.join(launch_args::LAUNCH_ARGS), &output)?;
+        digests.record(
+            launch_args::LAUNCH_ARGS,
+            &recipe,
+            &digest::Tools::new(),
+            &output,
+        );
+    }
     write_file(&root.join(DIGESTS), &json_text(&digests.to_json()?)?)?;
     Ok(())
 }
@@ -628,6 +639,27 @@ pub(crate) fn check(cargo: &OsStr, root: &Path) -> Result<Vec<Finding>> {
                 "edited",
                 external.output.as_str(),
                 "differs from what its generator wrote; generated code is never edited by hand",
+            )),
+        }
+    }
+    if let Some(recipe) = launch_args::recipe(root)? {
+        let actual = std::fs::read(root.join(launch_args::LAUNCH_ARGS)).ok();
+        match digests.verify(
+            launch_args::LAUNCH_ARGS,
+            &recipe,
+            &digest::Tools::new(),
+            actual.as_deref(),
+        ) {
+            digest::Verdict::Current => {}
+            digest::Verdict::Stale => findings.push(Finding::new(
+                "stale",
+                launch_args::LAUNCH_ARGS,
+                "was generated from other launch-argument sources; run `xtask codegen` and commit the result",
+            )),
+            digest::Verdict::Edited => findings.push(Finding::new(
+                "edited",
+                launch_args::LAUNCH_ARGS,
+                "differs from what `xtask codegen` wrote; generated files are never edited by hand",
             )),
         }
     }

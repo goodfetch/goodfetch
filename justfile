@@ -622,6 +622,7 @@ fetch:
     ci/local-models-fetch.sh
     ci/toxiproxy-fetch.sh
     ci/alpine/fetch.sh
+    ci/integrations/fetch.sh
     ci/source-build/fetch.sh
     ci/valkey/fetch.sh
     ci/registry/fetch.sh

@@ -27,7 +27,6 @@ const OUTPUT_FILES: [&str; 3] = [
     "chromium/manifest.toml",
     "chromium/protocol.json",
 ];
-const EXPECTATIONS_PREFIX: &str = "chromium/expectations/";
 const HTTP_PROFILES_PREFIX: &str = "chromium/http-profiles/";
 
 #[derive(clap::Args)]
@@ -271,7 +270,7 @@ fn compute_tree_hashes(root: &Path) -> Result<TreeHashes> {
             if OUTPUT_FILES.contains(&rel.as_str()) || rel.starts_with(HTTP_PROFILES_PREFIX) {
                 return Ok(());
             }
-            if rel.starts_with(EXPECTATIONS_PREFIX) {
+            if crate::chromium::is_test_input(&rel) {
                 test_files.insert(rel, path);
             } else {
                 build_files.insert(rel, path);
@@ -504,5 +503,35 @@ fn ensure_url(url: &str) -> Result<()> {
         Ok(())
     } else {
         bail!("unsupported artifact URL scheme: {url}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compute_tree_hashes;
+
+    #[test]
+    fn launch_args_changes_test_input_tree_and_not_build_input_tree() {
+        let dir = tempfile::tempdir().unwrap();
+        let chromium = dir.path().join("chromium");
+        std::fs::create_dir_all(&chromium).unwrap();
+        std::fs::write(chromium.join("version.toml"), "version = \"136.0.0.0\"\n").unwrap();
+        std::fs::write(
+            chromium.join("launch-args.json"),
+            "{\"identity_seed\": 1}\n",
+        )
+        .unwrap();
+
+        let first = compute_tree_hashes(dir.path()).unwrap();
+
+        std::fs::write(
+            chromium.join("launch-args.json"),
+            "{\"identity_seed\": 2}\n",
+        )
+        .unwrap();
+        let second = compute_tree_hashes(dir.path()).unwrap();
+
+        assert_eq!(first.build_input_tree, second.build_input_tree);
+        assert_ne!(first.test_input_tree, second.test_input_tree);
     }
 }

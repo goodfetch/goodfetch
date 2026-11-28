@@ -23,9 +23,20 @@ class Daemon:
     loopback TCP address (`127.0.0.1:<port>`) on Windows."""
     token: str
     """The per-launch token a Client's `hello` carries."""
+    http: str | None = None
+    """The HTTP JSON-RPC listener's base URL (`http://127.0.0.1:<port>`),
+    present only with `with_http_listener`."""
+    http_token: str | None = None
+    """The Bearer token the HTTP listener takes in `Authorization: Bearer …`,
+    present only with `with_http_listener`."""
 
     @classmethod
     def from_json(cls, value: object) -> Self:
         """Reads the description's `daemon`, already checked by its schema."""
         fields = cast("dict[str, str]", value)
-        return cls(socket=fields["socket"], token=fields["token"])
+        return cls(
+            socket=fields["socket"],
+            token=fields["token"],
+            http=fields.get("http"),
+            http_token=fields.get("http_token"),
+        )

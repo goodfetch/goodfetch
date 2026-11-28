@@ -22,6 +22,7 @@
     "**/journeys/journey.schema.json",
     "**/compat/**",
     "**/ci/release/skew-jobs.json",
+    "chromium/launch-args.json",
     "packaging/helm/*/templates/**",
     ".agents/**",
     "ci/proofs/**",

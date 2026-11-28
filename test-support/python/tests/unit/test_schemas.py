@@ -19,6 +19,20 @@ def test_a_description_in_its_formats_validates() -> None:
     validate(DESCRIPTION, "test-env-description.schema.json")
 
 
+def test_a_description_with_daemon_http_validates() -> None:
+    """A description with `daemon.http` and `daemon.http_token` passes."""
+    with_http: dict[str, object] = {
+        **DESCRIPTION,
+        "daemon": {
+            "socket": "/tmp/daemon.sock",
+            "token": "socket-token",
+            "http": "http://127.0.0.1:41234",
+            "http_token": "http-token",
+        },
+    }
+    validate(with_http, "test-env-description.schema.json")
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [

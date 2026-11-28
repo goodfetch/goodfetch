@@ -81,6 +81,8 @@ export interface TestEnvStart {
   readonly provingGroundSeed?: number | undefined;
   /** The Product whose Daemon to start in the test's home, when given. */
   readonly daemon?: Product | undefined;
+  /** Whether the started Daemon enables its HTTP JSON-RPC listener on loopback port 0 (`--http-listener`). */
+  readonly httpListener?: boolean | undefined;
   /**
    * Whether the home is prepared for an engine that launches a browser:
    * its Browser cache laid out, and the Proving ground's hosts, when one
@@ -148,6 +150,7 @@ export async function startTestEnv(start: TestEnvStart): Promise<StartedTestEnv>
       ? []
       : ["--proving-ground", String(start.provingGroundSeed)];
   const daemon = start.daemon === undefined ? [] : [`--daemon=${start.daemon}`];
+  const httpListener = start.httpListener === true ? ["--http-listener"] : [];
   const browser = start.browser === true ? ["--browser"] : [];
   const browserDownload =
     start.browserDownload === undefined ? [] : [`--browser-download=${start.browserDownload}`];
@@ -159,6 +162,7 @@ export async function startTestEnv(start: TestEnvStart): Promise<StartedTestEnv>
       start.testName,
       ...provingGround,
       ...daemon,
+      ...httpListener,
       ...browser,
       ...browserDownload,
     ],

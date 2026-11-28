@@ -37,6 +37,7 @@ use serde_json::Value;
 
 use super::extractor::{ProcessExtractor, unavailable};
 use super::hook::{ProcessHook, hook_failed};
+use super::notification::{ProcessNotificationChannel, unavailable as notification_unavailable};
 use super::secret::ProcessSecretProvider;
 use crate::audit::AuditLog;
 use crate::browser_cache::{BrowserCache, CacheLocation, HeldArtifact};
@@ -102,6 +103,11 @@ pub struct RunPlugins {
     /// The process-Plugin Hooks, by Plugin name, each set once its instance
     /// started.
     hooks: tokio::sync::Mutex<BTreeMap<String, Arc<tokio::sync::OnceCell<ProcessHook>>>>,
+    /// The Notification channels, by Plugin name, each set once its instance
+    /// started.
+    notification_channels: tokio::sync::Mutex<
+        BTreeMap<String, Arc<tokio::sync::OnceCell<ProcessNotificationChannel>>>,
+    >,
 }
 
 impl std::fmt::Debug for RunPlugins {
@@ -145,6 +151,7 @@ impl RunPlugins {
             extractors: tokio::sync::Mutex::new(BTreeMap::new()),
             secret_providers: tokio::sync::Mutex::new(BTreeMap::new()),
             hooks: tokio::sync::Mutex::new(BTreeMap::new()),
+            notification_channels: tokio::sync::Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -226,7 +233,16 @@ impl RunPlugins {
         {
             return true;
         }
-        self.hooks
+        if self
+            .hooks
+            .lock()
+            .await
+            .get(name)
+            .is_some_and(|cell| cell.initialized())
+        {
+            return true;
+        }
+        self.notification_channels
             .lock()
             .await
             .get(name)
@@ -308,6 +324,7 @@ impl RunPlugins {
         for (name, record, revocation) in to_stop {
             self.extractors.lock().await.remove(&name);
             self.hooks.lock().await.remove(&name);
+            self.notification_channels.lock().await.remove(&name);
             self.secret_providers.lock().await.retain(|_, cell| {
                 cell.get()
                     .is_none_or(|provider| provider.name() != name.as_str())
@@ -586,6 +603,75 @@ impl RunPlugins {
             instance,
             effects,
             stages,
+        ))
+    }
+
+    /// The Notification channel of the installed Plugin `plugin_name`, serving
+    /// `notifications.channels.<channel_name>`, started lazily on first send
+    /// (ADRs 0027 and 0033; issue 1023).
+    ///
+    /// # Errors
+    ///
+    /// [`StartError::Secret`] when resolving a secret setting fails;
+    /// [`StartError::Refused`] when no Notification channel Plugin is
+    /// installed under `plugin_name` (`notification_channel_unavailable`),
+    /// Operator policy refuses it, settings fail validation, or the host
+    /// cannot confine it.
+    pub async fn notification_channel(
+        &self,
+        plugin_name: &str,
+        channel_name: &str,
+        settings: Option<&Resolved>,
+        secrets: &RunSecrets,
+        probe: &SandboxProbe,
+    ) -> Result<ProcessNotificationChannel, StartError> {
+        let started = Arc::clone(
+            self.notification_channels
+                .lock()
+                .await
+                .entry(plugin_name.to_owned())
+                .or_default(),
+        );
+        started
+            .get_or_try_init(|| {
+                self.start_notification_channel(plugin_name, channel_name, settings, secrets, probe)
+            })
+            .await
+            .cloned()
+    }
+
+    async fn start_notification_channel(
+        &self,
+        plugin_name: &str,
+        channel_name: &str,
+        settings: Option<&Resolved>,
+        secrets: &RunSecrets,
+        probe: &SandboxProbe,
+    ) -> Result<ProcessNotificationChannel, StartError> {
+        let store = self.store.clone();
+        let named = plugin_name.to_owned();
+        let installed = self
+            .owner
+            .blocking(move || store.resolve(&named, &PluginKindName::NOTIFICATION))
+            .await
+            .map_err(|error| {
+                tracing::warn!(
+                    plugin = plugin_name,
+                    channel = channel_name,
+                    %error,
+                    "a Notification channel Plugin cannot start"
+                );
+                StartError::Refused(notification_unavailable(channel_name))
+            })?;
+        let channel_for_err = channel_name.to_owned();
+        let (instance, _) = self
+            .start_instance(installed, settings, secrets, probe, move |_| {
+                notification_unavailable(&channel_for_err)
+            })
+            .await?;
+        Ok(ProcessNotificationChannel::new(
+            plugin_name.to_owned(),
+            instance,
         ))
     }
 

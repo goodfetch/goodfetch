@@ -43,6 +43,7 @@ pub mod manage;
 mod manifest;
 mod names;
 pub mod net;
+pub mod notification;
 pub mod secret;
 pub mod settings;
 pub mod spend;

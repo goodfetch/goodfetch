@@ -8,9 +8,18 @@
 //! (issue 1023).
 
 use std::future::Future;
+use std::sync::Arc;
 use std::time::Duration;
 
+use goodfetch_engine::clock::Clock;
+use goodfetch_engine::deadline::Deadline;
+use goodfetch_engine::plugin_host::instance::UncertainReporter;
+use goodfetch_engine::plugin_kinds::Accounts;
+use goodfetch_engine::plugin_kinds::notification::{
+    NotificationDriver, NotificationPrimitives, NotificationSendFailure,
+};
 use goodfetch_protocol::notifications::NotificationEvent;
+use goodfetch_protocol::plugin::notification::NotificationSendParams;
 use url::Url;
 
 use crate::driver::Channel;
@@ -47,6 +56,11 @@ pub enum CallFailure {
     /// The program failed in any other way: another exception, or no
     /// answer the caller could read.
     Other(ChannelText),
+    /// The Effect-class `notification.send` call was abandoned in flight
+    /// (past its deadline or crashed while holding the call): it may still
+    /// have landed, has been reported uncertain, and must not be retried
+    /// blindly (ADRs 0027, 0029 and 0033; issue 1023).
+    Uncertain,
 }
 
 /// The call that sends a Notification to a channel Plugin or an SDK
@@ -103,10 +117,91 @@ impl<C: NotificationCall> Channel for PluginChannel<C> {
     }
 }
 
+/// A [`NotificationCall`] backed by any [`NotificationPrimitives`]
+/// implementation (a process Plugin or an SDK handler) driven through
+/// [`NotificationDriver`] as an Effect-class call under `deadline` (ADRs
+/// 0027, 0033 and 0129; issue 1023).
+pub struct PluginNotificationCall<P> {
+    channel: String,
+    implementation: P,
+    accounts: Arc<dyn Accounts>,
+    clock: Clock,
+    deadline: Deadline,
+    uncertain: Option<Arc<dyn UncertainReporter>>,
+}
+
+impl<P: NotificationPrimitives> PluginNotificationCall<P> {
+    /// Creates a [`NotificationCall`] for channel `channel` backed by
+    /// `implementation`, accounted to `accounts` and waiting on `clock` until
+    /// `deadline`.
+    #[must_use]
+    pub fn new(
+        channel: impl Into<String>,
+        implementation: P,
+        accounts: Arc<dyn Accounts>,
+        clock: Clock,
+        deadline: Deadline,
+    ) -> Self {
+        Self {
+            channel: channel.into(),
+            implementation,
+            accounts,
+            clock,
+            deadline,
+            uncertain: None,
+        }
+    }
+
+    /// Attaches an [`UncertainReporter`] that receives every abandoned
+    /// Effect-class `notification.send` call at once.
+    #[must_use]
+    pub fn with_uncertain(mut self, uncertain: Arc<dyn UncertainReporter>) -> Self {
+        self.uncertain = Some(uncertain);
+        self
+    }
+}
+
+impl<P: NotificationPrimitives> NotificationCall for PluginNotificationCall<P> {
+    async fn send(&self, params: Params<'_>) -> Result<(), CallFailure> {
+        let driver = NotificationDriver::new(
+            &self.channel,
+            &self.implementation,
+            self.accounts.as_ref(),
+            &self.clock,
+            &self.deadline,
+        )
+        .with_uncertain_opt(self.uncertain.clone());
+        let wire = NotificationSendParams {
+            event_id: params.event_id.to_owned(),
+            event: params.event,
+            text: params.text.to_owned(),
+            link: params.link.map(|url| url.as_str().to_owned()),
+        };
+        match driver.send(&wire).await {
+            Ok(()) => Ok(()),
+            Err(NotificationSendFailure::Uncertain(_)) => Err(CallFailure::Uncertain),
+            Err(NotificationSendFailure::Failed(failure)) => {
+                let error = failure.into_error();
+                let retry_after = error
+                    .details()
+                    .and_then(|details| details.get("retry_after"))
+                    .and_then(serde_json::Value::as_u64)
+                    .map(Duration::from_millis);
+                Err(CallFailure::Goodfetch {
+                    code: error.code().to_owned(),
+                    retryable: error.retryable(),
+                    retry_after,
+                })
+            }
+        }
+    }
+}
+
 /// The plugin channel's translation point (ADR 0127): a retryable
 /// `GoodfetchError` that asks for a wait is [`Failure::RateLimited`], one
 /// that does not is [`Failure::ServerError`], one that is not retryable is
-/// [`Failure::Rejected`], and any other failure is
+/// [`Failure::Rejected`], an abandoned Effect-class call is
+/// [`Failure::Uncertain`], and any other failure is
 /// [`Failure::Unrecognized`], logged at `warn` with its text.
 fn translate(failure: CallFailure) -> Failure {
     match failure {
@@ -123,6 +218,7 @@ fn translate(failure: CallFailure) -> Failure {
         CallFailure::Goodfetch {
             retryable: false, ..
         } => Failure::Rejected,
+        CallFailure::Uncertain => Failure::Uncertain,
         CallFailure::Other(text) => text.unrecognized(
             "a channel Plugin or SDK handler failed with an error that is no GoodfetchError",
         ),

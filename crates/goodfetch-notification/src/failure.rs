@@ -29,6 +29,10 @@ pub enum Failure {
     Gone,
     /// The destination refused the message itself: permanent.
     Rejected,
+    /// The attempt was abandoned in flight (such as an Effect-class
+    /// `notification.send` past its deadline or whose Plugin crashed):
+    /// uncertain, never sent again.
+    Uncertain,
     /// A failure the channel's translation point does not know, logged at
     /// `warn` with its text: transient.
     Unrecognized(PartyText),
@@ -64,7 +68,10 @@ impl std::fmt::Debug for ChannelText {
 impl Failure {
     /// Whether the delivery is tried again.
     pub fn is_transient(&self) -> bool {
-        !matches!(self, Self::Unauthorized | Self::Gone | Self::Rejected)
+        !matches!(
+            self,
+            Self::Unauthorized | Self::Gone | Self::Rejected | Self::Uncertain
+        )
     }
 
     /// The wait the destination asked for before the next attempt.
@@ -85,6 +92,7 @@ impl Failure {
             Self::Unauthorized => "unauthorized",
             Self::Gone => "gone",
             Self::Rejected => "rejected",
+            Self::Uncertain => "uncertain",
             Self::Unrecognized(_) => "unrecognized",
         }
     }

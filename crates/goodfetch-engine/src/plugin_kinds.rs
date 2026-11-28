@@ -34,6 +34,7 @@ use goodfetch_protocol::catalog::{OperationClass, PluginKind, Setting};
 use goodfetch_protocol::entries;
 use goodfetch_protocol::plugin::extractor::{EXTRACT_CONTENT, EXTRACTOR};
 use goodfetch_protocol::plugin::hook::{HOOK, HOOK_CALL};
+use goodfetch_protocol::plugin::notification::{NOTIFICATION_CHANNEL, NOTIFICATION_SEND};
 use goodfetch_protocol::plugin::secret::{SECRET_PROVIDER, SECRET_RESOLVE};
 use goodfetch_protocol::plugin::{PLUGIN_CRASHED, PLUGIN_QUARANTINED, PluginKindName};
 use goodfetch_protocol::settings::{TIMEOUT_HOOK, TIMEOUT_MODEL, TIMEOUT_PLUGIN};
@@ -54,6 +55,7 @@ pub use crate::plugin_host::spend::{
 
 pub mod extractor;
 pub mod hook;
+pub mod notification;
 pub mod run_plugins;
 pub mod secret;
 
@@ -178,19 +180,27 @@ pub enum Primitive {
     ExtractContent,
     /// The Hook's `hook.call`.
     HookCall,
+    /// The Notification channel's `notification.send`.
+    NotificationSend,
     /// The Secret provider's `secret.resolve`.
     SecretResolve,
 }
 
 impl Primitive {
     /// Every primitive of Collie's kinds.
-    pub const ALL: [Self; 3] = [Self::ExtractContent, Self::HookCall, Self::SecretResolve];
+    pub const ALL: [Self; 4] = [
+        Self::ExtractContent,
+        Self::HookCall,
+        Self::NotificationSend,
+        Self::SecretResolve,
+    ];
 
     /// Its kind.
     pub fn kind(self) -> &'static PluginKind {
         match self {
             Self::ExtractContent => &EXTRACTOR,
             Self::HookCall => &HOOK,
+            Self::NotificationSend => &NOTIFICATION_CHANNEL,
             Self::SecretResolve => &SECRET_PROVIDER,
         }
     }
@@ -200,16 +210,20 @@ impl Primitive {
         match self {
             Self::ExtractContent => EXTRACT_CONTENT,
             Self::HookCall => HOOK_CALL,
+            Self::NotificationSend => NOTIFICATION_SEND,
             Self::SecretResolve => SECRET_RESOLVE,
         }
     }
 
     /// The class the engine gives each of its calls: reading a page's main
     /// content, running a Hook (whose own Effects are gated and journaled
-    /// individually) or resolving a secret changes nothing by itself.
+    /// individually) or resolving a secret changes nothing by itself; sending
+    /// a Notification to an external channel is an Effect, so an abandoned
+    /// call is reported uncertain and never repeated blindly.
     pub fn class(self) -> OperationClass {
         match self {
             Self::ExtractContent | Self::HookCall | Self::SecretResolve => OperationClass::Read,
+            Self::NotificationSend => OperationClass::Effect,
         }
     }
 }

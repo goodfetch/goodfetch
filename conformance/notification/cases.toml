@@ -1,0 +1,30 @@
+# The Notification channel's suite (spec #596, ticket 1023): the Plugin kind
+# `notification`, whose one primitive, `notification.send`, delivers one
+# Notification event to a channel Goodfetch does not ship (ADRs 0027, 0033 and
+# 0129). The harness runs it against a process Plugin as it runs every kind's
+# suite (`run_plugin_suite`), and against an implementation called in process
+# (`PluginSuite::checks_in_process`). `product` is the smallest Product that
+# carries the kind. Each case ID names an exchange the harness runs. Bump the
+# version whenever a case changes.
+
+product = "collie"
+kind = "notification"
+
+[suite]
+name = "notification"
+version = "1"
+
+[[capability]]
+name = "send"
+
+[[capability.case]]
+# `notification.send` for an event answers `{ delivered: true }` and no other
+# field.
+id = "a-notification-is-delivered-in-the-kinds-shape"
+covers = ["story:7-96"]
+
+[[capability.case]]
+# `notification.send` whose params carry a field a newer engine adds is
+# answered as without it (ADRs 0077 and 0082).
+id = "params-from-a-newer-engine-are-read-without-their-unknown-field"
+covers = ["story:7-96"]

@@ -119,7 +119,9 @@ export type CollieWireType =
   | "NotVerifiedDetails"
   | "NothingDone"
   | "NotificationData"
+  | "NotificationHandlerFailedDetails"
   | "NotificationPayload"
+  | "NotificationSendParams"
   | "PageBodyParams"
   | "PageCloseParams"
   | "PageCrashedDetails"
@@ -381,7 +383,9 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "NotVerifiedDetails": { fields: { "reasons": ["reasons", { items: { type: "AxisReason" } }] } },
     "NothingDone": { fields: { "ended_at": ["endedAt", "time"] } },
     "NotificationData": { fields: { "event_id": "eventId", "run_id": "runId", "schedule_id": "scheduleId" } },
+    "NotificationHandlerFailedDetails": { fields: { "event_id": "eventId" } },
     "NotificationPayload": { fields: { "data": ["data", { type: "NotificationData" }], "timestamp": ["timestamp", "time"] } },
+    "NotificationSendParams": { fields: { "event_id": "eventId" } },
     "PageBodyParams": { fields: { "run_id": "runId" } },
     "PageCloseParams": { fields: { "page_id": "pageId", "run_before_unload": "runBeforeUnload" } },
     "PageCrashedDetails": { fields: { "browser_exit": "browserExit" } },

@@ -93,6 +93,9 @@ pub enum Settled {
     },
     /// It failed for good, with the failure's name.
     Failed(&'static str),
+    /// It was abandoned in flight so whether it arrived is unknown: never
+    /// sent again.
+    Uncertain,
 }
 
 /// The delivery ledger of one Run.
@@ -215,6 +218,7 @@ impl Ledger {
                         ("waiting", Some(attempt), Some(milliseconds(at)), None)
                     }
                     Settled::Failed(failure) => ("failed", None, None, Some(failure)),
+                    Settled::Uncertain => ("uncertain", None, None, None),
                 };
                 connection
                     .prepare_cached(

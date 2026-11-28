@@ -7882,6 +7882,20 @@
         }
       ]
     },
+    "NotificationChannelUnavailableDetails": {
+      "description": "What `notification_channel_unavailable` details.",
+      "properties": {
+        "channel": {
+          "arrived_in": "0.1",
+          "description": "The channel's name in `notifications.channels.<name>`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "channel"
+      ],
+      "type": "object"
+    },
     "NotificationData": {
       "anyOf": [
         {
@@ -7991,6 +8005,26 @@
       ],
       "open": true
     },
+    "NotificationHandlerFailedDetails": {
+      "description": "What `notification_handler_failed` details.",
+      "properties": {
+        "channel": {
+          "arrived_in": "0.1",
+          "description": "The channel's name in `notifications.channels.<name>`.",
+          "type": "string"
+        },
+        "event_id": {
+          "arrived_in": "0.1",
+          "description": "The event ID of the Notification that was being sent.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "channel",
+        "event_id"
+      ],
+      "type": "object"
+    },
     "NotificationPayload": {
       "description": "A `webhook` channel's delivery: the Standard Webhooks envelope around\none Notification.",
       "properties": {
@@ -8020,6 +8054,59 @@
         "timestamp",
         "format",
         "data"
+      ],
+      "type": "object"
+    },
+    "NotificationSendParams": {
+      "description": "What `notification.send` hands a Notification channel Plugin or SDK\nhandler: the event's idempotency key, event name, English text and\noptional link. Fields a newer engine adds are ignored by the receiver\n(ADRs 0077 and 0082).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "event": {
+          "$ref": "#/$defs/NotificationEvent",
+          "arrived_in": "0.1",
+          "description": "The Notification event's `snake_case` name, such as `run_failed`."
+        },
+        "event_id": {
+          "arrived_in": "0.1",
+          "description": "The event ID, the channel's idempotency key.",
+          "type": "string"
+        },
+        "link": {
+          "arrived_in": "0.1",
+          "description": "Where the Run or Schedule is shown, if anywhere.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "The Notification's text, in English.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "event",
+        "text"
+      ],
+      "type": "object"
+    },
+    "NotificationSendResult": {
+      "additionalProperties": false,
+      "description": "What a Notification channel Plugin or SDK handler answers to\n`notification.send`: whether the Notification was delivered, and no other\nfield.",
+      "properties": {
+        "delivered": {
+          "arrived_in": "0.1",
+          "description": "Whether the channel delivered the Notification.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "delivered"
       ],
       "type": "object"
     },
@@ -19701,6 +19788,32 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "No one answers for the Notification channel `notifications.channels.<name>` names: no built-in has its type and no installed Plugin of the Notification channel kind does, its Plugin cannot start, or it is a handler the program registered that left its call unanswered. The details name the channel. Install the Plugin or name another channel, or retry once the program reads its Notification channel's calls again.",
+      "details": {
+        "$ref": "#/$defs/NotificationChannelUnavailableDetails"
+      },
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "notification_channel_unavailable",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Notification channel `notifications.channels.<name>` names answered `notification.send` with what the engine cannot take: an answer it cannot read, a result whose shape is not `{ delivered }`, `delivered: false`, or an Error code the catalog does not know. Its text is logged, never returned. The details name the channel and the event ID. Fix the channel Plugin or SDK handler, or choose another channel.",
+      "details": {
+        "$ref": "#/$defs/NotificationHandlerFailedDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "notification_handler_failed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The document the navigation reached is neither the expected page nor the login page of its Session's Page check, `session.page_check`, whatever its HTTP status: a page the program did not mean to reach, such as an error page or a layout the site changed. The page stays on that document. The details name its URL and status.",
       "details": {
         "$ref": "#/$defs/PageCheckFailedDetails"
@@ -23992,6 +24105,25 @@
         }
       ],
       "name": "extract",
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Delivers a Notification to a channel Goodfetch does not ship, through ADR 0027's delivery ledger.",
+      "methods": [
+        {
+          "description": "Delivers one Notification event and answers whether it was delivered.",
+          "name": "send",
+          "params": {
+            "$ref": "#/$defs/NotificationSendParams"
+          },
+          "result": {
+            "$ref": "#/$defs/NotificationSendResult"
+          }
+        }
+      ],
+      "name": "notification",
       "product": "collie",
       "stability": "experimental"
     },

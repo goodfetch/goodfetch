@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from .models import ExtractContentParams, ExtractContentResult, SampleStorePutParams, SampleStorePutResult, SecretResolveParams, SecretResolveResult
+from .models import ExtractContentParams, ExtractContentResult, NotificationSendParams, NotificationSendResult, SampleStorePutParams, SampleStorePutResult, SecretResolveParams, SecretResolveResult
 
 
 class ExtractHandler(ABC):
@@ -19,6 +19,17 @@ class ExtractHandler(ABC):
     @abstractmethod
     async def content(self, params: ExtractContentParams) -> ExtractContentResult:
         """Reads the main content of a page's document."""
+
+
+class NotificationHandler(ABC):
+    """Delivers a Notification to a channel Goodfetch does not ship, through ADR 0027's delivery ledger.
+
+    Experimental: outside semver until it is promoted (ADR 0030).
+    """
+
+    @abstractmethod
+    async def send(self, params: NotificationSendParams) -> NotificationSendResult:
+        """Delivers one Notification event and answers whether it was delivered."""
 
 
 class SampleStoreHandler(ABC):

@@ -12,6 +12,7 @@ use super::net::{
     NetConnectParams, NetFetchParams, NetStreamCloseParams, NetStreamCreditsParams,
     NetStreamDataParams,
 };
+use super::notification::{NOTIFICATION_SEND, NotificationSendParams};
 use super::secret::{SECRET_RESOLVE, SecretResolveParams};
 use super::spend::{USAGE_REPORT, UsageReportParams};
 use super::{
@@ -93,6 +94,8 @@ pub fn fuzz_plugin_messages(data: &[u8]) {
                     let _ = UsageReportParams::deserialize(&params);
                 } else if method == SECRET_RESOLVE {
                     let _ = SecretResolveParams::deserialize(&params);
+                } else if method == NOTIFICATION_SEND {
+                    let _ = NotificationSendParams::deserialize(&params);
                 }
             }
             Message::Notification(Notification { method, params, .. }) if method == CANCEL => {

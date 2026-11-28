@@ -15925,6 +15925,20 @@
       ],
       "type": "object"
     },
+    "NotificationChannelUnavailableDetails": {
+      "description": "What `notification_channel_unavailable` details.",
+      "properties": {
+        "channel": {
+          "arrived_in": "0.1",
+          "description": "The channel's name in `notifications.channels.<name>`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "channel"
+      ],
+      "type": "object"
+    },
     "NotificationData": {
       "anyOf": [
         {
@@ -16034,6 +16048,26 @@
       ],
       "open": true
     },
+    "NotificationHandlerFailedDetails": {
+      "description": "What `notification_handler_failed` details.",
+      "properties": {
+        "channel": {
+          "arrived_in": "0.1",
+          "description": "The channel's name in `notifications.channels.<name>`.",
+          "type": "string"
+        },
+        "event_id": {
+          "arrived_in": "0.1",
+          "description": "The event ID of the Notification that was being sent.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "channel",
+        "event_id"
+      ],
+      "type": "object"
+    },
     "NotificationPayload": {
       "description": "A `webhook` channel's delivery: the Standard Webhooks envelope around\none Notification.",
       "properties": {
@@ -16063,6 +16097,59 @@
         "timestamp",
         "format",
         "data"
+      ],
+      "type": "object"
+    },
+    "NotificationSendParams": {
+      "description": "What `notification.send` hands a Notification channel Plugin or SDK\nhandler: the event's idempotency key, event name, English text and\noptional link. Fields a newer engine adds are ignored by the receiver\n(ADRs 0077 and 0082).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "event": {
+          "$ref": "#/$defs/NotificationEvent",
+          "arrived_in": "0.1",
+          "description": "The Notification event's `snake_case` name, such as `run_failed`."
+        },
+        "event_id": {
+          "arrived_in": "0.1",
+          "description": "The event ID, the channel's idempotency key.",
+          "type": "string"
+        },
+        "link": {
+          "arrived_in": "0.1",
+          "description": "Where the Run or Schedule is shown, if anywhere.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "The Notification's text, in English.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "event",
+        "text"
+      ],
+      "type": "object"
+    },
+    "NotificationSendResult": {
+      "additionalProperties": false,
+      "description": "What a Notification channel Plugin or SDK handler answers to\n`notification.send`: whether the Notification was delivered, and no other\nfield.",
+      "properties": {
+        "delivered": {
+          "arrived_in": "0.1",
+          "description": "Whether the channel delivered the Notification.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "delivered"
       ],
       "type": "object"
     },

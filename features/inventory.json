@@ -2145,6 +2145,28 @@
       ]
     },
     {
+      "id": "error:notification_channel_unavailable",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:notification_handler_failed",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:page_check_failed",
       "kind": "error",
       "area": 5,
@@ -5430,6 +5452,17 @@
     },
     {
       "id": "plugin-kind:extract",
+      "kind": "plugin-kind",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "plugin-kind:notification",
       "kind": "plugin-kind",
       "area": 7,
       "milestone": null,

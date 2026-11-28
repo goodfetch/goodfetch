@@ -126,6 +126,17 @@ impl Driver {
                 }
                 Err(failure) => channel.map_failure(failure),
             };
+            if matches!(failure, Failure::Uncertain) {
+                tracing::warn!(
+                    channel = name,
+                    event = event.as_str(),
+                    attempt,
+                    failure = failure.name(),
+                    "a Notification attempt was abandoned and is uncertain"
+                );
+                self.ledger.settle(event, name, Settled::Uncertain).await?;
+                return Ok(Entry::Uncertain { attempt });
+            }
             tracing::warn!(
                 channel = name,
                 event = event.as_str(),

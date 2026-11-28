@@ -279,6 +279,18 @@ number = 7
 kind = "error"
 prefix = "extractor_unavailable"
 
+# A Notification channel's answer the engine cannot take, and a Notification
+# channel no one answers for (ADRs 0027, 0104 and 0127, issue 1023).
+[[area]]
+number = 7
+kind = "error"
+prefix = "notification_handler_failed"
+
+[[area]]
+number = 7
+kind = "error"
+prefix = "notification_channel_unavailable"
+
 [[area]]
 number = 3
 kind = "operation"
@@ -2018,6 +2030,11 @@ prefix = "extract"
 number = 7
 kind = "plugin-kind"
 prefix = "secret"
+
+[[area]]
+number = 7
+kind = "plugin-kind"
+prefix = "notification"
 
 # Area 6, Collection (spec #582): every built-in Sink.
 [[area]]

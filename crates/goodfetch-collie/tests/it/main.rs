@@ -102,6 +102,7 @@ mod needs_you;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod no_console;
+mod notification_suite;
 mod operations_guide;
 mod ops;
 mod other_product;

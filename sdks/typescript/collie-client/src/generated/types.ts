@@ -7274,6 +7274,18 @@ export interface SeedsKept {
   reason: string;
 }
 /**
+ * What `notification_channel_unavailable` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotificationChannelUnavailableDetails".
+ */
+export interface NotificationChannelUnavailableDetails {
+  /**
+   * The channel's name in `notifications.channels.<name>`.
+   */
+  channel: string;
+}
+/**
  * A thin Notification: its IDs and link only, which an Integration reads
  * the rest from.
  *
@@ -7298,6 +7310,22 @@ export interface ThinNotification {
    * The Schedule it concerns, if any.
    */
   scheduleId?: ScheduleId | null;
+}
+/**
+ * What `notification_handler_failed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotificationHandlerFailedDetails".
+ */
+export interface NotificationHandlerFailedDetails {
+  /**
+   * The channel's name in `notifications.channels.<name>`.
+   */
+  channel: string;
+  /**
+   * The event ID of the Notification that was being sent.
+   */
+  eventId: string;
 }
 /**
  * A `webhook` channel's delivery: the Standard Webhooks envelope around
@@ -7326,6 +7354,47 @@ export interface NotificationPayload {
    * `notification.run_failed`.
    */
   type: string;
+}
+/**
+ * What `notification.send` hands a Notification channel Plugin or SDK
+ * handler: the event's idempotency key, event name, English text and
+ * optional link. Fields a newer engine adds are ignored by the receiver
+ * (ADRs 0077 and 0082).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotificationSendParams".
+ */
+export interface NotificationSendParams {
+  /**
+   * The Notification event's `snake_case` name, such as `run_failed`.
+   */
+  event: NotificationEvent;
+  /**
+   * The event ID, the channel's idempotency key.
+   */
+  eventId: string;
+  /**
+   * Where the Run or Schedule is shown, if anywhere.
+   */
+  link?: string | null;
+  /**
+   * The Notification's text, in English.
+   */
+  text: string;
+}
+/**
+ * What a Notification channel Plugin or SDK handler answers to
+ * `notification.send`: whether the Notification was delivered, and no other
+ * field.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotificationSendResult".
+ */
+export interface NotificationSendResult {
+  /**
+   * Whether the channel delivered the Notification.
+   */
+  delivered: boolean;
 }
 /**
  * The Operator policy as `config.policy_read` reads it.

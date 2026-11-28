@@ -42,6 +42,7 @@ use crate::proving_ground::{ProvingGround, ProvingGroundError};
 use crate::writer::{WriteError, write_document};
 
 mod extract;
+mod notification;
 mod secret;
 
 /// The `sample_store` kind's suite, embedded so it runs wherever the harness
@@ -53,6 +54,9 @@ const EXTRACT_CASES: &str = include_str!("../../../../conformance/extract/cases.
 
 /// The Secret provider's suite, embedded the same way.
 const SECRET_CASES: &str = include_str!("../../../../conformance/secret/cases.toml");
+
+/// The Notification channel's suite, embedded the same way.
+const NOTIFICATION_CASES: &str = include_str!("../../../../conformance/notification/cases.toml");
 
 /// The run ID the harness's `hello` names.
 const RUN_ID: &str = "conformance";
@@ -108,6 +112,11 @@ impl PluginSuite {
     /// `conformance/secret/cases.toml`: the Secret provider's.
     pub fn secret() -> Self {
         Self::read(SECRET_CASES).expect("invariant: the embedded case list is valid")
+    }
+
+    /// `conformance/notification/cases.toml`: the Notification channel's.
+    pub fn notification() -> Self {
+        Self::read(NOTIFICATION_CASES).expect("invariant: the embedded case list is valid")
     }
 
     /// Reads a Plugin kind's case list.
@@ -414,6 +423,11 @@ enum Case {
     /// `secret.resolve` with a field a newer engine adds is answered as
     /// without it.
     SecretNewerField,
+    /// `notification.send` answers delivered in the kind's shape.
+    NotificationSend,
+    /// `notification.send` with a field a newer engine adds is answered as
+    /// without it.
+    NotificationNewerField,
 }
 
 /// The ID of each kind's case of params from a newer engine.
@@ -434,6 +448,10 @@ impl Case {
                 Some(Self::SecretResolve)
             }
             ("secret", NEWER_PARAMS) => Some(Self::SecretNewerField),
+            ("notification", "a-notification-is-delivered-in-the-kinds-shape") => {
+                Some(Self::NotificationSend)
+            }
+            ("notification", NEWER_PARAMS) => Some(Self::NotificationNewerField),
             _ => None,
         }
     }
@@ -485,6 +503,11 @@ impl Case {
                 let newer = self == Self::SecretNewerField;
                 let answer = calls.call(secret::METHOD, &secret::params(newer))?;
                 checks.extend(secret::checks(&answer));
+            }
+            Self::NotificationSend | Self::NotificationNewerField => {
+                let newer = self == Self::NotificationNewerField;
+                let answer = calls.call(notification::METHOD, &notification::params(newer))?;
+                checks.extend(notification::checks(&answer));
             }
         }
         Ok(())

@@ -2480,6 +2480,64 @@ class NothingDone3(BaseModel):
     reason: Literal["nothing_pending"]
 
 
+class NotificationChannelUnavailableDetails(BaseModel):
+    """What `notification_channel_unavailable` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    channel: str
+    """The channel's name in `notifications.channels.<name>`."""
+
+
+class NotificationHandlerFailedDetails(BaseModel):
+    """What `notification_handler_failed` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    channel: str
+    """The channel's name in `notifications.channels.<name>`."""
+    event_id: str
+    """The event ID of the Notification that was being sent."""
+
+
+class NotificationSendParams(BaseModel):
+    """
+    What `notification.send` hands a Notification channel Plugin or SDK
+    handler: the event's idempotency key, event name, English text and
+    optional link. Fields a newer engine adds are ignored by the receiver
+    (ADRs 0077 and 0082).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    event: NotificationEvent
+    """The Notification event's `snake_case` name, such as `run_failed`."""
+    event_id: str
+    """The event ID, the channel's idempotency key."""
+    link: str | None = None
+    """Where the Run or Schedule is shown, if anywhere."""
+    text: str
+    """The Notification's text, in English."""
+
+
+class NotificationSendResult(BaseModel):
+    """
+    What a Notification channel Plugin or SDK handler answers to
+    `notification.send`: whether the Notification was delivered, and no other
+    field.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    delivered: bool
+    """Whether the channel delivered the Notification."""
+
+
 class Origin(StrEnum):
     """
     Where a Plugin comes from, which sets whether it loads by default (ADRs

@@ -39,6 +39,8 @@ use crate::output;
 use crate::products::Product;
 use crate::tree;
 
+mod reference;
+
 #[derive(Subcommand)]
 pub(crate) enum Command {
     /// Writes the site's source tree under `target/docs-site/source/`;
@@ -201,6 +203,10 @@ fn render(root: &Path) -> Result<ExitCode> {
     if !findings.is_empty() {
         return Ok(check::report(&findings));
     }
+    let collie_ref = reference::generate(Product::Collie);
+    let foxhound_ref = reference::generate(Product::Foxhound);
+    files.extend(collie_ref.files);
+    files.extend(foxhound_ref.files);
     let target = root.join(OUTPUT);
     if target.exists() {
         std::fs::remove_dir_all(&target)
@@ -210,7 +216,8 @@ fn render(root: &Path) -> Result<ExitCode> {
         write(&target.join("docs").join(path), text)?;
     }
     let sidebars =
-        serde_json::to_string_pretty(&sidebars(&pages)).context("writing the sidebars")?;
+        serde_json::to_string_pretty(&sidebars(&pages, collie_ref.sidebar, foxhound_ref.sidebar))
+            .context("writing the sidebars")?;
     write(&target.join("sidebars.json"), &format!("{sidebars}\n"))?;
     output::line(&format!("{} pages written to {OUTPUT}", files.len()));
     Ok(ExitCode::SUCCESS)
@@ -424,7 +431,7 @@ fn relative_to(from: &str, to: &str) -> String {
 /// The root's sidebar and each Product's, by doc ID, each section's home
 /// first; Foxhound's lists its own pages, then Collie's under Collie's
 /// heading.
-fn sidebars(pages: &[Page]) -> Value {
+fn sidebars(pages: &[Page], collie_ref: Value, foxhound_ref: Value) -> Value {
     let id = |output: &str| {
         output
             .trim_end_matches(".mdx")
@@ -451,7 +458,8 @@ fn sidebars(pages: &[Page]) -> Value {
                 .collect(),
         )
     };
-    let collie = in_section(Section::Of(Product::Collie), &|_| true);
+    let mut collie = in_section(Section::Of(Product::Collie), &|_| true);
+    collie.push(collie_ref);
     let mut foxhound = in_section(Section::Of(Product::Foxhound), &|page| {
         page.is_home() || !page.is_collies()
     });
@@ -466,6 +474,7 @@ fn sidebars(pages: &[Page]) -> Value {
             "items": collies,
         }));
     }
+    foxhound.push(foxhound_ref);
     json!({
         "root": in_section(Section::Root, &|_| true),
         "collie": collie,

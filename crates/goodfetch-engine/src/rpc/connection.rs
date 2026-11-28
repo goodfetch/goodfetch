@@ -1630,7 +1630,7 @@ impl Session<'_> {
         );
         let (outgoing, completed) = (self.outgoing.clone(), self.completed.clone());
         let closing = self.closing.clone().filter(|_| operation.cancellable);
-        let form = self.form();
+        let form = preamble.form.unwrap_or_else(|| self.form());
         // Each call keeps its own task (the audit's E1-4, kept by #1898):
         // the Connection goes on reading while a handler waits, a
         // `$/cancel` reaches the call at once, and [`MAX_IN_FLIGHT`] caps

@@ -1,0 +1,30 @@
+{
+  "name": "@goodfetch/collie-ai-sdk",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Collie's Vercel AI SDK framework adapter (ADRs 0011, 0070, 0095 and 0099).",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@goodfetch/collie": "workspace:*",
+    "@goodfetch/collie-client": "workspace:*"
+  },
+  "devDependencies": {
+    "@goodfetch/test-support": "workspace:*",
+    "@types/node": "catalog:",
+    "ai": "7.0.99",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "ai": "^7.0.0"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

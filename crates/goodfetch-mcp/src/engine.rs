@@ -280,6 +280,7 @@ fn attach_trace_meta(mut arguments: Map<String, Value>, trace: TraceContext) -> 
             traceparent: trace.traceparent,
             tracestate: trace.tracestate,
             raw: false,
+            form: None,
         };
         if let Ok(value) = serde_json::to_value(meta) {
             arguments.insert(META.to_owned(), value);

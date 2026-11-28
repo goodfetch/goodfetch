@@ -1,0 +1,7 @@
+[
+  {
+    "name": "collie-ai-sdk",
+    "path": "adapters/collie/ai-sdk/src/index.ts",
+    "limit": "25 kB"
+  }
+]

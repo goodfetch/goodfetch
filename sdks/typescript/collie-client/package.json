@@ -9,6 +9,7 @@
     "./browser": "./src/browser.ts",
     "./generated": "./src/generated/index.ts",
     "./generated/types": "./src/generated/types.ts",
+    "./mcp-tools": "./src/generated/mcp-tools.ts",
     "./runtime": "./src/runtime.ts",
     "./testing": "./src/testing.ts"
   },

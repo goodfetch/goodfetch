@@ -1,12 +1,8 @@
 //! Projects Goodfetch catalog operations onto MCP tools, annotations,
 //! input schemas and tool results (ADRs 0011, 0065, 0070, 0099; spec #608).
 //!
-//! Tool names are the canonical catalog name with `_` for `.`, in `[a-z0-9_]`
-//! and at most [`MAX_TOOL_NAME_CHARS`] characters. Descriptions come verbatim
-//! from the catalog (at most [`MAX_DESCRIPTION_CHARS`] characters), with a
-//! deprecation prefix when deprecated. Engine Error codes become tool results
-//! with `isError: true`, `structuredContent` holding the CLI's
-//! [`CommandError`], and `fix` first in the text block.
+//! Pure projection rules live in `goodfetch_protocol::mcp_projection` so the
+//! MCP server and generated framework adapters share one canonical definition.
 
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -14,101 +10,14 @@ use std::sync::Arc;
 use goodfetch_protocol::catalog::{ErrorGroup, Operation, OperationClass};
 use goodfetch_protocol::cli::CommandError;
 use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure};
+pub use goodfetch_protocol::mcp_projection::{
+    MAX_DESCRIPTION_CHARS, MAX_TOOL_NAME_CHARS, ProjectionViolation, description_for,
+    is_live_view_grant, is_open_world, is_valid_tool_name, tool_name, validate_operation,
+};
 use rmcp::model::{
     CallToolResult, ContentBlock, JsonObject, ListToolsResult, Tool, ToolAnnotations,
 };
-use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value};
-use thiserror::Error;
-
-/// Maximum length of an MCP tool name (ADR 0099, spec #608).
-pub const MAX_TOOL_NAME_CHARS: usize = 39;
-
-/// Maximum length of an MCP tool description (ADR 0065, spec #608).
-pub const MAX_DESCRIPTION_CHARS: usize = 2048;
-
-/// Why a catalog operation cannot be projected onto the MCP surface (ADRs 0065,
-/// 0070, 0099; issues 1360 and 1014).
-#[derive(Clone, Debug, PartialEq, Eq, Error)]
-pub enum ProjectionViolation {
-    /// The projected tool name is empty, longer than [`MAX_TOOL_NAME_CHARS`],
-    /// or contains characters outside `[a-z0-9_]`.
-    #[error(
-        "MCP tool name `{tool_name}` (from `{operation}`) must be 1..={MAX_TOOL_NAME_CHARS} chars in [a-z0-9_]"
-    )]
-    InvalidToolName {
-        /// Canonical catalog operation name.
-        operation: String,
-        /// Projected MCP tool name.
-        tool_name: String,
-    },
-    /// The catalog description is empty.
-    #[error("MCP tool description for `{operation}` must not be empty")]
-    EmptyDescription {
-        /// Canonical catalog operation name.
-        operation: String,
-    },
-    /// The projected description exceeds [`MAX_DESCRIPTION_CHARS`].
-    #[error(
-        "MCP tool description for `{operation}` is {chars} chars (max {MAX_DESCRIPTION_CHARS})"
-    )]
-    DescriptionTooLong {
-        /// Canonical catalog operation name.
-        operation: String,
-        /// Character count of the projected description.
-        chars: usize,
-    },
-    /// Live view grant entries are refused on the MCP surface (issue 1014).
-    #[error("Live view grant operation `{operation}` is not allowed on the MCP surface")]
-    LiveViewGrantNotAllowed {
-        /// Canonical catalog operation name.
-        operation: String,
-    },
-}
-
-/// Whether `canonical_name` is a Live view grant entry refused on the MCP
-/// surface (issue 1014, ADR 0070).
-#[must_use]
-pub fn is_live_view_grant(canonical_name: &str) -> bool {
-    canonical_name.starts_with("live_view.")
-}
-
-/// Validates that `operation` obeys every MCP projection rule: tool name in
-/// `[a-z0-9_]` of at most [`MAX_TOOL_NAME_CHARS`] characters, non-empty
-/// description of at most [`MAX_DESCRIPTION_CHARS`] characters, and never a
-/// Live view grant entry (ADRs 0065, 0070, 0099; issues 1360 and 1014).
-///
-/// # Errors
-///
-/// Returns a [`ProjectionViolation`] naming the rule `operation` breaks.
-pub fn validate_operation(operation: &Operation) -> Result<(), ProjectionViolation> {
-    if is_live_view_grant(operation.name) {
-        return Err(ProjectionViolation::LiveViewGrantNotAllowed {
-            operation: operation.name.to_owned(),
-        });
-    }
-    let name = tool_name(operation.name);
-    if !is_valid_tool_name(&name) {
-        return Err(ProjectionViolation::InvalidToolName {
-            operation: operation.name.to_owned(),
-            tool_name: name,
-        });
-    }
-    let description = description_for(operation);
-    let chars = description.chars().count();
-    if chars == 0 {
-        return Err(ProjectionViolation::EmptyDescription {
-            operation: operation.name.to_owned(),
-        });
-    }
-    if chars > MAX_DESCRIPTION_CHARS {
-        return Err(ProjectionViolation::DescriptionTooLong {
-            operation: operation.name.to_owned(),
-            chars,
-        });
-    }
-    Ok(())
-}
 
 /// Compact JSON wire byte count of a `tools/list` response for `tools`
 /// (ADR 0065, ADR 0071, issue 1360).
@@ -129,14 +38,6 @@ pub fn tool_result_wire_bytes(result: &CallToolResult) -> usize {
         .len()
 }
 
-/// Parameter omitted from `run_start` and `recipe_start` input schemas on MCP
-/// surfaces because accepting a plugin change is a granting operation
-/// (ADR 0011, ADR 0033, spec #608).
-const OMITTED_GRANTING_PARAMS: &[(&str, &str)] = &[
-    ("run.start", "accept_plugin_change"),
-    ("recipe.start", "accept_plugin_change"),
-];
-
 /// An operation projected onto an MCP [`Tool`].
 #[derive(Clone, Debug)]
 pub struct ProjectedTool {
@@ -148,71 +49,6 @@ pub struct ProjectedTool {
     pub cancellable: bool,
     /// The MCP tool definition exposed by `tools/list`.
     pub tool: Tool,
-}
-
-/// Converts a canonical catalog operation name (`namespace.member`) to its MCP
-/// tool name (`namespace_member`).
-#[must_use]
-pub fn tool_name(canonical: &str) -> String {
-    canonical.replace('.', "_")
-}
-
-/// Whether `name` satisfies the MCP tool-name rule: non-empty, at most
-/// [`MAX_TOOL_NAME_CHARS`] characters, and every character in `[a-z0-9_]`.
-#[must_use]
-pub fn is_valid_tool_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.chars().count() <= MAX_TOOL_NAME_CHARS
-        && name
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
-}
-
-/// Whether `operation` reaches a site, a search provider or a model, so its
-/// MCP `openWorldHint` annotation is `true` (spec #608).
-#[must_use]
-pub fn is_open_world(operation: &Operation) -> bool {
-    let name = operation.name;
-    let namespace = name.split('.').next().unwrap_or_default();
-    if matches!(namespace, "search" | "fetch" | "crawl" | "model") {
-        return true;
-    }
-    if name == "run.research" || name == "catalog_run.start" || name == "recipe.start" {
-        return true;
-    }
-    if namespace == "page" {
-        return matches!(
-            name,
-            "page.goto"
-                | "page.reload"
-                | "page.go_back"
-                | "page.go_forward"
-                | "page.click"
-                | "page.fill"
-                | "page.press"
-                | "page.type"
-                | "page.check"
-                | "page.uncheck"
-                | "page.select_option"
-                | "page.hover"
-                | "page.focus"
-                | "page.evaluate"
-                | "page.act"
-                | "page.observe"
-                | "page.extract"
-                | "page.agent"
-                | "page.invoke_site_tool"
-                | "page.site_tools"
-                | "page.cancel_site_tool"
-                | "page.wait_for_navigation"
-                | "page.wait_for_response"
-                | "page.wait_for_request"
-        );
-    }
-    if namespace == "locator" {
-        return operation.class == OperationClass::Effect;
-    }
-    false
 }
 
 /// Builds MCP [`ToolAnnotations`] from an operation's class and open-world rule.
@@ -236,112 +72,30 @@ pub fn annotations_for(operation: &Operation) -> ToolAnnotations {
     }
 }
 
-/// Builds the MCP tool description from the catalog operation's one text,
-/// prepending the standard deprecation line when deprecated (ADR 0099, #1360).
-#[must_use]
-pub fn description_for(operation: &Operation) -> String {
-    match &operation.deprecated {
-        Some(deprecation) => {
-            let major = deprecation.earliest_removal.major;
-            let prefix = match deprecation.replacement {
-                Some(replacement) => {
-                    format!(
-                        "Deprecated: use `{}`, removed in {major}",
-                        tool_name(replacement)
-                    )
-                }
-                None => format!("Deprecated: removed in {major}"),
-            };
-            format!("{prefix}. {}", operation.description.trim())
-        }
-        None => operation.description.trim().to_owned(),
-    }
-}
-
 /// Builds the JSON Schema object for an operation's `inputSchema`.
-///
-/// The root is always an object schema (`"type": "object"`) with any referenced
-/// definitions carried in `"$defs"`. Granting parameters excluded from agent
-/// surfaces are stripped, and deprecated operations carry `"deprecated": true`.
 #[must_use]
 pub fn input_schema_for(operation: &Operation) -> Arc<JsonObject> {
-    let mut generator = SchemaSettings::draft2020_12().into_generator();
-    let root_schema = (operation.params)(&mut generator);
-    let defs = generator.definitions().clone();
-    let mut object = resolve_root_object(root_schema.to_value(), &defs);
-
-    if !defs.is_empty() && !object.contains_key("$defs") {
-        object.insert("$defs".to_owned(), Value::Object(defs));
-    }
-
-    for &(op_name, param) in OMITTED_GRANTING_PARAMS {
-        if operation.name == op_name {
-            strip_property(&mut object, param);
-        }
-    }
-
-    if operation.deprecated.is_some() {
-        object.insert("deprecated".to_owned(), Value::Bool(true));
-    }
-
-    if !object.contains_key("type") {
-        object.insert("type".to_owned(), Value::String("object".to_owned()));
-    }
-    if !object.contains_key("properties") {
-        object.insert("properties".to_owned(), Value::Object(Map::new()));
-    }
-
-    Arc::new(object)
-}
-
-/// Resolves a `$ref` root schema against `$defs` into an inline object schema
-/// so every MCP client receives a top-level `"type": "object"` schema.
-fn resolve_root_object(root: Value, defs: &Map<String, Value>) -> JsonObject {
-    let Value::Object(mut map) = root else {
-        return Map::new();
-    };
-    if let Some(reference) = map.get("$ref").and_then(Value::as_str)
-        && let Some(def_name) = reference.strip_prefix("#/$defs/")
-        && let Some(Value::Object(resolved)) = defs.get(def_name)
-    {
-        let mut merged = resolved.clone();
-        for (key, value) in map {
-            if key != "$ref" {
-                merged.insert(key, value);
-            }
-        }
-        map = merged;
-    }
-    map
-}
-
-/// Removes `param` from `properties` and `required` of an object schema.
-fn strip_property(schema: &mut JsonObject, param: &str) {
-    if let Some(Value::Object(properties)) = schema.get_mut("properties") {
-        properties.remove(param);
-    }
-    if let Some(Value::Array(required)) = schema.get_mut("required") {
-        required.retain(|item| item.as_str() != Some(param));
-        if required.is_empty() {
-            schema.remove("required");
-        }
-    }
+    Arc::new(goodfetch_protocol::mcp_projection::input_schema_for(
+        operation,
+    ))
 }
 
 /// Projects a single catalog [`Operation`] onto an MCP [`ProjectedTool`].
 #[must_use]
 pub fn project_operation(operation: &'static Operation) -> ProjectedTool {
-    let name = tool_name(operation.name);
-    let description = description_for(operation);
-    let input_schema = input_schema_for(operation);
+    let spec = goodfetch_protocol::mcp_projection::project_operation(operation);
     let annotations = annotations_for(operation);
-    let tool = Tool::new(Cow::Owned(name), Cow::Owned(description), input_schema)
-        .with_annotations(annotations);
+    let tool = Tool::new(
+        Cow::Owned(spec.name),
+        Cow::Owned(spec.description),
+        Arc::new(spec.input_schema),
+    )
+    .with_annotations(annotations);
 
     ProjectedTool {
-        operation: operation.name,
-        class: operation.class,
-        cancellable: operation.cancellable,
+        operation: spec.operation,
+        class: spec.class,
+        cancellable: spec.cancellable,
         tool,
     }
 }

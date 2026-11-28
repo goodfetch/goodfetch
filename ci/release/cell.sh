@@ -345,7 +345,7 @@ case "$part" in
       --outputFile.junit="target/junit/vitest-adapters-peer-ranges.xml" || status=$?
     GOODFETCH_ADAPTER_WHEELHOUSE="$root/target/release-suite/adapter-wheelhouse" \
       uv run --frozen pytest \
-      adapters/collie/langchain/tests/unit/test_peer_range.py \
+      adapters/collie/langchain/tests/integration/test_peer_range_integration.py \
       --junitxml="target/junit/pytest-adapters-peer-ranges.xml" || status=$?
     exit "$status"
     ;;

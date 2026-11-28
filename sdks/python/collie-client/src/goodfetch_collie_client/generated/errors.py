@@ -1097,6 +1097,14 @@ class RecordingInvalidError(ProgramError):
         self.typed_details = details_of(RecordingInvalidDetails, self.details)
 
 
+class RemoteDebuggingDisabledByPolicyError(RefusedError):
+    """An administrator policy (such as `RemoteDebuggingAllowed = false` or `DeveloperToolsAvailability = 2`) has disabled consented remote debugging on the named running browser (ADR 0056)."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="remote_debugging_disabled_by_policy", group="refused", retryable=False, **fields)
+
+
 class ReplayNotAllowedError(ProgramError):
     """A Schedule's target sets `cache.mode` to `replay`, whose replayed pages would hide a change from the Baseline. Set `revalidate` or `off` for a scheduled target."""
 
@@ -1329,6 +1337,14 @@ class RunTargetUnbuiltError(UnavailableError):
         self.typed_details = details_of(RunTargetUnbuiltDetails, self.details)
 
 
+class RunningBrowserUnsupportedError(ProgramError):
+    """The named running browser does not implement consented remote debugging (for example Firefox, Safari, or Brave); use Chrome or Edge, or import cookies via `installed_browser` or `state_file` (ADR 0056)."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="running_browser_unsupported", group="program", retryable=False, **fields)
+
+
 class SampleRefusedError(RefusedError):
     """The sample operation refused the text."""
 
@@ -1494,7 +1510,7 @@ class SessionExportOpenFailedError(ProgramError):
 
 
 class SessionNotSavableError(ProgramError):
-    """This Session's source cannot be saved as a Saved identity directly (for example, a Profile directory used in place); import via the named alternative instead (ADR 0092)."""
+    """This Session's source cannot be saved as a Saved identity directly (for example, a Profile directory used in place or a Borrowed browser); import via the named alternative instead (ADRs 0056 and 0092)."""
 
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
@@ -1777,6 +1793,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "proxy_unavailable": ProxyUnavailableError,
     "recipe_invalid": RecipeInvalidError,
     "recording_invalid": RecordingInvalidError,
+    "remote_debugging_disabled_by_policy": RemoteDebuggingDisabledByPolicyError,
     "replay_not_allowed": ReplayNotAllowedError,
     "resources_exhausted": ResourcesExhaustedError,
     "response_limit_exceeded": ResponseLimitExceededError,
@@ -1797,6 +1814,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "run_state_filesystem_unsupported": RunStateFilesystemUnsupportedError,
     "run_state_unavailable": RunStateUnavailableError,
     "run_target_unbuilt": RunTargetUnbuiltError,
+    "running_browser_unsupported": RunningBrowserUnsupportedError,
     "sample_refused": SampleRefusedError,
     "saved_identity_mismatch": SavedIdentityMismatchError,
     "saved_identity_not_found": SavedIdentityNotFoundError,

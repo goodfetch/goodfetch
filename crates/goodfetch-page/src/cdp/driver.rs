@@ -631,6 +631,12 @@ pub(crate) trait Connect: Send + Sync {
     fn borrowed(&self) -> bool {
         false
     }
+
+    /// Maps an open-time failure on a Borrowed browser (e.g. connection dropped
+    /// while `Opening`) to `cdp_url_unreachable`.
+    fn map_open_failure(&self, error: CallError) -> CallError {
+        error
+    }
 }
 
 /// A browser several Sessions share, as the Run's Sessions share the
@@ -642,6 +648,10 @@ impl<B: Connect> Connect for Arc<B> {
 
     fn borrowed(&self) -> bool {
         B::borrowed(self)
+    }
+
+    fn map_open_failure(&self, error: CallError) -> CallError {
+        B::map_open_failure(self, error)
     }
 }
 
@@ -718,6 +728,13 @@ impl Connect for Behind {
 
     fn borrowed(&self) -> bool {
         matches!(self, Self::Borrowed(_))
+    }
+
+    fn map_open_failure(&self, error: CallError) -> CallError {
+        match self {
+            Self::Launched(_) => error,
+            Self::Borrowed(browser) => browser.map_open_failure(error),
+        }
     }
 }
 
@@ -895,9 +912,12 @@ impl Connect for BorrowedBrowser {
                 // The first answer says a browser speaks CDP there.
                 let version = browser
                     .send(None, &browser::GetVersionParams {}, &browser.launching())
-                    .await?;
+                    .await
+                    .map_err(|error| self.map_open_failure(error))?;
                 browser.product = Some(Arc::from(version.product));
-                service_workers::start(&browser, &tasks).await?;
+                service_workers::start(&browser, &tasks)
+                    .await
+                    .map_err(|error| self.map_open_failure(error))?;
                 Ok(browser)
             })
             .await
@@ -906,6 +926,31 @@ impl Connect for BorrowedBrowser {
 
     fn borrowed(&self) -> bool {
         true
+    }
+
+    fn map_open_failure(&self, error: CallError) -> CallError {
+        Self::map_open_failure(self, error)
+    }
+}
+
+impl BorrowedBrowser {
+    /// Maps a connection drop during `Opening` on a `cdp_url` or
+    /// `running_browser` to `cdp_url_unreachable` (ADRs 0056 and 0115; #742).
+    pub(crate) fn map_open_failure(&self, error: CallError) -> CallError {
+        let BorrowedSource::CdpUrl(cdp_url) = &self.source else {
+            return error;
+        };
+        if error.code() == goodfetch_protocol::page::BROWSER_LAUNCH_FAILED.name
+            || error.code() == goodfetch_protocol::page::PAGE_CRASHED.name
+        {
+            return borrowed::unreachable(
+                &cdp_url.address(),
+                cdp_url.origin.layer,
+                goodfetch_protocol::page::cdp_url::CdpUrlConnectFailure::ConnectionReset,
+                &error.to_string(),
+            );
+        }
+        error
     }
 }
 
@@ -1226,16 +1271,17 @@ impl<B: Connect> SessionDriver<B> {
                 if self.browser.borrowed() {
                     let contexts = browser
                         .send(None, &target::GetBrowserContextsParams {}, &opening)
-                        .await?;
+                        .await
+                        .map_err(|error| self.browser.map_open_failure(error))?;
                     let default = contexts.default_browser_context_id.ok_or_else(|| {
-                        CallError::new(
+                        self.browser.map_open_failure(CallError::new(
                             &goodfetch_protocol::page::BROWSER_LAUNCH_FAILED,
                             "the Borrowed browser names no default browser context",
                             &goodfetch_protocol::page::BrowserLaunchFailedDetails {
                                 executable: browser.executable.clone(),
                                 exit: None,
                             },
-                        )
+                        ))
                     })?;
                     browser
                         .state

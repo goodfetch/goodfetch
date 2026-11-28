@@ -2107,6 +2107,8 @@ pub const ENTRIES: Entries = Entries {
         session::PROFILE_DIRECTORY_BROWSER_MISMATCH,
         session::PROFILE_DIRECTORY_NEWER_THAN_BROWSER,
         session::SESSION_NOT_SAVABLE,
+        session::REMOTE_DEBUGGING_DISABLED_BY_POLICY,
+        session::RUNNING_BROWSER_UNSUPPORTED,
         cdp_session::CDP_COMMAND_REFUSED,
         lend::SESSION_RESERVED,
         borrow::BORROW_REQUIRES_CDP,

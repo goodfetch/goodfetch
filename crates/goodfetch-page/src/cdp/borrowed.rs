@@ -27,6 +27,9 @@ use goodfetch_engine::egress::{
 use goodfetch_engine::http_client;
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::settings::{Resolved, RunSettings};
+use goodfetch_protocol::page::cdp_url::{
+    CDP_URL_UNREACHABLE, CdpUrlConnectFailure, CdpUrlUnreachableDetails,
+};
 use goodfetch_protocol::page::{BROWSER_LAUNCH_FAILED, BrowserLaunchFailedDetails};
 use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, SESSION_SOURCE, SETTING_INVALID,
@@ -104,21 +107,42 @@ pub(crate) async fn connect(
     let settings = run.identity.settings().map(RunSettings::resolved);
     let addresses = http_client::lookup(&host, port, &resolve_of(settings))
         .await
-        .map_err(|_| unreachable(&address, "its host has no address"))?;
+        .map_err(|_| {
+            unreachable(
+                &address,
+                cdp_url.origin.layer,
+                CdpUrlConnectFailure::NameNotResolved,
+                "its host has no address",
+            )
+        })?;
     let policy = session_policy(settings)?;
     let endpoints = settings.map(EndpointPolicy::of).unwrap_or_default();
     judge_cdp_url(&cdp_url.url, &addresses, cdp_url.origin, &policy, endpoints)
         .map_err(|refused| refused.error())?;
     let stream = TcpStream::connect(addresses.as_slice())
         .await
-        .map_err(|error| unreachable(&address, &error.to_string()))?;
+        .map_err(|error| {
+            let failure = if error.kind() == std::io::ErrorKind::ConnectionReset {
+                CdpUrlConnectFailure::ConnectionReset
+            } else {
+                CdpUrlConnectFailure::ConnectionRefused
+            };
+            unreachable(&address, cdp_url.origin.layer, failure, &error.to_string())
+        })?;
     let (socket, _) = tokio_tungstenite::client_async_with_config(
         cdp_url.url.as_str(),
         stream,
         Some(websocket_config()),
     )
     .await
-    .map_err(|error| unreachable(&address, &error.to_string()))?;
+    .map_err(|error| {
+        unreachable(
+            &address,
+            cdp_url.origin.layer,
+            CdpUrlConnectFailure::ConnectionReset,
+            &error.to_string(),
+        )
+    })?;
     let log = super::command_log::command_log(run)
         .await
         .map_err(|error| {
@@ -199,14 +223,22 @@ fn unsupported(cdp_url: &CdpUrl) -> CallError {
     )
 }
 
-/// The failure of reaching the browser at `address`.
-fn unreachable(address: &str, why: &str) -> CallError {
+/// The failure of reaching the browser at `address` while opening a Borrowed
+/// Session (`cdp_url_unreachable`, ADR 0115; tickets #742 and #743).
+pub(crate) fn unreachable(
+    address: &str,
+    layer: goodfetch_protocol::settings::SettingsLayer,
+    failure: CdpUrlConnectFailure,
+    why: &str,
+) -> CallError {
     CallError::new(
-        &BROWSER_LAUNCH_FAILED,
-        format!("the browser at the `cdp_url` {address} cannot be reached: {why}"),
-        &BrowserLaunchFailedDetails {
-            executable: address.to_owned(),
-            exit: None,
+        &CDP_URL_UNREACHABLE,
+        format!("the browser at {address} cannot be reached: {why}"),
+        &CdpUrlUnreachableDetails {
+            url: address.to_owned(),
+            layer,
+            failure,
+            fix: "start the browser with remote debugging enabled or check the address".to_owned(),
         },
     )
 }

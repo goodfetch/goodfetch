@@ -134,6 +134,11 @@ pub enum SessionSource {
         /// The registrable domains its navigation is bound to.
         #[schemars(extend("arrived_in" = "0.1"))]
         domains: Vec<String>,
+        /// Optional user data directory holding `DevToolsActivePort`; when
+        /// omitted, resolves the OS default user data directory for `browser`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        path: Option<String>,
     },
     /// A browser at a CDP address (ADR 0115).
     CdpUrl {

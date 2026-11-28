@@ -1800,6 +1800,11 @@ class SessionSourceRunningBrowser(TypedDict):
 
     kind: Literal["running_browser"]
 
+    path: NotRequired[str | None]
+    """Optional user data directory holding `DevToolsActivePort`; when
+    omitted, resolves the OS default user data directory for `browser`.
+    """
+
 
 class SessionSourceCDPURL(TypedDict):
     """A browser at a CDP address (ADR 0115)."""

@@ -5165,6 +5165,11 @@ class SessionSource6(BaseModel):
     domains: list[str]
     """The registrable domains its navigation is bound to."""
     kind: Literal["running_browser"]
+    path: str | None = None
+    """
+    Optional user data directory holding `DevToolsActivePort`; when
+    omitted, resolves the OS default user data directory for `browser`.
+    """
 
 
 class SessionSource7(BaseModel):

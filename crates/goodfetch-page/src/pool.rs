@@ -205,6 +205,10 @@ struct Browsers {
     /// Each Borrowed browser a seat reached, outside the pool's own, whose
     /// owner stops with the Run.
     borrowed: Vec<Arc<BorrowedBrowser>>,
+    /// One shared Borrowed browser connection per `running_browser` user data
+    /// directory for the Run's life (ADR 0056; ticket #742): approved once,
+    /// never reopened in a loop.
+    running: BTreeMap<std::path::PathBuf, Arc<BorrowedBrowser>>,
 }
 
 /// A browser of the pool.
@@ -600,6 +604,44 @@ impl Pool {
             .push(Arc::clone(&browser));
         // A Borrowed browser shows its pages as it was started: the window
         // is never asked for.
+        self.seat_of(
+            (
+                (BrowserPlacement::Shared, Window::Headless),
+                egress,
+                SessionEmulation::borrowed(),
+            ),
+            Some(BorrowedSeat {
+                browser,
+                context: None,
+            }),
+            Carried::default(),
+            tasks,
+        )
+    }
+
+    /// A seat for a Session on a person's running browser (`running_browser`,
+    /// ADR 0056; ticket #742): shares one consented connection per Run per
+    /// user data directory, held for the Run's life, never closing the browser.
+    pub(crate) fn running_browser_seat(
+        &self,
+        data_dir: std::path::PathBuf,
+        cdp_url: CdpUrl,
+        egress: SessionEgress,
+        tasks: TaskStarter,
+    ) -> Seat {
+        let browser = {
+            let mut browsers = lock(&self.shared.browsers);
+            if let Some(existing) = browsers.running.get(&data_dir)
+                && !existing.is_stopped()
+            {
+                Arc::clone(existing)
+            } else {
+                let created = Arc::new(BorrowedBrowser::new(Arc::clone(&self.shared.run), cdp_url));
+                browsers.borrowed.push(Arc::clone(&created));
+                browsers.running.insert(data_dir, Arc::clone(&created));
+                created
+            }
+        };
         self.seat_of(
             (
                 (BrowserPlacement::Shared, Window::Headless),
@@ -1044,6 +1086,7 @@ impl Pool {
                 .into_values()
                 .map(|pooled| pooled.browser)
                 .collect();
+            browsers.running.clear();
             (launched, std::mem::take(&mut browsers.borrowed))
         };
         let launched = launched.iter().map(|browser| browser.close());

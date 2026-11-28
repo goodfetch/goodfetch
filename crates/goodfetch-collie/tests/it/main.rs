@@ -131,6 +131,8 @@ mod renderer_sandbox;
 mod request_kinds;
 mod request_secrets;
 mod run;
+#[cfg(unix)]
+mod running_browser;
 mod rust_client;
 mod saved_identities;
 mod schedules;

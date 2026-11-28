@@ -239,6 +239,38 @@ pub struct SessionNotSavableDetails {
     pub alternative: String,
 }
 
+/// What `remote_debugging_disabled_by_policy` details (ADR 0056; ticket #742).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RemoteDebuggingDisabledByPolicyDetails {
+    /// The browser family whose administrator policy disabled remote debugging.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub browser: String,
+    /// The managed policy file that disabled remote debugging, when found on disk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub policy_path: Option<String>,
+    /// The policy key that disabled remote debugging (for example `RemoteDebuggingAllowed`).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub policy_key: String,
+    /// Suggested alternative or administrator action.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
+/// What `running_browser_unsupported` details (ADR 0056; ticket #742).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RunningBrowserUnsupportedDetails {
+    /// The browser family requested in `session.source`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub browser: String,
+    /// Why this running browser cannot be borrowed via consented remote debugging.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub reason: String,
+    /// Suggested alternative (for example `installed_browser`, `profile_directory`, or `state_file`).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
 /// `profile_directory_in_use`.
 pub const PROFILE_DIRECTORY_IN_USE: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "profile_directory_in_use",
@@ -272,7 +304,27 @@ pub const PROFILE_DIRECTORY_NEWER_THAN_BROWSER: ErrorCodeDefinition = ErrorCodeD
 /// `session_not_savable`.
 pub const SESSION_NOT_SAVABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "session_not_savable",
-    description: "This Session's source cannot be saved as a Saved identity directly (for example, a Profile directory used in place); import via the named alternative instead (ADR 0092).",
+    description: "This Session's source cannot be saved as a Saved identity directly (for example, a Profile directory used in place or a Borrowed browser); import via the named alternative instead (ADRs 0056 and 0092).",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `remote_debugging_disabled_by_policy`.
+pub const REMOTE_DEBUGGING_DISABLED_BY_POLICY: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "remote_debugging_disabled_by_policy",
+    description: "An administrator policy (such as `RemoteDebuggingAllowed = false` or `DeveloperToolsAvailability = 2`) has disabled consented remote debugging on the named running browser (ADR 0056).",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `running_browser_unsupported`.
+pub const RUNNING_BROWSER_UNSUPPORTED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "running_browser_unsupported",
+    description: "The named running browser does not implement consented remote debugging (for example Firefox, Safari, or Brave); use Chrome or Edge, or import cookies via `installed_browser` or `state_file` (ADR 0056).",
     group: ErrorGroup::Program,
     retryable: false,
     exit_code: None,

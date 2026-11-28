@@ -1280,6 +1280,11 @@ export type SessionSource =
        */
       domains: string[];
       kind: "running_browser";
+      /**
+       * Optional user data directory holding `DevToolsActivePort`; when
+       * omitted, resolves the OS default user data directory for `browser`.
+       */
+      path?: string | null;
     }
   | {
       /**

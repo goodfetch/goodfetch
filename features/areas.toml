@@ -1245,6 +1245,17 @@ number = 5
 kind = "error"
 prefix = "session_not_savable"
 
+# Consented remote debugging of the person's running browser (#742, ADR 0056).
+[[area]]
+number = 5
+kind = "error"
+prefix = "remote_debugging_disabled_by_policy"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "running_browser_unsupported"
+
 # Raw CDP sessions (page.newCDPSession(), #751, ADR 0085).
 [[area]]
 number = 5

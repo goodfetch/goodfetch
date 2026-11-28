@@ -2677,6 +2677,17 @@
       ]
     },
     {
+      "id": "error:remote_debugging_disabled_by_policy",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:replay_not_allowed",
       "kind": "error",
       "area": 6,
@@ -2929,6 +2940,17 @@
       "id": "error:run_target_unbuilt",
       "kind": "error",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:running_browser_unsupported",
+      "kind": "error",
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [

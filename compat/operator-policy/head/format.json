@@ -5315,6 +5315,14 @@
                           "kind": {
                             "const": "running_browser",
                             "type": "string"
+                          },
+                          "path": {
+                            "arrived_in": "0.1",
+                            "description": "Optional user data directory holding `DevToolsActivePort`; when\nomitted, resolves the OS default user data directory for `browser`.",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
                           }
                         },
                         "required": [
@@ -10715,6 +10723,14 @@
                           "kind": {
                             "const": "running_browser",
                             "type": "string"
+                          },
+                          "path": {
+                            "arrived_in": "0.1",
+                            "description": "Optional user data directory holding `DevToolsActivePort`; when\nomitted, resolves the OS default user data directory for `browser`.",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
                           }
                         },
                         "required": [

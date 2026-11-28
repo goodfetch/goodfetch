@@ -21189,6 +21189,14 @@
             "kind": {
               "const": "running_browser",
               "type": "string"
+            },
+            "path": {
+              "arrived_in": "0.1",
+              "description": "Optional user data directory holding `DevToolsActivePort`; when\nomitted, resolves the OS default user data directory for `browser`.",
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           "required": [
@@ -25904,6 +25912,16 @@
       },
       {
         "arrived_in": "0.1",
+        "description": "An administrator policy (such as `RemoteDebuggingAllowed = false` or `DeveloperToolsAvailability = 2`) has disabled consented remote debugging on the named running browser (ADR 0056).",
+        "exit_code": null,
+        "group": "refused",
+        "json_rpc_class": -32002,
+        "name": "remote_debugging_disabled_by_policy",
+        "product": "collie",
+        "retryable": false
+      },
+      {
+        "arrived_in": "0.1",
         "description": "A Schedule's target sets `cache.mode` to `replay`, whose replayed pages would hide a change from the Baseline. Set `revalidate` or `off` for a scheduled target.",
         "exit_code": null,
         "group": "program",
@@ -26204,6 +26222,16 @@
       },
       {
         "arrived_in": "0.1",
+        "description": "The named running browser does not implement consented remote debugging (for example Firefox, Safari, or Brave); use Chrome or Edge, or import cookies via `installed_browser` or `state_file` (ADR 0056).",
+        "exit_code": null,
+        "group": "program",
+        "json_rpc_class": -32001,
+        "name": "running_browser_unsupported",
+        "product": "collie",
+        "retryable": false
+      },
+      {
+        "arrived_in": "0.1",
         "description": "The sample crawl refused its pages.",
         "exit_code": null,
         "group": "refused",
@@ -26393,7 +26421,7 @@
       },
       {
         "arrived_in": "0.1",
-        "description": "This Session's source cannot be saved as a Saved identity directly (for example, a Profile directory used in place); import via the named alternative instead (ADR 0092).",
+        "description": "This Session's source cannot be saved as a Saved identity directly (for example, a Profile directory used in place or a Borrowed browser); import via the named alternative instead (ADRs 0056 and 0092).",
         "exit_code": null,
         "group": "program",
         "json_rpc_class": -32001,
@@ -39062,6 +39090,14 @@
                 "kind": {
                   "const": "running_browser",
                   "type": "string"
+                },
+                "path": {
+                  "arrived_in": "0.1",
+                  "description": "Optional user data directory holding `DevToolsActivePort`; when\nomitted, resolves the OS default user data directory for `browser`.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [

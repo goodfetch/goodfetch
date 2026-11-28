@@ -111,6 +111,7 @@ mod navigation;
 mod paused;
 mod reads;
 mod requests;
+pub(crate) mod running_browser;
 mod runtime_values;
 
 use goodfetch_cdp::Command as _;

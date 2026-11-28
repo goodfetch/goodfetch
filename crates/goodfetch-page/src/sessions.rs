@@ -292,10 +292,11 @@ struct Session {
     /// (ADR 0056; ticket #737): `session.save_identity` refuses it with
     /// `session_not_savable`.
     is_profile_directory: bool,
-    /// Whether this Session runs on a Borrowed browser (`cdp_url` or
-    /// `run.borrow()`, ADRs 0056, 0089, 0092): `session.save_identity` refuses
-    /// it with `session_not_savable`.
-    is_borrowed: bool,
+    /// When this Session runs on a Borrowed browser (`cdp_url`,
+    /// `running_browser`, or `client_browser`, ADRs 0056, 0089, 0092), names
+    /// its source kind so `session.save_identity` refuses it with
+    /// `session_not_savable` and names the import that works instead.
+    borrowed_source: Option<&'static str>,
     /// The browser family this Session runs on (Chromium, Firefox, WebKit).
     browser_family: BrowserFamily,
     /// The Access mode this Session opened under (ADR 0035).
@@ -802,7 +803,7 @@ impl Sessions {
                 page_listeners: session_pages::PageListeners::default(),
                 run_index: context.engine().run_index().clone(),
                 is_profile_directory: opened.profile().is_some(),
-                is_borrowed: borrowed.is_some(),
+                borrowed_source: borrowed.map(|target| target.source_kind),
                 browser_family,
                 access_mode: identity.mode,
                 identity_seed: seed,
@@ -1063,7 +1064,7 @@ impl Sessions {
             page_listeners: session_pages::PageListeners::default(),
             run_index: context.engine().run_index().clone(),
             is_profile_directory: source.profile().is_some(),
-            is_borrowed: borrowed.is_some(),
+            borrowed_source: borrowed.map(|target| target.source_kind),
             browser_family: BrowserFamily::Chromium,
             access_mode: identity.mode,
             identity_seed: seed,
@@ -1244,7 +1245,7 @@ impl Sessions {
                 page_listeners: session_pages::PageListeners::default(),
                 run_index: context.engine().run_index().clone(),
                 is_profile_directory: false,
-                is_borrowed: true,
+                borrowed_source: Some("client_browser"),
                 browser_family: BrowserFamily::Chromium,
                 access_mode: crate::access_mode::AccessMode::Standard,
                 identity_seed: IdentitySeed(0),
@@ -1337,13 +1338,20 @@ impl Sessions {
                 },
             ));
         }
-        if open.is_borrowed {
+        if let Some(source) = open.borrowed_source {
+            let alternative = if source == "running_browser" {
+                "installed_browser"
+            } else {
+                "state_file"
+            };
             return Err(CallError::new(
                 &goodfetch_protocol::page::session::SESSION_NOT_SAVABLE,
-                "A Session on a Borrowed browser cannot be saved directly as a Saved identity; export or import via `state_file` instead (ADRs 0056, 0092).",
+                format!(
+                    "A Session on a Borrowed browser (`{source}`) cannot be saved directly as a Saved identity; import via `{alternative}` instead (ADRs 0056, 0092)."
+                ),
                 &goodfetch_protocol::page::session::SessionNotSavableDetails {
-                    source: "client_browser".to_owned(),
-                    alternative: "state_file".to_owned(),
+                    source: source.to_owned(),
+                    alternative: alternative.to_owned(),
                 },
             ));
         }
@@ -2060,11 +2068,12 @@ impl Sessions {
         context: &CallContext,
     ) -> Result<(), CallError> {
         let source = match opened.borrowed() {
-            Some(cdp_url) => {
+            Some(target) => {
                 let source = json!({
-                    "url": cdp_url.url,
-                    "layer": cdp_url.origin.layer,
-                    "acting_for_model": cdp_url.origin.acting_for_model,
+                    "url": target.cdp_url.url,
+                    "layer": target.cdp_url.origin.layer,
+                    "acting_for_model": target.cdp_url.origin.acting_for_model,
+                    "source_kind": target.source_kind,
                 })
                 .to_string();
                 let sealed = run
@@ -2631,9 +2640,14 @@ async fn reopened_session(
             FRESH,
         ),
     };
+    let reopened_borrowed = borrowed.as_ref().map(|cdp_url| BorrowedTarget {
+        cdp_url: cdp_url.clone(),
+        running_browser_key: None,
+        source_kind: "cdp_url",
+    });
     let interception = session_interception(
         (&session, run),
-        borrowed.as_ref(),
+        reopened_borrowed.as_ref(),
         (relay.is_some(), proxy.is_some()),
         signing,
         gpc.header_only(),
@@ -2665,7 +2679,7 @@ async fn reopened_session(
         page_listeners: session_pages::PageListeners::default(),
         run_index: context.engine().run_index().clone(),
         is_profile_directory: false,
-        is_borrowed: borrowed.is_some(),
+        borrowed_source: borrowed.as_ref().map(|_| "cdp_url"),
         browser_family: BrowserFamily::Chromium,
         access_mode,
         identity_seed: seed,
@@ -2875,9 +2889,20 @@ struct ImportedSession {
     warnings: Vec<crate::cdp::import::ImportWarning>,
 }
 
+/// A Borrowed browser resolved from `cdp_url` or `running_browser` (ADR 0056).
+#[derive(Clone, Debug)]
+struct BorrowedTarget {
+    cdp_url: CdpUrl,
+    /// When set, shares one consented connection per Run per user data
+    /// directory (`running_browser`, ADR 0056; ticket #742).
+    running_browser_key: Option<std::path::PathBuf>,
+    /// The `session.source` kind (`"cdp_url"` or `"running_browser"`).
+    source_kind: &'static str,
+}
+
 enum OpenedSource {
     Fresh,
-    Borrowed(CdpUrl),
+    Borrowed(BorrowedTarget),
     Carried(Carried),
     Imported(Box<ImportedSession>),
     ProfileDirectory(crate::profile_directory::ProfileDirectory),
@@ -2885,9 +2910,9 @@ enum OpenedSource {
 }
 
 impl OpenedSource {
-    fn borrowed(&self) -> Option<&CdpUrl> {
+    fn borrowed(&self) -> Option<&BorrowedTarget> {
         match self {
-            Self::Borrowed(cdp_url) => Some(cdp_url),
+            Self::Borrowed(target) => Some(target),
             Self::Fresh
             | Self::Carried(_)
             | Self::Imported(_)
@@ -2984,13 +3009,20 @@ async fn opening_source(
         }
         SessionSource::CdpUrl {
             url, headers: None, ..
-        } => Ok(OpenedSource::Borrowed(CdpUrl {
-            url,
-            origin: CdpUrlOrigin {
-                layer,
-                acting_for_model,
+        } => Ok(OpenedSource::Borrowed(BorrowedTarget {
+            cdp_url: CdpUrl {
+                url,
+                origin: CdpUrlOrigin {
+                    layer,
+                    acting_for_model,
+                },
             },
+            running_browser_key: None,
+            source_kind: "cdp_url",
         })),
+        SessionSource::RunningBrowser { browser, path, .. } => {
+            open_running_browser(run, browser, path, layer, acting_for_model).await
+        }
         SessionSource::StateFile {
             path,
             format,
@@ -3052,8 +3084,41 @@ async fn opening_source(
                 .await?;
             Ok(OpenedSource::ProfileDirectory(profile))
         }
-        source => Err(unsupported_session_source(&source, layer)),
+        source @ SessionSource::CdpUrl { .. } => Err(unsupported_session_source(&source, layer)),
     }
+}
+
+async fn open_running_browser(
+    run: &Arc<BrowserRun>,
+    browser: goodfetch_protocol::settings::session_source::BrowserName,
+    path: Option<String>,
+    layer: SettingsLayer,
+    acting_for_model: bool,
+) -> Result<OpenedSource, CallError> {
+    let launch_deadline = Deadline::of_resolved(
+        run.identity.settings().map(RunSettings::resolved),
+        &goodfetch_protocol::settings::TIMEOUT_LAUNCH,
+    )
+    .duration();
+    let discovered = crate::cdp::running_browser::discover(
+        crate::cdp::running_browser::RunningBrowserRequest {
+            browser,
+            path: path.map(std::path::PathBuf::from),
+            origin: CdpUrlOrigin {
+                layer,
+                acting_for_model,
+            },
+        },
+        launch_deadline,
+        run.identity.owner().child_token(),
+        run.identity.owner(),
+    )
+    .await?;
+    Ok(OpenedSource::Borrowed(BorrowedTarget {
+        cdp_url: discovered.cdp_url,
+        running_browser_key: Some(discovered.data_dir),
+        source_kind: "running_browser",
+    }))
 }
 
 fn unsupported_session_source(source: &SessionSource, layer: SettingsLayer) -> CallError {
@@ -3235,22 +3300,22 @@ async fn import_state_file(
 /// Refuses a proxy under a Borrowed browser: no proxy can be put under a
 /// browser that is already running (ADR 0056).
 fn no_proxy_under(
-    borrowed: Option<&CdpUrl>,
+    borrowed: Option<&BorrowedTarget>,
     proxy: Option<&SessionProxy>,
 ) -> Result<(), CallError> {
-    let (Some(cdp_url), Some(_)) = (borrowed, proxy) else {
+    let (Some(target), Some(_)) = (borrowed, proxy) else {
         return Ok(());
     };
     Err(CallError::new(
         &CAPABILITY_UNAVAILABLE,
         format!(
             "A Session on the Borrowed browser at {} takes no `proxy.*`: no proxy can be put under a browser that is already running. Leave the `proxy.*` keys unset for it.",
-            cdp_url.address()
+            target.cdp_url.address()
         ),
         &CapabilityUnavailableDetails {
             key: SESSION_SOURCE.name.to_owned(),
-            layer: cdp_url.origin.layer,
-            kind: "cdp_url".to_owned(),
+            layer: target.cdp_url.origin.layer,
+            kind: target.source_kind.to_owned(),
             fix: "leave the `proxy.*` keys unset".to_owned(),
         },
     ))
@@ -3430,7 +3495,7 @@ async fn reopened_identity(
 /// else a pooled seat under `placement`, `egress`, and `emulation`.
 fn open_seat(
     pool: &Pool,
-    borrowed: Option<&CdpUrl>,
+    borrowed: Option<&BorrowedTarget>,
     carried: Option<&Carried>,
     placement: (BrowserPlacement, Window),
     egress: SessionEgress,
@@ -3438,7 +3503,12 @@ fn open_seat(
     tasks: TaskStarter,
 ) -> Seat {
     match borrowed {
-        Some(cdp_url) => pool.borrowed_seat(cdp_url.clone(), egress, tasks),
+        Some(target) => match &target.running_browser_key {
+            Some(data_dir) => {
+                pool.running_browser_seat(data_dir.clone(), target.cdp_url.clone(), egress, tasks)
+            }
+            None => pool.borrowed_seat(target.cdp_url.clone(), egress, tasks),
+        },
         None => match carried.filter(|carried| !carried.is_empty()) {
             Some(carried) => {
                 pool.seat_with_carried(placement, egress, emulation, carried.clone(), tasks)
@@ -3546,19 +3616,21 @@ async fn warn_gpc(run: &BrowserRun, session: &SessionId, gpc: GpcPlan) {
 /// `Sec-GPC: 1` when `send_gpc_header` is set (ADR 0048).
 fn session_interception(
     (session, run): (&SessionId, &Arc<BrowserRun>),
-    borrowed: Option<&CdpUrl>,
+    borrowed: Option<&BorrowedTarget>,
     (relayed, proxied): (bool, bool),
     signing: Option<Arc<RequestSigner>>,
     send_gpc_header: bool,
     identified: bool,
     own_settings: Values,
 ) -> Arc<SessionInterception> {
-    let lookups = held_browser(borrowed, relayed, proxied).map(|browser| {
-        Lookups::new(
-            resolve_of(run.identity.settings().map(RunSettings::resolved)),
-            browser,
-        )
-    });
+    let lookups =
+        held_browser(borrowed.map(|target| &target.cdp_url), relayed, proxied).map(|browser| {
+            Lookups::new(
+                resolve_of(run.identity.settings().map(RunSettings::resolved)),
+                browser,
+                run.identity.clock(),
+            )
+        });
     // Its requests are answered from its Run's sources, as the HTTP tier's
     // are, so an entry either stored serves the other where the key
     // matches (ADR 0046).
@@ -3722,7 +3794,7 @@ async fn open_relay(
 
 /// The Session source kind of a Session on the Borrowed browser at
 /// `borrowed`, else on a browser the engine launches.
-fn source_of(borrowed: Option<&CdpUrl>) -> Source {
+fn source_of(borrowed: Option<&BorrowedTarget>) -> Source {
     match borrowed {
         Some(_) => Source::Borrowed,
         None => Source::Launched,

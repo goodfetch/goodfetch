@@ -27,7 +27,6 @@ use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::{ClientRequestError, Sent};
 use goodfetch_engine::egress::{self, Gate, Policy, Refused, RequestKind};
-use goodfetch_engine::http_client;
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::net_error::NetError;
 use goodfetch_engine::response_limits::Limits;
@@ -1248,7 +1247,7 @@ impl PageContext {
         let Some(port) = judged.port().filter(|_| !judged.host().is_empty()) else {
             return Ok(());
         };
-        match http_client::lookup(judged.lookup_name(), port, lookups.resolve()).await {
+        match lookups.lookup(judged.lookup_name(), port).await {
             Ok(addresses) => judged.addresses(&addresses),
             Err(failure) => {
                 let location = lookups.location().await;

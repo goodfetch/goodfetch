@@ -58,6 +58,13 @@ export interface N8nWorkflowOptions {
    * bridge into the `--network=none` container on the same loopback port.
    */
   readonly daemonHttp?: string | undefined;
+  /** Optional credentials JSON array to import before running the workflow. */
+  readonly credentials?: ReadonlyArray<Readonly<Record<string, unknown>>> | undefined;
+  /**
+   * Optional host directory of built custom n8n nodes/credentials to mount into
+   * the container and load via `N8N_CUSTOM_EXTENSIONS`.
+   */
+  readonly customExtensionsDir?: string | undefined;
   /** Extra environment variables passed to the n8n container. */
   readonly env?: Readonly<Record<string, string>> | undefined;
   /** Container image reference; defaults to `ci/integrations/images.toml`'s `[n8n]`. */
@@ -467,6 +474,21 @@ export async function runN8nWorkflow(options: N8nWorkflowOptions): Promise<N8nWo
     for (const [key, value] of Object.entries(options.env ?? {})) {
       args.push("-e", `${key}=${value}`);
     }
+    let importCredsStep = "";
+    if (options.credentials !== undefined && options.credentials.length > 0) {
+      const credentialsPath = join(folder, "credentials.json");
+      writeFileSync(credentialsPath, JSON.stringify(options.credentials), "utf8");
+      chmodSync(credentialsPath, 0o644);
+      importCredsStep = "n8n import:credentials --input=/tmp/bridge/credentials.json && ";
+    }
+    if (options.customExtensionsDir !== undefined) {
+      args.push(
+        "-e",
+        "N8N_CUSTOM_EXTENSIONS=/tmp/n8n-custom",
+        "-v",
+        `${options.customExtensionsDir}:/tmp/n8n-custom:ro`,
+      );
+    }
     args.push(
       "-v",
       `${folder}:/tmp/bridge:rw`,
@@ -474,7 +496,7 @@ export async function runN8nWorkflow(options: N8nWorkflowOptions): Promise<N8nWo
       "sh",
       image,
       "-c",
-      `${startupPrefix}n8n import:workflow --input=/tmp/bridge/workflow.json && n8n execute --id="$1"`,
+      `${startupPrefix}${importCredsStep}n8n import:workflow --input=/tmp/bridge/workflow.json && n8n execute --id="$1"`,
       "--",
       options.workflowId,
     );

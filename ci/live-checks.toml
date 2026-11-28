@@ -61,3 +61,11 @@ id = "adapters-latest"
 area = 11
 job = "nightly.yml#releases"
 run = "node ci/live/adapters-latest.ts"
+
+# Post-publish verified-node scanner for `@goodfetch/n8n-nodes-collie`
+# (ADRs 0064 and 0070; issue 1405). Reports without blocking.
+[[live-check]]
+id = "n8n-scanner"
+area = 11
+job = "nightly.yml#releases"
+run = "node ci/live/n8n-scanner.ts"

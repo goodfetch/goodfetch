@@ -1,0 +1,44 @@
+{
+  "name": "@goodfetch/n8n-nodes-collie",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Verified n8n community node for Goodfetch Collie (ADRs 0027, 0070, 0090, 0095; spec #608, issue 1405).",
+  "keywords": [
+    "browser-automation",
+    "collie",
+    "goodfetch",
+    "n8n-community-node-package"
+  ],
+  "license": "Apache-2.0",
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "node scripts/n8n-node-lint.ts",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json"
+  },
+  "devDependencies": {
+    "@goodfetch/collie-integrations-core": "workspace:*",
+    "@goodfetch/test-support": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "strict": true,
+    "credentials": [
+      "dist/credentials/GoodfetchCollieApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/GoodfetchCollie/GoodfetchCollie.node.js",
+      "dist/nodes/GoodfetchCollie/GoodfetchCollieTrigger.node.js"
+    ]
+  }
+}

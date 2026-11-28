@@ -510,7 +510,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "TraceStreamParams": { fields: { "run_id": "runId" } },
     "TransformProvenance": { fields: { "anchor": ["anchor", "time"], "time_zone": "timeZone" } },
     "TriggerDescription": { fields: { "structured": ["structured", { type: "StructuredTriggerDescription" }] } },
-    "UncertainEffect": { fields: { "crawl_request": "crawlRequest", "first_command": "firstCommand", "since": ["since", "time"] } },
+    "UncertainEffect": { fields: { "first_command": "firstCommand", "since": ["since", "time"] } },
     "UsageListResult": { fields: { "limits": ["limits", { items: { type: "LimitUsage" } }] } },
     "UsageRaiseParams": { fields: { "period": ["period", { type: "Period" }], "scope_id": "scopeId", "usage_kind": "usageKind" } },
     "UsageSetParams": { fields: { "period": ["period", { type: "Period" }], "scope_id": "scopeId", "usage_kind": "usageKind" } },

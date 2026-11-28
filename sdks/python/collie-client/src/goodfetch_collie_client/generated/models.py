@@ -726,6 +726,20 @@ class CpuReading(BaseModel):
     """The Tokio workers' busy time since the last sample, in percent."""
 
 
+class CrawlRequestRef(BaseModel):
+    """A crawl request named by an uncertain Effect (ADR 0106)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    id: str
+    """The crawl request's ID."""
+    label: str
+    """The crawl request's Label."""
+    url: str
+    """The crawl request's URL."""
+
+
 class CronTrigger(BaseModel):
     """
     A cron expression: five fields (minute, hour, day of month, month, day
@@ -5931,8 +5945,6 @@ class UncertainEffect(BaseModel):
         extra="allow",
         arbitrary_types_allowed=True,
     )
-    crawl_request: str | None = None
-    """The crawl request it ran for, in a crawl."""
     entry: str
     """Its Effect journal entry."""
     first_command: str | None = None
@@ -5943,6 +5955,8 @@ class UncertainEffect(BaseModel):
     """Its key, for a declared Effect."""
     reason: str
     """Why it is uncertain."""
+    request: CrawlRequestRef | None = None
+    """The crawl request it ran for, in a crawl; `null` on a Collie Run."""
     since: PointInTime
     """Since when it is uncertain."""
 

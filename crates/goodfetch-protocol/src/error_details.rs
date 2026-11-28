@@ -101,10 +101,15 @@ impl ErrorDetails for crate::run::ReachedLimit {
     const CODES: &'static [ErrorCode] = &[ErrorCode::LIMIT_REACHED];
 }
 
+impl ErrorDetails for crate::run::UncertainEffect {
+    const CODES: &'static [ErrorCode] = &[ErrorCode::EFFECT_UNCERTAIN];
+}
+
 details! {
     also: [
         crate::run::RunDetails,
         crate::run::ReachedLimit,
+        crate::run::UncertainEffect,
         crate::foxhound::block::BlockedDetails,
     ];
     crate::browser_cache::ArtifactDownloadFailedDetails => ErrorCode::ARTIFACT_DOWNLOAD_FAILED,

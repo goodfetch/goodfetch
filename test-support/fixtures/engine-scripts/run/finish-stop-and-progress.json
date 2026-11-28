@@ -228,6 +228,7 @@
           "uncertain_effects": [
             {
               "entry": "submit-order",
+              "request": null,
               "reason": "the page closed before the response came",
               "since": "2026-01-01T00:00:30Z"
             }

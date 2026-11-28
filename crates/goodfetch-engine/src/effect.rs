@@ -42,7 +42,7 @@ use goodfetch_protocol::effect::{
     EffectOpenParams, EffectOpened, EffectOutcome, KEY_MAX_CODE_POINTS, UncertainReason,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::run::{RUN_NOT_FOUND, RunDetails, RunId, UncertainEffect};
+use goodfetch_protocol::run::{CrawlRequestRef, RUN_NOT_FOUND, RunDetails, RunId, UncertainEffect};
 use goodfetch_protocol::settings::TIMEOUT_CLOSE;
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, MutexGuard, Notify};
@@ -212,7 +212,7 @@ impl Book {
         let Some(at) = self
             .bodies
             .iter()
-            .position(|body| body.namespace == namespace && body.key == key)
+            .position(|body| body.namespace() == namespace && body.key == key)
         else {
             return KeyCheck::Free;
         };
@@ -237,7 +237,7 @@ enum KeyCheck {
 /// A body that runs.
 struct Body {
     entry: i64,
-    namespace: String,
+    request: Option<CrawlRequestRef>,
     key: String,
     repeatable: bool,
     /// The first command sent for it, and when, once one was.
@@ -248,6 +248,15 @@ struct Body {
 }
 
 impl Body {
+    /// Its Effect namespace: the crawl request's ID in a crawl, or `""` on a
+    /// Collie Run, derived from `request` so in-memory keys and the journal's
+    /// `namespace` column share one invariant.
+    fn namespace(&self) -> &str {
+        self.request
+            .as_ref()
+            .map_or("", |request| request.id.as_str())
+    }
+
     /// Its state in the transition table.
     fn state(&self) -> EffectState {
         match (self.sent.is_some(), self.repeatable) {
@@ -353,7 +362,7 @@ impl Reconciliation {
 pub enum Reconciled {
     /// The answer was about this uncertain Effect, and the Audit log
     /// records it.
-    Answered(UncertainEffect),
+    Answered(Box<UncertainEffect>),
     /// The entry is not uncertain: absent, running, done or reconciled
     /// already. Nothing changed and nothing was recorded.
     NotUncertain,
@@ -423,28 +432,46 @@ impl Effects {
                 None => None,
             },
         };
-        let namespace = owner
+        let requested_namespace = owner
             .attempt
             .as_ref()
-            .map_or_else(String::new, |attempt| attempt.id.crawl_request_id.clone());
+            .map_or("", |attempt| attempt.id.crawl_request_id.as_str());
         let run_shelf = self.shelf(&run_id).await;
         let identity = &run.identity;
         let mut book = run_shelf
-            .free_key(identity, &namespace, &key, &owner, context)
+            .free_key(identity, requested_namespace, &key, &owner, context)
             .await?;
-        if let Some(attempt) = &owner.attempt {
-            attempt
-                .writes
-                .begin_effect(&attempt.id.crawl_request_id, attempt.id.lease_epoch)
-                .map_err(unstaged)?;
-        }
+        let request = match &owner.attempt {
+            Some(attempt) => {
+                let request = attempt
+                    .writes
+                    .begin_effect(&attempt.id.crawl_request_id, attempt.id.lease_epoch)
+                    .map_err(unstaged)?;
+                if request.id.is_empty() || request.id != attempt.id.crawl_request_id {
+                    owner.end_effect();
+                    return Err(CallError::protocol(
+                        ProtocolFailure::InternalError,
+                        format!(
+                            "attempt staging returned crawl request `{}` for attempt `{}`",
+                            request.id, attempt.id.crawl_request_id
+                        ),
+                    ));
+                }
+                Some(request)
+            }
+            None => None,
+        };
+        let namespace = request
+            .as_ref()
+            .map_or("", |request| request.id.as_str())
+            .to_owned();
         let declaring = (identity, &run.state);
-        let answer = match declared(declaring, &namespace, &key, repeatable, context).await {
+        let answer = match declared(declaring, request.as_ref(), &key, repeatable, context).await {
             Ok(Declared::Perform { entry, secret }) => {
                 let idempotency_key = idempotency_key(&secret, &namespace, &key);
                 book.push_body(Body {
                     entry,
-                    namespace,
+                    request,
                     key,
                     repeatable,
                     sent: None,
@@ -532,7 +559,7 @@ impl Effects {
                     .write(move |connection| turn_uncertain(connection, number, reason))
                     .await
                     .map(|()| EffectClosed::Uncertain {
-                        effect,
+                        effect: Box::new(effect),
                         cause: oversized.map(|_| EFFECT_OUTPUT_INVALID.name.to_owned()),
                     })
                     .map_err(|error| unwritten(identity, &error, context))
@@ -547,7 +574,8 @@ impl Effects {
         };
         body.owner.end_effect();
         if matches!(judged, Ok(EffectClosed::Done { .. })) {
-            book.record_answered(body.namespace, body.key, body.owner);
+            let namespace = body.namespace().to_owned();
+            book.record_answered(namespace, body.key, body.owner);
         }
         run_shelf.judged.notify_waiters();
         judged
@@ -697,14 +725,14 @@ impl Effects {
                     "run_id": run.id(),
                     "entry": effect.entry,
                     "key": effect.key,
-                    "crawl_request": effect.crawl_request,
+                    "crawl_request": effect.request.as_ref().map(|request| &request.id),
                     "answer": answer.as_str(),
                 }),
                 engine.now(),
             )
             .await
             .map_err(|error| unrecorded(&error))?;
-        Ok(Reconciled::Answered(effect))
+        Ok(Reconciled::Answered(Box::new(effect)))
     }
 }
 
@@ -831,7 +859,7 @@ impl Body {
             entry: entry.to_owned(),
             key: Some(self.key.clone()),
             instruction: None,
-            crawl_request: (!self.namespace.is_empty()).then(|| self.namespace.clone()),
+            request: self.request.clone(),
             reason: reason.as_str().to_owned(),
             first_command: Some(first_command),
             since,
@@ -855,12 +883,12 @@ fn checked_key(key: &str) -> Result<(), CallError> {
     Ok(())
 }
 
-/// The journal's answer to a declaration of `key` in `namespace` of
-/// `run`, its entry written through `state`, its run file's writer, when
-/// the body is to run.
+/// The journal's answer to a declaration of `key` for `request` (or the Run's
+/// own namespace when `None`) of `run`, its entry written through `state`,
+/// its run file's writer, when the body is to run.
 async fn declared(
     (run, state): (&RunIdentity, &RunState),
-    namespace: &str,
+    request: Option<&CrawlRequestRef>,
     key: &str,
     repeatable: bool,
     context: &CallContext,
@@ -872,10 +900,10 @@ async fn declared(
             format!("the operating system gave no randomness for the Run's Effect secret: {error}"),
         )
     })?;
-    let (namespace, key) = (namespace.to_owned(), key.to_owned());
+    let (request, key) = (request.cloned(), key.to_owned());
     state
         .write_deferred(move |connection| {
-            declare(connection, &namespace, &key, repeatable, &candidate)
+            declare(connection, request.as_ref(), &key, repeatable, &candidate)
         })
         .await
         .map_err(|error| unwritten(run, &error, context))

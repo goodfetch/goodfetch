@@ -11,7 +11,7 @@ fn body(entry: i64) -> Body {
     let (client, _) = Client::new();
     Body {
         entry,
-        namespace: String::new(),
+        request: None,
         key: format!("key-{entry}"),
         repeatable: false,
         sent: None,

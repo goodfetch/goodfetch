@@ -390,8 +390,8 @@ async fn effects(params: Value, context: CallContext) -> Result<Value, CallError
                 [],
             )?;
             connection.execute(
-                "INSERT INTO effect_journal (namespace, key, repeatable, state, reason, first_command, since, reconciled_by, reconciled_at) \
-                 VALUES ('', 'payment', 0, 'reconciled', 'failed_after_send', 'Input.dispatchKeyEvent', '2026-01-05T09:00:02Z', 'ada', '2026-01-05T09:00:03Z')",
+                "INSERT INTO effect_journal (namespace, request_url, request_label, key, repeatable, state, reason, first_command, since, reconciled_by, reconciled_at) \
+                 VALUES ('1', 'https://shop.test/item/1', 'item', 'payment', 0, 'reconciled', 'failed_after_send', 'Input.dispatchKeyEvent', '2026-01-05T09:00:02Z', 'ada', '2026-01-05T09:00:03Z')",
                 [],
             )?;
             Ok(())

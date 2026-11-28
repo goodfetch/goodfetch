@@ -607,6 +607,20 @@ pub struct SeedsKept {
     pub count: u64,
 }
 
+/// A crawl request named by an uncertain Effect (ADR 0106).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CrawlRequestRef {
+    /// The crawl request's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub id: String,
+    /// The crawl request's URL.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// The crawl request's Label.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub label: String,
+}
+
 /// An Effect a Run left uncertain (ADR 0106), until a person reconciles it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct UncertainEffect {
@@ -621,10 +635,9 @@ pub struct UncertainEffect {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub instruction: Option<String>,
-    /// The crawl request it ran for, in a crawl.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// The crawl request it ran for, in a crawl; `null` on a Collie Run.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub crawl_request: Option<String>,
+    pub request: Option<CrawlRequestRef>,
     /// Why it is uncertain.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub reason: String,

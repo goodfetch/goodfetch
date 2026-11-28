@@ -2356,6 +2356,15 @@ form = "read"
 [[member]]
 package = "goodfetch_foxhound"
 receiver = "AsyncExport"
+member = "personal_columns"
+entry = "none"
+reason = "The Dataset's fields marked with x-goodfetch-personal in its JSON Schema (ADR 0016)."
+words = ["personal", "columns"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncExport"
 member = "save_as"
 entry = "export.save_as"
 words = ["save", "as"]
@@ -2547,6 +2556,15 @@ member = "run_epoch"
 entry = "none"
 reason = "The run epoch of the Run's state the Export was written from (ADR 0003)."
 words = ["run", "epoch"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Export"
+member = "personal_columns"
+entry = "none"
+reason = "The Dataset's fields marked with x-goodfetch-personal in its JSON Schema (ADR 0016)."
+words = ["personal", "columns"]
 form = "read"
 
 [[member]]

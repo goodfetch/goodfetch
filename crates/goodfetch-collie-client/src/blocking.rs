@@ -22,13 +22,16 @@ use serde_json::Value;
 use crate::answer::Answer;
 use crate::error::Error;
 use crate::field_values::FieldValues;
-use crate::run_view::RunView;
-pub use key_value_store::KeyValueStore;
+pub use key_value_store::{KeyValueStore, KeyValueStoreView};
+pub use run_copies::{Checkpoint, RunTrace};
+pub use run_view::RunView;
 pub use schedules::{CreatedSchedule, Schedules};
 pub use start::{HandlerlessStart, Start};
 pub use twins::{Locator, Page, Run, Schedule, Session, WebSocket};
 
 mod key_value_store;
+mod run_copies;
+mod run_view;
 mod schedules;
 mod start;
 /// The blocking twins of the handles, which `xtask codegen` writes.
@@ -160,7 +163,7 @@ impl ClientConnection {
     ///
     /// As [`crate::ClientConnection::open_run`].
     pub fn open_run(&self, run_id: &RunId) -> Result<RunView, Error> {
-        self.0.open_run(run_id)
+        self.0.open_run(run_id).map(RunView::new)
     }
 
     /// Shows each setting's effective value, the layer that set it and the
@@ -594,6 +597,15 @@ impl<T: Send + 'static> Iterator for EventIter<T> {
 pub struct SaveFile<T> {
     save: crate::SaveFile<T>,
     connection: crate::ClientConnection,
+}
+
+impl<T> SaveFile<T> {
+    pub(super) fn new(save: crate::SaveFile<T>, connection: &crate::ClientConnection) -> Self {
+        Self {
+            save,
+            connection: connection.clone(),
+        }
+    }
 }
 
 impl<T: DeserializeOwned + Send + 'static> SaveFile<T> {

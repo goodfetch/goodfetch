@@ -1,0 +1,367 @@
+{
+  "description": "TypeScript Collie SDK (daemon): Run KV set/setBytes/keys, Checkpoint saveAs/stream, RunTrace saveAs/stream, RunView on finished/interrupted/missing Runs (`run-view-and-copies`).",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "form": "typescript",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "token": "scripted-daemon-token",
+          "log_level": "off"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    { "expect": { "method": "run.start", "params": {} } },
+    {
+      "reply": {
+        "result": {
+          "run_id": "run-live",
+          "lifecycle": "running",
+          "needs": "collie",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "key_value_store.set",
+        "params": {
+          "run_id": "run-live",
+          "key": "item-a",
+          "value": { "title": "Dune", "pages": 412 }
+        }
+      }
+    },
+    { "reply": { "result": {} } },
+    {
+      "expect": {
+        "method": "key_value_store.set_bytes",
+        "params": {
+          "run_id": "run-live",
+          "key": "item-bin",
+          "content": "aGVsbG8=",
+          "content_type": "application/octet-stream"
+        }
+      }
+    },
+    { "reply": { "result": {} } },
+    {
+      "expect": {
+        "method": "key_value_store.keys",
+        "params": { "run_id": "run-live", "prefix": "item-" }
+      }
+    },
+    { "expect": { "method": "$/credit", "params": { "id": 4, "credits": 16 } } },
+    { "send": { "notification": { "method": "$/key", "params": { "id": 4, "key": "item-a" } } } },
+    { "send": { "notification": { "method": "$/key", "params": { "id": 4, "key": "item-bin" } } } },
+    { "reply": { "result": { "count": 2 } } },
+    { "expect": { "method": "run.checkpoint", "params": { "run_id": "run-live" } } },
+    {
+      "reply": {
+        "result": {
+          "run_id": "run-live",
+          "location": "/engine/cp.sqlite",
+          "size": 10,
+          "digest": "0000000000000000000000000000000000000000000000000000000000000001",
+          "run_epoch": 1,
+          "journal_position": 3,
+          "time": "2026-11-28T00:00:00Z"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "checkpoint.save_as",
+        "params": {
+          "run_id": "run-live",
+          "location": "/engine/cp.sqlite",
+          "path": "/work/out/cp.sqlite"
+        }
+      }
+    },
+    { "expect": { "method": "$/credit", "params": { "id": 6, "credits": 16 } } },
+    {
+      "send": {
+        "notification": {
+          "method": "$/chunk",
+          "params": { "id": 6, "offset": 0, "data": "Y3AtYnl0ZXMhIQ==" }
+        }
+      }
+    },
+    { "expect": { "method": "$/credit", "params": { "id": 6, "credits": 1 } } },
+    {
+      "reply": {
+        "result": {
+          "size": 10,
+          "digest": "0000000000000000000000000000000000000000000000000000000000000001",
+          "written": false,
+          "run_epoch": 1
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "checkpoint.stream",
+        "params": { "run_id": "run-live", "location": "/engine/cp.sqlite" }
+      }
+    },
+    { "expect": { "method": "$/credit", "params": { "id": 7, "credits": 8 } } },
+    {
+      "send": {
+        "notification": {
+          "method": "$/chunk",
+          "params": { "id": 7, "offset": 0, "data": "Y3AtYnl0ZXMhIQ==" }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "size": 10,
+          "digest": "0000000000000000000000000000000000000000000000000000000000000001",
+          "run_epoch": 1
+        }
+      }
+    },
+    { "expect": { "method": "run.trace", "params": { "run_id": "run-live" } } },
+    {
+      "reply": {
+        "result": {
+          "trace": {
+            "run_id": "run-live",
+            "location": "/engine/trace.zip",
+            "size": 12,
+            "digest": "0000000000000000000000000000000000000000000000000000000000000002"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "trace.save_as",
+        "params": {
+          "run_id": "run-live",
+          "location": "/engine/trace.zip",
+          "path": "/work/out/trace.zip"
+        }
+      }
+    },
+    { "expect": { "method": "$/credit", "params": { "id": 9, "credits": 16 } } },
+    {
+      "send": {
+        "notification": {
+          "method": "$/chunk",
+          "params": { "id": 9, "offset": 0, "data": "dHJhY2UtYnl0ZXMh" }
+        }
+      }
+    },
+    { "expect": { "method": "$/credit", "params": { "id": 9, "credits": 1 } } },
+    {
+      "reply": {
+        "result": {
+          "size": 12,
+          "digest": "0000000000000000000000000000000000000000000000000000000000000002",
+          "written": false
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "trace.stream",
+        "params": { "run_id": "run-live", "location": "/engine/trace.zip" }
+      }
+    },
+    { "expect": { "method": "$/credit", "params": { "id": 10, "credits": 8 } } },
+    {
+      "send": {
+        "notification": {
+          "method": "$/chunk",
+          "params": { "id": 10, "offset": 0, "data": "dHJhY2UtYnl0ZXMh" }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "size": 12,
+          "digest": "0000000000000000000000000000000000000000000000000000000000000002"
+        }
+      }
+    },
+    { "expect": { "method": "run.finish", "params": { "run_id": "run-live" } } },
+    {
+      "reply": {
+        "result": {
+          "run_id": "run-live",
+          "lifecycle": "finished",
+          "verdict": "verified",
+          "completeness": "complete",
+          "started_at": "2026-11-28T00:00:00Z",
+          "ended_at": "2026-11-28T00:00:01Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0,
+              "input_tokens": 0,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "reasoning_tokens": 0,
+              "price": null
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 0
+          }
+        }
+      }
+    },
+    { "expect": { "method": "run.progress", "params": { "run_id": "finished-run" } } },
+    {
+      "reply": {
+        "result": {
+          "run_id": "finished-run",
+          "position": 5,
+          "at": "2026-11-28T00:00:02Z",
+          "lifecycle": "finished",
+          "writer": "none",
+          "epoch": 1,
+          "pauses": [],
+          "last": true
+        }
+      }
+    },
+    { "expect": { "method": "run.report", "params": { "run_id": "finished-run" } } },
+    {
+      "reply": {
+        "result": {
+          "run_id": "finished-run",
+          "lifecycle": "finished",
+          "verdict": "verified",
+          "completeness": "complete",
+          "started_at": "2026-11-28T00:00:00Z",
+          "ended_at": "2026-11-28T00:00:02Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0,
+              "input_tokens": 0,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "reasoning_tokens": 0,
+              "price": null
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 0
+          }
+        }
+      }
+    },
+    { "expect": { "method": "run.trace", "params": { "run_id": "finished-run" } } },
+    {
+      "reply": {
+        "result": {
+          "trace": {
+            "run_id": "finished-run",
+            "location": "/engine/finished-trace.zip",
+            "size": 12,
+            "digest": "0000000000000000000000000000000000000000000000000000000000000002"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "key_value_store.get",
+        "params": { "run_id": "finished-run", "key": "item-a" }
+      }
+    },
+    { "reply": { "result": { "value": { "title": "Dune", "pages": 412 } } } },
+    {
+      "expect": {
+        "method": "key_value_store.get_bytes",
+        "params": { "run_id": "finished-run", "key": "item-bin" }
+      }
+    },
+    {
+      "reply": {
+        "result": { "bytes": { "content": "aGVsbG8=", "content_type": "application/octet-stream" } }
+      }
+    },
+    {
+      "expect": {
+        "method": "key_value_store.keys",
+        "params": { "run_id": "finished-run", "prefix": "item-" }
+      }
+    },
+    { "expect": { "method": "$/credit", "params": { "id": 17, "credits": 16 } } },
+    { "send": { "notification": { "method": "$/key", "params": { "id": 17, "key": "item-a" } } } },
+    {
+      "send": { "notification": { "method": "$/key", "params": { "id": 17, "key": "item-bin" } } }
+    },
+    { "reply": { "result": { "count": 2 } } },
+    { "expect": { "method": "run.progress", "params": { "run_id": "interrupted-run" } } },
+    {
+      "reply": {
+        "result": {
+          "run_id": "interrupted-run",
+          "position": 2,
+          "at": "2026-11-28T00:00:03Z",
+          "lifecycle": "stopped",
+          "writer": "none",
+          "epoch": 1,
+          "pauses": [],
+          "last": true
+        }
+      }
+    },
+    { "expect": { "method": "run.report", "params": { "run_id": "interrupted-run" } } },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "Run `interrupted-run` was interrupted with no live writer.",
+          "data": {
+            "code": "run_interrupted",
+            "retryable": false,
+            "operation": "run.report",
+            "run_id": "interrupted-run",
+            "fix": "Start a Run with run_id `interrupted-run` to resume it."
+          }
+        }
+      }
+    },
+    { "expect": { "method": "run.report", "params": { "run_id": "missing-run" } } },
+    {
+      "reply": {
+        "error": {
+          "code": -32001,
+          "message": "No Run has ID `missing-run`.",
+          "data": {
+            "code": "run_not_found",
+            "retryable": false,
+            "operation": "run.report",
+            "run_id": "missing-run",
+            "fix": "Pass a Run ID listed by `run.list`."
+          }
+        }
+      }
+    }
+  ]
+}

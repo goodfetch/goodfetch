@@ -138,6 +138,26 @@ impl<T: Serialize + DeserializeOwned> Schema<T> {
         encode_read_back(value)
     }
 
+    /// Validates `value` against this schema's JSON Schema document
+    /// (JSON Schema 2020-12), returning `(json_pointer, message)` on the
+    /// first violation.
+    ///
+    /// # Errors
+    ///
+    /// Returns `(path, message)` when `value` does not conform to this schema.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "client-side Schema::validate compiles the program's JSON Schema outside engine Shared paths"
+    )]
+    pub(crate) fn validate(&self, value: &Value) -> Result<(), (String, String)> {
+        let validator = jsonschema::validator_for(&self.wire)
+            .map_err(|error| (String::new(), error.to_string()))?;
+        match validator.validate(value) {
+            Ok(()) => Ok(()),
+            Err(error) => Err((error.instance_path().to_string(), error.to_string())),
+        }
+    }
+
     /// `answer`, a value received, read by `T`'s own `Deserialize`.
     ///
     /// # Errors

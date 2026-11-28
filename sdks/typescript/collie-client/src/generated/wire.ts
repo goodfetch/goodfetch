@@ -31,6 +31,10 @@ export type CollieWireType =
   | "CertsListed"
   | "Checkpoint"
   | "CheckpointBehindDetails"
+  | "CheckpointSaveAsParams"
+  | "CheckpointSaved"
+  | "CheckpointStreamParams"
+  | "CheckpointStreamed"
   | "ClickParams"
   | "Concurrency"
   | "ConfigExplainParams"
@@ -191,6 +195,8 @@ export type CollieWireType =
   | "RunStopParams"
   | "RunStopping"
   | "RunStorage"
+  | "RunTrace"
+  | "RunTraceResult"
   | "RunUsage"
   | "ScheduleCapExceededDetails"
   | "ScheduleCreateParams"
@@ -225,6 +231,8 @@ export type CollieWireType =
   | "ThinNotification"
   | "TierProvenance"
   | "TimeRange"
+  | "TraceSaveAsParams"
+  | "TraceStreamParams"
   | "TransformProvenance"
   | "TriggerDescription"
   | "UncertainEffect"
@@ -270,6 +278,10 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "CertsListed": { fields: { "pins": ["pins", { items: { type: "CertificatePin" } }] } },
     "Checkpoint": { fields: { "journal_position": "journalPosition", "run_epoch": "runEpoch", "run_id": "runId", "time": ["time", "time"] } },
     "CheckpointBehindDetails": { fields: { "checkpoint": ["checkpoint", { type: "RunStatePosition" }], "run_file": ["runFile", { type: "RunStatePosition" }] } },
+    "CheckpointSaveAsParams": { fields: { "run_id": "runId" } },
+    "CheckpointSaved": { fields: { "run_epoch": "runEpoch" } },
+    "CheckpointStreamParams": { fields: { "run_id": "runId" } },
+    "CheckpointStreamed": { fields: { "run_epoch": "runEpoch" } },
     "ClickParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
     "Concurrency": { fields: { "browser_page": ["browserPage", { type: "KindConcurrency" }], "http": ["http", { type: "KindConcurrency" }], "model_call": ["modelCall", { type: "KindConcurrency" }] } },
     "ConfigExplainParams": { fields: { "missing_project": "missingProject", "run_id": "runId" } },
@@ -430,6 +442,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "RunStopParams": { fields: { "run_id": "runId" } },
     "RunStopping": { fields: { "cause": ["cause", { type: "StopReason" }], "run_id": "runId" } },
     "RunStorage": { fields: { "free_bytes": "freeBytes" } },
+    "RunTrace": { fields: { "run_id": "runId" } },
+    "RunTraceResult": { fields: { "trace": ["trace", { type: "RunTrace" }] } },
     "RunUsage": { fields: { "browser_time": "browserTime", "limits": ["limits", { items: { type: "AppliedLimit" } }], "model": ["model", { type: "ModelUsage" }], "model_allowance": ["modelAllowance", { items: { type: "ModelAllowance" } }], "other": ["other", { items: { type: "KindUsage" } }], "paid_fetches": "paidFetches", "paid_solves": "paidSolves", "proxy_bytes": "proxyBytes", "proxy_bytes_by_kind": "proxyBytesByKind", "proxy_price": "proxyPrice" } },
     "ScheduleCapExceededDetails": { fields: { "policy_version": "policyVersion" } },
     "ScheduleCreateParams": { fields: { "definition": ["definition", { type: "ScheduleDefinition" }] } },
@@ -464,6 +478,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "ThinNotification": { fields: { "event_id": "eventId", "run_id": "runId", "schedule_id": "scheduleId" } },
     "TierProvenance": { fields: { "calls_sent_on": "callsSentOn", "forced_by": "forcedBy" } },
     "TimeRange": { fields: { "from": ["from", "time"], "until": ["until", "time"] } },
+    "TraceSaveAsParams": { fields: { "run_id": "runId" } },
+    "TraceStreamParams": { fields: { "run_id": "runId" } },
     "TransformProvenance": { fields: { "anchor": ["anchor", "time"], "time_zone": "timeZone" } },
     "TriggerDescription": { fields: { "structured": ["structured", { type: "StructuredTriggerDescription" }] } },
     "UncertainEffect": { fields: { "crawl_request": "crawlRequest", "first_command": "firstCommand", "since": ["since", "time"] } },
@@ -484,6 +500,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
   params: {
     "cache.clear": { type: "CacheClearParams" },
     "catalog_run.start": { type: "CatalogRunStartParams" },
+    "checkpoint.save_as": { type: "CheckpointSaveAsParams" },
+    "checkpoint.stream": { type: "CheckpointStreamParams" },
     "config.explain": { type: "ConfigExplainParams" },
     "connection.set_log_level": { type: "SetLogLevelParams" },
     "dialog.accept": { type: "DialogAcceptParams" },
@@ -549,6 +567,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "run.start": { type: "RunStartParams" },
     "run.started_as": { type: "RunParams" },
     "run.stop": { type: "RunStopParams" },
+    "run.trace": { type: "RunParams" },
     "run.usage": { type: "RunParams" },
     "schedule.create": { type: "ScheduleCreateParams" },
     "schedule.delete": { type: "ScheduleParams" },
@@ -561,6 +580,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "session.route": { type: "SessionRouteParams" },
     "signing_key.create": { type: "SigningKeyCreateParams" },
     "signing_key.directory": { type: "SigningKeyDirectoryParams" },
+    "trace.save_as": { type: "TraceSaveAsParams" },
+    "trace.stream": { type: "TraceStreamParams" },
     "usage.set": { type: "UsageSetParams" },
   },
   results: {
@@ -570,6 +591,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "cache.verify": { type: "CacheVerified" },
     "catalog_run.start": { type: "RunStarted" },
     "certs.list": { type: "CertsListed" },
+    "checkpoint.save_as": { type: "CheckpointSaved" },
+    "checkpoint.stream": { type: "CheckpointStreamed" },
     "config.explain": { type: "SettingsExplanation" },
     "daemon.status": { type: "DaemonState" },
     "daemon.stop": { type: "DaemonStopping" },
@@ -606,6 +629,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "run.start": { type: "RunStarted" },
     "run.started_as": { type: "RunStartedAs" },
     "run.stop": { type: "RunReport" },
+    "run.trace": { type: "RunTraceResult" },
     "run.usage": { type: "RunUsage" },
     "schedule.create": { type: "ScheduleCreated" },
     "schedule.get": { type: "ScheduleInfo" },

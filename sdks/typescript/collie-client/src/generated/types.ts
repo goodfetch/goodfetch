@@ -3171,6 +3171,90 @@ export interface RunStatePosition {
   runEpoch: number;
 }
 /**
+ * What `checkpoint.save_as` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CheckpointSaveAsParams".
+ */
+export interface CheckpointSaveAsParams {
+  /**
+   * Where the Checkpoint is on the engine's machine, as `run.checkpoint` answered.
+   */
+  location: string;
+  /**
+   * The program's path, absolute, which an Attached engine writes
+   * itself; any other engine leaves it to the SDK and sends the file's
+   * bytes instead.
+   */
+  path?: string | null;
+  /**
+   * The Run's ID.
+   */
+  runId: RunId;
+}
+/**
+ * What `checkpoint.save_as` answers once the file is whole.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CheckpointSaved".
+ */
+export interface CheckpointSaved {
+  /**
+   * The SHA-256 of its bytes, in lowercase hexadecimal.
+   */
+  digest: string;
+  /**
+   * The run epoch of the writer that took the Checkpoint (ADR 0003).
+   */
+  runEpoch: number;
+  /**
+   * The file's size in bytes.
+   */
+  size: number;
+  /**
+   * Whether the engine wrote the program's path itself; when not, the
+   * `$/chunk` notifications before this answer carried every byte, and
+   * the SDK writes the path.
+   */
+  written: boolean;
+}
+/**
+ * What `checkpoint.stream` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CheckpointStreamParams".
+ */
+export interface CheckpointStreamParams {
+  /**
+   * Where the Checkpoint is on the engine's machine, as `run.checkpoint` answered.
+   */
+  location: string;
+  /**
+   * The Run's ID.
+   */
+  runId: RunId;
+}
+/**
+ * What `checkpoint.stream` answers once it sent every byte.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CheckpointStreamed".
+ */
+export interface CheckpointStreamed {
+  /**
+   * The SHA-256 of its bytes, in lowercase hexadecimal.
+   */
+  digest: string;
+  /**
+   * The run epoch of the writer that took the Checkpoint (ADR 0003).
+   */
+  runEpoch: number;
+  /**
+   * The file's size in bytes.
+   */
+  size: number;
+}
+/**
  * What `$/chunk` carries: the next bytes of the body a call reads.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -9556,6 +9640,43 @@ export interface RunTarget {
  */
 export interface RunTargetUnbuiltDetails {}
 /**
+ * A Run's trace copy, kept on the engine's machine (ADRs 0102 and 0116).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunTrace".
+ */
+export interface RunTrace {
+  /**
+   * The SHA-256 of its bytes, in lowercase hexadecimal.
+   */
+  digest: string;
+  /**
+   * Where it is: the trace file's path on the engine's machine.
+   */
+  location: string;
+  /**
+   * The Run's ID.
+   */
+  runId: RunId;
+  /**
+   * Its size in bytes.
+   */
+  size: number;
+}
+/**
+ * What `run.trace` answers: the Run's trace copy, or none when the Run keeps
+ * no trace.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunTraceResult".
+ */
+export interface RunTraceResult {
+  /**
+   * The Run's trace copy, or null when the Run keeps no trace.
+   */
+  trace?: RunTrace | null;
+}
+/**
  * What `sample.echo` repeats.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -10687,6 +10808,82 @@ export interface TooManyRedirectsDetails {
    * The count it went past, and what set it.
    */
   limit: RedirectLimit;
+}
+/**
+ * What `trace.save_as` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "TraceSaveAsParams".
+ */
+export interface TraceSaveAsParams {
+  /**
+   * Where the trace copy is on the engine's machine, as `run.trace` answered.
+   */
+  location: string;
+  /**
+   * The program's path, absolute, which an Attached engine writes
+   * itself; any other engine leaves it to the SDK and sends the file's
+   * bytes instead.
+   */
+  path?: string | null;
+  /**
+   * The Run's ID.
+   */
+  runId: RunId;
+}
+/**
+ * What `trace.save_as` answers once the file is whole.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "TraceSaved".
+ */
+export interface TraceSaved {
+  /**
+   * The SHA-256 of its bytes, in lowercase hexadecimal.
+   */
+  digest: string;
+  /**
+   * The file's size in bytes.
+   */
+  size: number;
+  /**
+   * Whether the engine wrote the program's path itself; when not, the
+   * `$/chunk` notifications before this answer carried every byte, and
+   * the SDK writes the path.
+   */
+  written: boolean;
+}
+/**
+ * What `trace.stream` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "TraceStreamParams".
+ */
+export interface TraceStreamParams {
+  /**
+   * Where the trace copy is on the engine's machine, as `run.trace` answered.
+   */
+  location: string;
+  /**
+   * The Run's ID.
+   */
+  runId: RunId;
+}
+/**
+ * What `trace.stream` answers once it sent every byte.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "TraceStreamed".
+ */
+export interface TraceStreamed {
+  /**
+   * The SHA-256 of its bytes, in lowercase hexadecimal.
+   */
+  digest: string;
+  /**
+   * The file's size in bytes.
+   */
+  size: number;
 }
 /**
  * What `usage.list` takes.

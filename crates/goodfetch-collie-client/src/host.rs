@@ -51,6 +51,23 @@ impl Host<RunId> {
             value: None,
         }
     }
+
+    /// The host of a Run opened as a view (`open_run`, ADR 0102): takes no
+    /// writer role, is not registered for close-on-connection-close, and
+    /// dropping it sends no `run.abort`.
+    pub(crate) fn view(connection: ClientConnection, run_id: RunId) -> Self {
+        let run = Arc::new(HeldRun::new(
+            connection,
+            run_id.clone(),
+            Lifecycle::Finished,
+            true,
+        ));
+        Self {
+            id: run_id,
+            run,
+            value: None,
+        }
+    }
 }
 
 impl<Id> Host<Id> {

@@ -7,23 +7,33 @@
 //! `key-value-store.ts` and Python's `key_value_store.py` are its twins.
 
 use goodfetch_protocol::key_value_store::{
-    KEY_VALUE_STORE_DELETE, KEY_VALUE_STORE_GET, KEY_VALUE_STORE_GET_BYTES, KEY_VALUE_STORE_SET,
-    KEY_VALUE_STORE_SET_BYTES, KeyValueStoreAttempt, KeyValueStoreBytesValue, KeyValueStoreContent,
-    KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreSet, KeyValueStoreSetBytesParams,
-    KeyValueStoreSetParams, KeyValueStoreValue, Refused, VALUE_INVALID, ValueInvalidDetails,
-    ValueInvalidReason,
+    KEY_VALUE_STORE_DELETE, KEY_VALUE_STORE_GET, KEY_VALUE_STORE_GET_BYTES, KEY_VALUE_STORE_KEYS,
+    KEY_VALUE_STORE_SET, KEY_VALUE_STORE_SET_BYTES, KeyValueStoreAttempt, KeyValueStoreBytesValue,
+    KeyValueStoreContent, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysParams,
+    KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue,
+    Refused, VALUE_INVALID, ValueInvalidDetails, ValueInvalidReason,
 };
 use goodfetch_protocol::run::RunId;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::call::Call;
 use crate::error::Error;
+use crate::event_stream::EventStream;
 use crate::generated::handles::Run;
 use crate::host::Host;
 use crate::markers::warn_operation;
-use crate::schema::{self, SchemaError};
+use crate::schema::{self, Schema, SchemaError};
+
+/// The notification carrying one key from `key_value_store.keys`.
+const KEY_NOTIFICATION: &str = "$/key";
+
+/// One `$/key` notification payload.
+#[derive(Deserialize)]
+struct KeyNotification {
+    key: String,
+}
 
 /// A Run's Key-value store, which [`Run::key_value_store`] answers. Cloning
 /// it is cheap and every clone is the same store.
@@ -225,6 +235,121 @@ impl KeyValueStore {
             .map(|deleted: KeyValueStoreDeleted| deleted.existed)
     }
 
+    /// Answers the JSON value a Run's Key-value store holds for a key, as
+    /// committed, or null when the key is absent. A key holding bytes fails
+    /// with `value_invalid`, naming `getBytes`. Takes no writer lock, so it
+    /// reads a Run no program holds without resuming it. Through a crawl
+    /// attempt (`attempt`), it reads what the attempt staged first.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// Validates the stored value against `schema` (a derived `schemars`
+    /// [`Schema<T>`] or a hand-written [`Schema::json`]).
+    ///
+    /// # Errors
+    ///
+    /// `value_invalid` when the stored value does not satisfy `schema` or `T`'s
+    /// `Deserialize`, or the key holds bytes, or is no key.
+    pub fn get_with<T: Serialize + DeserializeOwned + Send + 'static>(
+        &self,
+        key: impl Into<String>,
+        schema: &Schema<T>,
+    ) -> Call<Option<T>, KeyValueStoreKeyParams> {
+        warn_operation(KEY_VALUE_STORE_GET.name);
+        let key = key.into();
+        let schema = schema.clone();
+        self.host
+            .call(KEY_VALUE_STORE_GET.name, self.key_params(key.clone()))
+            .try_map(move |held: KeyValueStoreValue| {
+                if held.value.is_null() {
+                    return Ok(None);
+                }
+                if let Err((path, message)) = schema.validate(&held.value) {
+                    return Err(invalid(
+                        &key,
+                        &format!("The schema rejected the value stored for {key:?}: {message}."),
+                        "Read it with the schema it was stored under, or as `serde_json::Value`, \
+                         and store it again in the new shape.",
+                        ValueInvalidReason::ValueSchema,
+                        path,
+                    ));
+                }
+                read_back(&key, held.value)
+            })
+    }
+
+    /// Commits a JSON value for a key in a live Run's Key-value store,
+    /// replacing the one it held: the last commit wins. A null value fails
+    /// with `value_invalid`; remove a key with `delete`. Through a crawl
+    /// attempt (`attempt`), the write is staged with the attempt and commits
+    /// or is discarded with it; once the attempt ended, it fails with
+    /// `attempt_ended`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// Validates `value` against `schema` before sending.
+    ///
+    /// # Errors
+    ///
+    /// `value_invalid` when `value` is not JSON, fails `schema`, is null, or
+    /// `key` is no key.
+    pub fn set_with<T: Serialize + DeserializeOwned>(
+        &self,
+        key: impl Into<String>,
+        value: &T,
+        schema: &Schema<T>,
+    ) -> Call<(), KeyValueStoreSetParams> {
+        warn_operation(KEY_VALUE_STORE_SET.name);
+        let key = key.into();
+        let encoded = schema
+            .encode(value)
+            .map_err(|error| refused(&key, &error))
+            .and_then(|json| {
+                if let Err((path, message)) = schema.validate(&json) {
+                    return Err(invalid(
+                        &key,
+                        &format!("The schema rejected the value given for {key:?}: {message}."),
+                        "Give a value the schema accepts.",
+                        ValueInvalidReason::ValueSchema,
+                        path,
+                    ));
+                }
+                Ok(json)
+            });
+        let params = KeyValueStoreSetParams {
+            run_id: self.host.id().clone(),
+            key,
+            value: Value::Null,
+            attempt: self.attempt.clone(),
+        };
+        self.host
+            .call(KEY_VALUE_STORE_SET.name, params)
+            .try_edit(|params: &mut KeyValueStoreSetParams| {
+                params.value = encoded?;
+                Ok(())
+            })
+            .map(|KeyValueStoreSet {}| ())
+    }
+
+    /// Sends the committed keys of a Run's Key-value store that start with
+    /// `prefix`, in the order of their Unicode scalar values, in `$/key`
+    /// notifications, one per credit granted with `$/credit`, then answers how
+    /// many it sent. Takes no writer lock.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn keys(&self, prefix: Option<&str>) -> EventStream<String> {
+        warn_operation(KEY_VALUE_STORE_KEYS.name);
+        let params = KeyValueStoreKeysParams {
+            run_id: self.host.id().clone(),
+            prefix: prefix.map(str::to_owned),
+        };
+        let stream: EventStream<KeyNotification> =
+            self.host
+                .connection()
+                .stream(KEY_VALUE_STORE_KEYS.name, &params, KEY_NOTIFICATION);
+        EventStream::from_items(KeyStream(stream))
+    }
+
     /// The params of a call that names `key` alone.
     fn key_params(&self, key: String) -> KeyValueStoreKeyParams {
         KeyValueStoreKeyParams {
@@ -237,6 +362,100 @@ impl KeyValueStore {
     /// The Connection its calls go through.
     pub(crate) fn connection(&self) -> &crate::ClientConnection {
         self.host.connection()
+    }
+}
+
+/// Maps `$/key` notification payloads to their key strings.
+struct KeyStream(EventStream<KeyNotification>);
+
+impl futures_core::Stream for KeyStream {
+    type Item = Result<String, Error>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        context: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        std::pin::Pin::new(&mut self.0)
+            .poll_next(context)
+            .map(|item| item.map(|result| result.map(|notice| notice.key)))
+    }
+}
+
+/// A read-only view of a Run's Key-value store, reached through
+/// [`RunView::key_value_store`](crate::RunView::key_value_store) (ADRs 0102
+/// and 0103): reads `get`, `get_with`, `get_bytes` and `keys` without taking
+/// a writer lock.
+#[derive(Clone, Debug)]
+pub struct KeyValueStoreView {
+    store: KeyValueStore,
+}
+
+impl KeyValueStoreView {
+    /// Opens a read-only store view for the Run `host` names.
+    pub(crate) fn new(host: Host<RunId>) -> Self {
+        Self {
+            store: KeyValueStore {
+                host,
+                attempt: None,
+            },
+        }
+    }
+
+    /// The Connection its calls go through.
+    pub(crate) fn connection(&self) -> &crate::ClientConnection {
+        self.store.connection()
+    }
+
+    /// Answers the JSON value a Run's Key-value store holds for a key, as
+    /// committed, or null when the key is absent. A key holding bytes fails
+    /// with `value_invalid`, naming `getBytes`. Takes no writer lock, so it
+    /// reads a Run no program holds without resuming it. Through a crawl
+    /// attempt (`attempt`), it reads what the attempt staged first.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn get<T: DeserializeOwned + Send + 'static>(
+        &self,
+        key: impl Into<String>,
+    ) -> Call<Option<T>, KeyValueStoreKeyParams> {
+        self.store.get(key)
+    }
+
+    /// Answers the JSON value a Run's Key-value store holds for a key, as
+    /// committed, or null when the key is absent. A key holding bytes fails
+    /// with `value_invalid`, naming `getBytes`. Takes no writer lock, so it
+    /// reads a Run no program holds without resuming it. Through a crawl
+    /// attempt (`attempt`), it reads what the attempt staged first.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn get_with<T: Serialize + DeserializeOwned + Send + 'static>(
+        &self,
+        key: impl Into<String>,
+        schema: &Schema<T>,
+    ) -> Call<Option<T>, KeyValueStoreKeyParams> {
+        self.store.get_with(key, schema)
+    }
+
+    /// Answers the bytes and content type a Run's Key-value store holds for a
+    /// key, as committed, or null when the key is absent. A key holding JSON
+    /// fails with `value_invalid`, naming `get`. Takes no writer lock. Through
+    /// a crawl attempt (`attempt`), it reads what the attempt staged first.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn get_bytes(
+        &self,
+        key: impl Into<String>,
+    ) -> Call<Option<StoredBytes>, KeyValueStoreKeyParams> {
+        self.store.get_bytes(key)
+    }
+
+    /// Sends the committed keys of a Run's Key-value store that start with
+    /// `prefix`, in the order of their Unicode scalar values, in `$/key`
+    /// notifications, one per credit granted with `$/credit`, then answers how
+    /// many it sent. Takes no writer lock.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn keys(&self, prefix: Option<&str>) -> EventStream<String> {
+        self.store.keys(prefix)
     }
 }
 

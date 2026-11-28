@@ -360,6 +360,7 @@ export class ClientConnection implements AsyncDisposable {
     const calls = this.caller<CollieOperationTypes>(collieWire);
     this.#operations = new CollieOperations(calls);
     this.#runHost = {
+      connection: this,
       calls,
       raw: (operation, params, callOptions) => this.#raw(operation, params, callOptions),
       reachable: () => !this.#ended,
@@ -596,7 +597,7 @@ export class ClientConnection implements AsyncDisposable {
    */
   async openRun(runId: string): Promise<RunView> {
     this.#openOrThrow("openRun");
-    return new RunView(runId);
+    return new RunView(this.#runHost, runId);
   }
 
   /**

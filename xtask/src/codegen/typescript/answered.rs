@@ -1,32 +1,39 @@
 //! What a round trip, a query or a waiter of the TypeScript handles
 //! answers, and the lines that return it: the result, or its one property
-//! (`Member::unwrapped`, issue 2883), and a page's response wrapped in the
-//! hand-written `Response`, built with the page's host, which reads its
-//! body (`Member::responds`, issue 3394), as Python's and Rust's handles
-//! answer it.
+//! (`Member::unwrapped`, issue 2883), and a page's response or Run copy
+//! wrapped in its hand-written class (`Response`, `Checkpoint`, `RunTrace`).
 
-use super::super::handles::{Handle, Member};
+use std::collections::BTreeSet;
+
+use super::super::handles::{Handle, Member, Wrapped};
 use super::super::naming::camel;
 
 /// The hand-written module of a page's `Response`.
 const RESPONSE_MODULE: &str = "../response.ts";
+/// The hand-written module of a Run's `Checkpoint` and `RunTrace`.
+const RUN_COPIES_MODULE: &str = "../run-copies.ts";
 
-/// The hand-written class of a page's response.
-const RESPONSE: &str = "Response";
+fn wrapped_name(wrapped: Wrapped) -> &'static str {
+    match wrapped {
+        Wrapped::Response => "Response",
+        Wrapped::Checkpoint => "Checkpoint",
+        Wrapped::RunTrace => "RunTrace",
+    }
+}
 
 /// The type `member` answers: the operation's result type, or the type of
 /// its one property, which an optional one gives with `null` for absent;
-/// a `Response` for a page's response.
+/// or the wrapped hand-written class.
 pub(super) fn answered(member: &Member<'_>, result: &str) -> String {
-    match (&member.unwrapped, member.responds) {
-        (None, true) => RESPONSE.to_owned(),
-        (None, false) => format!("types.{result}"),
-        (Some(unwrapped), true) if unwrapped.required => RESPONSE.to_owned(),
-        (Some(_), true) => format!("{RESPONSE} | null"),
-        (Some(unwrapped), false) if unwrapped.required => {
+    match (&member.unwrapped, member.wrapped) {
+        (None, Some(wrapped)) => wrapped_name(wrapped).to_owned(),
+        (None, None) => format!("types.{result}"),
+        (Some(unwrapped), Some(wrapped)) if unwrapped.required => wrapped_name(wrapped).to_owned(),
+        (Some(_), Some(wrapped)) => format!("{} | null", wrapped_name(wrapped)),
+        (Some(unwrapped), None) if unwrapped.required => {
             format!("types.{result}[{:?}]", camel(&unwrapped.property))
         }
-        (Some(unwrapped), false) => {
+        (Some(unwrapped), None) => {
             format!(
                 "NonNullable<types.{result}[{:?}]> | null",
                 camel(&unwrapped.property)
@@ -35,28 +42,25 @@ pub(super) fn answered(member: &Member<'_>, result: &str) -> String {
     }
 }
 
-/// The lines of `member`'s body that return what it answers of `call`:
-/// its result, or its result's one property, `null` when an optional one
-/// is absent, a page's response wrapped with the handle's host.
+/// The lines of `member`'s body that return what it answers of `call`.
 pub(super) fn answer(member: &Member<'_>, call: &str) -> String {
-    let wrapped = |value: &str| {
-        if member.responds {
-            format!("new {RESPONSE}(this.#host, {value})")
-        } else {
-            value.to_owned()
-        }
+    let wrap = |value: &str| match member.wrapped {
+        Some(wrapped) => format!("new {}(this.#host, {value})", wrapped_name(wrapped)),
+        None => value.to_owned(),
     };
     match &member.unwrapped {
-        None if member.responds => format!("    return {};\n", wrapped(&format!("await {call}"))),
+        None if member.wrapped.is_some() => {
+            format!("    return {};\n", wrap(&format!("await {call}")))
+        }
         None => format!("    return {call};\n"),
         Some(unwrapped) if unwrapped.required => format!(
             "    return {};\n",
-            wrapped(&format!("(await {call}).{}", camel(&unwrapped.property)))
+            wrap(&format!("(await {call}).{}", camel(&unwrapped.property)))
         ),
-        Some(unwrapped) if member.responds => format!(
-            "    const response = (await {call}).{} ?? null;\n    return response === null ? null : {};\n",
+        Some(unwrapped) if member.wrapped.is_some() => format!(
+            "    const value = (await {call}).{} ?? null;\n    return value === null ? null : {};\n",
             camel(&unwrapped.property),
-            wrapped("response")
+            wrap("value")
         ),
         Some(unwrapped) => format!(
             "    return (await {call}).{} ?? null;\n",
@@ -65,19 +69,41 @@ pub(super) fn answer(member: &Member<'_>, call: &str) -> String {
     }
 }
 
-/// The import of the hand-written `Response`, when a member of `handles`
-/// answers a page's response.
+/// The imports of hand-written wrapped classes (`Response`, `Checkpoint`,
+/// `RunTrace`) used by members of `handles`.
 pub(super) fn response_import(handles: &[Handle<'_>]) -> String {
-    let responds = handles.iter().any(|handle| {
+    let mut response = false;
+    let mut copies = BTreeSet::new();
+    for member in handles.iter().flat_map(|handle| {
         handle
             .members
             .iter()
             .chain(handle.sub_objects.iter().flat_map(|held| &held.members))
-            .any(|member| member.responds)
-    });
-    if responds {
-        format!("import {{ {RESPONSE} }} from \"{RESPONSE_MODULE}\";\n")
-    } else {
-        String::new()
+    }) {
+        match member.wrapped {
+            Some(Wrapped::Response) => response = true,
+            Some(Wrapped::Checkpoint) => {
+                copies.insert("Checkpoint");
+            }
+            Some(Wrapped::RunTrace) => {
+                copies.insert("RunTrace");
+            }
+            None => {}
+        }
     }
+    let mut imports = String::new();
+    if response {
+        let _ = std::fmt::Write::write_fmt(
+            &mut imports,
+            format_args!("import {{ Response }} from \"{RESPONSE_MODULE}\";\n"),
+        );
+    }
+    if !copies.is_empty() {
+        let names = copies.into_iter().collect::<Vec<_>>().join(", ");
+        let _ = std::fmt::Write::write_fmt(
+            &mut imports,
+            format_args!("import {{ {names} }} from \"{RUN_COPIES_MODULE}\";\n"),
+        );
+    }
+    imports
 }

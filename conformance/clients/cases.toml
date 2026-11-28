@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "69"
+version = "70"
 
 [[capability]]
 name = "lifecycle"
@@ -1023,5 +1023,32 @@ name = "secrets"
 [[capability.case]]
 id = "caller-secret-resolution"
 covers = ["story:11-98"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-rust = ["daemon"] }
+
+# `openRun(runId)`, `RunView`, Key-value store `keys()` & schema-typed values,
+# and `Checkpoint` / `RunTrace` `saveAs(path)` + `stream()` (ADRs 0082, 0102,
+# 0103 and 0116; issue 1284): `openRun` on a finished and on an interrupted Run
+# reads `progress()`, `report()`, `trace()` and KV reads (`get`, `getBytes`,
+# `keys`); an unknown ID raises `run_not_found` and an interrupted Run raises
+# `run_interrupted` on `report()`; `Checkpoint.saveAs` and `RunTrace.saveAs`
+# write whole through the program's writer and `stream()` delivers the same
+# bytes. Played by the Scripted engine in TypeScript and Python (asyncio, Trio
+# and sync), attached and as a Daemon, and as the Daemon Rust's client crate
+# reaches.
+[[capability]]
+name = "run-view"
+
+[[capability.case]]
+id = "run-view-and-copies"
+covers = [
+  "story:11-130",
+  "operation:run.trace",
+  "operation:checkpoint.save_as",
+  "operation:checkpoint.stream",
+  "operation:trace.save_as",
+  "operation:trace.stream",
+  "operation:key_value_store.keys",
+]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = { sdk-rust = ["daemon"] }

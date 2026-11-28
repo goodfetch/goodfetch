@@ -34,6 +34,7 @@ mod points_in_time;
 mod product_and_provisioning;
 mod reconnect;
 mod results;
+mod run_view_and_copies;
 mod scripted_daemon;
 mod session_events;
 mod sessions;

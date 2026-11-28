@@ -13,7 +13,7 @@
 // failure waits in the Run for the next call on that value, or the `close()`
 // that closes it, to raise `listener_failed`; a value released first logs it.
 import type { CallOptions, Caller, OperationTypes } from "./caller.ts";
-import type { Stream } from "./client-connection.ts";
+import type { ClientConnection, Stream } from "./client-connection.ts";
 import {
   CallCancelledError,
   ClosedError,
@@ -40,6 +40,7 @@ import { Opened } from "./opened.ts";
 import type { RawSend } from "./raw-call.ts";
 import { warnEntry } from "./markers.ts";
 import { holdInRealm } from "./realm.ts";
+import { registerCopyHost } from "./run-copies.ts";
 import type { ChannelOpenOptions } from "./rpc.ts";
 import { Sequence } from "./sequence.ts";
 import type { SharedSubscription } from "./shared-subscription.ts";
@@ -47,6 +48,8 @@ import { fromWire, toWire, type WirePath } from "./wire.ts";
 
 /** What a Run reaches its engine through: its Connection. */
 export interface RunHost {
+  /** The Connection the Run runs on, for `saveFile` and chunked streams. */
+  readonly connection: ClientConnection;
   /** The Connection's calls. */
   readonly calls: Caller<CollieOperationTypes>;
   /** The Connection's raw calls (ADR 0099), whose params and results it leaves as sent. */
@@ -532,7 +535,11 @@ export class Run extends RunMembers implements AsyncDisposable {
     };
     attemptStoreIn = (run, attempt, signal) =>
       new KeyValueStore(
-        keyValueStoreHost(signalled(run.#host.calls, signal), attempt),
+        keyValueStoreHost(
+          signalled(run.#host.calls, signal),
+          (method, params, opened) => run.#host.stream(method, params, opened),
+          attempt,
+        ),
         run.#scope.id,
         (operation) => {
           signal.throwIfAborted();
@@ -565,13 +572,21 @@ export class Run extends RunMembers implements AsyncDisposable {
       state: started.lifecycle === "running" ? "running" : "ended",
       failures: [],
     };
-    super(hostIn(host, scope, undefined, started.runId), started);
+    const handleHost = hostIn(host, scope, undefined, started.runId);
+    registerCopyHost(handleHost, host.connection);
+    super(handleHost, started);
     this.#host = host;
     this.#scope = scope;
     this.#detached = detached;
-    this.keyValueStore = new KeyValueStore(keyValueStoreHost(host.calls), scope.id, (operation) => {
-      ensureOpen(scope, operation);
-    });
+    this.keyValueStore = new KeyValueStore(
+      keyValueStoreHost(host.calls, (method, params, opened) =>
+        host.stream(method, params, opened),
+      ),
+      scope.id,
+      (operation) => {
+        ensureOpen(scope, operation);
+      },
+    );
     holdInRealm(this);
   }
 

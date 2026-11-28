@@ -771,7 +771,7 @@ class ClientConnection:
             ClosedError: The Connection is closed.
         """
         self.ensure_open("open_run")
-        return AsyncRunView(run_id)
+        return AsyncRunView(self, run_id)
 
     async def explain_settings(
         self, keys: Iterable[str] | None = None

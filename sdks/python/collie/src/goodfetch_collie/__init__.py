@@ -190,6 +190,7 @@ from goodfetch_collie_client.generated.errors import (
     WebhookInvalidError,
 )
 from goodfetch_collie_client.generated.models import (
+    CheckpointSaved,
     ExplainedSetting,
     NotificationPayload,
     Product,
@@ -207,6 +208,7 @@ from goodfetch_collie_client.generated.models import (
     SettingsFile,
     SettingsLayer,
     StartedAs,
+    TraceSaved,
 )
 from goodfetch_collie_client.generated.settings import (
     PageSettings,
@@ -225,13 +227,21 @@ from goodfetch_collie_client.handlerless import (
 from goodfetch_collie_client.json_values import JSONObject, JSONValue
 from goodfetch_collie_client.key_value_store import (
     AsyncKeyValueStore,
+    AsyncKeyValueStoreView,
     KeyValueStore,
+    KeyValueStoreView,
     StoredBytes,
 )
 from goodfetch_collie_client.limits import Limits, Money, Prices
 from goodfetch_collie_client.markers import ExperimentalWarning
 from goodfetch_collie_client.response import AsyncResponse, Response
 from goodfetch_collie_client.run import AsyncRun, Run
+from goodfetch_collie_client.run_copies import (
+    AsyncCheckpoint,
+    AsyncRunTrace,
+    Checkpoint,
+    RunTrace,
+)
 from goodfetch_collie_client.run_view import AsyncRunView, RunView
 from goodfetch_collie_client.schedules import (
     AsyncSchedule,
@@ -257,11 +267,14 @@ __all__ = [
     "AgentTarget",
     "ArtifactDownloadFailedError",
     "ArtifactUnavailableOfflineError",
+    "AsyncCheckpoint",
     "AsyncCollie",
     "AsyncConnection",
     "AsyncKeyValueStore",
+    "AsyncKeyValueStoreView",
     "AsyncResponse",
     "AsyncRun",
+    "AsyncRunTrace",
     "AsyncRunView",
     "AsyncSchedule",
     "AsyncSchedules",
@@ -286,7 +299,9 @@ __all__ = [
     "CertificateChangedError",
     "CertificateInvalidError",
     "ChallengeUnsolvedError",
+    "Checkpoint",
     "CheckpointBehindError",
+    "CheckpointSaved",
     "Claim",
     "ClosedError",
     "Collie",
@@ -335,6 +350,7 @@ __all__ = [
     "JSONSchema",
     "JSONValue",
     "KeyValueStore",
+    "KeyValueStoreView",
     "LimitNotUnderstoodError",
     "LimitRaiseRefusedError",
     "LimitReachedError",
@@ -417,6 +433,7 @@ __all__ = [
     "RunStateFilesystemUnsupportedError",
     "RunStateUnavailableError",
     "RunTargetUnbuiltError",
+    "RunTrace",
     "RunView",
     "SampleRefusedError",
     "Schedule",
@@ -457,6 +474,7 @@ __all__ = [
     "TargetNotUniqueError",
     "TooManyCallsError",
     "TooManyRedirectsError",
+    "TraceSaved",
     "UnavailableError",
     "UpgradeSourceUnsupportedError",
     "ValueInvalidError",

@@ -5,6 +5,7 @@ import { defined, timeoutOf, type HandleHost, type Listener, type OpenedEvents, 
 import { warnEntry, warnExperimental } from "../markers.ts";
 import { Handle } from "../raw-call.ts";
 import { Response } from "../response.ts";
+import { Checkpoint, RunTrace } from "../run-copies.ts";
 import { collieEvents } from "./events.ts";
 import type { CollieOperationTypes } from "./operations.ts";
 import { settingsOnWire, type PageSettings, type SessionSettings } from "./settings.ts";
@@ -60,9 +61,9 @@ export class Run extends Handle {
    *
    * @experimental
    */
-  async checkpoint(): Promise<types.Checkpoint> {
+  async checkpoint(): Promise<Checkpoint> {
     warnExperimental("run.checkpoint");
-    return this.#host.call("run.checkpoint", { runId: this.#host.id }, {});
+    return new Checkpoint(this.#host, await this.#host.call("run.checkpoint", { runId: this.#host.id }, {}));
   }
 
   /**
@@ -156,6 +157,17 @@ export class Run extends Handle {
   async stop(options: { readonly timeout?: types.RunStopParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.RunReport> {
     warnExperimental("run.stop");
     return this.#host.call("run.stop", defined({ runId: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.close") }), { signal: options.signal, deadline: { key: "timeout.close", value: options.timeout } });
+  }
+
+  /**
+   * Reads a Run's trace copy as recorded so far, or null when the Run keeps no trace (ADRs 0102 and 0116). Returns only once the copy is whole, with its size and SHA-256 digest; a write the engine cannot make fails with `file_write_failed`, side `engine`, and leaves no unfinished file. Takes no writer lock, so a view reads a Run no program holds without resuming it. A Run ID the Run index does not list fails with `run_not_found`.
+   *
+   * @experimental
+   */
+  async trace(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<RunTrace | null> {
+    warnExperimental("run.trace");
+    const value = (await this.#host.call("run.trace", { runId: this.#host.id }, { signal: options.signal })).trace ?? null;
+    return value === null ? null : new RunTrace(this.#host, value);
   }
 
   /**
@@ -466,8 +478,8 @@ export class Page extends Handle implements AsyncDisposable {
    */
   async goBack(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<Response | null> {
     warnExperimental("page.go_back");
-    const response = (await this.#host.call("page.go_back", { pageId: this.#host.id }, { signal: options.signal })).response ?? null;
-    return response === null ? null : new Response(this.#host, response);
+    const value = (await this.#host.call("page.go_back", { pageId: this.#host.id }, { signal: options.signal })).response ?? null;
+    return value === null ? null : new Response(this.#host, value);
   }
 
   /**
@@ -477,8 +489,8 @@ export class Page extends Handle implements AsyncDisposable {
    */
   async goForward(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<Response | null> {
     warnExperimental("page.go_forward");
-    const response = (await this.#host.call("page.go_forward", { pageId: this.#host.id }, { signal: options.signal })).response ?? null;
-    return response === null ? null : new Response(this.#host, response);
+    const value = (await this.#host.call("page.go_forward", { pageId: this.#host.id }, { signal: options.signal })).response ?? null;
+    return value === null ? null : new Response(this.#host, value);
   }
 
   /**
@@ -488,8 +500,8 @@ export class Page extends Handle implements AsyncDisposable {
    */
   async goto(url: types.GotoParams["url"], options: { readonly timeout?: types.GotoParams["timeout"] | undefined; readonly waitUntil?: types.GotoParams["waitUntil"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<Response | null> {
     warnExperimental("page.goto");
-    const response = (await this.#host.call("page.goto", defined({ pageId: this.#host.id, url, timeout: timeoutOf(options.timeout, "timeout.navigation"), waitUntil: options.waitUntil }), { signal: options.signal, deadline: { key: "timeout.navigation", value: options.timeout } })).response ?? null;
-    return response === null ? null : new Response(this.#host, response);
+    const value = (await this.#host.call("page.goto", defined({ pageId: this.#host.id, url, timeout: timeoutOf(options.timeout, "timeout.navigation"), waitUntil: options.waitUntil }), { signal: options.signal, deadline: { key: "timeout.navigation", value: options.timeout } })).response ?? null;
+    return value === null ? null : new Response(this.#host, value);
   }
 
   /**
@@ -509,8 +521,8 @@ export class Page extends Handle implements AsyncDisposable {
    */
   async reload(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<Response | null> {
     warnExperimental("page.reload");
-    const response = (await this.#host.call("page.reload", { pageId: this.#host.id }, { signal: options.signal })).response ?? null;
-    return response === null ? null : new Response(this.#host, response);
+    const value = (await this.#host.call("page.reload", { pageId: this.#host.id }, { signal: options.signal })).response ?? null;
+    return value === null ? null : new Response(this.#host, value);
   }
 
   /**

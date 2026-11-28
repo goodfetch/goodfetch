@@ -62,11 +62,12 @@ pub use crawl::{
 pub use foxhound::{ConnectOptions, Foxhound, PAID_FETCHES};
 pub use goodfetch_collie::{EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon};
 pub use goodfetch_collie_client::{
-    Answer, BoxError, Call, Connection, CreatedSchedule, Error, ErrorCode, ErrorDetails,
-    EventStream, Exchange, FieldValues, HandlerlessStart, KeyValueStore, Limits, Locator, Money,
-    MoneyError, Page, Query, RawCall, Response, Run, RunView, SaveFile, Schedule, Schedules,
-    Schema, SchemaError, Session, Start, StoredBytes, UsageKind, VerifyWebhookOptions, events,
-    schemars, verify_webhook, verify_webhook_with,
+    Answer, BoxError, Call, Checkpoint, Connection, CreatedSchedule, Error, ErrorCode,
+    ErrorDetails, EventStream, Exchange, FieldValues, HandlerlessStart, KeyValueStore,
+    KeyValueStoreView, Limits, Locator, Money, MoneyError, Page, Query, RawCall, Response, Run,
+    RunTrace, RunView, SaveFile, Schedule, Schedules, Schema, SchemaError, Session, Start,
+    StoredBytes, UsageKind, VerifyWebhookOptions, events, schemars, verify_webhook,
+    verify_webhook_with,
 };
 pub use goodfetch_protocol::foxhound::crawl::CrawlExtraction;
 pub use goodfetch_protocol::foxhound::declaration::CrawlDeclaration;

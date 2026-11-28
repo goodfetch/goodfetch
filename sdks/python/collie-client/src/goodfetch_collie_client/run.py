@@ -19,7 +19,7 @@ import logging
 import threading
 import weakref
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Generic, Literal, Protocol, TypeVar
+from typing import TYPE_CHECKING, Generic, Literal, Protocol, TypeVar, cast
 
 import anyio
 
@@ -62,6 +62,10 @@ from goodfetch_collie_client.listeners import (
 )
 from goodfetch_collie_client.markers import warn_entry
 from goodfetch_collie_client.portal import LoopStopped
+from goodfetch_collie_client.run_copies import (
+    register_async_copy_host,
+    register_sync_copy_host,
+)
 from goodfetch_collie_client.sequence import AsyncSequence, Reading, Reads, Sequence
 
 if TYPE_CHECKING:
@@ -72,6 +76,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel, JsonValue
 
     from goodfetch_collie_client._shared_subscription import SharedSubscription
+    from goodfetch_collie_client.connection import ClientConnection
     from goodfetch_collie_client.generated.models import (
         KeyValueStoreAttempt,
         ProjectSettings,
@@ -772,6 +777,7 @@ class AsyncRun(AsyncRunMembers):
             # A start that found its Run ended: closing it stops nothing.
             scope.state = "ended"
         host = _AsyncHost(connection, scope, None, started.run_id)
+        register_async_copy_host(host, cast("ClientConnection", connection))
         super().__init__(host, started)
         _held[self] = (host, started)
         self._connection = connection
@@ -1014,6 +1020,7 @@ class Run(RunMembers):
         """Takes its Connection's private loop and the Run it drives there."""
         async_host, started = _held[run]
         host = _SyncHost(loop, async_host)
+        register_sync_copy_host(host, loop, cast("ClientConnection", run._connection))
         super().__init__(host, started)
         self._loop = loop
         self._run = run

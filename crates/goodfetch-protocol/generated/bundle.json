@@ -2735,6 +2735,130 @@
       ],
       "type": "object"
     },
+    "CheckpointSaveAsParams": {
+      "additionalProperties": false,
+      "description": "What `checkpoint.save_as` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "location": {
+          "arrived_in": "0.1",
+          "description": "Where the Checkpoint is on the engine's machine, as `run.checkpoint` answered.",
+          "type": "string"
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The program's path, absolute, which an Attached engine writes\nitself; any other engine leaves it to the SDK and sends the file's\nbytes instead.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "location"
+      ],
+      "type": "object"
+    },
+    "CheckpointSaved": {
+      "description": "What `checkpoint.save_as` answers once the file is whole.",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "run_epoch": {
+          "arrived_in": "0.1",
+          "description": "The run epoch of the writer that took the Checkpoint (ADR 0003).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "The file's size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "written": {
+          "arrived_in": "0.1",
+          "description": "Whether the engine wrote the program's path itself; when not, the\n`$/chunk` notifications before this answer carried every byte, and\nthe SDK writes the path.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "size",
+        "digest",
+        "written",
+        "run_epoch"
+      ],
+      "type": "object"
+    },
+    "CheckpointStreamParams": {
+      "additionalProperties": false,
+      "description": "What `checkpoint.stream` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "location": {
+          "arrived_in": "0.1",
+          "description": "Where the Checkpoint is on the engine's machine, as `run.checkpoint` answered.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "location"
+      ],
+      "type": "object"
+    },
+    "CheckpointStreamed": {
+      "description": "What `checkpoint.stream` answers once it sent every byte.",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "run_epoch": {
+          "arrived_in": "0.1",
+          "description": "The run epoch of the writer that took the Checkpoint (ADR 0003).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "The file's size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "size",
+        "digest",
+        "run_epoch"
+      ],
+      "type": "object"
+    },
     "ChromeChannel": {
       "description": "A channel of Google Chrome (ADR 0024: an installed Chrome can be named by\nits channel).",
       "oneOf": [
@@ -23649,6 +23773,58 @@
       ],
       "type": "object"
     },
+    "RunTrace": {
+      "description": "A Run's trace copy, kept on the engine's machine (ADRs 0102 and 0116).",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "location": {
+          "arrived_in": "0.1",
+          "description": "Where it is: the trace file's path on the engine's machine.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "Its size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "run_id",
+        "location",
+        "size",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "RunTraceResult": {
+      "description": "What `run.trace` answers: the Run's trace copy, or none when the Run keeps\nno trace.",
+      "properties": {
+        "trace": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunTrace"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Run's trace copy, or null when the Run keeps no trace."
+        }
+      },
+      "type": "object"
+    },
     "RunTrigger": {
       "description": "What fired a Schedule's occurrence (ADR 0036), as its run's reserved\n`goodfetch.trigger` tag names it.",
       "oneOf": [
@@ -28560,6 +28736,114 @@
         "url",
         "hops",
         "limit"
+      ],
+      "type": "object"
+    },
+    "TraceSaveAsParams": {
+      "additionalProperties": false,
+      "description": "What `trace.save_as` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "location": {
+          "arrived_in": "0.1",
+          "description": "Where the trace copy is on the engine's machine, as `run.trace` answered.",
+          "type": "string"
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The program's path, absolute, which an Attached engine writes\nitself; any other engine leaves it to the SDK and sends the file's\nbytes instead.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "location"
+      ],
+      "type": "object"
+    },
+    "TraceSaved": {
+      "description": "What `trace.save_as` answers once the file is whole.",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "The file's size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "written": {
+          "arrived_in": "0.1",
+          "description": "Whether the engine wrote the program's path itself; when not, the\n`$/chunk` notifications before this answer carried every byte, and\nthe SDK writes the path.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "size",
+        "digest",
+        "written"
+      ],
+      "type": "object"
+    },
+    "TraceStreamParams": {
+      "additionalProperties": false,
+      "description": "What `trace.stream` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "location": {
+          "arrived_in": "0.1",
+          "description": "Where the trace copy is on the engine's machine, as `run.trace` answered.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "location"
+      ],
+      "type": "object"
+    },
+    "TraceStreamed": {
+      "description": "What `trace.stream` answers once it sent every byte.",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "The file's size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "size",
+        "digest"
       ],
       "type": "object"
     },

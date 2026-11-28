@@ -2,7 +2,7 @@
 
 import type { CallOptions, Caller } from "../caller.ts";
 import { type EntryMarkers, warnDeprecated, warnExperimental } from "../markers.ts";
-import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScrollCollected, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
+import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, CheckpointSaveAsParams, CheckpointSaved, CheckpointStreamParams, CheckpointStreamed, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunTraceResult, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScrollCollected, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TraceSaveAsParams, TraceSaved, TraceStreamParams, TraceStreamed, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
 import { warnDeprecatedSettings } from "./settings.ts";
 
 export type { CallOptions, Caller, OperationTypes } from "../caller.ts";
@@ -16,6 +16,8 @@ export interface CollieOperationTypes {
   "cache.verify": { params: CacheVerifyParams; result: CacheVerified };
   "catalog_run.start": { params: CatalogRunStartParams; result: RunStarted };
   "certs.list": { params: CertsListParams; result: CertsListed };
+  "checkpoint.save_as": { params: CheckpointSaveAsParams; result: CheckpointSaved };
+  "checkpoint.stream": { params: CheckpointStreamParams; result: CheckpointStreamed };
   "config.explain": { params: ConfigExplainParams; result: SettingsExplanation };
   "connection.set_log_level": { params: SetLogLevelParams; result: LogLevelSet };
   "daemon.health": { params: DaemonParams; result: DaemonHealth };
@@ -87,6 +89,7 @@ export interface CollieOperationTypes {
   "run.start": { params: RunStartParams; result: RunStarted };
   "run.started_as": { params: RunParams; result: RunStartedAs };
   "run.stop": { params: RunStopParams; result: RunReport };
+  "run.trace": { params: RunParams; result: RunTraceResult };
   "run.usage": { params: RunParams; result: RunUsage };
   "sample.echo": { params: SampleEchoParams; result: SampleEchoResult };
   "schedule.create": { params: ScheduleCreateParams; result: ScheduleCreated };
@@ -102,6 +105,8 @@ export interface CollieOperationTypes {
   "session.route": { params: SessionRouteParams; result: RouteEnded };
   "signing_key.create": { params: SigningKeyCreateParams; result: SigningKeyCreated };
   "signing_key.directory": { params: SigningKeyDirectoryParams; result: SigningKeyDirectory };
+  "trace.save_as": { params: TraceSaveAsParams; result: TraceSaved };
+  "trace.stream": { params: TraceStreamParams; result: TraceStreamed };
   "usage.list": { params: UsageListParams; result: UsageListResult };
   "usage.set": { params: UsageSetParams; result: LimitUsage };
 }
@@ -115,6 +120,8 @@ export const collieOperations: Readonly<Record<keyof CollieOperationTypes, Entry
   "cache.verify": { experimental: true, deprecated: undefined },
   "catalog_run.start": { experimental: true, deprecated: undefined },
   "certs.list": { experimental: true, deprecated: undefined },
+  "checkpoint.save_as": { experimental: true, deprecated: undefined },
+  "checkpoint.stream": { experimental: true, deprecated: undefined },
   "config.explain": { experimental: false, deprecated: undefined },
   "connection.set_log_level": { experimental: true, deprecated: undefined },
   "daemon.health": { experimental: false, deprecated: undefined },
@@ -186,6 +193,7 @@ export const collieOperations: Readonly<Record<keyof CollieOperationTypes, Entry
   "run.start": { experimental: true, deprecated: undefined },
   "run.started_as": { experimental: true, deprecated: undefined },
   "run.stop": { experimental: true, deprecated: undefined },
+  "run.trace": { experimental: true, deprecated: undefined },
   "run.usage": { experimental: true, deprecated: undefined },
   "sample.echo": { experimental: true, deprecated: "Since 0.1, removed no earlier than 1.0: A sample entry, which the real catalog replaces." },
   "schedule.create": { experimental: true, deprecated: undefined },
@@ -201,6 +209,8 @@ export const collieOperations: Readonly<Record<keyof CollieOperationTypes, Entry
   "session.route": { experimental: true, deprecated: undefined },
   "signing_key.create": { experimental: true, deprecated: undefined },
   "signing_key.directory": { experimental: true, deprecated: undefined },
+  "trace.save_as": { experimental: true, deprecated: undefined },
+  "trace.stream": { experimental: true, deprecated: undefined },
   "usage.list": { experimental: true, deprecated: undefined },
   "usage.set": { experimental: true, deprecated: undefined },
 };
@@ -214,6 +224,8 @@ export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, s
   "cache.verify": "cache.verify",
   "catalog_run.start": "catalogRun.start",
   "certs.list": "certs.list",
+  "checkpoint.save_as": "checkpoint.saveAs",
+  "checkpoint.stream": "checkpoint.stream",
   "config.explain": "config.explain",
   "connection.set_log_level": "connection.setLogLevel",
   "daemon.health": "daemon.health",
@@ -285,6 +297,7 @@ export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, s
   "run.start": "run.start",
   "run.started_as": "run.startedAs",
   "run.stop": "run.stop",
+  "run.trace": "run.trace",
   "run.usage": "run.usage",
   "sample.echo": "sample.echo",
   "schedule.create": "schedule.create",
@@ -300,6 +313,8 @@ export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, s
   "session.route": "session.route",
   "signing_key.create": "signingKey.create",
   "signing_key.directory": "signingKey.directory",
+  "trace.save_as": "trace.saveAs",
+  "trace.stream": "trace.stream",
   "usage.list": "usage.list",
   "usage.set": "usage.set",
 };
@@ -313,6 +328,8 @@ export const collieOperationClasses: Readonly<Record<keyof CollieOperationTypes,
   "cache.verify": "read",
   "catalog_run.start": "idempotent_write",
   "certs.list": "read",
+  "checkpoint.save_as": "idempotent_write",
+  "checkpoint.stream": "read",
   "config.explain": "read",
   "connection.set_log_level": "idempotent_write",
   "daemon.health": "read",
@@ -384,6 +401,7 @@ export const collieOperationClasses: Readonly<Record<keyof CollieOperationTypes,
   "run.start": "idempotent_write",
   "run.started_as": "read",
   "run.stop": "idempotent_write",
+  "run.trace": "read",
   "run.usage": "read",
   "sample.echo": "read",
   "schedule.create": "effect",
@@ -399,6 +417,8 @@ export const collieOperationClasses: Readonly<Record<keyof CollieOperationTypes,
   "session.route": "idempotent_write",
   "signing_key.create": "idempotent_write",
   "signing_key.directory": "read",
+  "trace.save_as": "idempotent_write",
+  "trace.stream": "read",
   "usage.list": "read",
   "usage.set": "idempotent_write",
 };
@@ -480,6 +500,26 @@ export class CollieOperations {
   certsList(params: CertsListParams): Promise<CertsListed> {
     warnExperimental("certs.list");
     return this.#caller.call("certs.list", params, {});
+  }
+
+  /**
+   * Saves a Checkpoint's file, which the engine keeps on its machine, whole or not at all (ADRs 0102 and 0116). An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size, its SHA-256 digest and its run epoch. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.
+   *
+   * @experimental
+   */
+  checkpointSaveAs(params: CheckpointSaveAsParams, options: CallOptions = {}): Promise<CheckpointSaved> {
+    warnExperimental("checkpoint.save_as");
+    return this.#caller.call("checkpoint.save_as", params, options);
+  }
+
+  /**
+   * Sends a Checkpoint's bytes in order, in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, and answers its size, its SHA-256 digest and its run epoch once every byte is sent (ADRs 0102 and 0116). Nothing is written on either machine: a program that writes the bytes itself meets its own language's file errors.
+   *
+   * @experimental
+   */
+  checkpointStream(params: CheckpointStreamParams, options: CallOptions = {}): Promise<CheckpointStreamed> {
+    warnExperimental("checkpoint.stream");
+    return this.#caller.call("checkpoint.stream", params, options);
   }
 
   /**
@@ -1174,6 +1214,16 @@ export class CollieOperations {
   }
 
   /**
+   * Reads a Run's trace copy as recorded so far, or null when the Run keeps no trace (ADRs 0102 and 0116). Returns only once the copy is whole, with its size and SHA-256 digest; a write the engine cannot make fails with `file_write_failed`, side `engine`, and leaves no unfinished file. Takes no writer lock, so a view reads a Run no program holds without resuming it. A Run ID the Run index does not list fails with `run_not_found`.
+   *
+   * @experimental
+   */
+  runTrace(params: RunParams, options: CallOptions = {}): Promise<RunTraceResult> {
+    warnExperimental("run.trace");
+    return this.#caller.call("run.trace", params, options);
+  }
+
+  /**
    * Answers what a Run used, as the Usage ledger charged it: its model calls and tokens, browser time, proxy bytes, requests, paid solves and Paid fetches, each Limit that applies to it with what is left of it, and whether it is uncapped. An ended Run answers its report's Usage.
    *
    * @experimental
@@ -1324,6 +1374,26 @@ export class CollieOperations {
   signingKeyDirectory(params: SigningKeyDirectoryParams): Promise<SigningKeyDirectory> {
     warnExperimental("signing_key.directory");
     return this.#caller.call("signing_key.directory", params, {});
+  }
+
+  /**
+   * Saves a Run trace's file, which the engine keeps on its machine, whole or not at all (ADRs 0102 and 0116). An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size and its SHA-256 digest. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.
+   *
+   * @experimental
+   */
+  traceSaveAs(params: TraceSaveAsParams, options: CallOptions = {}): Promise<TraceSaved> {
+    warnExperimental("trace.save_as");
+    return this.#caller.call("trace.save_as", params, options);
+  }
+
+  /**
+   * Sends a Run trace's bytes in order, in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, and answers its size and its SHA-256 digest once every byte is sent (ADRs 0102 and 0116). Nothing is written on either machine: a program that writes the bytes itself meets its own language's file errors.
+   *
+   * @experimental
+   */
+  traceStream(params: TraceStreamParams, options: CallOptions = {}): Promise<TraceStreamed> {
+    warnExperimental("trace.stream");
+    return this.#caller.call("trace.stream", params, options);
   }
 
   /**

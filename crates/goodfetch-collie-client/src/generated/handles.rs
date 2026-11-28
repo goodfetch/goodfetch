@@ -58,18 +58,20 @@ impl Run {
     /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn checkpoint(
         &self,
-    ) -> crate::Call<
-        crate::Answer<::goodfetch_protocol::run::Checkpoint>,
-        ::goodfetch_protocol::checkpoint::RunCheckpointParams,
-    > {
+    ) -> crate::Call<crate::Checkpoint, ::goodfetch_protocol::checkpoint::RunCheckpointParams> {
         crate::markers::warn("run.checkpoint", true, None);
-        self.host.call(
+        let host = self.host.clone();
+        let call: crate::Call<
+            ::goodfetch_protocol::run::Checkpoint,
+            ::goodfetch_protocol::checkpoint::RunCheckpointParams,
+        > = self.host.call(
             "run.checkpoint",
             ::goodfetch_protocol::checkpoint::RunCheckpointParams {
                 run_id: self.host.id().clone(),
                 location: None,
             },
-        )
+        );
+        call.map(move |result| crate::Checkpoint::new(host.connection().clone(), result))
     }
 
     /// Discards a Run that ended or was interrupted, for good, so that nothing of it is left behind (ADRs 0001, 0002, 0015 and 0036): its wrapped data key is overwritten and its run folder removed, with its run file, page bodies, browser profiles and the Checkpoints written there; in the per-install layout its rows are deleted from the install database with `secure_delete` on, then `wal_checkpoint(TRUNCATE)`, so neither the database nor its `-wal` and `-shm` files hold its bytes. Its Run index row stays, marked `erased`, without its tags or status line. A Profile directory it used in place and a Borrowed browser are the person's own and are never touched (ADR 0056), nor are Checkpoints written elsewhere. A later `run.start` under its Run ID starts a new Run; discarding a Run already discarded changes nothing. A Run this engine runs fails with `run_live`, one whose writer lock another engine holds with `run_in_use`, and a Run ID no Run has with `run_not_found`.
@@ -294,6 +296,34 @@ impl Run {
                 },
             )
             .wire_timeout("timeout.close")
+    }
+
+    /// Reads a Run's trace copy as recorded so far, or null when the Run keeps no trace (ADRs 0102 and 0116). Returns only once the copy is whole, with its size and SHA-256 digest; a write the engine cannot make fails with `file_write_failed`, side `engine`, and leaves no unfinished file. Takes no writer lock, so a view reads a Run no program holds without resuming it. A Run ID the Run index does not list fails with `run_not_found`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn trace(
+        &self,
+    ) -> crate::Call<Option<crate::RunTrace>, ::goodfetch_protocol::run::RunParams> {
+        crate::markers::warn("run.trace", true, None);
+        let host = self.host.clone();
+        let call: crate::Call<
+            ::goodfetch_protocol::run_trace::RunTraceResult,
+            ::goodfetch_protocol::run::RunParams,
+        > = self.host.call(
+            "run.trace",
+            ::goodfetch_protocol::run::RunParams {
+                run_id: self.host.id().clone(),
+            },
+        );
+        call.map(move |result| {
+            result
+                .trace
+                .map(|trace| crate::RunTrace::new(host.connection().clone(), trace))
+        })
     }
 
     /// Answers what a Run used, as the Usage ledger charged it: its model calls and tokens, browser time, proxy bytes, requests, paid solves and Paid fetches, each Limit that applies to it with what is left of it, and whether it is uncapped. An ended Run answers its report's Usage.

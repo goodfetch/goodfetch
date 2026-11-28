@@ -11,12 +11,13 @@ use crate::{
     accounts, audit, block, browser_cache, checkpoint, connection, daemon, dns, download, effect,
     egress, engine, events, executables, foxhound, governor, hook, hostile_input, http_listener,
     key_value_store, live_view, log, model, needs_you, notifications, ops, page, plugin,
-    politeness, recipe, response_cache, response_limits, run, sample, schedule, schema_validator,
-    secrets, security, settings, site_preferences, skills, storage, tls, usage, versions,
+    politeness, recipe, response_cache, response_limits, run, run_trace, sample, schedule,
+    schema_validator, secrets, security, settings, site_preferences, skills, storage, tls, usage,
+    versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 72] = [
+pub const MODULES: [&Entries; 73] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &daemon::ENTRIES,
@@ -47,6 +48,7 @@ pub const MODULES: [&Entries; 72] = [
     &run::ENTRIES,
     &run::completeness::ENTRIES,
     &checkpoint::ENTRIES,
+    &run_trace::ENTRIES,
     &key_value_store::ENTRIES,
     &schema_validator::ENTRIES,
     &effect::ENTRIES,
@@ -382,7 +384,7 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 104] = [
+    const COLLIE: [&str; 109] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -462,6 +464,11 @@ mod tests {
         "run.pause",
         "run.migrate",
         "run.resume",
+        "checkpoint.save_as",
+        "checkpoint.stream",
+        "run.trace",
+        "trace.save_as",
+        "trace.stream",
         "key_value_store.get",
         "key_value_store.set",
         "key_value_store.get_bytes",

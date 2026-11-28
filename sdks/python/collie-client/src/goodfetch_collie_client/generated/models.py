@@ -590,6 +590,40 @@ class CertsListParams(BaseModel):
     )
 
 
+class CheckpointSaved(BaseModel):
+    """What `checkpoint.save_as` answers once the file is whole."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    run_epoch: Annotated[int, Field(ge=0)]
+    """The run epoch of the writer that took the Checkpoint (ADR 0003)."""
+    size: Annotated[int, Field(ge=0)]
+    """The file's size in bytes."""
+    written: bool
+    """
+    Whether the engine wrote the program's path itself; when not, the
+    `$/chunk` notifications before this answer carried every byte, and
+    the SDK writes the path.
+    """
+
+
+class CheckpointStreamed(BaseModel):
+    """What `checkpoint.stream` answers once it sent every byte."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    run_epoch: Annotated[int, Field(ge=0)]
+    """The run epoch of the writer that took the Checkpoint (ADR 0003)."""
+    size: Annotated[int, Field(ge=0)]
+    """The file's size in bytes."""
+
+
 class ChromeChannel(StrEnum):
     """
     A channel of Google Chrome (ADR 0024: an installed Chrome can be named by
@@ -4054,6 +4088,35 @@ class RunTargetUnbuiltDetails(BaseModel):
     )
 
 
+class RunTrace(BaseModel):
+    """A Run's trace copy, kept on the engine's machine (ADRs 0102 and 0116)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    location: str
+    """Where it is: the trace file's path on the engine's machine."""
+    run_id: RunId
+    """The Run's ID."""
+    size: Annotated[int, Field(ge=0)]
+    """Its size in bytes."""
+
+
+class RunTraceResult(BaseModel):
+    """
+    What `run.trace` answers: the Run's trace copy, or none when the Run keeps
+    no trace.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    trace: RunTrace | None = None
+    """The Run's trace copy, or null when the Run keeps no trace."""
+
+
 class RunTrigger(StrEnum):
     """
     What fired a Schedule's occurrence (ADR 0036), as its run's reserved
@@ -5492,6 +5555,66 @@ class TooManyRedirectsDetails(BaseModel):
     """The count it went past, and what set it."""
 
 
+class TraceSaveAsParams(BaseModel):
+    """What `trace.save_as` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    location: str
+    """Where the trace copy is on the engine's machine, as `run.trace` answered."""
+    path: str | None = None
+    """
+    The program's path, absolute, which an Attached engine writes
+    itself; any other engine leaves it to the SDK and sends the file's
+    bytes instead.
+    """
+    run_id: RunId
+    """The Run's ID."""
+
+
+class TraceSaved(BaseModel):
+    """What `trace.save_as` answers once the file is whole."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    size: Annotated[int, Field(ge=0)]
+    """The file's size in bytes."""
+    written: bool
+    """
+    Whether the engine wrote the program's path itself; when not, the
+    `$/chunk` notifications before this answer carried every byte, and
+    the SDK writes the path.
+    """
+
+
+class TraceStreamParams(BaseModel):
+    """What `trace.stream` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    location: str
+    """Where the trace copy is on the engine's machine, as `run.trace` answered."""
+    run_id: RunId
+    """The Run's ID."""
+
+
+class TraceStreamed(BaseModel):
+    """What `trace.stream` answers once it sent every byte."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    size: Annotated[int, Field(ge=0)]
+    """The file's size in bytes."""
+
+
 class TriggerDescription(BaseModel):
     """
     The plain-words description of a trigger (ADR 0073): a structured form
@@ -6375,6 +6498,36 @@ class CheckpointBehindDetails(BaseModel):
     """Where the Checkpoint stands."""
     run_file: RunStatePosition
     """Where the run file on this machine stands, past the Checkpoint."""
+
+
+class CheckpointSaveAsParams(BaseModel):
+    """What `checkpoint.save_as` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    location: str
+    """Where the Checkpoint is on the engine's machine, as `run.checkpoint` answered."""
+    path: str | None = None
+    """
+    The program's path, absolute, which an Attached engine writes
+    itself; any other engine leaves it to the SDK and sends the file's
+    bytes instead.
+    """
+    run_id: RunId
+    """The Run's ID."""
+
+
+class CheckpointStreamParams(BaseModel):
+    """What `checkpoint.stream` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    location: str
+    """Where the Checkpoint is on the engine's machine, as `run.checkpoint` answered."""
+    run_id: RunId
+    """The Run's ID."""
 
 
 class Chunk(BaseModel):

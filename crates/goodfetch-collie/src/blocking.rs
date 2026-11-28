@@ -4,13 +4,14 @@
 //! waits for its end on a channel. Nothing here enters a runtime, so it
 //! works inside one too, where it blocks only the thread that calls it.
 
-use goodfetch_collie_client::{RunView, SecretRequest, blocking};
+use goodfetch_collie_client::{SecretRequest, blocking};
 use goodfetch_protocol::run::{CatalogTarget, RunId};
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 
 pub use goodfetch_collie_client::blocking::{
-    Call, Connection, CreatedSchedule, EventIter, Exchange, HandlerlessStart, KeyValueStore,
-    Locator, Page, Query, RawCall, Response, Run, Schedule, Schedules, Session, Start,
+    Call, Checkpoint, Connection, CreatedSchedule, EventIter, Exchange, HandlerlessStart,
+    KeyValueStore, KeyValueStoreView, Locator, Page, Query, RawCall, Response, Run, RunTrace,
+    RunView, SaveFile, Schedule, Schedules, Session, Start,
 };
 
 use crate::linked::{Composed, ConnectOptions, ProductConnection};

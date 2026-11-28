@@ -19,6 +19,14 @@ export type { PageSettings, RunSettings, SessionSettings, Settings } from "./gen
 export type { Logger } from "./logger.ts";
 export type { SecretRequest, SecretResolver } from "./secrets.ts";
 export { Run } from "./run.ts";
+export {
+  Checkpoint,
+  RunTrace,
+  type CheckpointSaveOptions,
+  type CheckpointStreamOptions,
+  type RunTraceSaveOptions,
+  type RunTraceStreamOptions,
+} from "./run-copies.ts";
 export { RunView } from "./run-view.ts";
 export {
   Locator,
@@ -31,7 +39,13 @@ export {
 export type { Listener, Subscription } from "./handle.ts";
 export type { Handle, RawCallOptions, RawParams } from "./raw-call.ts";
 export type { Sequence } from "./sequence.ts";
-export { KeyValueStore, type StoredBytes, type StoredValue } from "./key-value-store.ts";
+export {
+  KeyValueStore,
+  KeyValueStoreView,
+  type KeyValueStoreKeysOptions,
+  type StoredBytes,
+  type StoredValue,
+} from "./key-value-store.ts";
 export {
   Schedule,
   Schedules,
@@ -65,6 +79,7 @@ export type {
   BlockCause,
   CallOptions,
   CatalogTarget,
+  CheckpointSaved,
   Claim,
   Completeness,
   ConsoleMessage,
@@ -101,6 +116,7 @@ export type {
   StopReason,
   StoppedBy,
   ThinNotification,
+  TraceSaved,
   UnreadField,
   UnreadReason,
   Verdict,

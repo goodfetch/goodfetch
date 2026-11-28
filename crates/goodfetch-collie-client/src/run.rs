@@ -6,7 +6,7 @@
 //! Connection's (ADR 0083). Its handles are cheap clones of one Run, `Send + Sync +
 //! 'static`, and closing any of them closes it for all.
 
-mod progress;
+pub(crate) mod progress;
 
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;

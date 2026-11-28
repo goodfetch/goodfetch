@@ -77,11 +77,11 @@ fmt-check:
     steps_end
 
 # The checks of `just lint` that read documents: formatting, typos, the
-# Quality register, the Feature and Journey checks, the wording and the
-# repository's policy files. The docs gate runs them alone for a change of
-# documents (`xtask affected`'s `gate=docs`, ADR 0135). Every check runs
-# even after one failed; the `xtask` checks come after xtask's build, and are
-# skipped, named so, when it fails.
+# Quality register, the Feature and Journey checks, the wording, the docs
+# samples' extraction/names/count check and the repository's policy files.
+# The docs gate runs them alone for a change of documents (`xtask affected`'s
+# `gate=docs`, ADR 0135). Every check runs even after one failed; the `xtask`
+# checks come after xtask's build, and are skipped, named so, when it fails.
 lint-documents:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -94,8 +94,16 @@ lint-documents:
     step --after xtask xtask-features 'cargo run --quiet --bin xtask -- features check'
     step --after xtask xtask-wording 'cargo run --quiet --bin xtask -- wording'
     step --after xtask xtask-journeys 'cargo run --quiet --bin xtask -- journeys check'
+    step --after xtask xtask-docs-samples '{{ just_executable() }} docs-samples'
     step repository-files 'ci/repository-files.sh'
     steps_end
+
+# Extracts every docs and published-package README sample (enforcing ADR 0097's
+# cross-Product names check) and compares the manifest against `language-check`
+# (issue 150).
+docs-samples:
+    cargo run --quiet --bin xtask -- docs-samples extract
+    cargo run --quiet --bin xtask -- docs-samples check
 
 # The checks of `just lint` that a combination of changes can fail though
 # each change passed them alone: the lockfiles and the workspace-hack match
@@ -170,7 +178,7 @@ lint:
     step zizmor 'ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions'
     step actionlint 'ci/tool.sh actionlint actionlint'
     step gitleaks 'ci/tool.sh gitleaks ci/canary-rule.sh'
-    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/compiler-cache/sccache ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/hosted/*.sh ci/musl/*.sh ci/musl/cargo ci/musl/link-cc ci/musl/stable-metadata/sccache ci/release/*.sh ci/release/deploy-smoke/*.sh ci/results/*.sh ci/runner/*.sh ci/source-build/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh proving-ground/deploy/*.sh scripts/seccomp-profile.sh .githooks/pre-commit .githooks/pre-push'
+    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/compiler-cache/sccache ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/hosted/*.sh ci/musl/*.sh ci/musl/cargo ci/musl/link-cc ci/musl/stable-metadata/sccache ci/release/*.sh ci/release/deploy-smoke/*.sh ci/results/*.sh ci/runner/*.sh ci/source-build/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh install/*.sh kennel/scripts/*.sh proving-ground/deploy/*.sh scripts/seccomp-profile.sh .githooks/pre-commit .githooks/pre-push'
     step cargo-deny 'ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources'
     step cargo-deny-products 'ci/tool.sh cargo-deny ci/deny/products.sh'
     # The Collie client crate, which takes no OpenTelemetry crate: the
@@ -622,6 +630,7 @@ fetch:
     ci/claude-code-fetch.sh
     ci/local-models-fetch.sh
     ci/toxiproxy-fetch.sh
+    ci/lychee-fetch.sh
     ci/alpine/fetch.sh
     ci/integrations/fetch.sh
     ci/source-build/fetch.sh

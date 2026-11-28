@@ -203,6 +203,16 @@ reason = "CodeQL reads the sources without building them (`build-mode: none`) an
 job = "proving-ground-online.yml#deploy"
 reason = "It builds the Proving ground at a release tag and ships it, with Anubis and cloudflared, to the online copy's host over SSH and BotID's page to Vercel (#168, ADR 0032); it runs none of the product."
 
+# The docs site (ADRs 0030 and 0068): its build runs xtask's render and
+# Docusaurus, none of the product.
+[[outside]]
+job = "docs.yml#deploy"
+reason = "It builds the docs site, deploys it to Vercel and runs the Live check docs-deploy-smoke through goodfetch.dev/docs; it runs none of the product."
+
+[[outside]]
+job = "docs.yml#external-links"
+reason = "It builds the docs site and runs the Live check docs-external-links, which reaches every site the docs link to; it runs none of the product."
+
 # The nightly tier (ADRs 0061 and 0064). The Release suite's rerun is its own
 # release-suite.yml run; this job only dispatches and watches it.
 [[outside]]
@@ -428,3 +438,103 @@ reason = "It signs plugin-index/index.json with keyless Sigstore OIDC and publis
 [[outside]]
 job = "plugin-index-review.yml#validate"
 reason = "It validates submitted Plugin index entries by pinned digest, provenance attestation and confined plugins test with read-only permissions and zero secrets (ADRs 0033 and 0052; issue 1534)."
+
+# Stable, release-candidate and patch release pipeline (issue 144; ADRs 0030,
+# 0032, 0039, 0043, 0061, 0066, 0090 and 0094).
+[[outside]]
+job = "release.yml#validate-version"
+reason = "It validates the release version tag and computes channel tags without running the product."
+
+[[outside]]
+job = "release.yml#release-suite"
+reason = "It dispatches release-suite.yml on the release commit and waits for its result without running the product itself."
+
+[[outside]]
+job = "release.yml#build"
+reason = "It calls the reusable release-build.yml workflow, whose own jobs declare their egress rules."
+
+[[outside]]
+job = "release.yml#attest-and-sign"
+reason = "It runs GitHub artifact attestations and keyless Sigstore signing over built release files without running the product."
+
+[[deny]]
+job = "release.yml#verify-bytes-linux"
+
+[[deny]]
+job = "release.yml#verify-bytes-windows"
+
+[[outside]]
+job = "release.yml#verify-bytes-macos"
+reason = "As the Release suite's macOS cells, which run outside the deny on macOS itself (ADR 0043's amendment of 2026-11-22)."
+
+[[outside]]
+job = "release.yml#release-gate"
+reason = "It verifies cross-channel digests, attestations, API breakage, compat and size ceilings without running the product."
+
+[[outside]]
+job = "release.yml#draft-github-release"
+reason = "It stages a draft GitHub Release with release assets before registry publishes without running the product."
+
+[[outside]]
+job = "release.yml#publish-crates"
+reason = "It publishes Rust crates to crates.io via OIDC trusted publishing without running the product."
+
+[[outside]]
+job = "release.yml#publish-npm"
+reason = "It publishes npm packages with OIDC provenance without running the product."
+
+[[outside]]
+job = "release.yml#publish-pypi"
+reason = "It publishes Python wheels to PyPI via OIDC trusted publishing without running the product."
+
+[[outside]]
+job = "release.yml#publish-oci"
+reason = "It pushes OCI images, Helm charts and first-party Plugin OCI artifacts to GHCR without running the product."
+
+[[outside]]
+job = "release.yml#publish-github-release"
+reason = "It flips the staged GitHub Release from draft to published without running the product."
+
+[[outside]]
+job = "release.yml#publish-homebrew-and-installers"
+reason = "It renders and pushes Homebrew formulas to goodfetch/homebrew-tap without running the product."
+
+[[outside]]
+job = "release.yml#post-release-pr"
+reason = "It freezes the compatibility corpus and opens the post-release pull request without running the product."
+
+[[deny]]
+job = "release.yml#smoke-channels-linux"
+
+[[deny]]
+job = "release.yml#smoke-channels-windows"
+
+[[outside]]
+job = "release.yml#smoke-channels-macos"
+reason = "As the Release suite's macOS cells, which run outside the deny on macOS itself (ADR 0043's amendment of 2026-11-22)."
+
+# Clean-up rules daily-channel nightly pipeline (issue 208; ADRs 0043, 0047 and 0064).
+[[outside]]
+job = "clean-up-rules-daily.yml#plan"
+reason = "It computes the matrix of supported release lines and format majors without running the product."
+
+[[named]]
+job = "clean-up-rules-daily.yml#build-and-gate"
+exception = "clean-up-rules-daily"
+endpoints = [
+  "easylist.to:443",
+  "raw.githubusercontent.com:443",
+  "registry.npmjs.org:443",
+  "proving-ground.goodfetch.dev:443",
+  "challenges.cloudflare.com:443",
+  "www.google.com:443",
+  "js.hcaptcha.com:443",
+]
+
+[[outside]]
+job = "clean-up-rules-daily.yml#publish"
+reason = "It pushes passing Clean-up rules OCI artifacts to GHCR and signs them with keyless Sigstore outside the deny (issue 208)."
+
+[[outside]]
+job = "clean-up-rules-daily.yml#open-failure-issue"
+reason = "It opens a maintainer issue through GitHub's API when the daily gate fails without running the product."

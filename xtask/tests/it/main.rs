@@ -51,6 +51,7 @@ mod dependency_direction;
 mod deploy_templates;
 mod diagnostic;
 mod doc_obligations;
+mod docs_reference;
 mod docs_samples;
 mod docs_site;
 mod egress;

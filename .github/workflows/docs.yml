@@ -1,0 +1,127 @@
+# The docs site's production deploy and its Live checks (ADRs 0030, 0068 and
+# 0097; TESTING.md, Docs site). Previews come from Vercel's Git integration,
+# whose production deploys website/vercel.json turns off; production is this
+# workflow's:
+#
+# - `deploy`, on each push to `main`: builds `main`'s site with the Vercel
+#   CLI, which runs website/vercel.json's install and build commands, deploys
+#   it to production, then runs the Live check `docs-deploy-smoke` through
+#   `goodfetch.dev/docs`;
+# - `external-links`, dispatched by hand before each release candidate while
+#   the nightly tier is off: builds the site and runs the Live check
+#   `docs-external-links`.
+#
+# Both Live checks block nothing directly: their JUnit file uploads under the
+# `live` tier, which the results store ingests (results.yml), and a skipped
+# check is inconclusive (ADR 0064).
+#
+# The Vercel project is the owner's (ADR 0076): its token is the secret
+# VERCEL_TOKEN, its IDs the repository variables VERCEL_ORG_ID and
+# VERCEL_PROJECT_ID, and its root directory is `website`. The workflow stays
+# disabled in the repository's Actions settings until an ADR turns it on
+# (AGENTS.md, Merging).
+name: docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: docs-${{ github.event_name }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the tools and dependencies
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: x86_64-unknown-linux-gnu
+      - name: Read the Vercel project's production settings
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: pnpm dlx vercel@65.14.0 pull --yes --environment=production --token="$VERCEL_TOKEN"
+      - name: Build main's site
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: pnpm dlx vercel@65.14.0 build --prod --token="$VERCEL_TOKEN"
+      - name: Deploy it to production
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: pnpm dlx vercel@65.14.0 deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: "Test: docs-deploy-smoke"
+        env:
+          GOODFETCH_TEST_SUITE: live
+        run: pnpm exec playwright test --project docs-deploy-smoke
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/junit/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-docs-live-linux-x64-1
+          path: target/junit/
+          if-no-files-found: ignore
+
+  external-links:
+    name: external links
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the tools and dependencies
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: x86_64-unknown-linux-gnu
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: "Test: docs-external-links"
+        env:
+          GOODFETCH_TEST_SUITE: live
+          # lychee reads it for github.com links, so links into this private
+          # repository answer.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm exec playwright test --project docs-external-links
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/junit/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-docs-live-linux-x64-1
+          path: target/junit/
+          if-no-files-found: ignore

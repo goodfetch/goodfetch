@@ -74,14 +74,14 @@ pub(super) fn steps(
                     },
                 });
             }
-        } else if matches!(version.stage, Stage::Stable) && !higher_stable(&tags, version) {
-            let out = tags.contains("latest")
+        } else if let Some(moving) = stable_moving_tag(&tags, version) {
+            let out = tags.contains(&moving)
                 && tags.contains(&semver)
-                && registry.digest(image, "latest")? == registry.digest(image, &semver)?;
+                && registry.digest(image, &moving)? == registry.digest(image, &semver)?;
             steps.push(Step::Package {
                 registry: "oci",
                 name: image.to_owned(),
-                version: "latest".to_owned(),
+                version: moving,
                 state: if out {
                     PackageState::Published
                 } else {
@@ -100,6 +100,20 @@ pub(super) fn steps(
                 registry: "oci",
                 name: chart,
                 version: "nightly".to_owned(),
+                state: if out {
+                    PackageState::Published
+                } else {
+                    PackageState::Publish
+                },
+            });
+        } else if let Some(moving) = stable_moving_tag(&chart_tags, version) {
+            let out = chart_tags.contains(&moving)
+                && chart_tags.contains(&semver)
+                && registry.digest(&chart, &moving)? == registry.digest(&chart, &semver)?;
+            steps.push(Step::Package {
+                registry: "oci",
+                name: chart,
+                version: moving,
                 state: if out {
                     PackageState::Published
                 } else {
@@ -170,6 +184,36 @@ fn higher_stable(tags: &BTreeSet<String>, version: &ProductVersion) -> bool {
     tags.iter()
         .filter_map(|tag| tag.parse::<ProductVersion>().ok())
         .any(|tag| tag.stage == Stage::Stable && core(&tag) > core(version))
+}
+
+/// Whether a stable version in the same major line above `version` is among
+/// `tags`, so `latest-<major>` stays where it is.
+fn higher_stable_in_major(tags: &BTreeSet<String>, version: &ProductVersion) -> bool {
+    let minor_patch = |version: &ProductVersion| (version.minor, version.patch);
+    tags.iter()
+        .filter_map(|tag| tag.parse::<ProductVersion>().ok())
+        .any(|tag| {
+            tag.stage == Stage::Stable
+                && tag.major == version.major
+                && minor_patch(&tag) > minor_patch(version)
+        })
+}
+
+/// The moving tag a stable release updates on an OCI image or Helm chart:
+/// `latest` when no higher stable version exists, `latest-<major>` for a
+/// previous major's newest patch (ADR 0030, issue 144, spec #583), and `None`
+/// for non-stable versions or superseded patches.
+fn stable_moving_tag(tags: &BTreeSet<String>, version: &ProductVersion) -> Option<String> {
+    if !matches!(version.stage, Stage::Stable) {
+        return None;
+    }
+    if !higher_stable(tags, version) {
+        Some("latest".to_owned())
+    } else if !higher_stable_in_major(tags, version) {
+        Some(format!("latest-{}", version.major))
+    } else {
+        None
+    }
 }
 
 /// An OCI registry's read interface: `https://ghcr.io`, or a stand-in's
@@ -458,5 +502,27 @@ mod tests {
             Some("https://a.example/next")
         );
         assert_eq!(next_page(r#"</v2/x/tags/list>; rel="prev""#), None);
+    }
+
+    #[test]
+    fn stable_moving_tag_uses_latest_n_for_previous_major_patch() {
+        let tags: BTreeSet<String> = ["1.4.0", "2.0.0"].into_iter().map(str::to_owned).collect();
+        let newest: ProductVersion = "2.0.1".parse().expect("valid semver");
+        assert_eq!(stable_moving_tag(&tags, &newest).as_deref(), Some("latest"));
+
+        let prev_major_patch: ProductVersion = "1.4.1".parse().expect("valid semver");
+        assert_eq!(
+            stable_moving_tag(&tags, &prev_major_patch).as_deref(),
+            Some("latest-1")
+        );
+
+        let superseded_tags: BTreeSet<String> = ["1.4.0", "1.4.2", "2.0.0"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(stable_moving_tag(&superseded_tags, &prev_major_patch), None);
+
+        let rc: ProductVersion = "2.1.0-rc.1".parse().expect("valid semver");
+        assert_eq!(stable_moving_tag(&tags, &rc), None);
     }
 }

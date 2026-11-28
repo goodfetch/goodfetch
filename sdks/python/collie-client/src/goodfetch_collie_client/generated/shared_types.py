@@ -25,7 +25,7 @@ received (ADR 0079).
 - `endpoint_authentication_failed`: A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`, a Connection whose opening sent no `hello` first, in time or within its size limit, or one opened without TLS where the listener serves TLS. `audit.refusals_per_minute` bounds how many one listener records in a minute.
 - `endpoint_refusals_folded`: A listener refused more attempts in a minute than `audit.refusals_per_minute` records: the count of those not recorded one by one, each still logged.
 - `exposed_daemon_set_up`: An Exposed Daemon's setup completed through its setup link (ADR 0049).
-- `fingerprint_method_chosen`: A `stealth` Session opened with a Fingerprint method: the Session, the method, and whether it fell back to `basic` because no Goodfetch Chromium exists for the machine (ADR 0035).
+- `fingerprint_method_chosen`: A `stealth` Session opened with a Fingerprint method: the Session, the method, whether it fell back to `basic` because no Goodfetch Chromium exists for the machine (ADR 0035), and whether `stealth.allow_runtime` let its pages turn on the browser's `Runtime` domain.
 - `lent_page_attached`: A page was lent to the program's own Playwright client (ADR 0089).
 - `operator_policy_written`: A person wrote the Operator policy through `config.policy_write`, with its digest before and after and each key's values before and after.
 - `plugin_approved`: A person approved a Plugin through `plugin.add`, which wrote `plugins.<name>` into the Operator policy: its name, its digest and each permission approved, with what it lets the Plugin do and what the engine cannot check.
@@ -126,7 +126,7 @@ received (ADR 0079).
 - `verdict_rejected`: A Run's success check rejected its result.
 """
 
-RunWarningCode: TypeAlias = Literal["baseline_unavailable", "block_resources_visible", "browser_build_firefox", "browser_build_outdated", "browser_build_plugin", "browser_build_third_party", "clean_up_rules_fallback", "clean_up_rules_stale", "cpu_throttled", "engine_panicked", "file_write_failed", "filter_vendor_flagged", "fingerprint_basic", "fingerprint_basic_fallback", "fingerprint_js_injection", "fingerprint_none", "human_input_fallback", "path_not_writable", "plugin_figures", "plugin_quantity_above_maximum", "politeness_store_degraded", "proxy_exit_may_change", "storage_low"] | str
+RunWarningCode: TypeAlias = Literal["baseline_unavailable", "block_resources_visible", "browser_build_firefox", "browser_build_outdated", "browser_build_plugin", "browser_build_third_party", "clean_up_rules_fallback", "clean_up_rules_stale", "cpu_throttled", "engine_panicked", "file_write_failed", "filter_vendor_flagged", "fingerprint_basic", "fingerprint_basic_fallback", "fingerprint_js_injection", "fingerprint_none", "human_input_fallback", "path_not_writable", "plugin_figures", "plugin_quantity_above_maximum", "politeness_store_degraded", "proxy_exit_may_change", "stealth_runtime_allowed", "storage_low"] | str
 """A `run_warning_code`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
@@ -154,6 +154,7 @@ received (ADR 0079).
 - `plugin_quantity_above_maximum`: A Plugin reported a quantity above its declared maximum, recorded in full.
 - `politeness_store_degraded`: The Politeness store was unreachable, and the Run took a degraded share.
 - `proxy_exit_may_change`: A Session's proxy exit may change between its requests.
+- `stealth_runtime_allowed`: A stealth Session's pages could turn on the Runtime domain, which a site can detect.
 - `storage_low`: The Run met the `low` storage level: the folder, its free space and what was shed.
 """
 

@@ -56,6 +56,15 @@ A value this package does not know, which a newer engine may send, is kept as re
 - `connection`: Its Connection.
 """
 
+ListEnded: TypeAlias = Literal["end_of_list", "max_rows"] | str
+"""How a scroll collection ended, open (ADR 0079).
+
+A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+
+- `end_of_list`: `idle_steps` steps in a row brought no new key.
+- `max_rows`: It kept `max_rows` rows.
+"""
+
 ModelUnavailableReason: TypeAlias = Literal["unreachable", "server_error", "rate_limited"] | str
 """Why a Model provider could not answer (ADR 0101), open (ADR 0079).
 
@@ -149,6 +158,16 @@ A value this package does not know, which a newer engine may send, is kept as re
 - `page_ready`: Just before the handler, with its page, on every tier.
 - `before_record_commit`: Before each Record the attempt staged commits.
 - `request_ended`: Once a crawl request ended, with its outcome; observe-only.
+"""
+
+ScheduleCapKind: TypeAlias = Literal["count", "min_interval", "period_limit"] | str
+"""Which Operator policy cap a Schedule exceeded (`schedule_cap_exceeded`).
+
+A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+
+- `count`: `schedule.max_count`: maximum number of Schedules held by the Daemon.
+- `min_interval`: `schedule.min_interval`: minimum interval between consecutive occurrences.
+- `period_limit`: `schedule.limits_max`: maximum period Limit on a Schedule.
 """
 
 ScheduleState: TypeAlias = Literal["on"] | str

@@ -51,6 +51,7 @@ tokio = { workspace = true, features = ["io-util"] }
 # (src/start/tests/effect_wait.rs).
 tokio-util.workspace = true
 tracing-subscriber.workspace = true
+goodfetch-dev-workspace-hack.workspace = true
 
 [lints]
 workspace = true

@@ -37,7 +37,7 @@ describe("a Foxhound Connection to a remote Daemon whose link drops", () => {
         runId: "nightly",
       });
 
-      const records: DatasetRecord[] = [];
+      const records: DatasetRecord<unknown>[] = [];
       for await (const record of run.records(products)) records.push(record);
       await run.finish();
       await foxhound.close();

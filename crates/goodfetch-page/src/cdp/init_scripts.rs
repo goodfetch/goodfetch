@@ -12,9 +12,9 @@ use crate::errors::Call;
 pub(crate) struct InitScriptId(page::ScriptIdentifier);
 
 impl CdpPage {
-    /// The page's out-of-process frame on `session`, as a page whose
-    /// primitives reach that frame.
-    pub(crate) fn frame(&self, session: &TargetSession) -> Self {
+    /// The page's out-of-process frame or dedicated worker on `session`, as
+    /// a page whose primitives reach that child.
+    pub(crate) fn child(&self, session: &TargetSession) -> Self {
         Self {
             page: self.page.on_child(session.clone()),
         }

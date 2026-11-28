@@ -107,7 +107,7 @@ pub const QUERY_MEMORY_EXCEEDED: ErrorCode = ErrorCode::from_static("query_memor
 
 /// `record_invalid`, in the `program` group, not retryable.
 ///
-/// A Record is no JSON object, fails its Dataset's JSON Schema, or lacks a field of its Dataset's key, so it was not staged. The details name the Dataset and each such Record by its position, from 0, among the Records pushed together, or the first such Record by its position among those of the handler's answer, with each of its issues by its path, a JSON Pointer into the Record. Caught in the handler, the attempt keeps its other outputs; escaping it, the request ends `failed` and is not retried, since the same Record fails the same way.
+/// A Record is no JSON object, fails its Dataset's JSON Schema, or lacks a field of its Dataset's key, so it was not staged. The details name the Dataset and each such Record by its position, from 0, among the Records pushed together, or the first such Record by its position among those of the handler's answer, with each of its issues by its path, a JSON Pointer into the Record. An SDK reading `run.records` raises it too when its native parser rejects a Record the engine committed, naming that Record by its `number` and ending the read. Caught in the handler, the attempt keeps its other outputs; escaping it, the request ends `failed` and is not retried, since the same Record fails the same way.
 pub const RECORD_INVALID: ErrorCode = ErrorCode::from_static("record_invalid");
 
 /// `response_not_document`, in the `program` group, not retryable.

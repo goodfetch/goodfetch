@@ -26,11 +26,13 @@ export type {
 } from "./generated/shared-types.ts";
 export {
   Foxhound,
+  type CodeFreeCrawl,
   type FoxhoundConnectOptions,
   type FoxhoundConnectOverOptions,
   type FoxhoundHandlerlessStartOptions,
   type FoxhoundLimits,
   type FoxhoundStartOptions,
+  type StartCodeFreeCrawlOptions,
   type StartCrawlOptions,
 } from "./foxhound.ts";
 export {
@@ -42,6 +44,7 @@ export {
   type AttemptRun,
   type CrawlContext,
   type DatasetOptions,
+  type DatasetRecord,
   type DatasetSchemaOptions,
   type EnqueueLinksOptions,
   type Handler,
@@ -56,7 +59,7 @@ export {
   type RecordSchema,
   type RequestOptions,
 } from "./crawl.ts";
-export { CrawlRun, type RecordsOptions } from "./crawl-run.ts";
+export { CrawlRun, type RecordsOptions, type RejectedRecordsOptions } from "./crawl-run.ts";
 export type {
   BackendRequest,
   BackendResponse,
@@ -65,14 +68,22 @@ export type {
   SinkHandler,
 } from "./handlers.ts";
 export type {
+  CrawlDeclaration,
+  CrawlExtraction,
+  CrawlRunProgress,
+  CrawlRunReport,
   CrawlSettings,
-  DatasetRecord,
+  DatasetRecords,
   Enqueued,
   EnqueuedLink,
   EnqueuedLinks,
   FoxhoundSettings,
   LabelSettings,
   MatchedLink,
+  RecordIssue,
+  RejectedRecord,
+  RequestCounts,
+  RequestProgress,
   RequestSeed,
   Seed,
   SitemapRule,

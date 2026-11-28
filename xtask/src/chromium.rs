@@ -27,9 +27,12 @@ use crate::environment::Environment;
 use crate::output;
 
 mod expectations;
+mod gate;
 mod protocol;
 mod regenerate;
 mod surfaces;
+
+pub(crate) use gate::is_test_input;
 
 /// The largest part a kept file is cut into: a file over 2 GiB is split.
 const PART_SIZE: u64 = 2 << 30;
@@ -82,6 +85,12 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: protocol::Command,
     },
+    /// The Chromium build gate's input tree hashes, attestations and fast path
+    /// (ADR 0074).
+    Gate {
+        #[command(subcommand)]
+        command: gate::Command,
+    },
 }
 
 #[derive(Serialize)]
@@ -129,6 +138,7 @@ pub(crate) fn run(command: &Command, environment: &Environment) -> Result<ExitCo
         Command::Protocol { command } => {
             Ok(check::report(&protocol::run(command, &environment.root)?))
         }
+        Command::Gate { command } => gate::run(command, environment),
     }
 }
 

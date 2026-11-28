@@ -71,6 +71,7 @@ fn file_formats() -> serde_json::Value {
         stored_format("plugin-manifest", "json", "default", "PluginManifest"),
         stored_format("plugin-lockfile", "toml", "default", "PluginLockfile"),
         stored_format("notification-payload", "json", "frozen_major", "NotificationPayload"),
+        stored_format("published-catalog", "json", "default", "PublishedCatalog"),
     ])
 }
 

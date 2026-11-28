@@ -27,6 +27,8 @@ from goodfetch_collie_client.generated.models import (
     ScheduleInfo,
     ScheduleList,
     ScheduleListParams,
+    SchedulePreview,
+    SchedulePreviewParams,
 )
 from goodfetch_collie_client.handle import NotGiven, not_given, timeout_of
 from goodfetch_collie_client.markers import warn_experimental
@@ -34,12 +36,13 @@ from goodfetch_collie_client.portal import LoopStopped
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
-    from datetime import timedelta
+    from datetime import datetime, timedelta
 
     from pydantic import BaseModel, JsonValue
 
     from goodfetch_collie_client.generated.models import (
         ScheduleDefinition,
+        ScheduleTrigger,
         ScheduleWarning,
     )
     from goodfetch_collie_client.portal import PrivateLoop
@@ -180,6 +183,28 @@ class AsyncSchedules:
         info = await _get(self._host, id, timeout)
         return AsyncSchedule(_AsyncScheduleHost(self._host, info.schedule_id))
 
+    async def preview(
+        self,
+        trigger: ScheduleTrigger,
+        *,
+        time_zone: str | None = None,
+        after: datetime | None = None,
+        count: int | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+    ) -> SchedulePreview:
+        """Describes `trigger` in plain words and lists its next Occurrences.
+
+        Describes a Schedule's trigger in plain words and lists its next
+        Occurrences in a time zone strictly after `after` (now when absent; 5
+        by default, at most 100), including DST transitions. A trigger that
+        does not parse fails with `schedule_trigger_invalid`. Left out,
+        `timeout` takes `timeout.wait`, by default `timedelta(seconds=30)`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("schedule.preview")
+        return await _preview(self._host, trigger, time_zone, after, count, timeout)
+
 
 class Schedules:
     """A Connection's Schedules in the sync API, as `AsyncSchedules` are.
@@ -250,6 +275,35 @@ class Schedules:
         )
         return self._schedule_of(info.schedule_id)
 
+    def preview(
+        self,
+        trigger: ScheduleTrigger,
+        *,
+        time_zone: str | None = None,
+        after: datetime | None = None,
+        count: int | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+    ) -> SchedulePreview:
+        """Describes `trigger` in plain words and lists its next Occurrences.
+
+        Describes a Schedule's trigger in plain words and lists its next
+        Occurrences in a time zone strictly after `after` (now when absent; 5
+        by default, at most 100), including DST transitions. A trigger that
+        does not parse fails with `schedule_trigger_invalid`.
+
+        As `AsyncSchedules.preview` does.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        operation = "schedule.preview"
+        warn_experimental(operation)
+        return self._on_loop(
+            operation,
+            functools.partial(
+                _preview, self._host, trigger, time_zone, after, count, timeout
+            ),
+        )
+
     def _schedule_of(self, id: ScheduleId) -> Schedule:
         """The handle of the Schedule of ID `id`, whose calls go through the loop."""
         return Schedule(
@@ -300,10 +354,34 @@ async def _get(
     return result_of(ScheduleInfo, await _sent(host, "schedule.get", params, timeout))
 
 
+async def _preview(
+    host: SchedulesHost,
+    trigger: ScheduleTrigger,
+    time_zone: str | None,
+    after: datetime | None,
+    count: int | None,
+    timeout: timedelta | NotGiven | None,
+) -> SchedulePreview:
+    """Sends `schedule.preview`, unless the Connection is closed."""
+    params = SchedulePreviewParams.model_construct(trigger=trigger)
+    if time_zone is not None:
+        params.time_zone = time_zone
+    if after is not None:
+        params.after = after
+    if count is not None:
+        params.count = count
+    return result_of(
+        SchedulePreview, await _sent(host, "schedule.preview", params, timeout)
+    )
+
+
 async def _sent(
     host: SchedulesHost,
     operation: str,
-    params: ScheduleCreateParams | ScheduleListParams | ScheduleGetParams,
+    params: ScheduleCreateParams
+    | ScheduleListParams
+    | ScheduleGetParams
+    | SchedulePreviewParams,
     timeout: timedelta | NotGiven | None,
 ) -> object:
     """Sends `operation` with its own `timeout`, unless the Connection is closed."""

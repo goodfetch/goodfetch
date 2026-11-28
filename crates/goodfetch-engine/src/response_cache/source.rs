@@ -12,10 +12,14 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use bytes::Bytes;
+use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::response_cache::CacheMode;
 use goodfetch_protocol::run::RunId;
 
-use super::{CacheRequest, Hit, Lookup, Partition, ResponseCache, ResponseHead, Stale, freshness};
+use super::{
+    CacheRequest, Hit, Lookup, Partition, ResponseCache, ResponseCacheError, ResponseHead, Stale,
+    freshness, partition,
+};
 
 /// A response served whole without the network: a fulfilling route's or
 /// the Run's Response recording's.
@@ -51,6 +55,36 @@ pub enum Source {
     Stale(Stale),
     /// Nothing holds it: the request is sent as it is.
     Network,
+}
+
+/// Why a response is never stored, read from the fetch's own outcome
+/// (ADRs 0045, 0046, 0106, 0118): what it is must not be served again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeptOut {
+    /// A Block cause classified it.
+    Blocked,
+    /// A soft block classified it.
+    SoftBlocked,
+    /// A Page check failed on it.
+    FailedPageCheck,
+    /// Its body was cut short.
+    CutBody,
+    /// A Paid fetch got it: never stored, and never served from the cache
+    /// either, so every Paid fetch reaches its provider.
+    Paid,
+    /// Its request carries a resolved secret.
+    ResolvedSecret,
+    /// It was fetched under `trusted_cas`, `client_certificates` or
+    /// `accept_invalid_certs`.
+    CertificateException,
+}
+
+impl KeptOut {
+    /// Whether the cache does not answer the request either: a Paid fetch
+    /// alone.
+    fn bars_serving(self) -> bool {
+        self == Self::Paid
+    }
 }
 
 /// The sources one Run's requests are answered from, which its clones
@@ -102,15 +136,43 @@ impl ResponseSource {
         matches!(self.cache, Keeping::Off) && self.recording.is_none()
     }
 
+    /// Whether a request sent with `method` may be answered or stored at
+    /// all, so a transport reads what asking about it needs only then: the
+    /// recording and `replay` take any method, `revalidate` a GET or a
+    /// HEAD.
+    pub fn takes(&self, method: &str) -> bool {
+        self.recording.is_some()
+            || match &self.cache {
+                Keeping::Off => false,
+                Keeping::Revalidate(_) => freshness::revalidates_method(method),
+                Keeping::Replay(_) => true,
+            }
+    }
+
+    /// Whether some response to `request` may be stored, before its head
+    /// is known, so a browser pauses only those responses: the cache
+    /// stores, `kept_out` names no reason, and under `revalidate` the
+    /// request is a GET or a HEAD.
+    pub fn may_store(&self, request: &CacheRequest, kept_out: Option<KeptOut>) -> bool {
+        kept_out.is_none()
+            && match &self.cache {
+                Keeping::Off => false,
+                Keeping::Revalidate(cache) => cache.storing() && freshness::revalidates(request),
+                Keeping::Replay(cache) => cache.storing(),
+            }
+    }
+
     /// Where the response to `request` in `partition` comes from at `now`:
     /// `routed`, the response a route fulfilled it with, if any, then the
     /// recording, then the cache, then the network. An earlier source's
-    /// answer leaves the later ones unasked.
+    /// answer leaves the later ones unasked. The cache is not asked for a
+    /// request `kept_out` says it does not answer: a Paid fetch.
     pub async fn source(
         &self,
         routed: Option<Served>,
         partition: &Partition,
         request: &CacheRequest,
+        kept_out: Option<KeptOut>,
         now: SystemTime,
     ) -> Source {
         if let Some(served) = routed {
@@ -120,6 +182,9 @@ impl ResponseSource {
             && let Some(served) = recording.recorded(request).await
         {
             return Source::Recorded(served);
+        }
+        if kept_out.is_some_and(KeptOut::bars_serving) {
+            return Source::Network;
         }
         match &self.cache {
             Keeping::Off => Source::Network,
@@ -149,33 +214,50 @@ impl ResponseSource {
         }
     }
 
-    /// Whether a response with `head` to `request` would be stored, so its
-    /// body is kept as it arrives: never with the cache off, while the
-    /// engine runs without it, or while its filesystem is low on space.
-    pub fn stores(&self, request: &CacheRequest, head: &ResponseHead) -> bool {
-        match &self.cache {
-            Keeping::Off => false,
+    /// Whether a response with `head` to `request` in `partition` would be
+    /// stored, so its body is kept as it arrives: never with the cache off,
+    /// while the engine runs without it, while its filesystem is low on
+    /// space, when `kept_out` names a reason, nor when no partition keeps
+    /// it.
+    pub fn stores(
+        &self,
+        partition: &Partition,
+        request: &CacheRequest,
+        head: &ResponseHead,
+        kept_out: Option<KeptOut>,
+    ) -> bool {
+        let variant = match &self.cache {
+            Keeping::Off => return false,
             Keeping::Revalidate(cache) => {
-                cache.storing() && freshness::storable(request, head).is_some()
+                cache.storing().then(|| freshness::storable(request, head))
             }
-            Keeping::Replay(cache) => {
-                cache.storing() && freshness::replayable(request, head).is_some()
-            }
-        }
+            Keeping::Replay(cache) => cache.storing().then(|| freshness::variant(request, head)),
+        };
+        kept_out.is_none()
+            && variant.flatten().is_some()
+            && partition::kept_in(partition.keeper.as_ref(), request, head).is_some()
     }
 
     /// [`ResponseCache::store`] under `revalidate`,
     /// [`ResponseCache::store_replayed`] under `replay`; nothing with the
-    /// cache off.
+    /// cache off, nor when `kept_out` names a reason.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the cache's own store arguments, with the outcome that keeps a response out"
+    )]
     pub async fn store(
         &self,
         partition: &Partition,
         request: &CacheRequest,
         head: &ResponseHead,
         body: Bytes,
+        kept_out: Option<KeptOut>,
         run_id: Option<&RunId>,
         now: SystemTime,
     ) -> bool {
+        if kept_out.is_some() {
+            return false;
+        }
         match &self.cache {
             Keeping::Off => false,
             Keeping::Revalidate(cache) => {
@@ -187,6 +269,29 @@ impl ResponseSource {
                 cache
                     .store_replayed(partition, request, head, body, run_id, now)
                     .await
+            }
+        }
+    }
+
+    /// [`ResponseCache::forget_session`] in either mode; nothing with the
+    /// cache off, which kept nothing.
+    ///
+    /// # Errors
+    ///
+    /// As [`ResponseCache::forget_session`]'s.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`ResponseCache::forget_session`]'s.
+    pub async fn forget_session(
+        &self,
+        run_id: &RunId,
+        session_id: &SessionId,
+    ) -> Result<(), ResponseCacheError> {
+        match &self.cache {
+            Keeping::Off => Ok(()),
+            Keeping::Revalidate(cache) | Keeping::Replay(cache) => {
+                cache.forget_session(run_id, session_id).await
             }
         }
     }

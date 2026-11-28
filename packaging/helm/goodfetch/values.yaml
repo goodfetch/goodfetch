@@ -1,0 +1,28 @@
+# Shared chart values; `xtask release package` renders one chart per Product
+# differing only by `image.repository` (ADR 0094).
+replicaCount: 1
+
+image:
+  repository: ghcr.io/goodfetch/collie
+  tag: ""
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 7901
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+seccomp:
+  type: Localhost
+  localhostProfile: profiles/goodfetch-seccomp.json
+
+shmSizeLimit: 1Gi

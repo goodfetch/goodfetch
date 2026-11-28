@@ -63,6 +63,8 @@ fn state_of(session: &SessionInterception, failure: Option<LeftFailure>) -> Page
         hook_blocked: Mutex::new(Vec::new()),
         has_hook_blocks: AtomicBool::new(false),
         on_document: None,
+        caching: None,
+        blocks: Arc::new(crate::blocks::NoBlocks),
     }
 }
 

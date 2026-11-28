@@ -18,7 +18,7 @@ from __future__ import annotations
 import functools
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, overload
 
 from goodfetch_collie_client.connection import ClientConnection, closed_error
 from goodfetch_collie_client.connection_type import AsyncConnection, Connection
@@ -88,7 +88,7 @@ if TYPE_CHECKING:
     from pydantic import JsonValue
 
     from goodfetch_foxhound.crawl import AsyncCrawl, Crawl
-    from goodfetch_foxhound.crawl_run import AsyncCrawlRun, CrawlRun
+    from goodfetch_foxhound.crawl_run import AsyncCrawlRun, CodeFreeCrawl, CrawlRun
     from goodfetch_foxhound.generated.models import RequestSeed, SitemapSeed
     from goodfetch_foxhound.generated.settings import CrawlSettings, FoxhoundSettings
     from goodfetch_foxhound.handlers import (
@@ -334,6 +334,7 @@ class AsyncFoxhound(AsyncConnection):
             detached=detached,
         )
 
+    @overload
     async def start_crawl(
         self,
         crawl: AsyncCrawl,
@@ -341,7 +342,31 @@ class AsyncFoxhound(AsyncConnection):
         seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None = None,
         tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
         settings: CrawlSettings | None = None,
+    ) -> AsyncCrawlRun: ...
+    @overload
+    async def start_crawl(
+        self,
+        crawl: CodeFreeCrawl,
+        *,
+        seeds: Iterable[RequestSeed | SitemapSeed],
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: CrawlSettings | None = None,
+        detached: bool = False,
+    ) -> AsyncCrawlRun: ...
+    async def start_crawl(
+        self,
+        crawl: AsyncCrawl | CodeFreeCrawl,
+        *,
+        seeds: Iterable[RequestSeed | SitemapSeed],
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: CrawlSettings | None = None,
+        detached: bool = False,
     ) -> AsyncCrawlRun:
         """Starts `crawl` from `seeds`, at least one, and serves its handlers.
 
@@ -358,9 +383,19 @@ class AsyncFoxhound(AsyncConnection):
         Label without a handler fails with `label_unhandled`, and a seed, or
         a sitemap seed's rule, whose Label's name `crawl` does not declare
         with `label_unknown`, since a seed carries its Label's name only.
-        `settings` are the Run's own,
-        Collie's and Foxhound's, such as
-        `{"crawl": {"handler": {"concurrency": 4}}}` (ADRs 0083 and 0093).
+        `limits` are the Run's own (ADR 0080), Foxhound's Paid fetches
+        included, and `settings` are the Run's own, Collie's and Foxhound's,
+        such as `{"crawl": {"handler": {"concurrency": 4}}}` (ADRs 0083 and
+        0093).
+
+        A code-free crawl, one with no handler in the program, starts from a
+        reviewed `CrawlDeclaration`, whose Labels follow links and extract
+        Records into its Datasets, or from a code-free `CrawlExtraction`
+        (ADR 0093); each seed names its Label by name, and the program reads
+        a declared Dataset by its name. With `detached`, on a Daemon, its
+        Run outlives the program that started it (ADR 0102), and an engine
+        that is no Daemon refuses it with `detach_unsupported`; a crawl the
+        program serves takes no `detached`, since it waits on its handlers.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -371,7 +406,13 @@ class AsyncFoxhound(AsyncConnection):
         )
         warn_deprecated_settings(settings, FOXHOUND_DEPRECATED_SETTINGS)
         return await self._crawls.start(
-            crawl, seeds=seeds, run_id=run_id, tags=tags, settings=settings
+            crawl,
+            seeds=seeds,
+            run_id=run_id,
+            tags=tags,
+            limits=limits,
+            settings=settings,
+            detached=detached,
         )
 
     async def open_run(self, run_id: str) -> AsyncRunView:
@@ -676,6 +717,7 @@ class Foxhound(Connection):
             raise closed_error("catalog_run.start") from None
         return Run(self._loop, run)
 
+    @overload
     def start_crawl(
         self,
         crawl: Crawl,
@@ -683,7 +725,31 @@ class Foxhound(Connection):
         seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None = None,
         tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
         settings: CrawlSettings | None = None,
+    ) -> CrawlRun: ...
+    @overload
+    def start_crawl(
+        self,
+        crawl: CodeFreeCrawl,
+        *,
+        seeds: Iterable[RequestSeed | SitemapSeed],
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: CrawlSettings | None = None,
+        detached: bool = False,
+    ) -> CrawlRun: ...
+    def start_crawl(
+        self,
+        crawl: Crawl | CodeFreeCrawl,
+        *,
+        seeds: Iterable[RequestSeed | SitemapSeed],
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: CrawlSettings | None = None,
+        detached: bool = False,
     ) -> CrawlRun:
         """Starts `crawl` from `seeds`, at least one, and serves its handlers.
 
@@ -715,7 +781,9 @@ class Foxhound(Connection):
             seeds=list(seeds),
             run_id=run_id,
             tags=None if tags is None else list(tags),
+            limits=limits,
             settings=settings,
+            detached=detached,
         )
         try:
             return self._loop.call(starting)

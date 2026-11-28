@@ -2,9 +2,11 @@
 //! 0081): the twin of [`crate::Schedules`], whose calls end in `send()`,
 //! and the blocking face of the [`Schedule`] handle they answer.
 
+use std::time::SystemTime;
+
 use goodfetch_protocol::schedule::{
     ScheduleCreateParams, ScheduleDefinition, ScheduleGetParams, ScheduleId, ScheduleInfo,
-    ScheduleListParams,
+    ScheduleListParams, SchedulePreview, SchedulePreviewParams, ScheduleTrigger,
 };
 
 use super::{Call, ClientConnection, Schedule};
@@ -66,7 +68,24 @@ impl Schedules {
     pub fn get(&self, id: &ScheduleId) -> Call<Schedule, ScheduleGetParams> {
         Call::new(self.0.get(id).map(Schedule::from), &self.1)
     }
+
+    /// Describes a Schedule's trigger in plain words and lists its next
+    /// Occurrences in a time zone strictly after `after` (now when absent;
+    /// 5 by default, at most 100), including DST transitions. A trigger
+    /// that does not parse fails with `schedule_trigger_invalid`.
+    ///
+    /// As [`crate::Schedules::preview`] does, which `send()` sends.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn preview(
+        &self,
+        trigger: ScheduleTrigger,
+    ) -> Call<SchedulePreview, SchedulePreviewParams> {
+        Call::new(self.0.preview(trigger), &self.1)
+    }
 }
+
+crate::schedules::preview_call_options!(Call);
 
 /// What [`Schedules::create`] answers, its Schedule's calls blocking.
 pub type CreatedSchedule = crate::schedules::CreatedSchedule<Schedule>;

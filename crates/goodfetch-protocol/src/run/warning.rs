@@ -15,6 +15,9 @@ pub const FINGERPRINT_JS_INJECTION: &str = "fingerprint_js_injection";
 pub const FINGERPRINT_BASIC: &str = "fingerprint_basic";
 /// A Session fell back to the basic fingerprint (area 8).
 pub const FINGERPRINT_BASIC_FALLBACK: &str = "fingerprint_basic_fallback";
+/// A `stealth` Session's pages may turn on the browser's `Runtime` domain
+/// (area 8; spec #599's Q2).
+pub const STEALTH_RUNTIME_ALLOWED: &str = "stealth_runtime_allowed";
 /// A Session's browser build is outdated (area 8).
 pub const BROWSER_BUILD_OUTDATED: &str = "browser_build_outdated";
 /// A Session runs a third party's browser build (area 8).
@@ -68,7 +71,7 @@ const fn warning(name: &'static str, description: &'static str) -> SharedTypeVal
 
 /// The warning codes both Products hand over to a Run's report (ADR
 /// 0102); Foxhound adds its own.
-pub const WARNING_CODES: [SharedTypeValue; 23] = [
+pub const WARNING_CODES: [SharedTypeValue; 24] = [
     warning(FINGERPRINT_NONE, "A Session ran with no fingerprint."),
     warning(
         FINGERPRINT_JS_INJECTION,
@@ -78,6 +81,10 @@ pub const WARNING_CODES: [SharedTypeValue; 23] = [
     warning(
         FINGERPRINT_BASIC_FALLBACK,
         "A Session fell back to the basic fingerprint.",
+    ),
+    warning(
+        STEALTH_RUNTIME_ALLOWED,
+        "A stealth Session's pages could turn on the Runtime domain, which a site can detect.",
     ),
     warning(
         BROWSER_BUILD_OUTDATED,

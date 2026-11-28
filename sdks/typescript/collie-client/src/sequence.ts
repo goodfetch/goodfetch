@@ -13,8 +13,12 @@ import type { ChannelOpenOptions } from "./rpc.ts";
 export interface SequenceOptions<Item> {
   /** Opens its stream, which sends its call. */
   readonly open: (options: ChannelOpenOptions) => Stream;
-  /** The item a notification of the stream carries, or `undefined` for another notification. */
-  readonly itemOf: (method: string, params: unknown) => Item | undefined;
+  /**
+   * The item a notification of the stream carries, or `undefined` for another notification.
+   * A promised item, such as one a schema parses asynchronously, is read in the order its
+   * notification came; one that rejects closes the sequence, and the read fails with its error.
+   */
+  readonly itemOf: (method: string, params: unknown) => Item | Promise<Item> | undefined;
   /** How many items the engine may send before the program has read any. */
   readonly credits: number;
   /** How many items are read before it grants as many credits again. */
@@ -25,7 +29,7 @@ export interface SequenceOptions<Item> {
 
 /** What the stream's notifications reach: never the iterator, so releasing it unread lets it go. */
 interface Reading<Item> {
-  received: Item[];
+  received: (Item | Promise<Item>)[];
   ended: boolean;
   /** The reads waiting for an item or the stream's end. */
   waiting: (() => void)[];
@@ -70,6 +74,8 @@ export class Sequence<Item> implements AsyncIterableIterator<Item, undefined>, D
       notified: (method, params) => {
         const item = options.itemOf(method, params);
         if (item !== undefined) {
+          // A rejection is the read's to report, once it reaches this item.
+          if (item instanceof Promise) item.catch(() => undefined);
           reading.received.push(item);
           wake(reading);
         }
@@ -105,8 +111,25 @@ export class Sequence<Item> implements AsyncIterableIterator<Item, undefined>, D
       if (this.#closed) return { done: true, value: undefined };
       // Items already received are not read once the program stops reading.
       this.#options.signal?.throwIfAborted();
-      const item = reading.received.shift();
-      if (item !== undefined) {
+      const received = reading.received.shift();
+      if (received !== undefined) {
+        let item: Item;
+        if (received instanceof Promise) {
+          try {
+            item = await received;
+          } catch (error) {
+            // Closed while the item was being made: it is not read, made or failed.
+            if (this.#closed) return { done: true, value: undefined };
+            this.close();
+            this.#options.signal?.throwIfAborted();
+            throw error;
+          }
+          // Closed or stopped while the item was being made: it is not read.
+          if (this.#closed) return { done: true, value: undefined };
+          this.#options.signal?.throwIfAborted();
+        } else {
+          item = received;
+        }
         this.#handedOut = true;
         return { done: false, value: item };
       }

@@ -54,6 +54,7 @@ pub mod access_mode;
 pub mod ai_work;
 pub mod cdp_url;
 pub mod dialog;
+pub mod emulation;
 pub mod events;
 pub mod functions;
 pub mod proxy;
@@ -76,8 +77,8 @@ use self::events::{
     RESPONSE_BODY, WEB_SOCKET_CLOSE, WEB_SOCKET_FRAME_RECEIVED, WEB_SOCKET_FRAME_SENT,
 };
 use self::functions::{
-    LOCATOR_EVALUATE_ALL, PAGE_ADD_INIT_SCRIPT, PAGE_EVALUATE, PAGE_FUNCTION_FAILED,
-    PAGE_VALUE_INVALID,
+    LOCATOR_EVALUATE_ALL, LOCATOR_SCROLL_COLLECT, PAGE_ADD_INIT_SCRIPT, PAGE_EVALUATE,
+    PAGE_FUNCTION_FAILED, PAGE_VALUE_INVALID,
 };
 use self::route::{
     PAGE_HANDLER_FAILED, PAGE_ROUTE, ROUTE_ABORT, ROUTE_ALREADY_HANDLED, ROUTE_CONTINUE,
@@ -1991,6 +1992,7 @@ pub const ENTRIES: Entries = Entries {
         session_pages::PAGE_CLOSE,
         PAGE_EVALUATE,
         LOCATOR_EVALUATE_ALL,
+        LOCATOR_SCROLL_COLLECT,
         PAGE_ADD_INIT_SCRIPT,
         PAGE_WAIT_FOR_URL,
         PAGE_WAIT_FOR_REQUEST,

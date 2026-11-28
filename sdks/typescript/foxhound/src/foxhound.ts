@@ -3,7 +3,8 @@
 // the program's environment map, and finishes `hello`, naming Foxhound,
 // before it returns, so a Collie engine refuses it there with
 // `not_in_product`. `startCrawl` starts a crawl from a `Crawl` value and
-// serves the engine's `crawl_request.handle` requests to its handlers.
+// serves the engine's `crawl_request.handle` requests to its handlers, or
+// starts a code-free crawl from a `CrawlDeclaration` or an `extraction`.
 // Everything else is the client package's common Connection, whose members
 // `Collie` carries under the same names.
 import type {
@@ -28,6 +29,7 @@ import { RunNotFoundError } from "@goodfetch/collie-client";
 import {
   fromWire,
   holdInRealm,
+  limitList,
   openEngine,
   openOver,
   refuseHandlersOnEdge,
@@ -35,11 +37,13 @@ import {
   type Transport,
   warnEntry,
 } from "@goodfetch/collie-client/runtime";
-import { checkCrawlStartable, checkSeedPayloads, crawlDeclaration, type Crawl } from "./crawl.ts";
+import { checkCrawlStartable, checkSeedPayloads, Crawl, crawlDeclaration } from "./crawl.ts";
 import { CrawlRun, handleRequest, type CrawlHost } from "./crawl-run.ts";
 import {
   FoxhoundOperations,
   foxhoundOperations,
+  type CrawlDeclaration,
+  type CrawlExtraction,
   type CrawlRequestHandleParams,
   type CrawlRequestHandled,
   type CrawlStartParams,
@@ -105,12 +109,35 @@ export interface StartCrawlOptions {
   readonly runId?: string | undefined;
   /** Its tags: at most 16, each at most 64 characters (ADR 0036). */
   readonly tags?: readonly string[] | undefined;
+  /** Its own Limits (ADR 0080), Foxhound's Paid fetches included. */
+  readonly limits?: FoxhoundLimits | undefined;
   /**
    * Its settings, Collie's and Foxhound's, nested by camelCase segment,
    * such as `{ crawl: { handler: { concurrency: 4 } } }` (ADRs 0083 and
    * 0093).
    */
   readonly settings?: CrawlSettings | undefined;
+}
+
+/**
+ * A crawl with no handler in the program (ADR 0093): a reviewed
+ * `CrawlDeclaration`, whose Labels follow links and extract Records into
+ * its Datasets, or a code-free `extraction`, its one-Label shorthand (the
+ * Label `page` and the Dataset `pages`). It is one or the other, never
+ * both.
+ */
+export type CodeFreeCrawl =
+  | (CrawlDeclaration & { readonly extraction?: never })
+  | { readonly extraction: CrawlExtraction; readonly labels?: never };
+
+/** What starting a code-free crawl takes: a crawl's options, and whether its Run outlives its program (ADR 0102). */
+export interface StartCodeFreeCrawlOptions extends StartCrawlOptions {
+  /**
+   * Whether the Run outlives its program, on a Daemon: closing its value
+   * then frees only the value, `finish()` waits for its end and `stop()`
+   * stops it.
+   */
+  readonly detached?: boolean | undefined;
 }
 
 let open: (connection: ClientConnection) => Foxhound;
@@ -269,31 +296,53 @@ export class Foxhound implements Connection {
    *
    * @experimental
    */
-  async startCrawl(crawl: Crawl, options: StartCrawlOptions): Promise<CrawlRun> {
+  startCrawl(crawl: Crawl, options: StartCrawlOptions): Promise<CrawlRun>;
+  /**
+   * Starts a code-free crawl, one with no handler in the program, from its
+   * seeds, and answers once its Run is started (ADR 0093): a reviewed
+   * `CrawlDeclaration`, whose seeds follow `options.seeds`, or a code-free
+   * `extraction`. Each seed names its Label by name. With `detached`, on a
+   * Daemon, the Run outlives the program that started it. A start naming
+   * both a declaration and an extraction fails with `setting_invalid`.
+   *
+   * @experimental
+   */
+  startCrawl(crawl: CodeFreeCrawl, options: StartCodeFreeCrawlOptions): Promise<CrawlRun>;
+  async startCrawl(
+    target: Crawl | CodeFreeCrawl,
+    options: StartCodeFreeCrawlOptions,
+  ): Promise<CrawlRun> {
     warnEntry(foxhoundOperations, "crawl.start");
-    refuseHandlersOnEdge({
-      operation: "crawl.start",
-      names: foxhound.operationNames,
-      handlers: "the crawl's handlers",
-    });
-    checkCrawlStartable(crawl, options.seeds);
-    await checkSeedPayloads(crawl, options.seeds);
+    const crawl = target instanceof Crawl ? target : undefined;
+    if (crawl !== undefined) {
+      refuseHandlersOnEdge({
+        operation: "crawl.start",
+        names: foxhound.operationNames,
+        handlers: "the crawl's handlers",
+      });
+      checkCrawlStartable(crawl, options.seeds);
+      await checkSeedPayloads(crawl, options.seeds);
+    }
     const settings = settingsOnWire(options.settings);
+    const limits = limitList(options.limits);
+    const detached = options.detached === true;
     // The start carries the project file `connect()` read (ADR 0083).
     const project = this.#connection.project();
     const params: CrawlStartParams = {
-      ...crawlDeclaration(crawl),
+      ...crawlShape(target),
       seeds: [...options.seeds],
       ...(options.runId === undefined ? {} : { runId: options.runId }),
       ...(options.tags === undefined ? {} : { tags: [...options.tags] }),
+      ...(limits.length === 0 ? {} : { limits }),
       ...(settings === undefined ? {} : { settings }),
       ...(project === undefined ? {} : { project }),
+      ...(detached ? { detached } : {}),
     };
     const starting = this.#connection.startRun(
       "crawl.start",
       () => this.#operations.crawlStart(params),
       (host, started) => {
-        const run = new CrawlRun(host, started, crawl, this.#crawlHost);
+        const run = new CrawlRun(host, started, crawl, this.#crawlHost, detached);
         this.#crawlRuns.set(run.id(), run);
         return run;
       },
@@ -367,6 +416,18 @@ export class Foxhound implements Connection {
     }
     return handleRequest(run, request, signal);
   }
+}
+
+/** What `crawl.start` takes for `target`: a crawl's Labels and Datasets, a declaration or an extraction. */
+function crawlShape(
+  target: Crawl | CodeFreeCrawl,
+): Pick<CrawlStartParams, "labels" | "datasets" | "declaration" | "extraction"> {
+  if (target instanceof Crawl) return crawlDeclaration(target);
+  if (target.labels === undefined) return { extraction: target.extraction };
+  // A value typed loosely may name both: each goes as its own, and the
+  // engine refuses the start with `setting_invalid`.
+  const { extraction, ...declaration } = target;
+  return { declaration, ...(extraction === undefined ? {} : { extraction }) };
 }
 
 /**

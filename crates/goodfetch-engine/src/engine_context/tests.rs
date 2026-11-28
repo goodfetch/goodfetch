@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use rstest::rstest;
 
-use super::{host_zone, os_user, places};
+use super::{has_display, host_zone, os_user, places};
 use crate::home::Home;
 
 /// The environment map of `variables`.
@@ -30,6 +30,21 @@ fn the_os_users_name_comes_from_the_environment(
     #[case] expected: &str,
 ) {
     assert_eq!(os_user(&environment(variables)), expected);
+}
+
+/// A headful browser shows its window on the display server the engine's
+/// environment names, X11's or Wayland's; with none, a headful launch on
+/// Linux starts a virtual display of its own (ADR 0035).
+#[rstest]
+#[case::x11(&[("DISPLAY", ":0")], true)]
+#[case::wayland(&[("WAYLAND_DISPLAY", "wayland-0")], true)]
+#[case::empty(&[("DISPLAY", "")], false)]
+#[case::none(&[], false)]
+fn a_display_server_comes_from_the_environment(
+    #[case] variables: &[(&str, &str)],
+    #[case] expected: bool,
+) {
+    assert_eq!(has_display(&environment(variables)), expected);
 }
 
 /// The person's folders come from the environment, the Goodfetch home from

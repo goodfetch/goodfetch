@@ -301,8 +301,7 @@ fn engine_with_browser(env: &TestEnv, cache: &Path) -> Attached {
 }
 
 /// Answers `answer`'s result, failing the test with it when it has none.
-#[cfg(unix)]
-fn result(answer: Value) -> Value {
+pub(crate) fn result(answer: Value) -> Value {
     match answer {
         Value::Object(mut fields) if fields.contains_key("result") => fields["result"].take(),
         answer => panic!("{answer}"),

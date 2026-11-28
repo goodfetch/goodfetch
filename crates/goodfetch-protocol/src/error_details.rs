@@ -215,6 +215,7 @@ details! {
     crate::run::RunInterruptedDetails => ErrorCode::RUN_INTERRUPTED,
     crate::run::RunStateFilesystemUnsupportedDetails => ErrorCode::RUN_STATE_FILESYSTEM_UNSUPPORTED,
     crate::run::RunTargetUnbuiltDetails => ErrorCode::RUN_TARGET_UNBUILT,
+    crate::schedule::ScheduleCapExceededDetails => ErrorCode::SCHEDULE_CAP_EXCEEDED,
     crate::schedule::ScheduleExistsDetails => ErrorCode::SCHEDULE_EXISTS,
     crate::schedule::ScheduleNotFoundDetails => ErrorCode::SCHEDULE_NOT_FOUND,
     crate::schedule::ScheduleTriggerInvalidDetails => ErrorCode::SCHEDULE_TRIGGER_INVALID,

@@ -291,3 +291,159 @@ fn a_platform_with_no_sandbox_is_known_by_its_variable(
         platform
     );
 }
+
+struct GeneratedSandboxCase {
+    rule: String,
+    positive_control: String,
+    user_namespace: String,
+    seccomp_filtered: bool,
+    apparmor_restricts: bool,
+    env_var: Option<String>,
+    env_value: Option<String>,
+    expected_probed: String,
+    expected_environment: Option<String>,
+    expected_platform: Option<String>,
+    expected_error_code: Option<String>,
+}
+
+fn load_generated_sandbox_cases() -> Vec<GeneratedSandboxCase> {
+    let document: toml_edit::DocumentMut = include_str!("../../probes/browser-sandbox.toml")
+        .parse()
+        .expect("generated browser-sandbox probe table parses");
+    let cases = document["case"]
+        .as_array_of_tables()
+        .expect("`[[case]]` array present");
+    let str_field = |table: &toml_edit::Table, key: &str| {
+        table
+            .get(key)
+            .and_then(|item| item.as_str())
+            .map(str::to_owned)
+    };
+    cases
+        .iter()
+        .map(|table| GeneratedSandboxCase {
+            rule: str_field(table, "rule").expect("rule"),
+            positive_control: str_field(table, "positive_control").expect("positive_control"),
+            user_namespace: str_field(table, "user_namespace").expect("user_namespace"),
+            seccomp_filtered: table["seccomp_filtered"]
+                .as_bool()
+                .expect("seccomp_filtered"),
+            apparmor_restricts: table["apparmor_restricts"]
+                .as_bool()
+                .expect("apparmor_restricts"),
+            env_var: str_field(table, "env_var"),
+            env_value: str_field(table, "env_value"),
+            expected_probed: str_field(table, "expected_probed").expect("expected_probed"),
+            expected_environment: str_field(table, "expected_environment"),
+            expected_platform: str_field(table, "expected_platform"),
+            expected_error_code: str_field(table, "expected_error_code"),
+        })
+        .collect()
+}
+
+fn starts_host() -> Host {
+    Host {
+        user_namespace: UserNamespace::Created,
+        seccomp_filtered: false,
+        apparmor_restricts: false,
+    }
+}
+
+fn run_generated_case(
+    case: &GeneratedSandboxCase,
+    positive_control_host: fn() -> Host,
+) -> Result<(), String> {
+    let mut env = BTreeMap::new();
+    if let (Some(var), Some(val)) = (&case.env_var, &case.env_value) {
+        env.insert(OsString::from(var), OsString::from(val));
+    }
+    let positive = SandboxProbe::of(positive_control_host, env.clone());
+    if case.positive_control != "starts" || positive.probed() != &Probed::Starts {
+        return Err(format!(
+            "{}: positive control failed, got {:?}",
+            case.rule,
+            positive.probed()
+        ));
+    }
+    let host_fn: fn() -> Host = match (
+        case.user_namespace.as_str(),
+        case.seccomp_filtered,
+        case.apparmor_restricts,
+    ) {
+        ("created", false, false) => starts_host,
+        ("refused", true, false) => || Host {
+            user_namespace: UserNamespace::Refused(EPERM),
+            seccomp_filtered: true,
+            apparmor_restricts: false,
+        },
+        ("refused", false, false) => refusing_host,
+        ("unmapped", false, true) => || Host {
+            user_namespace: UserNamespace::Unmapped(EPERM),
+            seccomp_filtered: false,
+            apparmor_restricts: true,
+        },
+        other => return Err(format!("{}: unhandled host tuple {other:?}", case.rule)),
+    };
+    let probe = SandboxProbe::of(host_fn, env);
+    let probed = probe.probed();
+    let (kind, found_env, found_platform) = match probed {
+        Probed::Starts => ("starts", None, None),
+        Probed::Restricted => ("restricted", None, None),
+        Probed::Refused { environment, .. } => {
+            ("refused", Some(super::serde_name(*environment)), None)
+        }
+        Probed::NoSandbox(platform) => (
+            "no_sandbox",
+            None,
+            Some(match platform {
+                NoSandboxPlatform::AwsLambda => "aws_lambda",
+                NoSandboxPlatform::Fargate => "fargate",
+                NoSandboxPlatform::EksFargate => "eks_fargate",
+                NoSandboxPlatform::AzureContainerApps => "azure_container_apps",
+            }),
+        ),
+        Probed::Unknown { .. } => ("unknown", None, None),
+    };
+    if kind != case.expected_probed
+        || found_env != case.expected_environment.as_deref()
+        || found_platform != case.expected_platform.as_deref()
+    {
+        return Err(format!(
+            "{}: expected ({}, {:?}, {:?}), got ({kind}, {found_env:?}, {found_platform:?})",
+            case.rule, case.expected_probed, case.expected_environment, case.expected_platform
+        ));
+    }
+    let found_code = probed.refusal().map(|err| err.code());
+    if found_code != case.expected_error_code.as_deref() {
+        return Err(format!(
+            "{}: expected error code {:?}, got {found_code:?}",
+            case.rule, case.expected_error_code
+        ));
+    }
+    Ok(())
+}
+
+/// Every browser sandbox startup probe case generated by `xtask probes generate`
+/// passes its `starts` positive control first, then produces its exact `Probed`
+/// outcome and error code through `SandboxProbe::of` (moved from #642 into #429).
+#[test]
+fn every_generated_browser_sandbox_startup_probe_passes_with_positive_control() {
+    let cases = load_generated_sandbox_cases();
+    assert!(!cases.is_empty());
+    for case in &cases {
+        run_generated_case(case, starts_host).unwrap_or_else(|err| panic!("{err}"));
+    }
+}
+
+#[test]
+fn a_generated_browser_sandbox_probe_fails_when_its_positive_control_fails() {
+    let cases = load_generated_sandbox_cases();
+    let refused = cases
+        .iter()
+        .find(|case| case.expected_probed == "refused")
+        .expect("refused case present");
+
+    let err = run_generated_case(refused, refusing_host)
+        .expect_err("a failing positive control must fail the probe");
+    assert!(err.contains("positive control failed"), "{err}");
+}

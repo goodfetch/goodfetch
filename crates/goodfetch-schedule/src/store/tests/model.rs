@@ -249,10 +249,11 @@ impl StateMachineTest for Subject {
             Transition::Create { id, every } => {
                 let store = subject.store();
                 let draw = subject.draw();
-                let created = subject
+                let outcome = subject
                     .runtime
-                    .block_on(create(&store, schedule(IDS[id], every), draw))
+                    .block_on(create(&store, schedule(IDS[id], every), 0, None, draw))
                     .unwrap();
+                let created = outcome == super::CreateOutcome::Created;
                 assert_eq!(
                     created,
                     !subject.before.acknowledged.contains_key(&id),
@@ -280,9 +281,12 @@ impl StateMachineTest for Subject {
                 let vfs = &subject.vfs;
                 // Acknowledged or not, the model counts it uncertain.
                 let (_, ()) = subject.runtime.block_on(async {
-                    tokio::join!(create(&store, schedule(IDS[id], every), draw), async {
-                        vfs.crash(kind);
-                    })
+                    tokio::join!(
+                        create(&store, schedule(IDS[id], every), 0, None, draw),
+                        async {
+                            vfs.crash(kind);
+                        }
+                    )
                 });
                 drop(store);
                 subject.reopen_after_crash();
@@ -308,7 +312,9 @@ impl StateMachineTest for Subject {
                     .iter()
                     .position(|id| *id == info.schedule_id.as_str())
                     .expect("an ID of the case");
-                let ScheduleTrigger::Every(every) = info.trigger;
+                let ScheduleTrigger::Every(every) = info.trigger else {
+                    panic!("model test creates Every triggers only");
+                };
                 (id, every.every)
             })
             .collect();

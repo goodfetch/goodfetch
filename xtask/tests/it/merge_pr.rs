@@ -138,60 +138,7 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
                 sweep_hold = folder.join("sweep-hold").display(),
             ),
         ),
-        (
-            "just",
-            format!(
-                "#!/bin/sh\n\
-                 echo \"just $*\" >>\"{calls}\"\n\
-                 if [ \"$1\" = codegen ]; then\n\
-                   if [ -f \"{codegen_fails}\" ]; then exit 1; fi\n\
-                   if [ -f \"{codegen_locks}\" ]; then echo 'rewritten' >Cargo.lock; fi\n\
-                   if [ -f \"{codegen_writes}\" ]; then mkdir -p {GENERATED} && echo 'written again' >{GENERATED}/{WRITTEN}; fi\n\
-                 fi\n\
-                 if [ -n \"$GOODFETCH_PERF_PULL_REQUEST\" ]; then\n\
-                   echo \"acceptance $GOODFETCH_PERF_PULL_REQUEST\" >>\"{calls}\"\n\
-                 fi\n\
-                 if [ -n \"$GOODFETCH_GATE_HOSTED_RECORDS\" ]; then\n\
-                   echo \"hosted records of $GOODFETCH_GATE_REPOSITORY:$(cd \"$GOODFETCH_GATE_HOSTED_RECORDS\" && find . -type f | sort | tr '\\n' ' ')\" >>\"{calls}\"\n\
-                 fi\n\
-                 if [ \"$1\" = pre-merge ]; then\n\
-                   alone=\"\"\n\
-                   if mkdir \"{running}\" 2>/dev/null; then alone=1; else echo \"$*\" >>\"{together}\"; fi\n\
-                   if [ -f \"{base_listings}\" ]; then\n\
-                     tip=$(git rev-parse origin/main)\n\
-                     mkdir -p \"target/stress-listings/$tip\" && : >\"target/stress-listings/$tip/listed\"\n\
-                   fi\n\
-                   records=\"$(git rev-parse --path-format=absolute --git-common-dir)/goodfetch-gate-runs\"\n\
-                   mkdir -p \"$records\"\n\
-                   if [ ! -f \"{no_plan}\" ]; then echo previous=none >\"$records/{head}.plan\"; fi\n\
-                   mkdir -p target/nextest/quick && echo '<testsuites/>' >target/nextest/quick/junit.xml\n\
-                   if [ -r /proc/self/status ]; then grep '^SigIgn:' /proc/self/status >\"{signals}\"; fi\n\
-                   echo $$ >\"{reached}\"\n\
-                   while [ -f \"{hold}\" ]; do sleep 0.02; done\n\
-                   echo 'the steps ran'\n\
-                   if [ -f \"{lengthy}\" ]; then sleep 1; fi\n\
-                   [ -z \"$alone\" ] || rmdir \"{running}\"\n\
-                   if [ -f \"{failing}\" ]; then\n\
-                     mkdir -p target/red-steps/quick/nextest/quick && echo '<testsuites/>' >target/red-steps/quick/nextest/quick/junit.xml\n\
-                     mkdir -p target/steps/quick && echo 'a lint failed' >target/steps/quick/lint.log\n\
-                     echo 'a test failed'; exit 3\n\
-                   fi\n\
-                 fi\n",
-                calls = calls.display(),
-                codegen_fails = folder.join("codegen-fails").display(),
-                codegen_locks = folder.join("codegen-locks").display(),
-                codegen_writes = folder.join("codegen-writes").display(),
-                running = folder.join("running").display(),
-                together = folder.join("together").display(),
-                lengthy = folder.join("lengthy").display(),
-                base_listings = folder.join("base-listings").display(),
-                no_plan = folder.join("no-plan").display(),
-                signals = folder.join("signals").display(),
-                reached = folder.join("reached").display(),
-                hold = folder.join("hold").display(),
-                failing = folder.join("failing").display(),
-            ),
-        ),
+        ("just", stand_in_just_script(&folder, &calls, head)),
         (
             "date",
             format!(
@@ -205,6 +152,70 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
     folder
+}
+
+fn stand_in_just_script(folder: &Path, calls: &Path, head: &str) -> String {
+    format!(
+        "#!/bin/sh\n\
+         echo \"just $*\" >>\"{calls}\"\n\
+         if [ \"$1\" = codegen ]; then\n\
+           if [ -f \"{codegen_fails}\" ]; then exit 1; fi\n\
+           if [ -f \"{codegen_locks}\" ]; then echo 'rewritten' >Cargo.lock; fi\n\
+           if [ -f \"{codegen_writes}\" ]; then mkdir -p {GENERATED} && echo 'written again' >{GENERATED}/{WRITTEN}; fi\n\
+         fi\n\
+         if [ -n \"$GOODFETCH_PERF_PULL_REQUEST\" ]; then\n\
+           echo \"acceptance $GOODFETCH_PERF_PULL_REQUEST\" >>\"{calls}\"\n\
+         fi\n\
+         if [ -n \"$GOODFETCH_GATE_HOSTED_RECORDS\" ]; then\n\
+           echo \"hosted records of $GOODFETCH_GATE_REPOSITORY:$(cd \"$GOODFETCH_GATE_HOSTED_RECORDS\" && find . -type f | sort | tr '\\n' ' ')\" >>\"{calls}\"\n\
+         fi\n\
+         if [ \"$1\" = pre-merge ]; then\n\
+           alone=\"\"\n\
+           if mkdir \"{running}\" 2>/dev/null; then alone=1; else echo \"$*\" >>\"{together}\"; fi\n\
+           if [ -f \"{base_listings}\" ]; then\n\
+             tip=$(git rev-parse origin/main)\n\
+             mkdir -p \"target/stress-listings/$tip\" && : >\"target/stress-listings/$tip/listed\"\n\
+           fi\n\
+           records=\"$(git rev-parse --path-format=absolute --git-common-dir)/goodfetch-gate-runs\"\n\
+           mkdir -p \"$records\"\n\
+           if [ ! -f \"{no_plan}\" ]; then echo previous=none >\"$records/{head}.plan\"; fi\n\
+           mkdir -p target/nextest/quick && echo '<testsuites/>' >target/nextest/quick/junit.xml\n\
+           if [ -r /proc/self/status ]; then grep '^SigIgn:' /proc/self/status >\"{signals}\"; fi\n\
+           echo $$ >\"{reached}\"\n\
+           while [ -f \"{hold}\" ]; do sleep 0.02; done\n\
+           echo 'the steps ran'\n\
+           if [ -f \"{lengthy}\" ]; then sleep 1; fi\n\
+           [ -z \"$alone\" ] || rmdir \"{running}\"\n\
+           if [ -f \"{failing}\" ]; then\n\
+             mkdir -p target/red-steps/quick/nextest/quick && echo '<testsuites/>' >target/red-steps/quick/nextest/quick/junit.xml\n\
+             mkdir -p target/steps/quick && echo 'a lint failed' >target/steps/quick/lint.log\n\
+             echo 'a test failed'; exit 3\n\
+           fi\n\
+         fi\n\
+         if [ \"$1\" = _gate-verify ]; then\n\
+           if [ -f \"{verdict_fails}\" ]; then\n\
+             echo 'Gate verdict failed' >&2; exit 1\n\
+           fi\n\
+           if [ -f \"{verdict_origins}\" ]; then\n\
+             cat \"{verdict_origins}\"\n\
+           fi\n\
+         fi\n",
+        calls = calls.display(),
+        codegen_fails = folder.join("codegen-fails").display(),
+        codegen_locks = folder.join("codegen-locks").display(),
+        codegen_writes = folder.join("codegen-writes").display(),
+        running = folder.join("running").display(),
+        together = folder.join("together").display(),
+        lengthy = folder.join("lengthy").display(),
+        base_listings = folder.join("base-listings").display(),
+        no_plan = folder.join("no-plan").display(),
+        signals = folder.join("signals").display(),
+        reached = folder.join("reached").display(),
+        hold = folder.join("hold").display(),
+        failing = folder.join("failing").display(),
+        verdict_fails = folder.join("verdict-fails").display(),
+        verdict_origins = folder.join("verdict-origins").display(),
+    )
 }
 
 struct Run {
@@ -2203,4 +2214,56 @@ fn the_gate_never_reads_waits_for_or_cancels_a_hosted_run(
         run.calls
     );
     assert!(!run.stdout.contains("hosted run"), "{}", run.stdout);
+}
+
+/// Before merging, `just merge` verifies the signed verdict of `head`
+/// (`just _gate-verify`, ADR 0135; issue 1726). A verdict that fails refuses
+/// to merge and keeps the failed gate logs.
+#[test]
+fn a_failing_gate_verdict_refuses_to_merge() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    std::fs::write(stand_in.join("verdict-fails"), "").unwrap();
+
+    let run = merge(&workspace, &stand_in, &[]);
+
+    assert_ne!(run.code, Some(0), "{}", run.stdout);
+    assert!(
+        run.calls
+            .iter()
+            .any(|c| c.starts_with("just _gate-verify quick ")),
+        "{:?}",
+        run.calls
+    );
+    assert!(
+        !run.calls.iter().any(|c| c.starts_with("gh pr merge")),
+        "a failed verdict must never merge: {:?}",
+        run.calls
+    );
+}
+
+/// Every reused origin `just _gate-verify` reports is listed in the merge
+/// commit body, not only the nearest ancestor (ADR 0135; issue 1726).
+#[test]
+fn verified_reused_origins_appear_in_the_merge_commit_body() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    std::fs::write(
+        stand_in.join("verdict-origins"),
+        "origin\taaa111\norigin\tbbb222\n",
+    )
+    .unwrap();
+
+    let run = merge(&workspace, &stand_in, &[]);
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    let merged = run
+        .calls
+        .iter()
+        .find(|c| c.starts_with("gh pr merge"))
+        .expect("merge call");
+    assert!(
+        merged.contains("aaa111, bbb222"),
+        "merge commit must name every verified reused origin: {merged}"
+    );
 }

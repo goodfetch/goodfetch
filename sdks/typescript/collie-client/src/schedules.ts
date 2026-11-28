@@ -8,9 +8,12 @@ import type { CallOptions, Caller } from "./caller.ts";
 import { Schedule as ScheduleMembers } from "./generated/handles.ts";
 import type {
   CollieOperationTypes,
+  PointInTime,
   ScheduleDefinition,
   ScheduleId,
   ScheduleInfo,
+  SchedulePreview,
+  ScheduleTrigger,
   ScheduleWarning,
 } from "./generated/index.ts";
 import { defined, timeoutOf, type HandleHost } from "./handle.ts";
@@ -27,6 +30,16 @@ export interface ScheduleWriteOptions {
 export interface ScheduleCallOptions extends ScheduleWriteOptions {
   /** Cancels the call in flight when it aborts. */
   readonly signal?: AbortSignal | undefined;
+}
+
+/** The options of `schedules.preview`: zone, starting instant, count, timeout and cancel signal. */
+export interface SchedulePreviewOptions extends ScheduleCallOptions {
+  /** The IANA time zone to preview in, such as `Europe/Paris`; the Daemon host's when absent. */
+  readonly timeZone?: string | undefined;
+  /** The instant strictly after which Occurrences are listed; now when absent. */
+  readonly after?: PointInTime | undefined;
+  /** How many Occurrences to list; 5 when absent, at most 100. */
+  readonly count?: number | undefined;
 }
 
 /** What `schedules.create` answers: the created Schedule, and what its program should know. */
@@ -132,6 +145,31 @@ export class Schedules {
       callOptions(options),
     );
     return this.#scheduleOf(info.scheduleId);
+  }
+
+  /**
+   * Describes a Schedule's trigger in plain words and lists its next Occurrences in a time zone strictly after `after` (now when absent; 5 by default, at most 100), including DST transitions. A trigger that does not parse fails with `schedule_trigger_invalid`.
+   *
+   * @experimental
+   */
+  async preview(
+    trigger: ScheduleTrigger,
+    options: SchedulePreviewOptions = {},
+  ): Promise<SchedulePreview> {
+    const operation = "schedule.preview";
+    warnExperimental(operation);
+    this.#host.ensureOpen(operation);
+    return await this.#host.calls.call(
+      operation,
+      defined({
+        trigger,
+        timeZone: options.timeZone,
+        after: options.after,
+        count: options.count,
+        timeout: timeoutOf(options.timeout, "timeout.wait"),
+      }),
+      callOptions(options),
+    );
   }
 
   /** The handle of the Schedule of ID `id`, whose calls go through this Connection. */

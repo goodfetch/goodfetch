@@ -25,8 +25,9 @@ use crate::settings::values::Values;
 use crate::settings::{SettingsError, keys};
 
 /// The crates that are no product code: test tools and the lint tasks.
-const NOT_PRODUCT: [&str; 5] = [
+const NOT_PRODUCT: [&str; 6] = [
     "goodfetch-conformance",
+    "goodfetch-dev-workspace-hack",
     "goodfetch-stub-gateway",
     "goodfetch-test-client",
     "goodfetch-test-support",

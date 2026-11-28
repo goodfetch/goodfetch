@@ -25,6 +25,7 @@ mod stream;
 mod websocket;
 
 pub use self::stream::send_events;
+pub(crate) use self::stream::{SseStream, open_sse_stream};
 
 use std::num::NonZeroU64;
 
@@ -43,7 +44,10 @@ use crate::wire;
 
 pub(crate) use crate::wire::{Line, notification_line, success_line};
 
-pub(crate) use connection::{Access, Dispatch, serve};
+pub(crate) use connection::{
+    Access, Dispatch, HttpAnswer, HttpContext, HttpRequest, HttpStatus, check_http_hello,
+    http_error_bytes, serve, serve_http_request, terminate_tls,
+};
 pub use handshake::version_refusal;
 
 /// How many calls the engine keeps in flight on one Connection, as

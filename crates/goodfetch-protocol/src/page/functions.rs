@@ -2,7 +2,8 @@
 //! page with one explicit argument, values crossing as JSON both ways.
 //! `page.evaluate` runs one in the page's main world, where the page's
 //! globals are, or on request in an isolated world the page can neither
-//! see nor hook, and answers its result as JSON; `page.add_init_script`
+//! see nor hook, and answers its result as JSON; `locator.scroll_collect` reads a virtualized or infinite list whole
+//! through one, scrolling it through the guard; `page.add_init_script`
 //! registers one that runs in the main world of every document the page
 //! loads afterwards, its frames' included, before the document's own
 //! scripts. The engine serializes a result in the page, stopping at the
@@ -20,7 +21,9 @@
 //! arrays, and a result of `undefined` answers no value; `-0` arrives as
 //! `0`.
 
-use schemars::JsonSchema;
+use std::borrow::Cow;
+
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -29,6 +32,7 @@ use crate::catalog::{
     ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind, Reach, Stability,
     schema_of,
 };
+use crate::open_value::UnknownValue;
 
 /// Where a page function runs (ADR 0085).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -95,6 +99,153 @@ pub struct LocatorEvaluateAllParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub world: Option<World>,
+}
+
+/// What `locator.scroll_collect` takes (#807): the locator, the page
+/// function reading each match, its argument and world, and when the
+/// collection ends.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LocatorScrollCollectParams {
+    /// The locator, whose every match the function reads, resolved again
+    /// at each step.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub locator: Locator,
+    /// The page function's JavaScript source, called with each matched
+    /// element and `arg`: it answers the row's `{ key, value }`, `key` a
+    /// string, or `null` to skip the element.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub function: String,
+    /// Its one argument, JSON; absent for none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub arg: Option<Value>,
+    /// Where it runs; the isolated world when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub world: Option<World>,
+    /// The rows at which the collection ends `max_rows`, at least 1;
+    /// 10,000 when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub max_rows: Option<u64>,
+    /// The steps in a row without a new key at which it ends
+    /// `end_of_list`, at least 1; 3 when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub idle_steps: Option<u64>,
+    /// How long a step waits for an element with a new key after its
+    /// scroll, in milliseconds, at least 1; 2,000 when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub step_wait: Option<u64>,
+    /// How long the whole collection may take, in milliseconds, at least
+    /// 1: absent for `timeout.wait`, `null` for none, though an enclosing
+    /// timeout still applies (ADR 0080).
+    #[serde(
+        default,
+        deserialize_with = "crate::settings::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.wait"))]
+    pub timeout: Option<Option<u64>>,
+}
+
+/// What `locator.scroll_collect` answers (#807): the rows, how the
+/// collection ended and what the list declares, so a short read is never
+/// silent.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ScrollCollected {
+    /// Each new key's value, in the order its key was first seen.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub rows: Vec<Value>,
+    /// How it ended.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub ended: ListEnded,
+    /// The rows the list declares through `aria-rowcount` or its items'
+    /// `aria-setsize`; `null` when it declares none.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub declared: Option<Declared>,
+}
+
+/// How a scroll collection ended, open (ADR 0079).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[schemars(extend("open" = true), transform = crate::open_value::known_members)]
+#[non_exhaustive]
+pub enum ListEnded {
+    /// `idle_steps` steps in a row brought no new key.
+    EndOfList,
+    /// It kept `max_rows` rows.
+    MaxRows,
+    /// How a newer engine says it ended, which this reader does not know,
+    /// kept as received.
+    #[serde(untagged)]
+    #[schemars(skip)]
+    Unknown(UnknownValue),
+}
+
+impl ListEnded {
+    /// Its name on the wire.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Unknown(value) => value.as_str(),
+            known => crate::wire_name::of(known),
+        }
+    }
+}
+
+/// The word of a list that declares its rows unknown, `aria-rowcount` or
+/// `aria-setsize` of `-1`.
+const UNKNOWN_ROWS: &str = "unknown";
+
+/// The rows a list declares (WAI-ARIA's `aria-rowcount` and
+/// `aria-setsize`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Declared {
+    /// This many.
+    Rows(u64),
+    /// The list says it does not know, with `-1`.
+    Unknown,
+}
+
+impl Serialize for Declared {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Rows(rows) => serializer.serialize_u64(*rows),
+            Self::Unknown => serializer.serialize_str(UNKNOWN_ROWS),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Declared {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        match Value::deserialize(deserializer)? {
+            Value::String(word) if word == UNKNOWN_ROWS => Ok(Self::Unknown),
+            Value::Number(number) => number.as_u64().map(Self::Rows).ok_or_else(|| {
+                serde::de::Error::custom(format!("expected a row count, found `{number}`"))
+            }),
+            other => Err(serde::de::Error::custom(format!(
+                "expected a row count or `{UNKNOWN_ROWS}`, found `{other}`"
+            ))),
+        }
+    }
+}
+
+impl JsonSchema for Declared {
+    fn schema_name() -> Cow<'static, str> {
+        "Declared".into()
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "description": "The rows a list declares: a count, or `unknown` for `-1`.",
+            "oneOf": [
+                {"type": "integer", "minimum": 0, "description": "This many."},
+                {"const": UNKNOWN_ROWS, "description": "The list says it does not know."},
+            ],
+        })
+    }
 }
 
 /// What `page.add_init_script` takes: the page, and the script's source and
@@ -268,6 +419,24 @@ pub const LOCATOR_EVALUATE_ALL: Operation = Operation {
     arrived_in: ARRIVED_IN,
 };
 
+/// `locator.scroll_collect` (#807).
+pub const LOCATOR_SCROLL_COLLECT: Operation = Operation {
+    name: "locator.scroll_collect",
+    description: "Reads a virtualized or infinite list whole: at each step a page function, called with each element the locator matches and its one JSON argument, in the isolated world unless `world` says otherwise, answers the element's `{ key, value }` or `null` to skip it, and each new key's value is kept in first-seen order, a duplicate key keeping its first. Then the last match is scrolled into view, a gesture through the guard, and the step waits up to `step_wait` for an element with a new key. It ends `end_of_list` after `idle_steps` steps in a row without one, or `max_rows` once it kept that many rows, and answers the rows, how it ended and the rows the list declares through `aria-rowcount` or its items' `aria-setsize` (`unknown` for `-1`, `null` for none). Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded` whose `observed` gives the rows kept and the last key; a guard refusal stops it with the guard's code, and an exception thrown in the page raises `page_function_failed`. No other read scrolls.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::SdkOnly,
+    params: schema_of::<LocatorScrollCollectParams>,
+    result: schema_of::<ScrollCollected>,
+    events: &[],
+    cancellable: true,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `page.add_init_script`.
 pub const PAGE_ADD_INIT_SCRIPT: Operation = Operation {
     name: "page.add_init_script",
@@ -285,3 +454,6 @@ pub const PAGE_ADD_INIT_SCRIPT: Operation = Operation {
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };
+
+#[cfg(test)]
+mod tests;

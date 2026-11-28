@@ -1,9 +1,10 @@
 //! The page suite's proxy cases (ADRs 0021, 0053, 0088 and 0092; ADR 0037 /
 //! SA-22; pitfall H12, ticket #708), on the Proving ground's forward
 //! proxies, whose connection record says which proxy each request went
-//! through: a proxy that refuses the tunnel, one that is down and one that
-//! asks for credentials the Session does not give each raise the proxy's
-//! own Error code, never `navigation_failed`; two Sessions of one Run reach
+//! through: a proxy that refuses the tunnel, one that is down, one that
+//! answers its own 502 and one that asks for credentials the Session does
+//! not give each raise the proxy's own Error code, never
+//! `navigation_failed` nor `blocked`; two Sessions of one Run reach
 //! the site each through its own proxy; a proxy on a page or a request is
 //! refused; `proxy.server`'s URL takes neither `socks4` nor credentials;
 //! a SOCKS5 proxy's credentials reach it through the Session's loopback
@@ -83,14 +84,14 @@ pub(super) fn server(site: &Site, name: &str, checks: &mut Checks) -> Option<Str
     address.map(|address| format!("http://{address}"))
 }
 
-/// A navigation through the proxy `name` to the scope family's storage page
-/// on `scheme`, on the Run `run_id`'s default Session: its answer.
+/// A navigation through the proxy `server` to `url`, on the Run `run_id`'s
+/// default Session: its answer.
 fn through(
     connection: &mut Connection,
     site: &Site,
     run_id: &str,
     server: &str,
-    scheme: &str,
+    url: &str,
     checks: &mut Checks,
 ) -> Result<Value, Gone> {
     start_run(
@@ -101,9 +102,6 @@ fn through(
         checks,
     )?;
     let page = new_page(connection, run_id, checks)?;
-    let url = site
-        .named_url("scope.test", "/storage?mark=failing")
-        .replacen("http://", &format!("{scheme}://"), 1);
     let answer = match page {
         Some(page) => connection.call(
             PAGE_GOTO.name,
@@ -115,21 +113,37 @@ fn through(
     Ok(answer)
 }
 
-/// A proxy that refuses the tunnel to an `https://` page, one that is down
-/// and one that asks for credentials raise `proxy_unavailable`, retryable,
-/// and `proxy_auth_failed`, each naming the proxy, never
-/// `navigation_failed` (pitfall H12).
+/// A proxy that refuses the tunnel to an `https://` page, one that is down,
+/// one that answers its own 502 for a port of the site's host where nothing
+/// listens (the `down` proxy's), and one that asks for credentials raise
+/// `proxy_unavailable`, retryable, and `proxy_auth_failed`, each naming the
+/// proxy, never `navigation_failed` (pitfall H12) and never `blocked`: a
+/// proxy's own refusal is no Block cause (ADR 0053; ticket #871).
 fn failing(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
-    for (name, scheme, code, retryable) in [
-        ("refusing_tunnels", "https", PROXY_UNAVAILABLE.name, true),
-        ("down", "http", PROXY_UNAVAILABLE.name, true),
-        ("datacenter", "http", PROXY_AUTH_FAILED.name, false),
+    let storage = site.named_url("scope.test", "/storage?mark=failing");
+    let unlistened = site
+        .proxy("down")
+        .and_then(|address| address.rsplit_once(':'))
+        .map_or_else(
+            || storage.clone(),
+            |(_, port)| format!("http://scope.test:{port}/storage?mark=failing"),
+        );
+    for (name, url, code, retryable) in [
+        (
+            "refusing_tunnels",
+            storage.replacen("http://", "https://", 1),
+            PROXY_UNAVAILABLE.name,
+            true,
+        ),
+        ("down", storage.clone(), PROXY_UNAVAILABLE.name, true),
+        ("open", unlistened, PROXY_UNAVAILABLE.name, true),
+        ("datacenter", storage.clone(), PROXY_AUTH_FAILED.name, false),
     ] {
         let Some(server) = server(site, name, checks) else {
             continue;
         };
         let run_id = format!("conformance-proxy-{}", name.replace('_', "-"));
-        let answer = through(connection, site, &run_id, &server, scheme, checks)?;
+        let answer = through(connection, site, &run_id, &server, &url, checks)?;
         let data = &answer["error"]["data"];
         checks.check(
             format!(

@@ -15,6 +15,18 @@ pub(crate) use loom::sync::Arc;
 #[cfg(not(all(test, goodfetch_loom)))]
 pub(crate) use std::sync::Arc;
 
+/// An atomic `u64`, loom's under `goodfetch_loom`.
+#[cfg(all(test, goodfetch_loom))]
+pub(crate) type AtomicU64 = loom::sync::atomic::AtomicU64;
+/// An atomic `u64`, loom's under `goodfetch_loom`.
+#[cfg(not(all(test, goodfetch_loom)))]
+pub(crate) type AtomicU64 = std::sync::atomic::AtomicU64;
+
+#[cfg(all(test, goodfetch_loom))]
+pub(crate) use loom::sync::atomic::Ordering;
+#[cfg(not(all(test, goodfetch_loom)))]
+pub(crate) use std::sync::atomic::Ordering;
+
 /// A lock, loom's under `goodfetch_loom`.
 #[cfg(all(test, goodfetch_loom))]
 pub(crate) type Mutex<T> = loom::sync::Mutex<T>;

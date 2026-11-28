@@ -138,11 +138,15 @@ pub(super) enum Seeded {
         crawl: CrawlId,
         payload: Result<Value, Error>,
     },
-    /// A sitemap, with the crawl each rule's Label is of, and the request
-    /// option given to it, which a sitemap seed does not take.
+    /// A request naming its Label by name, with no Payload: a code-free
+    /// crawl's, whose Labels the program holds no handle of.
+    Named(RequestSeed),
+    /// A sitemap, with the crawl each rule's Label is of, or none when its
+    /// rules name their Labels by name, and the request option given to
+    /// it, which a sitemap seed does not take.
     Sitemap {
         sitemap: SitemapSeed,
-        crawls: Vec<CrawlId>,
+        crawls: Option<Vec<CrawlId>>,
         refused: Option<&'static str>,
     },
 }
@@ -179,6 +183,26 @@ impl Seed {
         }
     }
 
+    /// The request of `url` under the Label named `label`, with no
+    /// Payload: a code-free crawl's seed (ADR 0093), whose Labels its
+    /// [`CrawlDeclaration`](crate::CrawlDeclaration) names, or the Label
+    /// `page` a [`CrawlExtraction`](crate::CrawlExtraction) declares.
+    /// A [`Crawl`](crate::Crawl) takes it for a Label it declares.
+    pub fn named(url: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            seeded: Seeded::Named(RequestSeed {
+                url: url.into(),
+                label: label.into(),
+                payload: None,
+                priority: 0,
+                forefront: false,
+                method: HttpMethod::default(),
+                body: None,
+                key: None,
+            }),
+        }
+    }
+
     /// The sitemap at `url`, or the sitemaps the site's robots.txt at
     /// `url` names, each of whose entries is seeded with the Label of the
     /// first of `rules` whose pattern, a glob as `crawl.scope.include`
@@ -206,7 +230,34 @@ impl Seed {
                     sitemap: url.into(),
                     rules,
                 },
-                crawls,
+                crawls: Some(crawls),
+                refused: None,
+            },
+        }
+    }
+
+    /// The sitemap at `url` as [`Seed::sitemap`] reads it, each of whose
+    /// `rules` names its Label by name: a code-free crawl's sitemap seed
+    /// (ADR 0093). A [`Crawl`](crate::Crawl) takes it when it declares
+    /// each rule's Label.
+    pub fn named_sitemap<S: Into<String>, L: Into<String>>(
+        url: impl Into<String>,
+        rules: impl IntoIterator<Item = (S, L)>,
+    ) -> Self {
+        let rules = rules
+            .into_iter()
+            .map(|(pattern, label)| SitemapRule {
+                pattern: pattern.into(),
+                label: label.into(),
+            })
+            .collect();
+        Self {
+            seeded: Seeded::Sitemap {
+                sitemap: SitemapSeed {
+                    sitemap: url.into(),
+                    rules,
+                },
+                crawls: None,
                 refused: None,
             },
         }
@@ -254,7 +305,7 @@ impl Seed {
     /// the crawl's start.
     fn with_request(mut self, option: &'static str, set: impl FnOnce(&mut RequestSeed)) -> Self {
         match &mut self.seeded {
-            Seeded::Request { request, .. } => set(request),
+            Seeded::Request { request, .. } | Seeded::Named(request) => set(request),
             Seeded::Sitemap { refused, .. } => {
                 refused.get_or_insert(option);
             }
@@ -305,15 +356,25 @@ fn record_refused(dataset: &str, error: &SchemaError) -> Error {
         &RECORD_INVALID,
         &format!("the Dataset `{dataset}` did not stage the Record: {error}"),
         "Push a Record that is JSON and that its type's `Deserialize` reads back as it was given.",
-        &RecordInvalidDetails {
-            dataset: dataset.to_owned(),
-            records: vec![InvalidRecord {
-                position: 0,
-                issues: vec![RecordIssue {
-                    path,
-                    message: error.to_string(),
-                }],
-            }],
-        },
+        &one_invalid_record(dataset, path, error.to_string(), None),
     )
+}
+
+/// The details of a `record_invalid` that names one Record of `dataset`,
+/// at position 0, with one issue at `path`, a JSON Pointer, and its
+/// `number` when it is a committed Record a reader could not parse.
+pub(super) fn one_invalid_record(
+    dataset: &str,
+    path: String,
+    message: String,
+    number: Option<u64>,
+) -> RecordInvalidDetails {
+    RecordInvalidDetails {
+        dataset: dataset.to_owned(),
+        records: vec![InvalidRecord {
+            position: 0,
+            issues: vec![RecordIssue { path, message }],
+        }],
+        number,
+    }
 }

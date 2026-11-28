@@ -1,4 +1,4 @@
-//! Covers: story:14-15, story:14-17, story:14-18, story:14-21
+//! Covers: story:14-15, story:14-17, story:14-18, story:14-21, plugin-kind:sample_page_filter
 //!
 //! One case per row of ADR 0096's table, a case per kind of name only
 //! Foxhound carries, and known Run IDs. The Foxhound names are those of the

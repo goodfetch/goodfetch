@@ -202,7 +202,7 @@ const ALWAYS: [&str; 14] = [
 
 #[test]
 fn a_variable_only_the_launcher_reads_is_not_one_of_the_steps() {
-    let launched = "CARGO_INCREMENTAL=0\nGOODFETCH_GATE_MIN_FREE_GB=60\nGOODFETCH_GATE_RECORDS=/records\nGOODFETCH_GATE_LAYER=backstop\nGOODFETCH_LAZYFS=/lazyfs\nGOODFETCH_PERF_PULL_REQUEST=/merge-gate/target/perf-pull-request.json\nGOODFETCH_QUICK_BASE=origin/spec\nGOODFETCH_STEPS_DIR=/steps\nGOODFETCH_STEP=lint";
+    let launched = "CARGO_INCREMENTAL=0\nGOODFETCH_GATE_FULL=1\nGOODFETCH_GATE_KEY=/keys/gate.key\nGOODFETCH_GATE_MIN_FREE_GB=60\nGOODFETCH_GATE_RECORDS=/records\nGOODFETCH_GATE_LAYER=backstop\nGOODFETCH_LAZYFS=/lazyfs\nGOODFETCH_PERF_PULL_REQUEST=/merge-gate/target/perf-pull-request.json\nGOODFETCH_QUICK_BASE=origin/spec\nGOODFETCH_STEPS_DIR=/steps\nGOODFETCH_STEP=lint";
 
     assert_eq!(
         step_variables(launched, Path::new("/merge-gate")),
@@ -791,20 +791,44 @@ fn a_member_a_shuffling_runner_tests_keeps_no_passes() {
     assert_eq!(stress_earned(&plan), &BTreeMap::new());
 }
 
+fn test_key() -> runs::Key {
+    runs::Key::new(b"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_vec())
+}
+
+fn sign_lines(head: &str, lines: &[&str], key: &runs::Key) -> String {
+    lines
+        .iter()
+        .map(|line| runs::signed_line(head, line, key))
+        .collect()
+}
+
 /// A green stress result that counted earlier passes reads back with the head
 /// they began on; a record without that field is one that counted none.
 #[test]
 fn a_result_that_counted_earlier_passes_reads_back_with_their_head() {
-    let text = "base\tb\nhost\th\nstress:a\tpass\tfeed\tt\t10\tmerge\tc0ffee\nstress:b\tpass\tfeed\tt\t10\tmerge\n";
+    let key = test_key();
+    let text = sign_lines(
+        "feed",
+        &[
+            "base\tb",
+            "host\th",
+            "stress:a\tpass\tfeed\tt\t10\tmerge\tc0ffee",
+            "stress:b\tpass\tfeed\tt\t10\tmerge",
+        ],
+        &key,
+    );
 
-    let record = runs::parse("feed", text).unwrap();
+    let record = runs::parse("feed", &text, &key).unwrap();
 
     assert_eq!(
         record.units["stress:a"].earned_on.as_deref(),
         Some("c0ffee")
     );
     assert_eq!(record.units["stress:b"].earned_on, None);
-    assert_eq!(runs::parse("feed", &runs::render(&record)).unwrap(), record);
+    assert_eq!(
+        runs::parse("feed", &runs::render(&record, &key), &key).unwrap(),
+        record
+    );
 }
 
 #[test]
@@ -937,9 +961,20 @@ fn every_member_rerun_runs_the_step_in_full() {
 
 #[test]
 fn a_record_reads_back_as_written_and_its_last_line_for_a_unit_wins() {
-    let text = "base\tb4se\nhost\th0st\nperf\tpass\tc0ffee\tt1\t10\tmerge\nquick:xtask\tpass\tc0ffee\tt1\t10\tmerge\nperf\tfail\tfeed\tt2\t20\tpreflight\n";
+    let key = test_key();
+    let text = sign_lines(
+        "feed",
+        &[
+            "base\tb4se",
+            "host\th0st",
+            "perf\tpass\tc0ffee\tt1\t10\tmerge",
+            "quick:xtask\tpass\tc0ffee\tt1\t10\tmerge",
+            "perf\tfail\tfeed\tt2\t20\tpreflight",
+        ],
+        &key,
+    );
 
-    let record = runs::parse("feed", text).unwrap();
+    let record = runs::parse("feed", &text, &key).unwrap();
 
     assert_eq!(
         (record.base.as_str(), record.host.as_str()),
@@ -956,17 +991,28 @@ fn a_record_reads_back_as_written_and_its_last_line_for_a_unit_wins() {
             earned_on: None,
         })
     );
-    assert_eq!(runs::parse("feed", &runs::render(&record)).unwrap(), record);
+    assert_eq!(
+        runs::parse("feed", &runs::render(&record, &key), &key).unwrap(),
+        record
+    );
+    // Tampering or replaying under another head fails signature verification.
+    assert!(runs::parse("other-head", &text, &key).is_err());
+    let wrong_key = runs::Key::new(
+        b"fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210".to_vec(),
+    );
+    assert!(runs::parse("feed", &text, &wrong_key).is_err());
 }
 
 /// Each result names the layer that ran it (`by`), so one recorded before
 /// the field, or by no layer the gate knows, is no record: such records are
 /// dropped, not read (the pre-release policy).
 #[rstest]
-#[case::without_the_layer("base\tb\nhost\th\nperf\tpass\tfeed\tt\t10\n")]
-#[case::an_unknown_layer("base\tb\nhost\th\nperf\tpass\tfeed\tt\t10\thosted-someday\n")]
-fn a_result_that_names_no_known_layer_is_an_error(#[case] text: &str) {
-    assert!(runs::parse("feed", text).is_err());
+#[case::without_the_layer(&["base\tb", "host\th", "perf\tpass\tfeed\tt\t10"])]
+#[case::an_unknown_layer(&["base\tb", "host\th", "perf\tpass\tfeed\tt\t10\thosted-someday"])]
+fn a_result_that_names_no_known_layer_is_an_error(#[case] lines: &[&str]) {
+    let key = test_key();
+    let text = sign_lines("feed", lines, &key);
+    assert!(runs::parse("feed", &text, &key).is_err());
 }
 
 /// The checks a run on the tree of their green result reuses (the codegen

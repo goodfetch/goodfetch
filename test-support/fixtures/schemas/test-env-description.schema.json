@@ -4,6 +4,14 @@
       "additionalProperties": false,
       "description": "A started Daemon, as a test and `goodfetch-test-env`'s description see\nit: what a Client needs to reach it.",
       "properties": {
+        "http": {
+          "description": "The HTTP JSON-RPC listener's base URL (`http://127.0.0.1:<port>`),\npresent only when started with `--http-listener` (ADRs 0027 and 0070).",
+          "type": "string"
+        },
+        "http_token": {
+          "description": "The Bearer token the HTTP listener takes in `Authorization: Bearer …`,\npresent only when started with `--http-listener` (ADRs 0027 and 0070).",
+          "type": "string"
+        },
         "socket": {
           "description": "Where it listens: its Unix socket's path on macOS and Linux, its\nloopback TCP address (`127.0.0.1:<port>`) on Windows (ADR 0024).",
           "type": "string"

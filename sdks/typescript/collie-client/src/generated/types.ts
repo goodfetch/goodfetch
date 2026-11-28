@@ -60,7 +60,16 @@ export type Actor =
  * via the `definition` "Surface".
  */
 export type Surface =
-  "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "kennel" | "cloud" | "browser_host" | "worker";
+  | "sdk_typescript"
+  | "sdk_python"
+  | "rust"
+  | "cli"
+  | "mcp"
+  | "kennel"
+  | "cloud"
+  | "browser_host"
+  | "worker"
+  | "http_listener";
 /**
  * A page of a Run, named by the engine when it opens it.
  *
@@ -3621,6 +3630,11 @@ export interface DaemonState {
    */
   heap?: number | null;
   /**
+   * Where the Daemon's HTTP JSON-RPC listener listens (`host:port`); none
+   * while `http_listener.enabled` is off (ADR 0027).
+   */
+  httpListener?: string | null;
+  /**
    * Its `daemon.idle_timeout`, in milliseconds.
    */
   idleTimeout: number;
@@ -5012,6 +5026,18 @@ export interface GotoParams {
    * When the navigation answers; `load` when absent.
    */
   waitUntil?: WaitUntil | null;
+}
+/**
+ * What `header_forbidden` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "HeaderForbiddenDetails".
+ */
+export interface HeaderForbiddenDetails {
+  /**
+   * The forbidden header name, as given.
+   */
+  name: string;
 }
 /**
  * What `header_value_invalid` details.
@@ -8186,6 +8212,14 @@ export interface RequestSeed {
    * such requests, the later goes first; `false` by default.
    */
   forefront?: boolean;
+  /**
+   * Extra request headers sent with the request (ADR 0093). Forbidden
+   * headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method
+   * overrides; ADR 0033) are refused with `header_forbidden`.
+   */
+  headers?: {
+    [k: string]: string;
+  };
   /**
    * Its identity in the Frontier, declared by the program in place of
    * its method, its URL's key and its body's hash: a canonicalization

@@ -1467,6 +1467,7 @@ async fn daemon(
         websocket: None,
         accounts: None,
         live_view: Some(LiveViewAt::Address(live_view, address)),
+        http_listener: None,
     };
     let end = engine.run_daemon(listener, dependencies, options).await;
     assert!(
@@ -1827,6 +1828,7 @@ fn pool_pages(pages: &PoolPages) -> Contribution {
                     let own = OwnFetch {
                         url,
                         method: "GET",
+                        headers: None,
                         body: None,
                     };
                     let pooled = pooled(params["pooled"].as_str().unwrap_or(POOLED));

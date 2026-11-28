@@ -2201,6 +2201,7 @@ impl FetchTiers {
         let own = OwnFetch {
             url: &request.url,
             method: request.method.as_str(),
+            headers: (!request.headers.is_empty()).then_some(&request.headers),
             body: request.body.as_ref().map(HttpBody::bytes),
         };
         OPENING
@@ -3155,7 +3156,11 @@ fn first_hop(request: &CrawlRequest) -> Result<Hop, Stop> {
         url,
         method: http::Method::from_bytes(request.method.as_str().as_bytes())
             .unwrap_or(http::Method::GET),
-        headers: Vec::new(),
+        headers: request
+            .headers
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect(),
         body: request
             .body
             .as_ref()

@@ -11,14 +11,21 @@ use futures_util::Stream;
 use goodfetch_collie_client::{
     Answer, BoxError, Call, ClientConnection, Error, EventStream, HandlerCall, Reply, Run,
 };
+use goodfetch_protocol::foxhound::export::ExportFormat;
+use goodfetch_protocol::foxhound::frontier::Enqueued;
 use goodfetch_protocol::foxhound::progress::CrawlRunProgress;
 use goodfetch_protocol::foxhound::report::CrawlRunReport;
-use goodfetch_protocol::run::{RUN_REPORT, RunFinishParams, RunId, RunParams, RunStopParams};
+use goodfetch_protocol::run::{
+    RUN_REPORT, RunFinishParams, RunId, RunParams, RunStopParams, StartedAs,
+};
 use serde_json::Value;
 
+use super::export::ExportDataset;
+use super::outcomes::{ReadFailedRequests, ReadOutcomes, RetryFailed};
 use super::records::{Reach, ReadRecords, ReadRejectedRecords};
+use super::seeds::{AddSeed, AddSeeds};
 use super::{
-    CrawlContext, CrawlId, Dataset, Delivered, Forget, answer, delivered, params_unread, sent,
+    CrawlContext, CrawlId, Dataset, Delivered, Forget, Seed, answer, delivered, params_unread, sent,
 };
 use crate::crawl_requests::CrawlRequests;
 use crate::sync::Mutex;
@@ -33,12 +40,124 @@ pub struct CrawlRun {
     /// The crawl that started the Run, whose Labels its requests name.
     pub(super) crawl: CrawlId,
     pub(super) declared: Arc<[String]>,
+    /// Each seed's original answer from `crawl.start`, read without a round trip.
+    pub(super) seeds: Arc<[Enqueued]>,
+    /// How many serving loops `Crawl::serve` runs for this crawl (ADR 0024).
+    pub(super) workers: usize,
 }
 
 impl CrawlRun {
     /// The Run's ID.
     pub fn id(&self) -> &RunId {
         self.run.id()
+    }
+
+    /// Lists each seed's answer, in the order the crawl's start gave them, as
+    /// the Frontier answered it when the Run began: added, with its crawl
+    /// request's ID and its URL as parsed, or not added, with its reason
+    /// (`duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a
+    /// cap's name). A relative seed is `invalid_url`, since nothing gives it a
+    /// base. So a crawl that does nothing says why. Read from the Run's
+    /// committed state, so it works on a Run no program holds.
+    ///
+    /// Read from `crawl.start`'s answer with no round trip, including after a
+    /// resume (ADR 0102).
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn seeds(&self) -> &[Enqueued] {
+        &self.seeds
+    }
+
+    /// Adds one seed to a running crawl, `run.addSeed`, admitted and answered
+    /// as soon as the Run state accepts it (written with the next Run-state
+    /// batch at the default durability, or committed before answering at
+    /// `full`), and answers as an enqueue does: added, with its crawl request's
+    /// ID and its URL as parsed, or not added, with its reason (`duplicate`,
+    /// `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is
+    /// `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on.
+    /// Through a handler's context, naming its `attempt`, it is staged with
+    /// that attempt: once the attempt ended it fails with `attempt_ended`. A
+    /// Run this engine does not run as a live crawl, or a crawl already ending
+    /// its Run, fails with `run_not_found`.
+    ///
+    /// The seed carries the Label's typed Payload (`Seed::new` refuses a wrong
+    /// Payload type or a Payload on a `Label<()>` at compile time, ADR 0082):
+    ///
+    /// ```compile_fail
+    /// use goodfetch_foxhound::{Crawl, CrawlRun, Seed};
+    /// use serde::{Deserialize, Serialize};
+    ///
+    /// #[derive(Serialize, Deserialize)]
+    /// struct Shelf { number: u32 }
+    ///
+    /// fn wrong_payload(run: &CrawlRun, crawl: &mut Crawl<'_>) {
+    ///     let shelf = crawl.label::<Shelf>("shelf").unwrap();
+    ///     let _ = run.add_seed(Seed::new("https://shop.test/shelf/1", &shelf, ()));
+    /// }
+    /// ```
+    ///
+    /// ```compile_fail
+    /// use goodfetch_foxhound::{Crawl, CrawlRun, Seed};
+    /// use serde::{Deserialize, Serialize};
+    ///
+    /// #[derive(Serialize, Deserialize)]
+    /// struct Shelf { number: u32 }
+    ///
+    /// fn payload_on_unit_label(run: &CrawlRun, crawl: &mut Crawl<'_>) {
+    ///     let page = crawl.label::<()>("page").unwrap();
+    ///     let _ = run.add_seed(Seed::new("https://shop.test/", &page, Shelf { number: 1 }));
+    /// }
+    /// ```
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn add_seed(&self, seed: Seed) -> AddSeed {
+        AddSeed::new(
+            self.connection.clone(),
+            self.id().clone(),
+            self.crawl,
+            &self.declared,
+            seed,
+            None,
+        )
+    }
+
+    /// Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers
+    /// each as `run.add_seed` does, in order, so a million seeds never sit in
+    /// memory. The engine grants the call 256 credits with `$/credit`, one seed
+    /// each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches,
+    /// never more than its credits, and the engine admits each batch (staged
+    /// with `attempt` when named, or written with the next Run-state batch at
+    /// default durability), sends its answers in one `$/enqueued {id, answers}`
+    /// and grants as many credits again. Once it answered the batch marked
+    /// `end`, the call answers how many seeds were added and how many were not.
+    /// Cancelling it keeps the seeds already answered. A batch beyond the
+    /// credits granted, or a seed that is no seed, fails the call with
+    /// `invalid_params`; a Run this engine does not run as a live crawl, or a
+    /// crawl already ending its Run, fails with `run_not_found`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn add_seeds<S>(&self, seeds: S) -> AddSeeds
+    where
+        S: Stream<Item = Seed> + Send + 'static,
+    {
+        AddSeeds::new(
+            self.connection.clone(),
+            self.id().clone(),
+            self.crawl,
+            Arc::clone(&self.declared),
+            seeds,
+            None,
+        )
+    }
+
+    /// Answers whether the start that opened the Run's handle began the Run,
+    /// `new`, resumed it, `resumed`, or found it ended, `ended` (ADR 0102).
+    /// The handle answers it from that start's answer, without a message to
+    /// the engine.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn started_as(&self) -> StartedAs {
+        self.run.started_as()
     }
 
     /// The Run, with every member a Run has, such as `close`.
@@ -299,6 +418,115 @@ impl CrawlRun {
             &dataset.name,
             Reach::Follows,
         )
+    }
+
+    /// Writes an Export of one Dataset of a crawl's Run: the Records it
+    /// committed when the call is made, in number order, in the format named,
+    /// as its `format` value says: a table (`csv`, `xlsx`, `html_table`,
+    /// `markdown`, and typed, `parquet`, `avro` and `arrow_ipc`) has one
+    /// column per field seen in any of its Records, in first-seen order, and
+    /// one row per Record. Every text Export is UTF-8 with no BOM unless
+    /// `export.csv.bom` puts one on CSV, characters written as themselves (a
+    /// character XML 1.0 cannot hold as U+FFFD in XML and feeds) and each
+    /// value as it was committed: a table cell holds a string as its text, a
+    /// number, `true` or `false` as JSON writes it, nothing for `null` or a
+    /// field its Record lacks, and an object or array as its JSON text, or, in
+    /// CSV under `export.csv.nested: flatten`, an object's fields in dotted
+    /// columns. A Record whose page was read past a Wall carries its Wall
+    /// marker, `{kind, vendor?}` as its Provenance holds it, as a `#wall`
+    /// field in every format but the feeds, where it is a category of the
+    /// scheme `urn:goodfetch:wall` naming its kind; `wall` set to `true`
+    /// writes only those Records, `false` only the others. `compression`
+    /// `gzip` or `zstd` compresses the whole file. Its `settings` and
+    /// `project` are the run layer and the project configuration its
+    /// `export.*` settings resolve under; a value the format cannot take fails
+    /// with `setting_invalid`. Answers the Export, with its Record count, its
+    /// last Record's number, its size, its SHA-256 and the run epoch of the
+    /// Run's state it was written from, only once its file is whole in the
+    /// Run's folder, where `export.save_as` and `export.stream` read it.
+    /// Records committed after the call starts are not in it. A write the
+    /// engine's storage refuses fails with `file_write_failed`, side `engine`,
+    /// leaving no unfinished file, as does a call while that storage is at the
+    /// `critical` level, before any byte is written. A Dataset the crawl does
+    /// not declare fails with `dataset_unknown`; an `xlsx` sheet past Excel's
+    /// limits, with `sheet_capacity_exceeded`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// Returns an [`ExportDataset`] builder that resolves to an
+    /// [`Export`](crate::Export) only once the engine's file is whole
+    /// (ADRs 0103 and 0116).
+    ///
+    /// # Errors
+    ///
+    /// Once awaited: `dataset_unknown`, `setting_invalid`,
+    /// `sheet_capacity_exceeded`, `file_write_failed`, `closed`, or the
+    /// engine's error.
+    pub fn export<I>(&self, dataset: &Dataset<I>, format: ExportFormat) -> ExportDataset {
+        ExportDataset::new(
+            self.connection.clone(),
+            self.id().clone(),
+            &dataset.name,
+            format,
+        )
+    }
+
+    /// A log of endings, not current state: a re-admitted request's new
+    /// outcome supersedes the old by `request.id` (ADRs 0102 and 0117).
+    ///
+    /// Reads a crawl's outcomes from its committed state, in commit order:
+    /// from the first, after a position, or with `after: "now"` from the next
+    /// commit. Its filters, `kinds`, `labels` and `codes` (an Error code any
+    /// of the request's failed attempts failed with), run in the engine.
+    /// While the Run is live and nothing new matches, it waits for the next
+    /// commit; a page says `ended` once the Run has ended, or has no live
+    /// writer, and nothing more matches. A reader never slows the Run. A
+    /// request `run.retry_failed` re-admits ends again, and its later outcome
+    /// supersedes the earlier one by `request.id`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the stream cancels the page being read and leaves the Run as
+    /// it is.
+    pub fn outcomes(&self) -> ReadOutcomes {
+        ReadOutcomes::new(self.connection.clone(), self.id().clone())
+    }
+
+    /// Reads from a crawl's committed state the requests whose latest outcome
+    /// is `failed`, and with `blocked` also `blocked`, each with that outcome:
+    /// exactly those `run.retry_failed` re-admits with the same option. A skip
+    /// is a decision and is never listed.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn failed_requests(&self) -> ReadFailedRequests {
+        ReadFailedRequests::new(self.connection.clone(), self.id().clone())
+    }
+
+    /// Re-admits, in the same Run and its Datasets, every request of a crawl
+    /// whose latest outcome is `failed`, and with `blocked` also `blocked`:
+    /// exactly those `run.failed_requests` lists with the same option. Each
+    /// keeps its ID, Label, Payload and depth; its attempts count on, with a
+    /// fresh `crawl.retry.max`. A skip is a decision and is never re-admitted.
+    /// It answers how many it re-admitted, 0 when there was nothing to retry.
+    /// On a crawl this engine runs, the requests join its work at once, unless
+    /// the crawl is already ending its Run: the call then waits for that end
+    /// and re-admits them as on an ended Run. On an ended Run with requests to
+    /// retry, the Run returns to `running` under `settings`, as a resume does,
+    /// its Verdict and Completeness given anew when it ends, and the calling
+    /// Connection serves its handlers. A Run with no writer that has not ended
+    /// fails with `run_interrupted`: resume it first. A request to retry whose
+    /// Label the crawl no longer declares, which a resume may drop, fails the
+    /// call with `label_unknown`, naming that Label and those declared, and
+    /// nothing is re-admitted: on an ended Run, against the Labels its latest
+    /// start declared, before the Run returns to `running`. It is not sent
+    /// again after a lost Connection, which fails it with `connection_lost`:
+    /// `run.failed_requests` then lists the requests still to retry.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn retry_failed(&self) -> RetryFailed {
+        RetryFailed::new(self.connection.clone(), self.id().clone())
     }
 
     /// The Run's report, which the engine answers once the Run ends.

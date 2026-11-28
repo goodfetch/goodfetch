@@ -154,6 +154,7 @@ fn a_record_stage_call_names_the_hook_its_request_and_the_record() {
             payload: None,
             method: HttpMethod::get(),
             body: None,
+            headers: std::collections::BTreeMap::new(),
         },
         attempt: 1,
         lease_epoch: 3,

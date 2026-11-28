@@ -188,6 +188,7 @@ fn foxhounds_executable_with_the_toy() {
         },
         skills: SKILLS,
         starters: goodfetch_foxhound::executable::STARTERS,
+        deploy_templates: goodfetch_foxhound::executable::DEPLOY_TEMPLATES,
         arguments: ["goodfetch-foxhound", "needs-you", "answer", "--attached"]
             .map(Into::into)
             .into(),

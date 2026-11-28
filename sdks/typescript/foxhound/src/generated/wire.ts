@@ -22,6 +22,7 @@ export type FoxhoundWireType =
   | "CrawlRunProgress"
   | "CrawlRunReport"
   | "CrawlStartParams"
+  | "CrawlStarted"
   | "DatasetKeyInvalidDetails"
   | "DatasetListParams"
   | "DatasetPage"
@@ -77,7 +78,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
   types: {
     ...collieWire.types,
     "CertificateExceptionMark": { fields: { "spki_sha256": "spkiSha256" } },
-    "CrawlConcurrency": { fields: { "allowance_set_by": "allowanceSetBy", "handler_concurrency": "handlerConcurrency", "open_pages": "openPages", "page_allowance": "pageAllowance" } },
+    "CrawlConcurrency": { fields: { "allowance_set_by": "allowanceSetBy", "handler_concurrency": "handlerConcurrency", "handler_concurrency_layer": "handlerConcurrencyLayer", "open_pages": "openPages", "page_allowance": "pageAllowance" } },
     "CrawlDeclaration": { fields: { "labels": ["labels", { items: { type: "DeclaredLabel" } }] } },
     "CrawlExtraction": { fields: { "fields": ["fields", { values: { type: "PageField" } }] } },
     "CrawlHookHandleParams": { fields: { "crawl_request": "crawlRequest", "lease_epoch": "leaseEpoch", "run_id": "runId" } },
@@ -91,6 +92,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "CrawlRunProgress": { fields: { "at": ["at", "time"], "checkpoint_at": ["checkpointAt", "time"], "concurrency": ["concurrency", { type: "CrawlConcurrency" }], "in_flight": ["inFlight", { items: { type: "InFlightRequest" } }], "pauses": ["pauses", { items: { type: "HumanPause" } }], "requests": ["requests", { type: "RequestProgress" }], "run_id": "runId", "sitemaps": ["sitemaps", { items: { type: "SitemapReport" } }], "stop_reason": ["stopReason", { type: "StopReason" }], "storage": ["storage", { type: "RunStorage" }], "waiting": ["waiting", { items: { type: "WaitGroup" } }] } },
     "CrawlRunReport": { fields: { "checkpoint": ["checkpoint", { type: "Checkpoint" }], "completeness_reasons": ["completenessReasons", { items: { type: "AxisReason" } }], "ended_at": ["endedAt", "time"], "learned_rules": "learnedRules", "nothing_done": ["nothingDone", { type: "NothingDone" }], "plan": ["plan", { type: "PlanReport" }], "plugins": ["plugins", { items: { type: "PluginRun" } }], "policy_version": "policyVersion", "recording": ["recording", { type: "RecordingReport" }], "requests": ["requests", { type: "RequestCounts" }], "run_id": "runId", "settings": ["settings", { items: { type: "ExplainedSetting" } }], "sinks": ["sinks", { items: { type: "SinkReport" } }], "sitemaps": ["sitemaps", { items: { type: "SitemapReport" } }], "started_at": ["startedAt", "time"], "stop_reason": ["stopReason", { type: "StopReason" }], "uncertain_effects": ["uncertainEffects", { items: { type: "UncertainEffect" } }], "usage": ["usage", { type: "RunUsage" }], "verdict_reasons": ["verdictReasons", { items: { type: "AxisReason" } }] } },
     "CrawlStartParams": { fields: { "declaration": ["declaration", { type: "CrawlDeclaration" }], "extraction": ["extraction", { type: "CrawlExtraction" }], "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId" } },
+    "CrawlStarted": { fields: { "run_id": "runId", "started_as": "startedAs" } },
     "DatasetKeyInvalidDetails": { fields: { "began_with": "beganWith" } },
     "DatasetListParams": { fields: { "run_id": "runId" } },
     "DatasetPage": { fields: { "records": ["records", { items: { type: "DatasetRecord" } }] } },
@@ -124,7 +126,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "ResponseOrigin": { fields: { "fetched_at": ["fetchedAt", "time"], "recorded_at": ["recordedAt", "time"] } },
     "ResponseUnavailableDetails": { fields: { "retry_after": ["retryAfter", "time"] } },
     "RunAddSeedParams": { fields: { "attempt": ["attempt", { type: "SeedAttempt" }], "run_id": "runId" } },
-    "RunAddSeedsParams": { fields: { "run_id": "runId" } },
+    "RunAddSeedsParams": { fields: { "attempt": ["attempt", { type: "SeedAttempt" }], "run_id": "runId" } },
     "RunExportParams": { fields: { "run_id": "runId" } },
     "RunFailedRequestsParams": { fields: { "run_id": "runId" } },
     "RunOutcomesParams": { fields: { "run_id": "runId" } },
@@ -165,7 +167,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
   },
   results: {
     "crawl.serve": { type: "CrawlRunReport" },
-    "crawl.start": { type: "RunStarted" },
+    "crawl.start": { type: "CrawlStarted" },
     "dataset.page": { type: "DatasetPage" },
     "dataset.search": { type: "DatasetSearchPage" },
     "export.save_as": { type: "ExportSaved" },

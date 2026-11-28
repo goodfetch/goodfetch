@@ -77,6 +77,7 @@ socket2.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 tokio-rustls = { workspace = true }
 ureq.workspace = true
+goodfetch-dev-workspace-hack.workspace = true
 
 [lints]
 workspace = true

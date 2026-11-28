@@ -252,11 +252,11 @@ fn pace(run: Value) -> Pace {
 }
 
 fn concurrency(cap: u64) -> DomainRule {
-    rule(json!({ "politeness": { "domain": { "concurrency": cap } } }))
+    rule(json!({ "politeness": { "domain": { "concurrency": cap, "delay": 0 } } }))
 }
 
 fn unlimited() -> DomainRule {
-    rule(json!({}))
+    rule(json!({ "politeness": { "domain": { "concurrency": null, "delay": 0 } } }))
 }
 
 fn at(seconds: u64) -> SystemTime {

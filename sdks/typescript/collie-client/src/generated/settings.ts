@@ -2204,6 +2204,11 @@ const SPELLING: Spelling = {
     sampleInterval: "sample_interval",
     workerThreads: "worker_threads",
   }],
+  httpListener: ["http_listener", {
+    address: "address",
+    enabled: "enabled",
+    port: "port",
+  }],
   identified: ["identified", {
     signatureAgent: "signature_agent",
     signingKey: "signing_key",
@@ -2244,6 +2249,7 @@ const SPELLING: Spelling = {
     tracesEndpoint: "traces_endpoint",
   }],
   politeness: ["politeness", {
+    degradedMax: "degraded_max",
     delegation: "delegation",
     proxy: ["proxy", {
       concurrency: "concurrency",

@@ -200,6 +200,7 @@ fn a_drained_crawl_waits_for_its_running_effect_to_close(
         websocket: None,
         live_view: None,
         accounts: None,
+        http_listener: None,
     };
 
     let engine = engine();
@@ -232,7 +233,7 @@ fn a_drained_crawl_waits_for_its_running_effect_to_close(
                 )
                 .await;
             let drain = async {
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                tokio::time::sleep(Duration::from_secs(2)).await;
                 asked.cancel();
             };
             let mut handler = shipping("drained", took);

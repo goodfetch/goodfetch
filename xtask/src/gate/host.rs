@@ -24,7 +24,9 @@ use sha2::{Digest as _, Sha256};
 /// fails `perf`, it changes the step's verdict and leaves this list. None
 /// changes what a step runs or how beyond what the key holds, so every layer
 /// fingerprints one host alike.
-const LAUNCHER_VARIABLES: [&str; 9] = [
+const LAUNCHER_VARIABLES: [&str; 11] = [
+    "GOODFETCH_GATE_FULL",
+    "GOODFETCH_GATE_KEY",
     "GOODFETCH_GATE_MIN_FREE_GB",
     "GOODFETCH_GATE_RECORDS",
     "GOODFETCH_GATE_LAYER",

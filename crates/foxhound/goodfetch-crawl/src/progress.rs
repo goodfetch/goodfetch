@@ -115,7 +115,7 @@ pub(crate) fn show(
     (handlers, handler_concurrency): (usize, usize),
 ) {
     show_waits(run, queued, resolved, now, room);
-    show_concurrency(run, handlers, handler_concurrency);
+    show_concurrency(run, resolved, handlers, handler_concurrency);
     show_idle(run, false);
 }
 
@@ -227,12 +227,21 @@ pub(crate) fn show_idle(run: &CrawlRun, idle: bool) {
 }
 
 /// Sets the crawl's `concurrency`: `handlers` running against
-/// `handler_concurrency`, and what the Resource governor last read.
-pub(crate) fn show_concurrency(run: &CrawlRun, handlers: usize, handler_concurrency: usize) {
+/// `handler_concurrency` (and the layer that set it), and what the Resource
+/// governor last read.
+pub(crate) fn show_concurrency(
+    run: &CrawlRun,
+    resolved: &Resolved,
+    handlers: usize,
+    handler_concurrency: usize,
+) {
     let info = run.governor.system_info();
     let concurrency = CrawlConcurrency {
         handlers: u64::try_from(handlers).unwrap_or(u64::MAX),
         handler_concurrency: u64::try_from(handler_concurrency).unwrap_or(u64::MAX),
+        handler_concurrency_layer: resolved
+            .effective(&CRAWL_HANDLER_CONCURRENCY)
+            .map(|effective| effective.layer),
         governor: info.as_ref().map(|info| info.level),
         open_pages: info
             .as_ref()

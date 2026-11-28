@@ -170,7 +170,7 @@ lint:
     step zizmor 'ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions'
     step actionlint 'ci/tool.sh actionlint actionlint'
     step gitleaks 'ci/tool.sh gitleaks ci/canary-rule.sh'
-    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/compiler-cache/sccache ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/hosted/*.sh ci/musl/*.sh ci/musl/cargo ci/musl/link-cc ci/musl/stable-metadata/sccache ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/source-build/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh proving-ground/deploy/*.sh .githooks/pre-commit .githooks/pre-push'
+    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/compiler-cache/sccache ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/hosted/*.sh ci/musl/*.sh ci/musl/cargo ci/musl/link-cc ci/musl/stable-metadata/sccache ci/release/*.sh ci/release/deploy-smoke/*.sh ci/results/*.sh ci/runner/*.sh ci/source-build/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh proving-ground/deploy/*.sh scripts/seccomp-profile.sh .githooks/pre-commit .githooks/pre-push'
     step cargo-deny 'ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources'
     step cargo-deny-products 'ci/tool.sh cargo-deny ci/deny/products.sh'
     # The Collie client crate, which takes no OpenTelemetry crate: the
@@ -245,6 +245,7 @@ lint:
     step --after xtask xtask-chromium-surfaces 'cargo run --quiet --bin xtask -- chromium surfaces check --cargo-profile {{ test_profile }}'
     step --after xtask xtask-chromium-protocol 'cargo run --quiet --bin xtask -- chromium protocol check'
     step --after xtask xtask-probes 'cargo run --quiet --bin xtask -- probes check'
+    step --after xtask xtask-seccomp 'cargo run --quiet --bin xtask -- seccomp check'
     step --after xtask xtask-containment 'cargo run --quiet --bin xtask -- containment'
     steps_end
 
@@ -622,6 +623,7 @@ fetch:
     ci/local-models-fetch.sh
     ci/toxiproxy-fetch.sh
     ci/alpine/fetch.sh
+    ci/integrations/fetch.sh
     ci/source-build/fetch.sh
     ci/valkey/fetch.sh
     ci/registry/fetch.sh
@@ -696,7 +698,46 @@ test suite *packages:
     if [[ "{{ suite }}" == quick ]]; then
       unset GOODFETCH_TEST_TOOLS
     else
-      {{ just_executable() }} _test-tools ${GOODFETCH_TEST_ENGINE:+--engine "$GOODFETCH_TEST_ENGINE"}
+      # When narrowing a non-Quick run to explicit Collie-side packages (no
+      # engine override, Journey selection or `--shuffled-all`), fail closed:
+      # build only Collie's tools when every selected package is on the
+      # Collie-only allowlist so Collie runs never rebuild and link
+      # `goodfetch-foxhound` (ADR 0094's note of 2026-11-27).
+      tool_args=()
+      if [[ -z "${GOODFETCH_TEST_ENGINE:-}" && -z "${GOODFETCH_TEST_SELECTION:-}" ]] && ! $shuffled_all && [[ -n "{{ packages }}" ]]; then
+        collie_only=true
+        for package in {{ packages }}; do
+          pkg=$package
+          while [[ "$pkg" == ./* ]]; do pkg=${pkg#./}; done
+          while [[ "$pkg" == */ ]]; do pkg=${pkg%/}; done
+          case "$pkg" in
+            goodfetch-conformance | goodfetch-stub-gateway | goodfetch-test-support)
+              collie_only=false
+              break
+              ;;
+            goodfetch-proving-ground \
+            | sdks/typescript/collie | sdks/typescript/collie/* \
+            | sdks/typescript/collie-client | sdks/typescript/collie-client/* \
+            | sdks/typescript/smoke | sdks/typescript/smoke/* \
+            | sdks/python/collie-client | sdks/python/collie-client/*)
+              ;;
+            goodfetch-*)
+              if [[ "$pkg" == */* || ! -d "crates/$pkg" ]]; then
+                collie_only=false
+                break
+              fi
+              ;;
+            *)
+              collie_only=false
+              break
+              ;;
+          esac
+        done
+        if $collie_only; then
+          tool_args=(--tool collie --tool proving_ground --tool test_env --tool scripted_engine --tool scripted_plugin)
+        fi
+      fi
+      {{ just_executable() }} _test-tools ${GOODFETCH_TEST_ENGINE:+--engine "$GOODFETCH_TEST_ENGINE"} ${tool_args[@]+"${tool_args[@]}"}
       export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
       if [[ -n "${GOODFETCH_TEST_ENGINE:-}" ]]; then
         echo "Engine: $GOODFETCH_TEST_ENGINE, for both Products"
@@ -2398,6 +2439,13 @@ _gate-plan form="all" layer="merge":
 _gate-record by head step status *evidence:
     cargo run --quiet --bin xtask -- gate record --records "$(ci/gate-records.sh)" --by {{ by }} --head {{ head }} \
       --now "$(date +%s)" --step {{ step }} --status {{ status }} {{ evidence }}
+
+# Checks a gate run's signed verdict before `just merge` merges it (ADR 0135):
+# every unit of every required step of `form` holds a signed green result on
+# `head` or reused from an earlier signed run on an ancestor with that
+# ancestor's tree. Prints each reused ancestor as `origin\t<commit>`.
+_gate-verify form head:
+    cargo run --quiet --bin xtask -- gate verify --records "$(ci/gate-records.sh)" --form {{ form }} --head {{ head }}
 
 # Exits 0, naming the run, when `just quick` in the form `form` (`changed` or
 # `all`) already passed on `head`'s tree against `base`, on this host and in

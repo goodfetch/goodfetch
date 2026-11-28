@@ -2558,6 +2558,14 @@
             "null"
           ]
         },
+        "http_listener": {
+          "arrived_in": "0.1",
+          "description": "Where the Daemon's HTTP JSON-RPC listener listens (`host:port`); none\nwhile `http_listener.enabled` is off (ADR 0027).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "idle_timeout": {
           "arrived_in": "0.1",
           "description": "Its `daemon.idle_timeout`, in milliseconds.",
@@ -4567,6 +4575,20 @@
           "type": "string"
         }
       ]
+    },
+    "HeaderForbiddenDetails": {
+      "description": "What `header_forbidden` details.",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The forbidden header name, as given.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
     },
     "HeaderValueInvalidDetails": {
       "description": "What `header_value_invalid` details.",
@@ -15220,6 +15242,11 @@
           "const": "worker",
           "description": "A Script sandbox worker.",
           "type": "string"
+        },
+        {
+          "const": "http_listener",
+          "description": "A plain HTTP client calling the Daemon's HTTP JSON-RPC listener\n(`POST /v1/rpc`, ADR 0027): its Runs outlive the HTTP request, and it\nis never a person surface.",
+          "type": "string"
         }
       ]
     },
@@ -17258,6 +17285,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A seed, enqueue or Hook tried to set a header the engine owns (`Host`, `Cookie`, `Authorization`, `Proxy-*`, or a method-override header), so nothing was added or changed. The details name the forbidden header. Remove the header, or use the engine's own session, proxy or method APIs instead.",
+      "details": {
+        "$ref": "#/$defs/HeaderForbiddenDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "header_forbidden",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A header value the engine would send holds a CR, an LF or a NUL, which could end the header and start another, so it is refused before it reaches the wire or the browser. The details name the header and the character, never the value. Remove the character from the value.",
       "details": {
         "$ref": "#/$defs/HeaderValueInvalidDetails"
@@ -18970,7 +19010,8 @@
             "kennel",
             "cloud",
             "browser_host",
-            "worker"
+            "worker",
+            "http_listener"
           ]
         }
       ],
@@ -23769,6 +23810,71 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": "127.0.0.1",
+      "deprecated": null,
+      "description": "The IP address the Daemon's HTTP listener binds to when `http_listener.enabled` is on: `127.0.0.1` by default. Any address other than loopback requires TLS through the Exposed Daemon's keys (`daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`), so no token crosses a network in clear. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "http_listener.address",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": false,
+      "deprecated": null,
+      "description": "Whether the Daemon opens its HTTP JSON-RPC listener (`POST /v1/rpc`, ADR 0027). Off (`false`) by default so workflow tools reach a Daemon only when enabled. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "http_listener.enabled",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 7700,
+      "deprecated": null,
+      "description": "The port the Daemon's HTTP listener binds to when `http_listener.enabled` is on: 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's listener has a port of its own. Port 0 takes a free port, which the Daemon's log and `daemon.status` report. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "http_listener.port",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "maximum": 65535,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "every",
       "clearable": true,
       "default": null,
@@ -24707,6 +24813,29 @@
       "scopes": [],
       "value": {
         "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 600000,
+      "deprecated": null,
+      "description": "The longest an engine cut off from its Politeness store stays in degraded mode, admitting one request at a time per domain, before it stops admitting new requests until the store answers again: 10 minutes. Set in user configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.",
+      "fixed_for_run": false,
+      "name": "politeness.degraded_max",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
       },
       "weakening": null,
       "weakens": false

@@ -23,7 +23,7 @@ const DATAMODEL_CODEGEN: &str = concat!(
 
 const CATALOG: &str = "crates/goodfetch-protocol/generated/catalog.json";
 
-fn codegen(workspace: &Workspace) -> Outcome {
+pub(crate) fn codegen(workspace: &Workspace) -> Outcome {
     let outcome = workspace.xtask(&[
         "codegen",
         "--json2ts",
@@ -215,6 +215,7 @@ fn the_fixtures_catalog_module_is_the_protocol_crates_own(#[case] file: &str) {
         finding("drift", "crates/goodfetch-protocol/generated/bundle.json"),
         finding("drift", "crates/goodfetch-protocol/generated/collie.json"),
         finding("drift", "crates/goodfetch-protocol/generated/foxhound.json"),
+        finding("drift", "crates/goodfetch-protocol/generated/goodfetch-catalog.json"),
         finding("stale", "sdks/typescript/collie-client/src/generated/types.ts"),
         finding("stale", "sdks/python/collie-client/src/goodfetch_collie_client/generated/models.py"),
     ],
@@ -227,6 +228,7 @@ fn the_fixtures_catalog_module_is_the_protocol_crates_own(#[case] file: &str) {
         finding("drift", "crates/goodfetch-protocol/generated/catalog.json"),
         finding("drift", "crates/goodfetch-protocol/generated/collie.json"),
         finding("drift", "crates/goodfetch-protocol/generated/foxhound.json"),
+        finding("drift", "crates/goodfetch-protocol/generated/goodfetch-catalog.json"),
     ],
 )]
 #[case::foxhound_operation_renamed(
@@ -237,6 +239,7 @@ fn the_fixtures_catalog_module_is_the_protocol_crates_own(#[case] file: &str) {
         finding("drift", "crates/goodfetch-protocol/generated/catalog.json"),
         finding("drift", "crates/goodfetch-protocol/generated/foxhound.json"),
         finding("drift", "crates/goodfetch-protocol/generated/foxhound_names.rs"),
+        finding("drift", "crates/goodfetch-protocol/generated/goodfetch-catalog.json"),
         finding("drift", "features/inventory.json"),
         finding("drift", "sdks/python/foxhound/src/goodfetch_foxhound/generated/operations.py"),
         finding("drift", "sdks/typescript/foxhound/src/generated/operations.ts"),

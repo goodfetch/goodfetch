@@ -23,12 +23,21 @@ mod crawl;
 mod crawl_report;
 mod datasets;
 mod enqueue;
+mod exports;
 mod foxhound_keys;
+mod headers;
 mod label_declaration;
 mod limits;
+mod live_seeds;
+mod outcomes;
+mod politeness;
+mod progress;
 mod public_items;
+mod resume;
 mod seeds;
+mod settings;
 mod test_values;
+mod workers;
 
 /// What a connection opens with: the test's environment, which names its
 /// Goodfetch home.

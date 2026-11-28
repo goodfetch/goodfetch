@@ -3,6 +3,8 @@
 // Connection, and serves the engine's `crawl_request.handle` requests on
 // the event loop. The script fails the test on a message it does not
 // expect and on a step left unused.
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import { playScript, protocolCounts, test } from "@goodfetch/test-support";
 import { describe, expect, vi } from "vitest";
 import { z } from "zod";
@@ -793,4 +795,423 @@ describe("a Crawl's wiring mistakes", () => {
       expect(played.done()).toEqual({ kind: "finished" });
     },
   );
+
+  test(
+    "addSeeds of 100 seeds streams under credits (protocol-count snapshot) and keeps a 1,000,000-URL generator bounded in flight with flat memory",
+    {
+      tags: ["operation:run.add_seeds"],
+      timeout: 60_000,
+    },
+    async () => {
+      // 1. Protocol-count snapshot for `addSeeds` of 100 seeds.
+      const small = seedEngine(true);
+      const foxhound100 = await connectOver(small.transport);
+      const smallCrawl = new Crawl();
+      const page100 = smallCrawl.label("page");
+      smallCrawl.handle(page100, async () => undefined);
+      const run100 = await foxhound100.startCrawl(smallCrawl, {
+        seeds: [seed("https://shop.test/0", page100)],
+      });
+      async function* gen100() {
+        for (let i = 1; i <= 100; i += 1) {
+          yield seed(`https://shop.test/${String(i)}`, page100);
+        }
+      }
+      const answers100: string[] = [];
+      for await (const ans of run100.addSeeds(gen100())) {
+        if (ans.kind === "added") answers100.push(ans.url);
+      }
+      const counts = protocolCounts(small.messages);
+      await foxhound100.close();
+      expect(answers100).toHaveLength(100);
+      expect(answers100[0]).toBe("https://shop.test/1");
+      expect(answers100[99]).toBe("https://shop.test/100");
+      expect(small.getMaxInFlight()).toBeLessThanOrEqual(256);
+      expect(counts).toMatchInlineSnapshot(`
+        {
+          "answers": 3,
+          "events": 5,
+          "replies": 0,
+          "requests": [
+            "hello",
+            "crawl.start",
+            "run.add_seeds",
+            "$/seeds",
+            "$/seeds",
+          ],
+          "served": [],
+        }
+      `);
+
+      // 2. 1,000,000-URL generator stays bounded in flight (<= 256) with flat memory.
+      const large = seedEngine(false);
+      const foxhoundMillion = await connectOver(large.transport);
+      const largeCrawl = new Crawl();
+      const pageMillion = largeCrawl.label("page");
+      largeCrawl.handle(pageMillion, async () => undefined);
+      const runMillion = await foxhoundMillion.startCrawl(largeCrawl, {
+        seeds: [seed("https://shop.test/0", pageMillion)],
+      });
+      function* genMillion() {
+        for (let i = 1; i <= 1_000_000; i += 1) {
+          yield seed(`https://shop.test/${String(i)}`, pageMillion);
+        }
+      }
+      // Expose V8's GC so we measure true live retained heap rather than V8's
+      // lazy pre-sweep allocation sawtooth on large-RAM hosts.
+      setFlagsFromString("--expose_gc");
+      let count = 0;
+      let heapAfterWarmup = 0;
+      let peakRetainedDelta = 0;
+      let firstAnswer: unknown;
+      let lastAnswer: unknown;
+      for await (const ans of runMillion.addSeeds(genMillion())) {
+        count += 1;
+        if (count === 1) firstAnswer = ans;
+        if (count === 1_000_000) lastAnswer = ans;
+        if (count === 50_000) {
+          runInNewContext("gc()");
+          heapAfterWarmup = process.memoryUsage().heapUsed;
+        } else if (count === 500_000 || count === 1_000_000) {
+          runInNewContext("gc()");
+          const delta = process.memoryUsage().heapUsed - heapAfterWarmup;
+          if (delta > peakRetainedDelta) peakRetainedDelta = delta;
+        }
+      }
+      await foxhoundMillion.close();
+      expect(count).toBe(1_000_000);
+      expect(firstAnswer).toMatchObject({ kind: "added", url: "https://shop.test/1" });
+      expect(lastAnswer).toMatchObject({ kind: "added", url: "https://shop.test/1000000" });
+      expect(large.getMaxInFlight()).toBeLessThanOrEqual(256);
+      // 1M seeds buffered in memory would retain >200 MB; bounded streaming stays flat (< 32 MB retained).
+      expect(peakRetainedDelta).toBeLessThan(32 * 1024 * 1024);
+    },
+  );
+
+  test(
+    "export and saveAs protocol-count snapshot (ADR 0071)",
+    { tags: ["operation:run.export", "operation:export.save_as"] },
+    async () => {
+      const engine = seedEngine(true);
+      const foxhound = await connectOver(engine.transport);
+      const c = new Crawl();
+      const page = c.label("page");
+      const items = c.dataset("items");
+      c.handle(page, async () => undefined);
+      const run = await foxhound.startCrawl(c, {
+        seeds: [seed("https://shop.test/0", page)],
+      });
+      const exported = await run.export(items, { format: "jsonl" });
+      const saved = await exported.saveAs("/tmp/export-snapshot.jsonl");
+      const counts = protocolCounts(engine.messages);
+      await foxhound.close();
+
+      expect(exported.id).toBe("exp-1");
+      expect(saved.size).toBe(12);
+      expect(counts).toMatchInlineSnapshot(`
+        {
+          "answers": 4,
+          "events": 0,
+          "replies": 0,
+          "requests": [
+            "hello",
+            "crawl.start",
+            "run.export",
+            "export.save_as",
+            "$/credit",
+          ],
+          "served": [],
+        }
+      `);
+    },
+  );
+
+  test(
+    "outcomes() open and retryFailed protocol-count snapshots (ADR 0071)",
+    { tags: ["operation:run.outcomes", "operation:run.retry_failed"] },
+    async () => {
+      const engine = seedEngine(true);
+      const foxhound = await connectOver(engine.transport);
+      const c = new Crawl();
+      const page = c.label("page");
+      c.handle(page, async () => undefined);
+      const run = await foxhound.startCrawl(c, {
+        seeds: [seed("https://shop.test/0", page)],
+      });
+      const seen: string[] = [];
+      for await (const outcome of run.outcomes()) {
+        seen.push(outcome.kind);
+      }
+      const retried = await run.retryFailed();
+      const counts = protocolCounts(engine.messages);
+      await foxhound.close();
+
+      expect(seen).toEqual(["failed"]);
+      expect(retried).toBe(1);
+      expect(counts).toMatchInlineSnapshot(`
+        {
+          "answers": 4,
+          "events": 0,
+          "replies": 0,
+          "requests": [
+            "hello",
+            "crawl.start",
+            "run.outcomes",
+            "run.retry_failed",
+          ],
+          "served": [],
+        }
+      `);
+    },
+  );
 });
+
+/** Type guard for a JSON object parsed from a wire line. */
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Minimal in-memory engine speaking `hello`, `crawl.start`, and `run.add_seeds`
+ * (`$/credit` -> `$/seeds` -> `$/enqueued`) so we can snapshot exact protocol counts
+ * for 100 seeds AND verify bounded in-flight & flat memory over 1,000,000 seeds.
+ */
+function seedEngine(recordMessages: boolean) {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  const messages: {
+    readonly from: "client" | "engine";
+    readonly message: Record<string, unknown>;
+  }[] = [];
+  let maxInFlight = 0;
+  let currentCredits = 0;
+  let addSeedsId: number | undefined;
+  let totalAdded = 0;
+  let buffered = "";
+  let engineController: ReadableStreamDefaultController<Uint8Array> | undefined;
+
+  const emit = (message: Record<string, unknown>): void => {
+    if (recordMessages) messages.push({ from: "engine", message });
+    engineController?.enqueue(encoder.encode(`${JSON.stringify(message)}\n`));
+  };
+
+  const readable = new ReadableStream<Uint8Array>({
+    start(controller) {
+      engineController = controller;
+    },
+  });
+
+  const handleLine = (line: string): void => {
+    if (line.trim() === "") return;
+    const parsed: unknown = JSON.parse(line);
+    if (!isObjectRecord(parsed)) return;
+    if (recordMessages) messages.push({ from: "client", message: parsed });
+    const method = parsed["method"];
+    const id = parsed["id"];
+    if (method === "hello") {
+      emit({
+        jsonrpc: "2.0",
+        id,
+        result: {
+          protocol_version: "0.1",
+          product: "foxhound",
+          product_version: "0.1.0",
+          engine_instance: "0123456789abcdef",
+        },
+      });
+      return;
+    }
+    if (method === "crawl.start") {
+      emit({
+        jsonrpc: "2.0",
+        id,
+        result: {
+          run_id: "stream-bench",
+          lifecycle: "running",
+          started_as: "new",
+          needs: "foxhound",
+          seeds: [{ kind: "added", crawl_request_id: "r-0", url: "https://shop.test/0" }],
+        },
+      });
+      return;
+    }
+    if (method === "run.add_seeds" && typeof id === "number") {
+      addSeedsId = id;
+      currentCredits = 256;
+      totalAdded = 0;
+      emit({
+        jsonrpc: "2.0",
+        method: "$/credit",
+        params: { id: addSeedsId, credits: 256 },
+      });
+      return;
+    }
+    if (method === "$/seeds") {
+      const rawParams = parsed["params"];
+      if (!isObjectRecord(rawParams)) return;
+      const paramId = rawParams["id"];
+      const rawSeeds = rawParams["seeds"];
+      if (typeof paramId !== "number" || !Array.isArray(rawSeeds)) return;
+      const batchLen = rawSeeds.length;
+      currentCredits -= batchLen;
+      const inFlight = 256 - currentCredits;
+      if (inFlight > maxInFlight) maxInFlight = inFlight;
+      if (batchLen > 0) {
+        const answers = rawSeeds.map((entry) => {
+          totalAdded += 1;
+          const url = isObjectRecord(entry) && typeof entry["url"] === "string" ? entry["url"] : "";
+          return {
+            kind: "added",
+            crawl_request_id: `r-${String(totalAdded)}`,
+            url,
+          };
+        });
+        emit({
+          jsonrpc: "2.0",
+          method: "$/enqueued",
+          params: { id: paramId, answers },
+        });
+        currentCredits += batchLen;
+        emit({
+          jsonrpc: "2.0",
+          method: "$/credit",
+          params: { id: paramId, credits: batchLen },
+        });
+      }
+      if (rawParams["end"] === true) {
+        emit({
+          jsonrpc: "2.0",
+          id: paramId,
+          result: { added: totalAdded, not_added: 0 },
+        });
+      }
+      return;
+    }
+    if (method === "run.export") {
+      emit({
+        jsonrpc: "2.0",
+        id,
+        result: {
+          export_id: "exp-1",
+          format: "jsonl",
+          compression: "none",
+          records: 1,
+          last_number: 1,
+          size: 12,
+          sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          run_epoch: 1,
+        },
+      });
+      return;
+    }
+    if (method === "export.save_as") {
+      emit({
+        jsonrpc: "2.0",
+        id,
+        result: {
+          size: 12,
+          sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          run_epoch: 1,
+          written: true,
+        },
+      });
+      return;
+    }
+    if (method === "run.outcomes") {
+      emit({
+        jsonrpc: "2.0",
+        id,
+        result: {
+          outcomes: [
+            {
+              position: 1,
+              kind: "failed",
+              request: {
+                id: "r-0",
+                url: "https://shop.test/0",
+                label: "page",
+                method: "GET",
+                depth: 0,
+              },
+              attempts: 1,
+              errors: [
+                {
+                  attempt: 1,
+                  code: "handler_failed",
+                  message: "boom",
+                  retryable: true,
+                },
+              ],
+            },
+          ],
+          next: 1,
+          ended: true,
+        },
+      });
+      return;
+    }
+    if (method === "run.retry_failed") {
+      emit({
+        jsonrpc: "2.0",
+        id,
+        result: { readmitted: 1 },
+      });
+      return;
+    }
+    if (method === "run.abort") {
+      emit({
+        jsonrpc: "2.0",
+        id,
+        result: {
+          run_id: "stream-bench",
+          lifecycle: "stopped",
+          stop_reason: { kind: "abort", by: "client" },
+          ended_at: "2026-11-27T00:00:00Z",
+          started_at: "2026-11-27T00:00:00Z",
+          needs: "foxhound",
+          completeness: "incomplete",
+        },
+      });
+      return;
+    }
+    if (method === "shutdown" || method === "close") {
+      emit({ jsonrpc: "2.0", id, result: {} });
+    }
+  };
+
+  const writable = new WritableStream<Uint8Array>({
+    write(chunk) {
+      buffered += decoder.decode(chunk, { stream: true });
+      let newline = buffered.indexOf("\n");
+      while (newline !== -1) {
+        const line = buffered.slice(0, newline);
+        buffered = buffered.slice(newline + 1);
+        handleLine(line);
+        newline = buffered.indexOf("\n");
+      }
+    },
+    close() {
+      try {
+        engineController?.close();
+      } catch {
+        // Already closed.
+      }
+    },
+  });
+
+  return {
+    transport: {
+      readable,
+      writable,
+      async close() {
+        try {
+          engineController?.close();
+        } catch {
+          // Already closed.
+        }
+      },
+    },
+    messages,
+    getMaxInFlight: () => maxInFlight,
+  };
+}

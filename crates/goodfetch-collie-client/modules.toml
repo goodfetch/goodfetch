@@ -72,6 +72,9 @@
 # `testing` is the testing kit's shared part (ADR 0105): the options a
 # Product's test engine starts with, the settings it isolates it with, and
 # what every Product's test engine is.
+# `feed` is a bidirectional streaming call (such as Foxhound's `run.add_seeds`),
+# receiving engine notifications and sending client notifications under `rpc`
+# while cancelling on drop (ADR 0024).
 # `webhook` checks a `webhook` channel's delivery in the program that
 # receives it, with no engine and no Connection (ADR 0027; issue 1391).
 [modules]
@@ -81,10 +84,11 @@ blocking = ["answer", "call", "connection", "error", "event_stream", "field_valu
 call = ["error", "rpc", "trace_context"]
 call_bounds = ["error"]
 connect_timeout = ["call", "error"]
-connection = ["call", "call_bounds", "connect_timeout", "error", "event_stream", "file_saving", "handler", "listener_queue", "logging", "published", "raw_call", "relink", "rpc", "sync", "trace_context", "transport"]
+connection = ["call", "call_bounds", "connect_timeout", "error", "event_stream", "feed", "file_saving", "handler", "listener_queue", "logging", "published", "raw_call", "relink", "rpc", "sync", "trace_context", "transport"]
 connection_type = ["call", "error", "handlerless", "raw_call", "run", "run_view", "schedules"]
 error = []
 event_stream = ["error", "logging", "published", "rpc", "sync", "trace_context"]
+feed = ["error", "rpc"]
 field_values = ["answer", "call", "error"]
 file_saving = ["error"]
 generated = ["answer", "call", "event_stream", "host", "markers", "response", "settings"]

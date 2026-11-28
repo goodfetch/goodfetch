@@ -244,6 +244,10 @@ goodfetch-test-support = { path = "crates/goodfetch-test-support" }
 # One feature resolution of the build side for every package selection
 # (ADR 0094, #2089); every member takes it, `ci/workspace-hack.sh` writes it.
 goodfetch-workspace-hack = { path = "crates/goodfetch-workspace-hack" }
+# One feature resolution of the code side for every dev and test selection
+# (ADR 0094's note of 2026-11-27); every member takes it in `[dev-dependencies]`
+# only, so release and `--bin` builds stay untouched; `ci/workspace-hack.sh` writes it.
+goodfetch-dev-workspace-hack = { path = "crates/goodfetch-dev-workspace-hack" }
 # ADR 0071; its runner, gungraun-runner, is installed at the same version.
 # Its benchmark API sits behind its `default` feature, named explicitly.
 gungraun = { version = "=0.20.0", default-features = false, features = ["default"] }
@@ -530,6 +534,11 @@ webpki-roots = { version = "1.0.9", default-features = false }
 windows-sys = { version = "0.61.2", default-features = false }
 # The archives the Browser cache unpacks: Chrome for Testing ships ZIPs.
 zip = { version = "9.0.5", default-features = false }
+
+[workspace.metadata.cargo-shear]
+# Every member takes `goodfetch-dev-workspace-hack` in `[dev-dependencies]`
+# for code-side feature unification without naming it in source (ADR 0094).
+ignored = ["goodfetch-dev-workspace-hack"]
 
 # STYLE.md, Lints, formatting and toolchain; `unsafe`; Async and concurrency.
 # `missing_docs` warns on `goodfetch-collie-client`, `goodfetch-collie`,

@@ -36,14 +36,18 @@ from goodfetch_collie_client.connection import (
     EngineFallback,
     EngineInfo,
     Reached,
+    WorkerTarget,
     connect_limit,
 )
 from goodfetch_collie_client.engine_choice import (
     AttachedReach,
     handed_over_to,
+    open_endpoint,
+    open_remote_transport,
     reach_engine,
 )
 from goodfetch_collie_client.generated.connection import PRODUCT_VERSION
+from goodfetch_collie_client.generated.errors import DaemonUnreachableError
 from goodfetch_collie_client.goodfetch_error import GoodfetchError
 from goodfetch_collie_client.handle import NotGiven, not_given, timeout_of
 from goodfetch_collie_client.host_logging import CLIENT_LOGGER
@@ -428,6 +432,18 @@ async def _open_daemon(
         if reach.reopen is None
         else Reconnect(product.operation_classes, reach.reopen)
     )
+    worker_target = (
+        WorkerTarget(
+            kind="remote", transport="ws", address=reach.url, token=reach.token
+        )
+        if reach.endpoint is None
+        else WorkerTarget(
+            kind="daemon",
+            transport=reach.endpoint[0],
+            address=reach.endpoint[1],
+            token=reach.token,
+        )
+    )
     return await ClientConnection.open(
         reach.stream,
         needs=product.needs,
@@ -443,6 +459,59 @@ async def _open_daemon(
         bounds=opening.bounds,
         reconnect=reconnect,
         project=opening.project,
+        worker_target=worker_target,
+    )
+
+
+async def open_worker_connection(
+    product: ProductPackage, target: WorkerTarget
+) -> ClientConnection:
+    """Opens a worker process's Connection to `target` (ADR 0024)."""
+    if target.kind == "private":
+        if target.token_file is None or target.transport == "ws":
+            message = (
+                "invariant: private worker target names an endpoint and token file"
+            )
+            raise RuntimeError(message)
+        token_file = target.token_file
+
+        def _read_token() -> str:
+            with open(token_file, encoding="utf-8") as handle:
+                return handle.read().strip()
+
+        token = await anyio.to_thread.run_sync(_read_token)
+        stream = await open_endpoint(target.transport, target.address)
+        reached = Reached("attached", None, None)
+    elif target.kind == "daemon":
+        if target.token is None or target.transport == "ws":
+            message = "invariant: local daemon worker target names endpoint and token"
+            raise RuntimeError(message)
+        token = target.token
+        stream = await open_endpoint(target.transport, target.address)
+        reached = Reached("daemon", None, target.address)
+    else:
+        if target.token is None:
+            message = "invariant: remote daemon worker target carries a token"
+            raise RuntimeError(message)
+        token = target.token
+        stream = await open_remote_transport(target.address)
+        reached = Reached("remote", None, target.address)
+
+    def _closed_at_hello() -> DaemonUnreachableError:
+        fix = "Check that the engine or Daemon that started the crawl is still running."
+        return DaemonUnreachableError(
+            "The engine closed the worker Connection before answering hello",
+            fix=fix,
+            details={"fix": fix},
+        )
+
+    return await ClientConnection.open(
+        stream,
+        needs=product.needs,
+        error_classes=product.error_classes,
+        reached=reached,
+        daemon=DaemonHello(token, _closed_at_hello),
+        worker_target=target,
     )
 
 

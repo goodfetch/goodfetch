@@ -160,11 +160,26 @@ async fn add_seeds(
         let answers = if batch.seeds.is_empty() {
             Vec::new()
         } else {
-            asking
-                .seeds(batch.seeds)
+            let answered = asking
+                .seeds(batch.seeds, params.attempt.clone())
                 .await
                 .map_err(|error| untaken(&params.run_id, &error))?
-                .ok_or_else(|| not_live(&params.run_id))??
+                .ok_or_else(|| not_live(&params.run_id))?;
+            let Some(result) = answered else {
+                let attempt = params
+                    .attempt
+                    .as_ref()
+                    .expect("invariant: only an attempt ends");
+                return Err(CallError::new(
+                    &ATTEMPT_ENDED,
+                    format!(
+                        "Attempt {} of crawl request `{}` of the crawl `{}` already ended, so no seeds were added.",
+                        attempt.lease_epoch, attempt.crawl_request_id, params.run_id
+                    ),
+                    &(),
+                ));
+            };
+            result?
         };
         for answer in &answers {
             match answer {

@@ -42,7 +42,7 @@ fn adaptive(delay: u64, max: u64) -> Value {
 }
 
 fn rated(rate: u64, burst: u64) -> Value {
-    json!({ "politeness": { "domain": { "rate": rate, "burst": burst } } })
+    json!({ "politeness": { "domain": { "concurrency": null, "delay": 0, "rate": rate, "burst": burst } } })
 }
 
 /// With the adaptive delay on, a key's delay between starts is the longer

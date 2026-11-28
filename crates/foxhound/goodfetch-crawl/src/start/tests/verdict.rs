@@ -11,14 +11,14 @@ use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use super::{Reply, answer_all, crawl, dependencies, seeds};
+use super::{Reply, answer_all, crawl, default_dependencies, seeds};
 
 /// The report of the crawl `run_id` of two seeds, started with `settings`,
 /// once `run.finish` drained it.
 fn finished_with(run_id: &str, settings: &Value) -> Value {
     let env = TestEnv::new();
     let report = crawl(
-        || dependencies(&env, RunStateOptions::default()),
+        || default_dependencies(&env, RunStateOptions::default()),
         async |client| {
             client
                 .call(
@@ -128,7 +128,7 @@ fn a_retried_crawl_is_given_its_verdict_anew_when_it_ends_again() {
     let env = TestEnv::new();
 
     let (first, retried, second) = crawl(
-        || dependencies(&env, RunStateOptions::default()),
+        || default_dependencies(&env, RunStateOptions::default()),
         async |client| {
             client
                 .call(

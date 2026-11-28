@@ -1031,7 +1031,10 @@ fn a_slow_domain_holds_its_share_of_the_requests_in_flight(
         &env,
         &seeds,
         &ordered(
-            json!({ "crawl": { "handler": { "concurrency": 4 } } }),
+            json!({
+                "crawl": { "handler": { "concurrency": 4 } },
+                "politeness": { "domain": { "concurrency": null, "delay": 0 } },
+            }),
             order,
         ),
         took,

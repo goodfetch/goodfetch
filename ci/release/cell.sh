@@ -117,11 +117,107 @@ case "$part" in
     ;;
   size)
     tree=$(git rev-parse 'HEAD^{tree}')
-    [[ -n "${GITHUB_OUTPUT:-}" ]] && echo "tree=$tree" >>"$GITHUB_OUTPUT"
+    if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+      echo "tree=$tree" >>"$GITHUB_OUTPUT"
+      if [[ "${GITHUB_EVENT_NAME:-}" == "merge_group" || "${GITHUB_REF:-}" == "refs/heads/main" ]]; then
+        echo "save=true" >>"$GITHUB_OUTPUT"
+      else
+        echo "save=false" >>"$GITHUB_OUTPUT"
+      fi
+    fi
+    mkdir -p target/release-suite/archives target/release-suite/crates target/release-suite/oci
+    suffix=""
+    [[ "$target" == *-windows-* ]] && suffix=.exe
+    for product in collie foxhound; do
+      exe="target/$target/ci/goodfetch-$product$suffix"
+      if [[ -f "$exe" ]]; then
+        tar -cJf "target/release-suite/archives/goodfetch-$product-$target.tar.xz" \
+          -C "target/$target/ci" "goodfetch-$product$suffix"
+      fi
+    done
+    size_mode=${GOODFETCH_SIZE_MODE:-estimate}
+    if [[ "$size_mode" == "increase" ]]; then
+      # Package published crates once on linux-x64-gnu for the 8 MiB ceiling check (ADR 0057).
+      if [[ "$cell" == "linux-x64-gnu" ]]; then
+        for pkg in goodfetch-collie-client goodfetch-collie goodfetch-foxhound; do
+          cargo package --locked --no-verify --allow-dirty -p "$pkg" --target-dir target/release-suite/package-crates >/dev/null
+        done
+        cp target/release-suite/package-crates/package/*.crate target/release-suite/crates/
+      fi
+      # Export both Products' 5 OCI image tag manifests on Linux x64 and arm64 (+3 MB check, issue 204).
+      if [[ "$target" == *-unknown-linux-musl ]]; then
+        arch="amd64"
+        [[ "$target" == aarch64-* ]] && arch="arm64"
+        oci_ctx="target/release-suite/oci-ctx-$arch"
+        rm -rf "$oci_ctx"
+        mkdir -p "$oci_ctx/bin/$arch" "$oci_ctx/clean-up-rules" \
+          "$oci_ctx/browsers/default" "$oci_ctx/browsers/full" \
+          "$oci_ctx/sdk/npm/collie" "$oci_ctx/sdk/npm/foxhound" \
+          "$oci_ctx/sdk/wheels/collie" "$oci_ctx/sdk/wheels/foxhound"
+        cp "target/$target/ci/goodfetch-collie" "$oci_ctx/bin/$arch/goodfetch-collie"
+        cp "target/$target/ci/goodfetch-foxhound" "$oci_ctx/bin/$arch/goodfetch-foxhound"
+        cp -R crates/goodfetch-clean-up-rules/rules/. "$oci_ctx/clean-up-rules/"
+        for product in collie foxhound; do
+          for tag in default slim full node python; do
+            oci_tar="target/release-suite/oci/$product-$tag.oci.tar"
+            docker buildx build \
+              --platform "linux/$arch" \
+              --file packaging/oci/Containerfile \
+              --target "$tag" \
+              --build-arg "PRODUCT_EXECUTABLE=goodfetch-$product" \
+              --build-arg "PRODUCT_KEY=$product" \
+              --output "type=oci,dest=$oci_tar" \
+              "$oci_ctx"
+            # Extract the image manifest JSON from the OCI layout archive for `xtask size`.
+            tmp_oci="target/release-suite/oci/extract-$product-$tag"
+            rm -rf "$tmp_oci" && mkdir -p "$tmp_oci"
+            tar -xf "$oci_tar" -C "$tmp_oci"
+            digest=$(jq -r '.manifests[0].digest | sub("^sha256:"; "")' "$tmp_oci/index.json")
+            cp "$tmp_oci/blobs/sha256/$digest" "target/release-suite/oci/$product-$tag.manifest.json"
+            rm -rf "$tmp_oci" "$oci_tar"
+          done
+        done
+      fi
+    fi
     ci/release/size-manifest.sh "$target" >target/release-suite/size-files.toml
-    cargo run --quiet --locked --bin xtask -- size estimate \
-      --files target/release-suite/size-files.toml \
-      --save "target/release-suite/size-report-$tree-$target.json"
+    size_args=(--files target/release-suite/size-files.toml --save "target/release-suite/size-report-$tree-$target.json")
+    if [[ "$size_mode" == "increase" ]]; then
+      main_report="${GOODFETCH_SIZE_MAIN_REPORT:-}"
+      if [[ -z "$main_report" && -n "${GH_TOKEN:-}" && -n "${GITHUB_REPOSITORY:-}" ]]; then
+        if main_tree=$(git rev-parse --verify --quiet 'origin/main^{tree}' 2>/dev/null); then
+          artifact_name="size-report-${main_tree}-${target}"
+          candidate="target/release-suite/${artifact_name}.json"
+          artifact_id=$(
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${artifact_name}&per_page=1" \
+              --jq '.artifacts[0].id // empty' 2>/dev/null || true
+          )
+          if [[ -n "$artifact_id" ]]; then
+            tmp_zip="target/release-suite/${artifact_name}.zip"
+            if gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" >"$tmp_zip" 2>/dev/null; then
+              unzip -oq "$tmp_zip" -d target/release-suite/ || true
+              [[ -f "$candidate" ]] && main_report="$candidate"
+            fi
+            rm -f "$tmp_zip"
+          fi
+        fi
+      fi
+      if [[ -n "$main_report" && -f "$main_report" ]]; then
+        size_args+=(--main-report "$main_report" --main origin/main)
+      fi
+      size_pr="${GOODFETCH_SIZE_PR:-}"
+      if [[ -z "$size_pr" && -n "${GH_TOKEN:-}" && -n "${GITHUB_REPOSITORY:-}" ]]; then
+        size_pr=$(
+          gh api "repos/${GITHUB_REPOSITORY}/commits/$(git rev-parse HEAD)/pulls" \
+            --jq '.[0].number // empty' 2>/dev/null || true
+        )
+      fi
+      if [[ -n "$size_pr" ]]; then
+        size_args+=(--pull-request "$size_pr")
+      fi
+      cargo run --quiet --locked --bin xtask -- size increase "${size_args[@]}"
+    else
+      cargo run --quiet --locked --bin xtask -- size estimate "${size_args[@]}"
+    fi
     # A musl cell's executables, both Products', are static-PIEs with
     # packed relocations (ADR 0024's note of 2026-11-12); the other cells'
     # are not read.

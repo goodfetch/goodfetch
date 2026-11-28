@@ -16,6 +16,23 @@ fn images_pinned_by_digest_pass() {
     assert_eq!(outcome.code, 0);
 }
 
+#[test]
+fn multi_image_pin_file_without_digest_fails() {
+    let workspace = Workspace::from_fixture("image-pins");
+    workspace.write(
+        "ci/integrations/images.toml",
+        b"[n8n]\nrepository = \"docker.io/n8nio/n8n\"\ntag = \"2.50.3\"\ndigest = \"sha256:6dc48a8dbdfe070b3babacd128995635e61cd19da9172b9aa0d5546792bd4a23\"\n\n[activepieces]\nrepository = \"docker.io/activepieces/activepieces\"\ntag = \"0.94.0\"\n",
+    );
+
+    let outcome = workspace.xtask(&["image-pins"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("unpinned-image", "ci/integrations/images.toml")]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
 #[rstest]
 #[case::job_container("container-by-tag.yml")]
 #[case::job_container_object("container-image-by-tag.yml")]

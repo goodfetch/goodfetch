@@ -28,6 +28,7 @@ fn lightpanda_sends_only_a_get_with_no_body(
         label: "page".to_owned(),
         payload: None,
         method: HttpMethod::parse(method).unwrap(),
+        headers: std::collections::BTreeMap::new(),
         body: body.map(|body| HttpBody::new(body.as_bytes().to_vec())),
     };
     assert_eq!(unsent(&request), unsendable);

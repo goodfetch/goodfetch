@@ -16,6 +16,8 @@
 
 use std::path::Path;
 
+use rstest::rstest;
+
 use crate::workspace::{Workspace, write_executable};
 
 /// The recipe's helper scripts, copied from the repository.
@@ -39,9 +41,14 @@ struct Run {
 
 impl Run {
     fn builds_the_tools(&self) -> bool {
+        self.test_tools_build_call().is_some()
+    }
+
+    fn test_tools_build_call(&self) -> Option<&str> {
         self.calls
             .iter()
-            .any(|call| call.contains("-- test-tools build "))
+            .find(|call| call.contains("-- test-tools build "))
+            .map(String::as_str)
     }
 
     fn starts_the_test_runner(&self) -> bool {
@@ -51,14 +58,15 @@ impl Run {
     }
 }
 
-/// Runs `just test <suite> sample` in a fixture workspace, with a stale
-/// manifest path in `GOODFETCH_TEST_TOOLS`, as a shell that ran `just test`
-/// earlier may hold one. The stand-in `cargo` answers `metadata` with one
-/// library crate, `quarantine exclude` with no exclusion and `os-services
-/// check` with no skipped service, writes the manifest a `test-tools build`
-/// asks for, records the variable when the test runner starts, and fails on
-/// any later command, which ends the recipe after what this module checks.
-fn test_recipe(suite: &str) -> Run {
+/// Runs `just test <suite> <packages...>` in a fixture workspace, with a stale
+/// manifest path in `GOODFETCH_TEST_TOOLS` and extra `env` overrides, as a
+/// shell that ran `just test` earlier may hold one. The stand-in `cargo`
+/// answers `metadata` with one library crate, `quarantine exclude` with no
+/// exclusion and `os-services check` with no skipped service, writes the
+/// manifest a `test-tools build` asks for, records the variable when the test
+/// runner starts, and fails on any later command, which ends the recipe after
+/// what this module checks.
+fn test_recipe_with(suite: &str, packages: &[&str], env: &[(&str, &str)]) -> Run {
     let workspace = Workspace::from_fixture("empty");
     let repository = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -69,6 +77,26 @@ fn test_recipe(suite: &str) -> Run {
         let copy = workspace.path().join(script);
         std::fs::create_dir_all(copy.parent().unwrap()).unwrap();
         std::fs::copy(repository.join(script), copy).unwrap();
+    }
+    for manifest in [
+        "crates/goodfetch-engine/Cargo.toml",
+        "crates/goodfetch-collie/Cargo.toml",
+        "crates/goodfetch-page/Cargo.toml",
+        "sdks/typescript/collie/package.json",
+        "sdks/typescript/collie-client/package.json",
+        "sdks/typescript/smoke/package.json",
+        "sdks/typescript/foxhound/package.json",
+        "sdks/python/collie/pyproject.toml",
+        "sdks/python/collie/tests/integration/test_five_word_port.py",
+        "sdks/python/collie-client/pyproject.toml",
+        "sdks/python/foxhound/pyproject.toml",
+        "bench/package.json",
+        "adapters/foxhound/custom/package.json",
+        "crates/foxhound/goodfetch-custom-future/Cargo.toml",
+    ] {
+        let path = workspace.path().join(manifest);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "{}\n").unwrap();
     }
     std::fs::write(
         workspace.path().join("justfile"),
@@ -110,13 +138,20 @@ esac
             variable = variable.display()
         ),
     );
-    let output = workspace
-        .just(&stand_in)
-        .args(["test", suite, "sample"])
+    for runner in ["pnpm", "uv"] {
+        write_executable(&stand_in.join(runner), "#!/bin/sh\nexit 0\n");
+    }
+    let mut command = workspace.just(&stand_in);
+    command
+        .arg("test")
+        .arg(suite)
+        .args(packages)
         .env("GOODFETCH_TEST_TOOLS", "/stale/test-tools.json")
-        .env("CARGO_NET_OFFLINE", "true")
-        .output()
-        .unwrap();
+        .env("CARGO_NET_OFFLINE", "true");
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let output = command.output().unwrap();
     Run {
         code: output.status.code(),
         calls: std::fs::read_to_string(&calls)
@@ -133,6 +168,10 @@ esac
             String::from_utf8_lossy(&output.stderr)
         ),
     }
+}
+
+fn test_recipe(suite: &str) -> Run {
+    test_recipe_with(suite, &["sample"], &[])
 }
 
 #[test]
@@ -178,4 +217,104 @@ fn every_other_suite_builds_the_tools_before_its_runners_start_and_names_the_man
         "{manifest}\n{}",
         run.output
     );
+}
+
+#[rstest]
+#[case::engine(&["goodfetch-engine"])]
+#[case::collie(&["goodfetch-collie"])]
+#[case::page_and_engine(&["goodfetch-page", "goodfetch-engine"])]
+#[case::proving_ground(&["goodfetch-proving-ground"])]
+#[case::ts_collie(&["sdks/typescript/collie"])]
+#[case::ts_collie_normalized(&["./sdks/typescript/collie/"])]
+#[case::ts_collie_client(&["sdks/typescript/collie-client"])]
+#[case::ts_smoke(&["sdks/typescript/smoke"])]
+#[case::py_collie_client(&["sdks/python/collie-client"])]
+fn collie_only_package_selection_builds_minimal_tools_and_skips_foxhound(
+    #[case] packages: &[&str],
+) {
+    let run = test_recipe_with("pre-merge", packages, &[]);
+
+    let build = run
+        .test_tools_build_call()
+        .unwrap_or_else(|| panic!("no test-tools build call:\n{}", run.output));
+    assert!(
+        build.contains(
+            "--tool collie --tool proving_ground --tool test_env --tool scripted_engine --tool scripted_plugin"
+        ),
+        "expected minimal Collie tools, got: {build}"
+    );
+    assert!(
+        !build.contains("foxhound"),
+        "Collie-only selection must not build foxhound: {build}"
+    );
+}
+
+#[rstest]
+#[case::workspace(&[])]
+#[case::foxhound(&["goodfetch-foxhound"])]
+#[case::crawl(&["goodfetch-crawl"])]
+#[case::fetch_tier(&["goodfetch-fetch-tier"])]
+#[case::sink_wildcard(&["goodfetch-sink-s3"])]
+#[case::foxhound_dir(&["crates/foxhound/goodfetch-frontier"])]
+#[case::foxhound_crate_by_dir(&["goodfetch-custom-future"])]
+#[case::ts_foxhound(&["sdks/typescript/foxhound"])]
+#[case::ts_foxhound_dot_slash(&["./sdks/typescript/foxhound"])]
+#[case::py_collie(&["sdks/python/collie"])]
+#[case::py_collie_five_word_port(&["sdks/python/collie/tests/integration/test_five_word_port.py"])]
+#[case::py_foxhound(&["sdks/python/foxhound"])]
+#[case::bench(&["bench"])]
+#[case::adapter_foxhound(&["adapters/foxhound/custom"])]
+#[case::conformance(&["goodfetch-conformance"])]
+#[case::stub_gateway(&["goodfetch-stub-gateway"])]
+#[case::test_support(&["goodfetch-test-support"])]
+#[case::xtask(&["xtask"])]
+#[case::shuffled_all(&["--shuffled-all", "goodfetch-engine"])]
+fn foxhound_cross_product_or_workspace_selection_builds_all_tools(#[case] packages: &[&str]) {
+    let run = test_recipe_with("pre-merge", packages, &[]);
+
+    let build = run
+        .test_tools_build_call()
+        .unwrap_or_else(|| panic!("no test-tools build call:\n{}", run.output));
+    assert!(
+        !build.contains("--tool "),
+        "expected all tools (no --tool flag), got: {build}"
+    );
+}
+
+#[test]
+fn engine_override_builds_all_tools() {
+    let run = test_recipe_with(
+        "pre-merge",
+        &["goodfetch-engine"],
+        &[("GOODFETCH_TEST_ENGINE", "/tmp/custom-engine")],
+    );
+
+    let build = run
+        .test_tools_build_call()
+        .unwrap_or_else(|| panic!("no test-tools build call:\n{}", run.output));
+    assert!(!build.contains("--tool "), "got: {build}");
+    assert!(
+        build.contains("--engine /tmp/custom-engine"),
+        "got: {build}"
+    );
+}
+
+#[test]
+fn test_selection_builds_all_tools() {
+    let selection_file = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(selection_file.path(), "nextest\ttest(foo)\n").unwrap();
+
+    let run = test_recipe_with(
+        "pre-merge",
+        &["goodfetch-engine"],
+        &[(
+            "GOODFETCH_TEST_SELECTION",
+            selection_file.path().to_str().unwrap(),
+        )],
+    );
+
+    let build = run
+        .test_tools_build_call()
+        .unwrap_or_else(|| panic!("no test-tools build call:\n{}", run.output));
+    assert!(!build.contains("--tool "), "got: {build}");
 }

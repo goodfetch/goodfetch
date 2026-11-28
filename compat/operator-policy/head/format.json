@@ -611,6 +611,18 @@
             },
             "type": "object"
           },
+          "http_listener": {
+            "additionalProperties": false,
+            "properties": {
+              "port": {
+                "description": "The port the Daemon's HTTP listener binds to when `http_listener.enabled` is on: 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's listener has a port of its own. Port 0 takes a free port, which the Daemon's log and `daemon.status` report. Set in user configuration or an Operator policy only.",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
           "log": {
             "additionalProperties": false,
             "properties": {
@@ -680,6 +692,11 @@
                 },
                 "type": "object"
               },
+              "degraded_max": {
+                "description": "The longest an engine cut off from its Politeness store stays in degraded mode, admitting one request at a time per domain, before it stops admitting new requests until the store answers again: 10 minutes. Set in user configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "domain": {
                 "additionalProperties": false,
                 "properties": {
@@ -698,7 +715,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1. A value above 1 is listed in the run's result as one that presses a site harder."
+                    "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder."
                   },
                   "delay": {
                     "anyOf": [
@@ -711,7 +728,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s. A value below 1 s is listed in the run's result as one that presses a site harder."
+                    "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder."
                   },
                   "rate": {
                     "anyOf": [
@@ -724,6 +741,24 @@
                       }
                     ],
                     "description": "How many crawl requests a minute may start on one domain key, counted across every run of the user that shares Politeness, as a token bucket of `politeness.domain.burst` tokens refilled at this rate: 30 holds a site to 30 requests a minute. Each run is held to its own value; the delay between starts still applies. None by default."
+                  }
+                },
+                "type": "object"
+              },
+              "ip": {
+                "additionalProperties": false,
+                "properties": {
+                  "concurrency": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many crawl requests may be in flight at once to one resolved IP address, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. At least 1; none by default, for no per-IP cap."
                   }
                 },
                 "type": "object"
@@ -2479,6 +2514,26 @@
             },
             "type": "object"
           },
+          "http_listener": {
+            "additionalProperties": false,
+            "properties": {
+              "address": {
+                "description": "The IP address the Daemon's HTTP listener binds to when `http_listener.enabled` is on: `127.0.0.1` by default. Any address other than loopback requires TLS through the Exposed Daemon's keys (`daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`), so no token crosses a network in clear. Set in user configuration or an Operator policy only.",
+                "type": "string"
+              },
+              "enabled": {
+                "description": "Whether the Daemon opens its HTTP JSON-RPC listener (`POST /v1/rpc`, ADR 0027). Off (`false`) by default so workflow tools reach a Daemon only when enabled. Set in user configuration or an Operator policy only.",
+                "type": "boolean"
+              },
+              "port": {
+                "description": "The port the Daemon's HTTP listener binds to when `http_listener.enabled` is on: 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's listener has a port of its own. Port 0 takes a free port, which the Daemon's log and `daemon.status` report. Set in user configuration or an Operator policy only.",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
           "identified": {
             "additionalProperties": false,
             "properties": {
@@ -3184,6 +3239,11 @@
                 },
                 "type": "object"
               },
+              "degraded_max": {
+                "description": "The longest an engine cut off from its Politeness store stays in degraded mode, admitting one request at a time per domain, before it stops admitting new requests until the store answers again: 10 minutes. Set in user configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "delegation": {
                 "description": "Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.",
                 "type": "boolean"
@@ -3210,7 +3270,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1. A value above 1 is listed in the run's result as one that presses a site harder."
+                    "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder."
                   },
                   "delay": {
                     "anyOf": [
@@ -3223,7 +3283,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s. A value below 1 s is listed in the run's result as one that presses a site harder."
+                    "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder."
                   },
                   "rate": {
                     "anyOf": [
@@ -3236,6 +3296,24 @@
                       }
                     ],
                     "description": "How many crawl requests a minute may start on one domain key, counted across every run of the user that shares Politeness, as a token bucket of `politeness.domain.burst` tokens refilled at this rate: 30 holds a site to 30 requests a minute. Each run is held to its own value; the delay between starts still applies. None by default."
+                  }
+                },
+                "type": "object"
+              },
+              "ip": {
+                "additionalProperties": false,
+                "properties": {
+                  "concurrency": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many crawl requests may be in flight at once to one resolved IP address, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. At least 1; none by default, for no per-IP cap."
                   }
                 },
                 "type": "object"
@@ -7441,6 +7519,26 @@
             },
             "type": "object"
           },
+          "http_listener": {
+            "additionalProperties": false,
+            "properties": {
+              "address": {
+                "description": "The IP address the Daemon's HTTP listener binds to when `http_listener.enabled` is on: `127.0.0.1` by default. Any address other than loopback requires TLS through the Exposed Daemon's keys (`daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`), so no token crosses a network in clear. Set in user configuration or an Operator policy only.",
+                "type": "string"
+              },
+              "enabled": {
+                "description": "Whether the Daemon opens its HTTP JSON-RPC listener (`POST /v1/rpc`, ADR 0027). Off (`false`) by default so workflow tools reach a Daemon only when enabled. Set in user configuration or an Operator policy only.",
+                "type": "boolean"
+              },
+              "port": {
+                "description": "The port the Daemon's HTTP listener binds to when `http_listener.enabled` is on: 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's listener has a port of its own. Port 0 takes a free port, which the Daemon's log and `daemon.status` report. Set in user configuration or an Operator policy only.",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
           "identified": {
             "additionalProperties": false,
             "properties": {
@@ -8146,6 +8244,11 @@
                 },
                 "type": "object"
               },
+              "degraded_max": {
+                "description": "The longest an engine cut off from its Politeness store stays in degraded mode, admitting one request at a time per domain, before it stops admitting new requests until the store answers again: 10 minutes. Set in user configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "delegation": {
                 "description": "Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.",
                 "type": "boolean"
@@ -8172,7 +8275,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1. A value above 1 is listed in the run's result as one that presses a site harder."
+                    "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder."
                   },
                   "delay": {
                     "anyOf": [
@@ -8185,7 +8288,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s. A value below 1 s is listed in the run's result as one that presses a site harder."
+                    "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder."
                   },
                   "rate": {
                     "anyOf": [
@@ -8198,6 +8301,24 @@
                       }
                     ],
                     "description": "How many crawl requests a minute may start on one domain key, counted across every run of the user that shares Politeness, as a token bucket of `politeness.domain.burst` tokens refilled at this rate: 30 holds a site to 30 requests a minute. Each run is held to its own value; the delay between starts still applies. None by default."
+                  }
+                },
+                "type": "object"
+              },
+              "ip": {
+                "additionalProperties": false,
+                "properties": {
+                  "concurrency": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How many crawl requests may be in flight at once to one resolved IP address, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. At least 1; none by default, for no per-IP cap."
                   }
                 },
                 "type": "object"

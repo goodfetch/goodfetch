@@ -3391,6 +3391,18 @@
           "minimum": 0,
           "type": "integer"
         },
+        "handler_concurrency_layer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingsLayer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The settings layer that set `crawl.handler.concurrency` (ADR 0102)."
+        },
         "handlers": {
           "arrived_in": "0.1",
           "description": "How many handlers run.",
@@ -3641,6 +3653,28 @@
       ],
       "open": true
     },
+    "CrawlNotImportableDetails": {
+      "description": "What `crawl_not_importable` details (ADR 0024).",
+      "properties": {
+        "export": {
+          "arrived_in": "0.1",
+          "description": "The export or attribute name looked up on `module`, if any.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "module": {
+          "arrived_in": "0.1",
+          "description": "The module named for workers to import, or the module where the crawl\nwas created when none was named.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "CrawlRequest": {
       "description": "One work item of a crawl as its handler receives it (ADR 0093).",
       "properties": {
@@ -3655,6 +3689,14 @@
           ],
           "arrived_in": "0.1",
           "description": "The body it is sent with, if any."
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "Extra request headers carried from its seed or enqueue, if any.",
+          "type": "object"
         },
         "id": {
           "arrived_in": "0.1",
@@ -3810,6 +3852,14 @@
           "default": false,
           "description": "Whether it goes ahead of every request its domain holds pending,\nwhatever their priority, as Crawlee's `forefront` (ADR 0005): of two\nsuch requests, the later goes first. A priority or `forefront` never\norders requests of different domains (ADR 0004); `false` by default.",
           "type": "boolean"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "Extra request headers sent with the request (ADR 0093). Forbidden\nheaders (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method\noverrides; ADR 0033) are refused with `header_forbidden`.",
+          "type": "object"
         },
         "key": {
           "arrived_in": "0.1",
@@ -4835,6 +4885,46 @@
       ],
       "type": "object"
     },
+    "CrawlStarted": {
+      "description": "What `crawl.start` answers: the Run it started or reopened, and each\nseed's original answer in order, so `run.seeds()` answers with no round\ntrip, including after a resume (ADR 0102).",
+      "properties": {
+        "lifecycle": {
+          "$ref": "#/$defs/Lifecycle",
+          "arrived_in": "0.1",
+          "description": "Where it is now."
+        },
+        "needs": {
+          "$ref": "#/$defs/Product",
+          "arrived_in": "0.1",
+          "description": "The Product it needs (ADR 0098): Collie until it uses an entry the\ncatalog marks Foxhound's, Foxhound from then on."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        },
+        "seeds": {
+          "arrived_in": "0.1",
+          "description": "Each seed's original answer in order, as `run.seeds` answers.",
+          "items": {
+            "$ref": "#/$defs/Enqueued"
+          },
+          "type": "array"
+        },
+        "started_as": {
+          "$ref": "#/$defs/StartedAs",
+          "arrived_in": "0.1",
+          "description": "Whether the start began it."
+        }
+      },
+      "required": [
+        "run_id",
+        "started_as",
+        "lifecycle",
+        "needs"
+      ],
+      "type": "object"
+    },
     "CreditParams": {
       "additionalProperties": false,
       "description": "What `$/credit` grants: more events, or chunks, for a streaming call;\nsent by the engine, more seeds a `run.add_seeds` call takes.",
@@ -5018,6 +5108,14 @@
           "minimum": 0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "http_listener": {
+          "arrived_in": "0.1",
+          "description": "Where the Daemon's HTTP JSON-RPC listener listens (`host:port`); none\nwhile `http_listener.enabled` is off (ADR 0027).",
+          "type": [
+            "string",
             "null"
           ]
         },
@@ -5985,6 +6083,16 @@
         "name"
       ],
       "type": "object"
+    },
+    "DeployTarget": {
+      "description": "A Supported deployment target accepted by `init --deploy <target>`\n(ADR 0049; spelled on the CLI by ADR 0099's rule).",
+      "oneOf": [
+        {
+          "const": "compose",
+          "description": "Docker Compose (`compose.yaml`, `operator-policy.toml`, `seccomp-profile.json`).",
+          "type": "string"
+        }
+      ]
     },
     "DetachUnsupportedDetails": {
       "description": "What `detach_unsupported`'s details hold.",
@@ -9242,6 +9350,20 @@
         }
       ]
     },
+    "HeaderForbiddenDetails": {
+      "description": "What `header_forbidden` details.",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The forbidden header name, as given.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
     "HeaderValueInvalidDetails": {
       "description": "What `header_value_invalid` details.",
       "properties": {
@@ -9893,6 +10015,38 @@
         "phase",
         "attempt",
         "started_at"
+      ],
+      "type": "object"
+    },
+    "InitDeployResult": {
+      "description": "What `init --deploy <target> --json` prints (ADR 0069): the rendered\ntarget and each file path written or left untouched.",
+      "properties": {
+        "skipped": {
+          "arrived_in": "0.1",
+          "description": "The files it left untouched because a file, folder or link already\nexisted at that path.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "target": {
+          "$ref": "#/$defs/DeployTarget",
+          "arrived_in": "0.1",
+          "description": "The deployment target rendered, such as `compose`."
+        },
+        "written": {
+          "arrived_in": "0.1",
+          "description": "The files it wrote, `/`-separated relative to the output folder.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "target",
+        "written",
+        "skipped"
       ],
       "type": "object"
     },
@@ -18542,6 +18696,54 @@
       ],
       "type": "object"
     },
+    "PublishedCatalog": {
+      "additionalProperties": false,
+      "description": "The self-contained Operation catalog published with every release.",
+      "properties": {
+        "$defs": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Every JSON Schema definition (`#/$defs/...`) reached by `catalog` and\n`connection`.",
+          "type": "object"
+        },
+        "$schema": {
+          "arrived_in": "0.1",
+          "description": "The JSON Schema draft of `$defs`.",
+          "type": "string"
+        },
+        "catalog": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Every catalog section of both Products (`operations`, `events`,\n`error_codes`, `exit_codes`, `protocol_failures`, `plugin_kinds`,\n`metrics`, `settings`, `hook_stages`, `shared_types`, `kind_parts`, …),\neach entry carrying its `product` mark (`collie` or `foxhound`).",
+          "type": "object"
+        },
+        "connection": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The Connection handshake and framing types outside the catalog (`hello`,\n`cancel`, `credit`, `events`, `chunk`, `meta`, …).",
+          "type": "object"
+        },
+        "format_version": {
+          "$ref": "#/$defs/ProtocolVersion",
+          "arrived_in": "0.1",
+          "description": "The version of the `published-catalog` format this file was written in."
+        },
+        "protocol_version": {
+          "$ref": "#/$defs/ProtocolVersion",
+          "arrived_in": "0.1",
+          "description": "The protocol version this release's engines speak."
+        }
+      },
+      "required": [
+        "format_version",
+        "protocol_version",
+        "$schema",
+        "catalog",
+        "connection",
+        "$defs"
+      ],
+      "type": "object"
+    },
     "PushedRecord": {
       "additionalProperties": false,
       "description": "One Record a handler pushed into a Dataset (ADR 0103).",
@@ -20106,6 +20308,14 @@
           "description": "Whether it goes ahead of every request its domain holds pending,\nwhatever their priority, as Crawlee's `forefront` (ADR 0005): of two\nsuch requests, the later goes first; `false` by default.",
           "type": "boolean"
         },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "Extra request headers sent with the request (ADR 0093). Forbidden\nheaders (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method\noverrides; ADR 0033) are refused with `header_forbidden`.",
+          "type": "object"
+        },
         "key": {
           "arrived_in": "0.1",
           "description": "Its identity in the Frontier, declared by the program in place of\nits method, its URL's key and its body's hash: a canonicalization\nof the program's own, which always wins (ADR 0005).",
@@ -21200,6 +21410,18 @@
         "_meta": {
           "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
+        },
+        "attempt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SeedAttempt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The attempt that adds them, when a handler streams seeds through its\ncontext's `run`; absent, the program streams them from outside any\nattempt."
         },
         "run_id": {
           "$ref": "#/$defs/RunId",
@@ -27185,6 +27407,11 @@
           "const": "worker",
           "description": "A Script sandbox worker.",
           "type": "string"
+        },
+        {
+          "const": "http_listener",
+          "description": "A plain HTTP client calling the Daemon's HTTP JSON-RPC listener\n(`POST /v1/rpc`, ADR 0027): its Runs outlive the HTTP request, and it\nis never a person surface.",
+          "type": "string"
         }
       ]
     },
@@ -29802,6 +30029,18 @@
                 },
                 "type": "object"
               },
+              "http_listener": {
+                "additionalProperties": false,
+                "properties": {
+                  "port": {
+                    "description": "The port the Daemon's HTTP listener binds to when `http_listener.enabled` is on: 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's listener has a port of its own. Port 0 takes a free port, which the Daemon's log and `daemon.status` report. Set in user configuration or an Operator policy only.",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "log": {
                 "additionalProperties": false,
                 "properties": {
@@ -29871,6 +30110,11 @@
                     },
                     "type": "object"
                   },
+                  "degraded_max": {
+                    "description": "The longest an engine cut off from its Politeness store stays in degraded mode, admitting one request at a time per domain, before it stops admitting new requests until the store answers again: 10 minutes. Set in user configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "domain": {
                     "additionalProperties": false,
                     "properties": {
@@ -29889,7 +30133,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1. A value above 1 is listed in the run's result as one that presses a site harder."
+                        "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder."
                       },
                       "delay": {
                         "anyOf": [
@@ -29902,7 +30146,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s. A value below 1 s is listed in the run's result as one that presses a site harder."
+                        "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder."
                       },
                       "rate": {
                         "anyOf": [
@@ -29915,6 +30159,24 @@
                           }
                         ],
                         "description": "How many crawl requests a minute may start on one domain key, counted across every run of the user that shares Politeness, as a token bucket of `politeness.domain.burst` tokens refilled at this rate: 30 holds a site to 30 requests a minute. Each run is held to its own value; the delay between starts still applies. None by default."
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "ip": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "concurrency": {
+                        "anyOf": [
+                          {
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "How many crawl requests may be in flight at once to one resolved IP address, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. At least 1; none by default, for no per-IP cap."
                       }
                     },
                     "type": "object"
@@ -31670,6 +31932,26 @@
                 },
                 "type": "object"
               },
+              "http_listener": {
+                "additionalProperties": false,
+                "properties": {
+                  "address": {
+                    "description": "The IP address the Daemon's HTTP listener binds to when `http_listener.enabled` is on: `127.0.0.1` by default. Any address other than loopback requires TLS through the Exposed Daemon's keys (`daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`), so no token crosses a network in clear. Set in user configuration or an Operator policy only.",
+                    "type": "string"
+                  },
+                  "enabled": {
+                    "description": "Whether the Daemon opens its HTTP JSON-RPC listener (`POST /v1/rpc`, ADR 0027). Off (`false`) by default so workflow tools reach a Daemon only when enabled. Set in user configuration or an Operator policy only.",
+                    "type": "boolean"
+                  },
+                  "port": {
+                    "description": "The port the Daemon's HTTP listener binds to when `http_listener.enabled` is on: 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's listener has a port of its own. Port 0 takes a free port, which the Daemon's log and `daemon.status` report. Set in user configuration or an Operator policy only.",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "identified": {
                 "additionalProperties": false,
                 "properties": {
@@ -32375,6 +32657,11 @@
                     },
                     "type": "object"
                   },
+                  "degraded_max": {
+                    "description": "The longest an engine cut off from its Politeness store stays in degraded mode, admitting one request at a time per domain, before it stops admitting new requests until the store answers again: 10 minutes. Set in user configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "delegation": {
                     "description": "Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.",
                     "type": "boolean"
@@ -32401,7 +32688,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1. A value above 1 is listed in the run's result as one that presses a site harder."
+                        "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder."
                       },
                       "delay": {
                         "anyOf": [
@@ -32414,7 +32701,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s. A value below 1 s is listed in the run's result as one that presses a site harder."
+                        "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder."
                       },
                       "rate": {
                         "anyOf": [
@@ -32427,6 +32714,24 @@
                           }
                         ],
                         "description": "How many crawl requests a minute may start on one domain key, counted across every run of the user that shares Politeness, as a token bucket of `politeness.domain.burst` tokens refilled at this rate: 30 holds a site to 30 requests a minute. Each run is held to its own value; the delay between starts still applies. None by default."
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "ip": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "concurrency": {
+                        "anyOf": [
+                          {
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "How many crawl requests may be in flight at once to one resolved IP address, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. At least 1; none by default, for no per-IP cap."
                       }
                     },
                     "type": "object"
@@ -36632,6 +36937,26 @@
                 },
                 "type": "object"
               },
+              "http_listener": {
+                "additionalProperties": false,
+                "properties": {
+                  "address": {
+                    "description": "The IP address the Daemon's HTTP listener binds to when `http_listener.enabled` is on: `127.0.0.1` by default. Any address other than loopback requires TLS through the Exposed Daemon's keys (`daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`), so no token crosses a network in clear. Set in user configuration or an Operator policy only.",
+                    "type": "string"
+                  },
+                  "enabled": {
+                    "description": "Whether the Daemon opens its HTTP JSON-RPC listener (`POST /v1/rpc`, ADR 0027). Off (`false`) by default so workflow tools reach a Daemon only when enabled. Set in user configuration or an Operator policy only.",
+                    "type": "boolean"
+                  },
+                  "port": {
+                    "description": "The port the Daemon's HTTP listener binds to when `http_listener.enabled` is on: 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's listener has a port of its own. Port 0 takes a free port, which the Daemon's log and `daemon.status` report. Set in user configuration or an Operator policy only.",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "identified": {
                 "additionalProperties": false,
                 "properties": {
@@ -37337,6 +37662,11 @@
                     },
                     "type": "object"
                   },
+                  "degraded_max": {
+                    "description": "The longest an engine cut off from its Politeness store stays in degraded mode, admitting one request at a time per domain, before it stops admitting new requests until the store answers again: 10 minutes. Set in user configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "delegation": {
                     "description": "Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.",
                     "type": "boolean"
@@ -37363,7 +37693,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1. A value above 1 is listed in the run's result as one that presses a site harder."
+                        "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder."
                       },
                       "delay": {
                         "anyOf": [
@@ -37376,7 +37706,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s. A value below 1 s is listed in the run's result as one that presses a site harder."
+                        "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder."
                       },
                       "rate": {
                         "anyOf": [
@@ -37389,6 +37719,24 @@
                           }
                         ],
                         "description": "How many crawl requests a minute may start on one domain key, counted across every run of the user that shares Politeness, as a token bucket of `politeness.domain.burst` tokens refilled at this rate: 30 holds a site to 30 requests a minute. Each run is held to its own value; the delay between starts still applies. None by default."
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "ip": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "concurrency": {
+                        "anyOf": [
+                          {
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "How many crawl requests may be in flight at once to one resolved IP address, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. At least 1; none by default, for no per-IP cap."
                       }
                     },
                     "type": "object"
@@ -41610,6 +41958,26 @@
                 },
                 "type": "object"
               },
+              "http_listener": {
+                "additionalProperties": false,
+                "properties": {
+                  "address": {
+                    "description": "The IP address the Daemon's HTTP listener binds to when `http_listener.enabled` is on: `127.0.0.1` by default. Any address other than loopback requires TLS through the Exposed Daemon's keys (`daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`), so no token crosses a network in clear. Set in user configuration or an Operator policy only.",
+                    "type": "string"
+                  },
+                  "enabled": {
+                    "description": "Whether the Daemon opens its HTTP JSON-RPC listener (`POST /v1/rpc`, ADR 0027). Off (`false`) by default so workflow tools reach a Daemon only when enabled. Set in user configuration or an Operator policy only.",
+                    "type": "boolean"
+                  },
+                  "port": {
+                    "description": "The port the Daemon's HTTP listener binds to when `http_listener.enabled` is on: 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's listener has a port of its own. Port 0 takes a free port, which the Daemon's log and `daemon.status` report. Set in user configuration or an Operator policy only.",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "identified": {
                 "additionalProperties": false,
                 "properties": {
@@ -42315,6 +42683,11 @@
                     },
                     "type": "object"
                   },
+                  "degraded_max": {
+                    "description": "The longest an engine cut off from its Politeness store stays in degraded mode, admitting one request at a time per domain, before it stops admitting new requests until the store answers again: 10 minutes. Set in user configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "delegation": {
                     "description": "Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.",
                     "type": "boolean"
@@ -42341,7 +42714,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1. A value above 1 is listed in the run's result as one that presses a site harder."
+                        "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. 1 by default (ADR 0086). A value above 1 (or `null`) is listed in the run's result as one that presses a site harder."
                       },
                       "delay": {
                         "anyOf": [
@@ -42354,7 +42727,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s. A value below 1 s is listed in the run's result as one that presses a site harder."
+                        "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. 1 s by default (ADR 0086); 0 means no delay. A value below 1 s (or `null`) is listed in the run's result as one that presses a site harder."
                       },
                       "rate": {
                         "anyOf": [
@@ -42367,6 +42740,24 @@
                           }
                         ],
                         "description": "How many crawl requests a minute may start on one domain key, counted across every run of the user that shares Politeness, as a token bucket of `politeness.domain.burst` tokens refilled at this rate: 30 holds a site to 30 requests a minute. Each run is held to its own value; the delay between starts still applies. None by default."
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "ip": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "concurrency": {
+                        "anyOf": [
+                          {
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "How many crawl requests may be in flight at once to one resolved IP address, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. At least 1; none by default, for no per-IP cap."
                       }
                     },
                     "type": "object"
@@ -45294,6 +45685,16 @@
       "schema": true,
       "storage": "warc",
       "version": "0.1"
+    },
+    {
+      "hello_from": [],
+      "name": "published-catalog",
+      "rule": "default",
+      "schema": {
+        "$ref": "#/$defs/PublishedCatalog"
+      },
+      "storage": "json",
+      "version": "0.1"
     }
   ],
   "live_view": {
@@ -45358,6 +45759,9 @@
     },
     "init": {
       "$ref": "#/$defs/InitResult"
+    },
+    "init.deploy": {
+      "$ref": "#/$defs/InitDeployResult"
     },
     "recipe.digest": {
       "$ref": "#/$defs/RecipeDigestOutput"

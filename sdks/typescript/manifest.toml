@@ -279,6 +279,16 @@ form = "read"
 [[member]]
 package = "@goodfetch/foxhound"
 receiver = "CrawlContext"
+member = "request"
+entry = "none"
+reason = "The attempt's request from `crawl_request.handle`, including its URL, label, method, body and headers, read without a round trip."
+only = "TypeScript and Python hold the request's fields in `request`; Rust's context reads each with its own method."
+words = ["request"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlContext"
 member = "run"
 entry = "none"
 reason = "The crawl's Run bound to the attempt, from `crawl_request.handle`'s request (ADR 0093)."
@@ -368,6 +378,195 @@ receiver = "CrawlRun"
 member = "rejectedRecords"
 entry = "run.rejected_records"
 words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
+member = "export"
+entry = "run.export"
+words = ["export"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
+member = "outcomes"
+entry = "run.outcomes"
+words = ["outcomes"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
+member = "failedRequests"
+entry = "run.failed_requests"
+words = ["failed", "requests"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
+member = "retryFailed"
+entry = "run.retry_failed"
+words = ["retry", "failed"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "OutcomesOptions"
+entry = "none"
+reason = "The options `CrawlRun.outcomes()` takes: `kinds`, `labels`, `codes`, `after` and `signal`."
+only = "Python takes keyword arguments on `outcomes()`; Rust configures them on `ReadOutcomes`."
+words = ["outcomes", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "FailedRequestsOptions"
+entry = "none"
+reason = "The options `CrawlRun.failedRequests()` takes: `blocked` and `signal`."
+only = "Python takes keyword arguments on `failed_requests()`; Rust configures them on `ReadFailedRequests`."
+words = ["failed", "requests", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "RetryFailedOptions"
+entry = "none"
+reason = "The options `CrawlRun.retryFailed()` takes: `blocked`, `settings` and `signal`."
+only = "Python takes keyword arguments on `retry_failed()`; Rust configures them on `RetryFailed`."
+words = ["retry", "failed", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "Export"
+entry = "none"
+reason = "A completed Dataset Export handle returned by `CrawlRun.export`, holding its descriptor with `saveAs` and `stream` (ADRs 0103 and 0116)."
+words = ["export"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "ExportOptions"
+entry = "none"
+reason = "The options object `CrawlRun.export` takes (ADR 0103)."
+only = "TypeScript passes options as an object type; Python takes keyword arguments and Rust uses `ExportDataset` builder methods."
+words = ["export", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "ExportSaveOptions"
+entry = "none"
+reason = "The options object `Export.saveAs` takes (ADR 0116)."
+only = "TypeScript passes cancellation via an options object; Python cancels via task scope and Rust drops the `SaveFile` future."
+words = ["export", "save", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "ExportStreamOptions"
+entry = "none"
+reason = "The options object `Export.stream` takes (ADR 0116)."
+only = "TypeScript passes cancellation via an options object; Python cancels via task scope and Rust drops the `EventStream`."
+words = ["export", "stream", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Export"
+member = "id"
+entry = "none"
+reason = "The Export's ID."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Export"
+member = "format"
+entry = "none"
+reason = "The Export's format."
+words = ["format"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Export"
+member = "compression"
+entry = "none"
+reason = "The Export's compression."
+words = ["compression"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Export"
+member = "records"
+entry = "none"
+reason = "How many Records the Export holds."
+words = ["records"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Export"
+member = "lastNumber"
+entry = "none"
+reason = "The number of the last Record the Export holds, 0 when empty."
+words = ["last", "number"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Export"
+member = "size"
+entry = "none"
+reason = "The Export's file size in bytes."
+words = ["size"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Export"
+member = "sha256"
+entry = "none"
+reason = "The SHA-256 of the Export's bytes in lowercase hexadecimal."
+words = ["sha256"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Export"
+member = "runEpoch"
+entry = "none"
+reason = "The run epoch of the Run's state the Export was written from (ADR 0003)."
+words = ["run", "epoch"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Export"
+member = "saveAs"
+entry = "export.save_as"
+words = ["save", "as"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Export"
+member = "stream"
+entry = "export.stream"
+words = ["stream"]
 form = "opener"
 
 [[member]]
@@ -708,6 +907,33 @@ form = "runtime"
 [[member]]
 package = "@goodfetch/collie-client/runtime"
 receiver = "(module)"
+member = "openWorkerConnection"
+entry = "none"
+reason = "Opens a worker process's Connection to an Attached engine's private endpoint or Daemon (ADR 0024)."
+words = ["open", "worker", "connection"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "WorkerTarget"
+entry = "none"
+reason = "The private endpoint or Daemon reach details a worker process connects to (ADR 0024)."
+words = ["worker", "target"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
+member = "workerTarget"
+entry = "none"
+reason = "Returns the Attached engine's private endpoint or Daemon reach details for extra worker processes (ADR 0024)."
+words = ["worker", "target"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
 member = "attemptStoreOf"
 entry = "none"
 reason = "The Run's Key-value store a Product's handler is served, bound to its attempt and its signal (ADR 0093)."
@@ -757,6 +983,15 @@ member = "fromWire"
 entry = "none"
 reason = "Reads a value from the engine in a program's names: each field the schema declares by its camelCase name, each point in time as a `Date`, at the places a Product's generated wire table names, for what arrives outside a call's result, such as Foxhound's `$/record`; data keys keep their spelling (ADRs 0092 and 0099)."
 words = ["from", "wire"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "toWire"
+entry = "none"
+reason = "Turns a value in a program's names into its wire JSON (snake_case fields and RFC 3339 instants), for client-to-engine notifications such as Foxhound's `$/seeds` (ADRs 0024 and 0099)."
+words = ["to", "wire"]
 form = "runtime"
 
 [[member]]
@@ -2577,6 +2812,24 @@ form = "runtime"
 
 [[member]]
 package = "@goodfetch/collie-client/runtime"
+receiver = "Stream"
+member = "id"
+entry = "none"
+reason = "The streamed call's JSON-RPC request ID, for client-to-engine notifications naming the call."
+words = ["id"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "Stream"
+member = "notify"
+entry = "none"
+reason = "Sends a client-to-engine JSON-RPC notification on the Connection, such as `$/seeds`."
+words = ["notify"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
 receiver = "(module)"
 member = "FileSaving"
 entry = "none"
@@ -2944,6 +3197,16 @@ entry = "none"
 reason = "What `Foxhound.startCrawl` takes (ADR 0093)."
 only = "Rust's `start_crawl` returns the builder `StartCrawl`, which takes each option by a call of its own (ADR 0112)."
 words = ["start", "crawl", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "CrawlWorkers"
+entry = "crawl.serve"
+reason = "Multi-process worker configuration `{ count, module, export? }` for `Foxhound.startCrawl` (ADR 0024)."
+only = "Python takes `workers: int` directly on `start_crawl`, and Rust takes `.workers(count)` on `StartCrawl`."
+words = ["crawl", "workers"]
 form = "type"
 
 [[member]]
@@ -3440,25 +3703,50 @@ entries = ["key_value_store.keys"]
 reason = "Issue 1284 adds the Key-value store's `keys` to `RunView`."
 
 [[unreached]]
-entries = ["crawl.serve"]
-reason = "A handler process of `workers=N` offers its handler with it (ADR 0024), and the SDK starts none yet; issue 2804 adds Rust's `serve`."
-
-[[unreached]]
 entries = ["crawl_request.links"]
 reason = "What `enqueueLinks` sends itself, before `crawl_request.enqueue_links`, when it is given a `LinkPayload` function: the function reads each link it answers, so it has no member of its own."
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
+member = "seeds"
+entry = "run.seeds"
+words = ["seeds"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
+member = "addSeed"
+entry = "run.add_seed"
+words = ["add", "seed"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
+member = "addSeeds"
+entry = "run.add_seeds"
+words = ["add", "seeds"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "AttemptRun"
+member = "addSeed"
+entry = "run.add_seed"
+words = ["add", "seed"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "AttemptRun"
+member = "addSeeds"
+entry = "run.add_seeds"
+words = ["add", "seeds"]
+form = "round_trip"
 
 [[unreached]]
 entries = ["dataset.list", "dataset.page", "dataset.query", "dataset.search", "record.search"]
 reason = "No member reads a Run's Datasets yet."
 
-[[unreached]]
-entries = ["run.export", "export.save_as", "export.stream"]
-reason = "Issue 1488 adds `run.export`, whose `Export` has `saveAs` and `stream`."
-
-[[unreached]]
-entries = ["run.seeds", "run.add_seed", "run.add_seeds"]
-reason = "Issue 1494 adds `seeds()`, `addSeed` and `addSeeds` to a running crawl."
-
-[[unreached]]
-entries = ["run.outcomes", "run.failed_requests", "run.retry_failed"]
-reason = "Issue 1495 adds `outcomes`, `failedRequests` and `retryFailed`."

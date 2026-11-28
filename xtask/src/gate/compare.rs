@@ -103,11 +103,12 @@ pub(super) fn compare(
     root: &Path,
     records: &Path,
     others: &Path,
+    key: &runs::Key,
     full: &str,
     since: Option<&str>,
 ) -> Result<ExitCode> {
     let full = crate::git::commit(root, full)?;
-    let record = runs::read(records, &full)?;
+    let record = runs::read(records, &full, key)?;
     if let Some((unit, outcome)) = record
         .units
         .iter()
@@ -157,7 +158,7 @@ pub(super) fn compare(
         if !same_tree && !merged {
             continue;
         }
-        let run = match runs::read(others, &head) {
+        let run = match runs::read(others, &head, key) {
             Ok(run) => run,
             Err(error) => {
                 output::error(&format!(

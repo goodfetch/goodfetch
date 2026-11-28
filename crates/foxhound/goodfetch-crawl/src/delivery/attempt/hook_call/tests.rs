@@ -25,6 +25,7 @@ fn a_hook_call_sends_crawl_hook_handles_params() {
             payload: Some(json!({ "page": 2 })),
             method: HttpMethod::get(),
             body: None,
+            headers: std::collections::BTreeMap::new(),
         },
         attempt: 2,
         lease_epoch: 7,

@@ -19,9 +19,16 @@ const CRATES_IO: [&str; 2] = [
     "sparse+https://index.crates.io/",
 ];
 
-/// The members no Product ships: the build tool and the test-only crates
-/// (STYLE.md, Workspace and crates; TESTING.md, Shared helpers).
-const NEVER_SHIPPED: [&str; 3] = ["xtask", "goodfetch-test-support", "goodfetch-test-client"];
+/// The members no Product ships: the build tool, the test-only crates and
+/// the workspace-hack crates (STYLE.md, Workspace and crates; TESTING.md,
+/// Shared helpers; ADR 0094).
+const NEVER_SHIPPED: [&str; 5] = [
+    "xtask",
+    "goodfetch-test-support",
+    "goodfetch-test-client",
+    "goodfetch-workspace-hack",
+    "goodfetch-dev-workspace-hack",
+];
 
 #[derive(Deserialize)]
 struct Metadata {

@@ -78,6 +78,7 @@ fn file_formats() -> serde_json::Value {
             "hello_from": [],
             "schema": true,
         },
+        stored_format("published-catalog", "json", "default", "PublishedCatalog"),
     ])
 }
 
@@ -346,6 +347,7 @@ fn the_bundle_holds_each_commands_json_output() {
             "daemon.uninstall": { "$ref": "#/$defs/DaemonUninstallOutput" },
             "doctor": { "$ref": "#/$defs/DoctorReport" },
             "init": { "$ref": "#/$defs/InitResult" },
+            "init.deploy": { "$ref": "#/$defs/InitDeployResult" },
             "recipe.digest": { "$ref": "#/$defs/RecipeDigestOutput" },
             "runs.reindex": { "$ref": "#/$defs/RunsReindexOutput" },
             "skill.install": { "$ref": "#/$defs/SkillsInstalled" },

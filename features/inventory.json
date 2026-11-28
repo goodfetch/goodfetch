@@ -1498,6 +1498,16 @@
       ]
     },
     {
+      "id": "error:crawl_not_importable",
+      "kind": "error",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:daemon_draining",
       "kind": "error",
       "area": 3,
@@ -1785,6 +1795,17 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:header_forbidden",
+      "kind": "error",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },
@@ -3640,6 +3661,17 @@
       "id": "format:protocol",
       "kind": "format",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "format:published-catalog",
+      "kind": "format",
+      "area": 1,
       "milestone": null,
       "status": "active",
       "products": [
@@ -10486,6 +10518,39 @@
       ]
     },
     {
+      "id": "setting:http_listener.address",
+      "kind": "setting",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:http_listener.enabled",
+      "kind": "setting",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:http_listener.port",
+      "kind": "setting",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:identified.signature_agent",
       "kind": "setting",
       "area": 8,
@@ -10809,6 +10874,17 @@
       ]
     },
     {
+      "id": "setting:politeness.degraded_max",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:politeness.delegation",
       "kind": "setting",
       "area": 3,
@@ -10861,6 +10937,16 @@
     },
     {
       "id": "setting:politeness.domain.rate",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:politeness.ip.concurrency",
       "kind": "setting",
       "area": 3,
       "milestone": null,
@@ -19071,6 +19157,28 @@
       ]
     },
     {
+      "id": "story:13-10",
+      "kind": "story",
+      "area": 13,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:13-11",
+      "kind": "story",
+      "area": 13,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:13-44",
       "kind": "story",
       "area": 13,
@@ -19108,6 +19216,39 @@
       "kind": "story",
       "area": 13,
       "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:13-53",
+      "kind": "story",
+      "area": 13,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:13-55",
+      "kind": "story",
+      "area": 13,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:13-9",
+      "kind": "story",
+      "area": 13,
+      "milestone": "M4 Everything else",
       "status": "active",
       "products": [
         "collie",
@@ -19196,6 +19337,28 @@
       "kind": "story",
       "area": 14,
       "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:14-62",
+      "kind": "story",
+      "area": 14,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:14-63",
+      "kind": "story",
+      "area": 14,
+      "milestone": "M4 Everything else",
       "status": "active",
       "products": [
         "collie",

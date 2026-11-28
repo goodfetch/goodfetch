@@ -252,6 +252,15 @@ form = "runtime"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "ClientConnection"
+member = "stream_chunks"
+entry = "none"
+reason = "Sends a sequence call whose items arrive in `$/chunk` notifications carrying Base64-encoded bytes, decoded in order under `$/credit` backpressure."
+words = ["stream", "chunks"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
 member = "handler_requests"
 entry = "none"
 reason = "The engine's requests of `method`, such as the Crawl requests a crawl's handlers answer (ADR 0093), from now until the Connection ends or the stream is dropped."
@@ -3011,6 +3020,71 @@ entry = "none"
 reason = "The time the timestamp is checked against, the system clock when left unset."
 words = ["at"]
 form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "Feed"
+entry = "none"
+reason = "One bidirectional streaming call in flight on a Connection (such as `run.add_seeds`), which Product crates drive under `$/credit` backpressure (ADR 0024)."
+only = "TypeScript and Python expose streaming notifications directly on their internal stream handle; Rust exposes `Feed` across the `goodfetch-collie-client` / `goodfetch-foxhound` crate boundary."
+words = ["feed"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "FeedEvent"
+entry = "none"
+reason = "What a `Feed` hears from the engine: its sent call ID, an incoming notification or its final reply (ADR 0024)."
+only = "Rust's typed event enum for `Feed::poll_event`."
+words = ["feed", "event"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Feed"
+member = "notify"
+entry = "none"
+reason = "Sends a client-to-engine notification (such as `$/seeds`) on the Connection (ADR 0024)."
+words = ["notify"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Feed"
+member = "decode"
+entry = "none"
+reason = "Decodes a JSON notification payload heard from a `Feed` (ADR 0024)."
+words = ["decode"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Feed"
+member = "poll_event"
+entry = "none"
+reason = "Polls for the next event on the bidirectional streaming call (ADR 0024)."
+words = ["poll", "event"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "feed"
+entry = "none"
+reason = "Opens a bidirectional streaming call (such as `run.add_seeds`) for a Product crate (ADR 0024)."
+words = ["feed"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "start_held_with"
+entry = "none"
+reason = "Starts a Run whose wire reply carries fields beside `RunStarted` (such as `CrawlStarted::seeds`), returning both the Run and the decoded reply (ADR 0024)."
+words = ["start", "held", "with"]
+form = "opener"
 
 [[unreached]]
 entries = [

@@ -2,6 +2,7 @@
 // Label's `settings` (ADRs 0083 and 0093), and in the handlers `connect()`
 // registers (ADR 0104): `tsc` fails on a wrong one, as the package's
 // typecheck runs it.
+import type { RunSettings, Settings as CollieSettings } from "@goodfetch/collie-client";
 import {
   Crawl,
   Foxhound,
@@ -108,4 +109,41 @@ export async function registered(): Promise<void> {
     // @ts-expect-error a Sink is registered by name, never as a list
     sinks: [sink],
   });
+}
+
+// Foxhound's Politeness and Site-preferences types extend Collie's (ADRs 0086 and 0118).
+export function politenessExtendsCollie(
+  collieConnPoliteness: NonNullable<CollieSettings["politeness"]>,
+  collieRunPoliteness: NonNullable<RunSettings["politeness"]>,
+  collieConnSitePrefs: NonNullable<CollieSettings["sitePreferences"]>,
+  collieRunSitePrefs: NonNullable<RunSettings["sitePreferences"]>,
+): void {
+  const connPoliteness: NonNullable<FoxhoundSettings["politeness"]> = collieConnPoliteness;
+  const runPoliteness: NonNullable<CrawlSettings["politeness"]> = collieRunPoliteness;
+  const connSitePrefs: NonNullable<FoxhoundSettings["sitePreferences"]> = collieConnSitePrefs;
+  const runSitePrefs: NonNullable<CrawlSettings["sitePreferences"]> = collieRunSitePrefs;
+  const fullCrawl: CrawlSettings = {
+    politeness: {
+      ...runPoliteness,
+      domain: { concurrency: 2, delay: 500 },
+      backoff: { enabled: true, initial: 2_000, max: 60_000 },
+      ip: { concurrency: 4 },
+      retryAfter: { max: 900_000 },
+    },
+    sitePreferences: {
+      ...runSitePrefs,
+      respectRobotsTxt: true,
+      maxCrawlDelay: 30_000,
+      robotsTxtUserAgent: "operator-bot",
+    },
+  };
+  const degradedConn: FoxhoundSettings = {
+    // @ts-expect-error `politeness.degraded_max` is configuration / Operator policy alone (ADR 0086)
+    politeness: { degradedMax: 600_000 },
+  };
+  const degradedCrawl: CrawlSettings = {
+    // @ts-expect-error `politeness.degraded_max` is configuration / Operator policy alone (ADR 0086)
+    politeness: { degradedMax: 600_000 },
+  };
+  void [connPoliteness, connSitePrefs, fullCrawl, degradedConn, degradedCrawl];
 }

@@ -10,6 +10,7 @@
 //! does not, its data folder removed and its build released.
 
 mod arguments;
+pub(crate) use arguments::wpt_base_arguments;
 mod gui_session;
 #[cfg(target_os = "linux")]
 mod headful;

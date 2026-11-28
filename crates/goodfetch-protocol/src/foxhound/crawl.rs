@@ -24,7 +24,7 @@ use crate::catalog::{
 use crate::foxhound::dataset::{DatasetDeclaration, RecordData};
 use crate::foxhound::declaration::CrawlDeclaration;
 use crate::foxhound::fetch::FetchTier;
-use crate::foxhound::frontier::{HttpBody, HttpMethod};
+use crate::foxhound::frontier::{Enqueued, HttpBody, HttpMethod};
 use crate::foxhound::hook::CrawlHookDeclaration;
 use crate::foxhound::report::CrawlRunReport;
 use crate::foxhound::session_pool::ServingSession;
@@ -105,6 +105,10 @@ pub struct RequestSeed {
     #[serde(default, skip_serializing_if = "is_zero")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub priority: i64,
+    // ADR 0038: wire request structs declare their fields inline rather than
+    // flattening a shared helper so `deny_unknown_fields` and flat JSON Schema
+    // definitions stay intact alongside `CrawlRequestEnqueueParams`.
+    // jscpd:ignore-start
     /// Whether it goes ahead of every request its domain holds pending,
     /// whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
     /// such requests, the later goes first; `false` by default.
@@ -115,6 +119,12 @@ pub struct RequestSeed {
     #[serde(default, skip_serializing_if = "HttpMethod::is_get")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub method: HttpMethod,
+    /// Extra request headers sent with the request (ADR 0093). Forbidden
+    /// headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method
+    /// overrides; ADR 0033) are refused with `header_forbidden`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub headers: BTreeMap<String, String>,
     /// The body it is sent with, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -125,6 +135,7 @@ pub struct RequestSeed {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub key: Option<String>,
+    // jscpd:ignore-end
 }
 
 #[expect(
@@ -473,6 +484,10 @@ pub struct CrawlRequest {
     /// The method it is sent with.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub method: HttpMethod,
+    /// Extra request headers carried from its seed or enqueue, if any.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub headers: BTreeMap<String, String>,
     /// The body it is sent with, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -555,6 +570,20 @@ pub struct CrawlRequestHandled {
     pub skipped: Option<HandlerSkip>,
 }
 
+/// What `crawl.start` answers: the Run it started or reopened, and each
+/// seed's original answer in order, so `run.seeds()` answers with no round
+/// trip, including after a resume (ADR 0102).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CrawlStarted {
+    /// What every Run's start answers.
+    #[serde(flatten)]
+    pub started: RunStarted,
+    /// Each seed's original answer in order, as `run.seeds` answers.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub seeds: Vec<Enqueued>,
+}
+
 /// `crawl.start`.
 pub const CRAWL_START: Operation = Operation {
     name: "crawl.start",
@@ -563,7 +592,7 @@ pub const CRAWL_START: Operation = Operation {
     kind: OperationKind::Opener,
     reach: Reach::AllSurfaces,
     params: schema_of::<CrawlStartParams>,
-    result: schema_of::<RunStarted>,
+    result: schema_of::<CrawlStarted>,
     events: &[],
     cancellable: false,
     input: None,
@@ -712,6 +741,31 @@ pub const LABEL_UNKNOWN: ErrorCodeDefinition = ErrorCodeDefinition {
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// A crawl started with `workers > 1` that an extra worker process cannot
+/// import (ADR 0024).
+pub const CRAWL_NOT_IMPORTABLE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "crawl_not_importable",
+    description: "A crawl started with `workers > 1` cannot be imported by an extra worker process: it was defined inside a function rather than at module level, no module was named, or the named module or export does not yield a `Crawl`. Nothing was started. Define the `Crawl` at module level or name `module`.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `crawl_not_importable` details (ADR 0024).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CrawlNotImportableDetails {
+    /// The module named for workers to import, or the module where the crawl
+    /// was created when none was named.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub module: Option<String>,
+    /// The export or attribute name looked up on `module`, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub export: Option<String>,
+}
 
 /// What `response_unavailable` details (ADR 0118).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1066,6 +1120,7 @@ pub const ENTRIES: Entries = Entries {
         LABEL_DUPLICATE,
         LABEL_UNHANDLED,
         LABEL_UNKNOWN,
+        CRAWL_NOT_IMPORTABLE,
         EFFECT_STAGING_REFUSED,
         STAGING_FULL,
     ],

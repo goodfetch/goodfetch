@@ -165,7 +165,7 @@ fn scenario() -> Vec<Value> {
                     { "url": "https://shop.test/", "label": "home", "payload": { "depth": 0 } },
                     { "url": "https://shop.test/broken", "label": "product" },
                     { "url": "https://SHOP.test:443/", "label": "home" },
-                    { "url": "https://api.test/search", "label": "home", "method": "POST", "body": "eyJwYWdlIjoxfQ==", "key": "search-1" },
+                    { "url": "https://api.test/search", "label": "home", "method": "POST", "body": "eyJwYWdlIjoxfQ==", "headers": { "X-Compat": "1" }, "key": "search-1" },
                     { "url": "https://guarded.test/", "label": "guarded" },
                     { "url": "https://shop.test/more/more/more/", "label": "home" },
                     { "url": "https://list.test/items?n=1", "label": "listed" },

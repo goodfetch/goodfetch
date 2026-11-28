@@ -35,6 +35,7 @@ fn leased(n: u64, domains: u64) -> Leased {
             payload: None,
             method: HttpMethod::get(),
             body: None,
+            headers: std::collections::BTreeMap::new(),
         },
         attempt: 1,
         tries: 1,

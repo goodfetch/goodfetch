@@ -153,6 +153,12 @@ def with_daemon() -> bool:
 
 
 @pytest.fixture
+def with_http_listener() -> bool:
+    """Whether the started Daemon enables its HTTP JSON-RPC listener on port 0."""
+    return False
+
+
+@pytest.fixture
 def with_browser() -> bool:
     """Whether the test's engine opens a page: not unless the test overrides it."""
     return False
@@ -172,6 +178,7 @@ def test_env(
     request: pytest.FixtureRequest,
     proving_ground_seed: int | None,
     with_daemon: bool,
+    with_http_listener: bool,
     with_browser: bool,
     browser_download: BrowserDownload | None,
     product: Product,
@@ -202,6 +209,7 @@ def test_env(
         os.environ,
         proving_ground_seed=proving_ground_seed,
         daemon=product if with_daemon else None,
+        http_listener=with_http_listener,
         browser=with_browser,
         browser_download=browser_download,
         child_variables=None if children is None else children.variables(),

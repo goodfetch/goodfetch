@@ -11,7 +11,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use goodfetch_protocol::catalog::ErrorCodeDefinition;
-use goodfetch_protocol::run::RunId;
+use goodfetch_protocol::run::{CrawlRequestRef, RunId};
 use serde_json::{Map, Value};
 
 /// A Key-value store write staged with an attempt.
@@ -141,12 +141,17 @@ pub trait AttemptWrites: Send + Sync {
 
     /// Notes that a declared Effect's body begins in the attempt, which
     /// stages nothing, neither a write nor an enqueue nor a record, until
-    /// it ends (ADR 0106).
+    /// it ends (ADR 0106), and answers the attempt's crawl request
+    /// reference so the Effect journal can name it in `UncertainEffect`.
     ///
     /// # Errors
     ///
     /// The attempt ended.
-    fn begin_effect(&self, crawl_request_id: &str, lease_epoch: u64) -> Result<(), Unstaged>;
+    fn begin_effect(
+        &self,
+        crawl_request_id: &str,
+        lease_epoch: u64,
+    ) -> Result<CrawlRequestRef, Unstaged>;
 
     /// Notes that a declared Effect's body ended in the attempt.
     fn end_effect(&self, crawl_request_id: &str, lease_epoch: u64);

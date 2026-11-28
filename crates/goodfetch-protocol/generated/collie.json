@@ -2427,6 +2427,32 @@
       ],
       "type": "object"
     },
+    "CrawlRequestRef": {
+      "description": "A crawl request named by an uncertain Effect (ADRs 0106 and 0118).",
+      "properties": {
+        "id": {
+          "arrived_in": "0.1",
+          "description": "The crawl request's ID.",
+          "type": "string"
+        },
+        "label": {
+          "arrived_in": "0.1",
+          "description": "The crawl request's Label.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The crawl request's URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "url",
+        "label"
+      ],
+      "type": "object"
+    },
     "CronTrigger": {
       "additionalProperties": false,
       "description": "A cron expression: five fields (minute, hour, day of month, month, day\nof week) plus optional seconds first, `L`, `W`, `#` and the\n`@daily`-style macros (ADR 0036).",
@@ -15656,14 +15682,6 @@
     "UncertainEffect": {
       "description": "An Effect a Run left uncertain (ADR 0106), until a person reconciles it.",
       "properties": {
-        "crawl_request": {
-          "arrived_in": "0.1",
-          "description": "The crawl request it ran for, in a crawl.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "entry": {
           "arrived_in": "0.1",
           "description": "Its Effect journal entry.",
@@ -15697,6 +15715,18 @@
           "arrived_in": "0.1",
           "description": "Why it is uncertain.",
           "type": "string"
+        },
+        "request": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CrawlRequestRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The crawl request it ran for, in a crawl; `null` on a Collie Run."
         },
         "since": {
           "$ref": "#/$defs/PointInTime",
@@ -17202,7 +17232,10 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "An Effect may or may not have happened (ADRs 0091 and 0106): its body sent something and did not return a value the Effect journal keeps, so the engine never runs it again until a person reconciles it (\"it happened\", \"it did not happen\" or \"leave uncertain\"). The details name the Effect journal `entry`, the `key`, the `crawl_request`, the `reason` (`failed_after_send`, `interrupted` or `journal_incomplete`), the `first_command` sent and `since` when.",
+      "description": "An Effect may or may not have happened (ADRs 0091 and 0106): its body sent something and did not return a value the Effect journal keeps, so the engine never runs it again until a person reconciles it (\"it happened\", \"it did not happen\" or \"leave uncertain\"). The details name the Effect journal `entry`, the `key`, the `request` (the crawl request's `id`, `url` and `label`, or `null` on a Collie Run), the `reason` (`failed_after_send`, `interrupted` or `journal_incomplete`), the `first_command` sent and `since` when.",
+      "details": {
+        "$ref": "#/$defs/UncertainEffect"
+      },
       "exit_code": null,
       "group": "page",
       "json_rpc_class": -32003,

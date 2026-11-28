@@ -32,10 +32,11 @@ use goodfetch_engine::run_state::{RunState, RunStateError};
 use goodfetch_protocol::connection::EnclosingCall;
 use goodfetch_protocol::effect::EffectAttempt;
 use goodfetch_protocol::foxhound::crawl::{
-    ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, PushedRecord, TIMEOUT_HANDLER,
+    ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, CrawlRequest, PushedRecord, TIMEOUT_HANDLER,
 };
 use goodfetch_protocol::foxhound::provenance::RobotsTxtMark;
 use goodfetch_protocol::jsonrpc::RequestId;
+use goodfetch_protocol::run::CrawlRequestRef;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
@@ -175,16 +176,17 @@ impl Leases {
         self
     }
 
-    /// Grants the lease of epoch `lease_epoch` on `work_item`, which the
+    /// Grants the lease of epoch `lease_epoch` on `request`, which the
     /// run file already holds, for `length` from now.
     pub(crate) fn grant(
         &self,
-        work_item: &str,
+        request: CrawlRequestRef,
         lease_epoch: u64,
         length: Duration,
     ) -> WorkItemLease {
         let lease = Lease::granted(lease_epoch, self.clock.now(), length);
-        self.staging.open(work_item, lease_epoch);
+        let work_item: Arc<str> = Arc::from(request.id.as_str());
+        self.staging.open(request.clone(), lease_epoch);
         let (state, _) = watch::channel(Held {
             lease,
             released: false,
@@ -193,13 +195,23 @@ impl Leases {
         });
         let granted = WorkItemLease(Arc::new(Shared {
             leases: self.clone(),
-            work_item: Arc::from(work_item),
+            work_item,
+            request,
             length,
             state,
             handler: watch::Sender::new(None),
         }));
         granted.trace("grant", &lease, None);
         granted
+    }
+}
+
+/// The [`CrawlRequestRef`] of a leased [`CrawlRequest`].
+pub(crate) fn request_ref(request: &CrawlRequest) -> CrawlRequestRef {
+    CrawlRequestRef {
+        id: request.id.clone(),
+        url: request.url.clone(),
+        label: request.label.clone(),
     }
 }
 
@@ -212,6 +224,7 @@ pub(crate) struct WorkItemLease(Arc<Shared>);
 struct Shared {
     leases: Leases,
     work_item: Arc<str>,
+    request: CrawlRequestRef,
     /// How long it was granted for, which each renewal grants again.
     length: Duration,
     state: watch::Sender<Held>,
@@ -498,7 +511,7 @@ impl WorkItemLease {
         let robots_txt = staging.robots_txt(&self.0.work_item, epoch);
         let pushed = staging.discard(&self.0.work_item, epoch);
         if self.check().is_ok() {
-            staging.open(&self.0.work_item, epoch);
+            staging.open(self.0.request.clone(), epoch);
             if robots_txt.is_some() {
                 staging.fetched(
                     AttemptKey::new(&*self.0.work_item, epoch),

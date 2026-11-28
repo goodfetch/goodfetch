@@ -447,7 +447,7 @@ impl StateMachineTest for Subject {
                 for leased in leased {
                     let _clock = subject.runtime.enter();
                     let lease = subject.leases.grant(
-                        &leased.crawl_request.id,
+                        crate::lease::request_ref(&leased.crawl_request),
                         leased.lease_epoch,
                         DEFAULT_LEASE,
                     );

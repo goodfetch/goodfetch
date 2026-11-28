@@ -65,6 +65,7 @@ use goodfetch_protocol::foxhound::crawl::{
 };
 use goodfetch_protocol::foxhound::outcomes::NotAddedAtCommit;
 use goodfetch_protocol::foxhound::provenance::RobotsTxtMark;
+use goodfetch_protocol::run::CrawlRequestRef;
 use rusqlite::Connection;
 use serde_json::{Map, Value, json};
 
@@ -98,8 +99,9 @@ struct Admitted {
 }
 
 /// What one attempt staged so far.
-#[derive(Default)]
 struct Entry {
+    /// The crawl request the attempt serves.
+    request: CrawlRequestRef,
     admitted: Vec<Admitted>,
     /// What its admissions did beside the run file, the Frontier
     /// identities of the requests they added among it, which its later
@@ -114,6 +116,22 @@ struct Entry {
     fields: FieldsRead,
     /// How many declared Effects' bodies run in it.
     effects: u32,
+}
+
+impl Entry {
+    fn new(request: CrawlRequestRef) -> Self {
+        Self {
+            request,
+            admitted: Vec::new(),
+            staged: Arc::default(),
+            suspected: Vec::new(),
+            records: Checked::default(),
+            writes: Vec::new(),
+            fetched: Fetched::default(),
+            fields: FieldsRead::default(),
+            effects: 0,
+        }
+    }
 }
 
 /// The `fix` of `effect_staging_refused`.
@@ -314,11 +332,11 @@ impl Staging {
         self.declaring().contains(work_item)
     }
 
-    /// Opens the staging of the attempt of `work_item` under `lease_epoch`,
+    /// Opens the staging of the attempt of `request` under `lease_epoch`,
     /// as its lease is granted.
-    pub(crate) fn open(&self, work_item: &str, lease_epoch: u64) {
-        self.entries()
-            .insert(AttemptKey::of(work_item, lease_epoch), Entry::default());
+    pub(crate) fn open(&self, request: CrawlRequestRef, lease_epoch: u64) {
+        let key = AttemptKey::of(&request.id, lease_epoch);
+        self.entries().insert(key, Entry::new(request));
     }
 
     /// Discards what the attempt staged, as it ends without committing,
@@ -353,7 +371,8 @@ impl Staging {
     pub(crate) fn set_aside(&self, attempt: AttemptKey<&str>) -> Option<SetAside> {
         let mut entries = self.entries();
         let entry = entries.get_mut(&attempt.owned())?;
-        Some(SetAside(std::mem::take(entry)))
+        let request = entry.request.clone();
+        Some(SetAside(std::mem::replace(entry, Entry::new(request))))
     }
 
     /// Puts back what [`Staging::set_aside`] set aside, in place of what
@@ -652,14 +671,22 @@ impl AttemptWrites for Staging {
             .ok_or_else(|| ended(attempt))
     }
 
-    fn begin_effect(&self, crawl_request_id: &str, lease_epoch: u64) -> Result<(), Unstaged> {
+    fn begin_effect(
+        &self,
+        crawl_request_id: &str,
+        lease_epoch: u64,
+    ) -> Result<CrawlRequestRef, Unstaged> {
         let attempt = AttemptKey::new(crawl_request_id, lease_epoch);
-        self.entries()
+        let request = self
+            .entries()
             .get_mut(&attempt.owned())
-            .map(|entry| entry.effects += 1)
+            .map(|entry| {
+                entry.effects += 1;
+                entry.request.clone()
+            })
             .ok_or_else(|| ended(attempt))?;
         self.declaring().insert(crawl_request_id.to_owned());
-        Ok(())
+        Ok(request)
     }
 
     fn end_effect(&self, crawl_request_id: &str, lease_epoch: u64) {

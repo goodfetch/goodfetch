@@ -3537,6 +3537,26 @@ export interface CpuReading {
   tokioBusy: number;
 }
 /**
+ * A crawl request named by an uncertain Effect (ADRs 0106 and 0118).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CrawlRequestRef".
+ */
+export interface CrawlRequestRef {
+  /**
+   * The crawl request's ID.
+   */
+  id: string;
+  /**
+   * The crawl request's Label.
+   */
+  label: string;
+  /**
+   * The crawl request's URL.
+   */
+  url: string;
+}
+/**
  * What `$/credit` grants: more events, or chunks, for a streaming call;
  * sent by the engine, more seeds a `run.add_seeds` call takes.
  *
@@ -4223,10 +4243,6 @@ export interface EffectCloseParams {
  */
 export interface UncertainEffect {
   /**
-   * The crawl request it ran for, in a crawl.
-   */
-  crawlRequest?: string | null;
-  /**
    * Its Effect journal entry.
    */
   entry: string;
@@ -4246,6 +4262,10 @@ export interface UncertainEffect {
    * Why it is uncertain.
    */
   reason: string;
+  /**
+   * The crawl request it ran for, in a crawl; `null` on a Collie Run.
+   */
+  request?: CrawlRequestRef | null;
   /**
    * Since when it is uncertain.
    */

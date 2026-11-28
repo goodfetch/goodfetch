@@ -7,7 +7,7 @@
 use std::time::SystemTime;
 
 use goodfetch_protocol::effect::{EffectClosed, UncertainReason};
-use goodfetch_protocol::run::{RunReport, UncertainEffect};
+use goodfetch_protocol::run::{CrawlRequestRef, RunReport, UncertainEffect};
 use hkdf::Hkdf;
 use rusqlite::types::Type;
 use rusqlite::{Connection, OptionalExtension as _, ToSql as _};
@@ -26,11 +26,14 @@ pub const TABLES: RunStateTables = RunStateTables {
     name: "effect-journal",
     statements: &[
         "CREATE TABLE IF NOT EXISTS effect_journal (entry INTEGER PRIMARY KEY AUTOINCREMENT, \
-         namespace TEXT NOT NULL, key TEXT NOT NULL, repeatable INTEGER NOT NULL, \
+         namespace TEXT NOT NULL, request_url TEXT, request_label TEXT, key TEXT NOT NULL, \
+         repeatable INTEGER NOT NULL, \
          state TEXT NOT NULL CHECK (state IN ('open', 'sent', 'done', 'uncertain', 'reconciled')), \
          output TEXT, reason TEXT, first_command TEXT, since TEXT, performed_at TEXT, \
          reconciled_by TEXT, reconciled_at TEXT, \
          UNIQUE (namespace, key), \
+         CHECK ((namespace = '' AND request_url IS NULL AND request_label IS NULL) OR \
+                (namespace <> '' AND request_url IS NOT NULL AND request_label IS NOT NULL)), \
          CHECK (state NOT IN ('sent', 'uncertain') OR since IS NOT NULL), \
          CHECK (state <> 'done' OR performed_at IS NOT NULL), \
          CHECK (state <> 'uncertain' OR reason IS NOT NULL), \
@@ -96,13 +99,15 @@ pub(super) enum Answering {
 }
 
 /// The columns [`Row::read`] reads.
-const ROW: &str = "entry, namespace, key, repeatable, state, output, reason, first_command, since, \
-                   performed_at, reconciled_by, reconciled_at";
+const ROW: &str = "entry, namespace, request_url, request_label, key, repeatable, state, output, \
+                   reason, first_command, since, performed_at, reconciled_by, reconciled_at";
 
 /// An entry of the Effect journal.
 pub(super) struct Row {
     pub(super) entry: i64,
     pub(super) namespace: String,
+    pub(super) request_url: Option<String>,
+    pub(super) request_label: Option<String>,
     pub(super) key: String,
     pub(super) repeatable: bool,
     state: String,
@@ -120,16 +125,18 @@ impl Row {
         Ok(Self {
             entry: row.get(0)?,
             namespace: row.get(1)?,
-            key: row.get(2)?,
-            repeatable: row.get(3)?,
-            state: row.get(4)?,
-            output: row.get(5)?,
-            reason: row.get(6)?,
-            first_command: row.get(7)?,
-            since: row.get::<_, Option<StoredTime>>(8)?.map(|at| at.0),
-            performed_at: row.get::<_, Option<StoredTime>>(9)?.map(|at| at.0),
-            reconciled_by: row.get(10)?,
-            reconciled_at: row.get::<_, Option<StoredTime>>(11)?.map(|at| at.0),
+            request_url: row.get(2)?,
+            request_label: row.get(3)?,
+            key: row.get(4)?,
+            repeatable: row.get(5)?,
+            state: row.get(6)?,
+            output: row.get(7)?,
+            reason: row.get(8)?,
+            first_command: row.get(9)?,
+            since: row.get::<_, Option<StoredTime>>(10)?.map(|at| at.0),
+            performed_at: row.get::<_, Option<StoredTime>>(11)?.map(|at| at.0),
+            reconciled_by: row.get(12)?,
+            reconciled_at: row.get::<_, Option<StoredTime>>(13)?.map(|at| at.0),
         })
     }
 
@@ -137,7 +144,7 @@ impl Row {
     fn effect_state(&self) -> rusqlite::Result<EffectState> {
         EffectState::of(&self.state, self.repeatable).ok_or_else(|| {
             rusqlite::Error::FromSqlConversionFailure(
-                4,
+                6,
                 Type::Text,
                 format!("`{}` is no state of the Effect journal", self.state).into(),
             )
@@ -159,7 +166,7 @@ impl Row {
                 performed_at: self.performed_at(),
             }),
             EffectState::Uncertain => Some(EffectClosed::Uncertain {
-                effect: self.uncertain(),
+                effect: Box::new(self.uncertain()),
                 cause: None,
             }),
             EffectState::Absent
@@ -174,11 +181,22 @@ impl Row {
     /// The uncertain Effect it is, as the Run report lists it: a `sent`
     /// entry is one whose body was cut short.
     pub(super) fn uncertain(&self) -> UncertainEffect {
+        let request = (!self.namespace.is_empty()).then(|| CrawlRequestRef {
+            id: self.namespace.clone(),
+            url: self
+                .request_url
+                .clone()
+                .expect("invariant: the journal's CHECK keeps a crawl entry's `request_url`"),
+            label: self
+                .request_label
+                .clone()
+                .expect("invariant: the journal's CHECK keeps a crawl entry's `request_label`"),
+        });
         UncertainEffect {
             entry: self.entry.to_string(),
             key: Some(self.key.clone()),
             instruction: None,
-            crawl_request: (!self.namespace.is_empty()).then(|| self.namespace.clone()),
+            request,
             reason: self
                 .reason
                 .clone()
@@ -250,15 +268,19 @@ pub(super) fn interrupted(connection: &Connection, entries: &[i64]) -> rusqlite:
     Ok(())
 }
 
-/// Declares `key` in `namespace`: judges an entry left by a body no engine
-/// runs, then writes the entry, or answers the journal's answer.
+/// Declares `key` for `request` (or the Run's own namespace when `None`):
+/// judges an entry left by a body no engine runs, then writes the entry, or
+/// answers the journal's answer.
 pub(super) fn declare(
     connection: &Connection,
-    namespace: &str,
+    request: Option<&CrawlRequestRef>,
     key: &str,
     repeatable: bool,
     candidate: &[u8; SECRET_BYTES],
 ) -> rusqlite::Result<Declared> {
+    let namespace = request.map_or("", |request| request.id.as_str());
+    let request_url = request.map(|request| request.url.as_str());
+    let request_label = request.map(|request| request.label.as_str());
     let found = keyed(connection, namespace, key)?;
     let state = match &found {
         Some(row) => settled(connection, row)?,
@@ -273,10 +295,13 @@ pub(super) fn declare(
         Ok(Next::To(_)) => {
             let entry = connection
                 .prepare_cached(
-                    "INSERT INTO effect_journal (namespace, key, repeatable, state) \
-                     VALUES (?1, ?2, ?3, 'open') RETURNING entry",
+                    "INSERT INTO effect_journal (namespace, request_url, request_label, key, repeatable, state) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, 'open') RETURNING entry",
                 )?
-                .query_row((namespace, key, repeatable), |row| row.get(0))?;
+                .query_row(
+                    (namespace, request_url, request_label, key, repeatable),
+                    |row| row.get(0),
+                )?;
             connection
                 .prepare_cached(
                     "INSERT INTO effect_secret (id, secret) VALUES (1, ?1) ON CONFLICT (id) DO NOTHING",

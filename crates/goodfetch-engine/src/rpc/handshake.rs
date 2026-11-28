@@ -70,11 +70,21 @@ impl Refused {
     }
 }
 
+/// Which side is answering `hello`: a regular engine, or a Browser host
+/// accepting an engine of either Product as Collie under `LowerMinor`
+/// (ADRs 0095 and 0096).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Role {
+    Engine,
+    BrowserHost,
+}
+
 /// Accepts `hello`, naming the engine as `instance`, or refuses it.
 pub(crate) fn answer(
     identity: &Identity,
     instance: &EngineInstance,
     hello: &HelloParams,
+    role: Role,
 ) -> Result<Accepted, Refused> {
     let behind_gateway = hello.surface == Surface::Cloud;
     let surface = match (hello.surface, hello.client_surface) {
@@ -97,7 +107,8 @@ pub(crate) fn answer(
             )));
         }
     };
-    if hello.surface != Surface::BrowserHost {
+    let is_browser_host = role == Role::BrowserHost || hello.surface == Surface::BrowserHost;
+    if !is_browser_host {
         let Some(needs) = hello.needs else {
             return Err(Refused::Invalid(CallError::protocol(
                 ProtocolFailure::InvalidParams,
@@ -111,8 +122,7 @@ pub(crate) fn answer(
         }
     }
     let client = hello.protocol_version;
-    if let Some((message, details)) = version_refusal(client, hello.surface == Surface::BrowserHost)
-    {
+    if let Some((message, details)) = version_refusal(client, is_browser_host) {
         return Err(Refused::Version(message, details));
     }
     Ok(Accepted {

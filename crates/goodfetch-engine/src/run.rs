@@ -93,6 +93,17 @@ mod starts;
 
 pub use detached::{InProgram, client_start};
 
+/// The minimal `run.*` handlers a Browser host serves beside Collie's page
+/// handlers (ADRs 0022 and 0096): only starting, finishing and aborting its
+/// ephemeral Session Run, with no Run index, Schedule or Daemon operations.
+pub(crate) fn browser_host_handlers() -> [Handler; 3] {
+    [
+        Handler::new(&RUN_START, start),
+        Handler::new(&RUN_FINISH, finish),
+        Handler::new(&RUN_ABORT, abort),
+    ]
+}
+
 /// The `run.*` handlers, and the starts of Runs with no handler in the
 /// program.
 pub(crate) fn handlers() -> [Handler; 16] {

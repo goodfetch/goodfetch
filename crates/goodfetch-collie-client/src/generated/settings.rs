@@ -129,6 +129,19 @@ pub mod browser {
         ],
     );
 
+    /// The Browser host a Run's Sessions drive their browsers through (ADRs 0022 and 0096): `{ address, token_file }` or `{ address, token }`, where `token` is a Secret reference such as `env:BROWSER_HOST_TOKEN`. Left unset (`null`), Sessions launch browsers locally; changing this setting alone moves the same program between a local browser and a Browser host. A non-loopback address without TLS (`wss://`) is refused. Only the program's own code, configuration and Operator policy set it.
+    ///
+    /// `browser.host`. `None` clears it.
+    pub const HOST: crate::settings::Setting<
+        Option<::goodfetch_protocol::page::browser_host::BrowserHostSetting>,
+    > = crate::settings::Setting::new(
+        "browser.host",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+        ],
+    );
+
     /// Whether the Session's pages emulate a mobile viewport (`meta viewport` tag and mobile layout): `false` by default (Playwright's `isMobile`). Chromium only: `true` outside Chromium raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
     ///
     /// `browser.is_mobile`.

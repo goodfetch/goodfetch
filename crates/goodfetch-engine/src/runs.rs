@@ -240,6 +240,8 @@ pub(crate) struct RunsSetup {
     /// The switchable controls the composition registered, which each new
     /// Run reports when its settings switch one off.
     pub(crate) controls: Controls,
+    /// Optional Browser-host mirror forwarding Run trace lines to the engine.
+    pub(crate) trace_mirror: Option<run_trace::TraceMirror>,
 }
 
 /// How a live action reaches the engine that owns a Run (ADR 0031).
@@ -4436,6 +4438,24 @@ impl Registry {
         }
     }
 
+    /// Builds a Run's trace writer, attaching the Browser host's mirror when set.
+    fn new_run_trace(
+        &self,
+        owner: Arc<TaskOwner>,
+        folder: &Path,
+        keys: &Keys,
+        logs_provenance: bool,
+    ) -> run_trace::RunTrace {
+        run_trace::RunTrace::new_with_mirror(
+            owner,
+            folder,
+            keys.secrets.mask().clone(),
+            self.setup.metrics.counted_work().clone(),
+            logs_provenance,
+            self.setup.trace_mirror.clone(),
+        )
+    }
+
     /// The live Run `run_id`, of `kind`, as its driver holds it, writing
     /// `state` in its folder, under its resolved `settings`, resolving its
     /// Secret references through `keys`, and what lets it finish, which
@@ -4464,13 +4484,7 @@ impl Registry {
             .provenance_log
             .is_none_or(|setting| get_or_default(resolved, setting));
         let owner = Arc::new(self.owner.child_for(OwnerKind::Run));
-        let trace = run_trace::RunTrace::new(
-            Arc::clone(&owner),
-            folder,
-            keys.secrets.mask().clone(),
-            self.setup.metrics.counted_work().clone(),
-            logs_provenance,
-        );
+        let trace = self.new_run_trace(Arc::clone(&owner), folder, &keys, logs_provenance);
         let (identity, stop) = RunIdentity::new(run_identity::Parts {
             id: run_id.clone(),
             folder: folder.to_owned(),

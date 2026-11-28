@@ -40,5 +40,21 @@ pub fn composition_with(handler_pages: impl HandlerPages + 'static) -> Compositi
         ))
 }
 
+/// What a Browser host's engine is composed of (ADRs 0022, 0096): only the
+/// engine's minimal Browser-host core, secret providers, and `goodfetch-page`'s
+/// driver, guard and interception — no Daemon, HTTP listener, Schedule, Audit,
+/// Usage, Needs-you or KV store.
+#[cfg(feature = "executable")]
+pub(crate) fn browser_host_composition(single_session: bool) -> Composition {
+    Composition::default()
+        .with(goodfetch_engine::browser_host_contribution())
+        .with(goodfetch_secret_providers::contribution())
+        .with(goodfetch_page::browser_host_contribution(
+            pins::pinned_artifacts(),
+            Arc::new(Detector),
+            single_session,
+        ))
+}
+
 #[cfg(test)]
 mod tests;

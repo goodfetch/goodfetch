@@ -16,6 +16,7 @@
 mod access_mode;
 pub mod blocks;
 mod browser_fetch;
+mod browser_host;
 mod browser_run;
 mod cdp;
 mod clean_up_versions;
@@ -72,7 +73,7 @@ pub use cdp::launch::{Launcher, Scripted, ScriptedBrowsers};
 pub use clean_up_versions::manifest_file;
 pub use fingerprint_method::{WPT_IDENTITY_SEED, WptLaunchArgs, wpt_launch_args};
 pub use human_input::{CURSORY_NAME, cursory_pin};
-pub use pages::{contribution, contribution_with};
+pub use pages::{browser_host_contribution, contribution, contribution_with};
 /// The proxy-or-site rule (spec #577): who answered a request sent through
 /// a proxy, which Foxhound's fetch tiers apply to their own answers too
 /// (spec #579).

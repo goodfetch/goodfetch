@@ -26,6 +26,27 @@ use crate::{
     signing_key_operations, usage,
 };
 
+/// What the engine adds to a Browser host's composition (ADRs 0022 and 0096):
+/// `engine.info`, the streaming/log RPC handlers (`events.subscribe`,
+/// `page.body`, `connection.set_log_level`), minimal Run lifecycle
+/// (`run.start`, `run.finish`, `run.abort`) and security controls, with no
+/// Daemon, HTTP listener, Run index, Schedule, Usage or Needs-you operations.
+pub fn browser_host_contribution() -> Contribution {
+    let contribution = run::browser_host_handlers()
+        .into_iter()
+        .chain(rpc::handlers())
+        .fold(
+            Contribution::new("goodfetch-engine-browser-host")
+                .with_handler(Handler::new(&ENGINE_INFO, engine_info))
+                .with_run_state_tables(robots_txt::TABLES),
+            Contribution::with_handler,
+        );
+    SECURITY_CONTROLS
+        .into_iter()
+        .fold(contribution, Contribution::with_control)
+        .with_recorded_listing(&EGRESS_PRIVATE_RANGES, &PRIVATE_ADDRESSES_ALLOWED, "ranges")
+}
+
 /// What the engine adds to every composition.
 pub fn contribution() -> Contribution {
     contribution_sharing(&Effects::default())

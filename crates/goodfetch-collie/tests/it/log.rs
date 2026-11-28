@@ -29,7 +29,8 @@ use std::sync::mpsc;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
-    Canaries, DISPATCH_TARGET, MESSAGE_DEADLINE, Output, SecretKind, TestEnv,
+    BROWSERS_PATH_VARIABLE, Canaries, DISPATCH_TARGET, MESSAGE_DEADLINE, Output, SecretKind,
+    TestEnv, Tool, browser_cache, tools,
 };
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::common::v1::any_value::Value as AnyValue;
@@ -555,4 +556,161 @@ fn no_secret_canary_a_client_sends_reaches_the_engines_logs() {
         (leaks, origins.first().cloned()),
         (vec![], Some(json!("https://example.test")))
     );
+}
+
+/// AC6 (ADR 0132, issue 753): Requests the engine sends the Browser host carry
+/// the Trace context in `_meta`, and the Browser host's spans join the
+/// engine's trace only while its own OTLP export is on.
+///
+/// Covers: story:5-108, setting:browser.host, setting:otlp.traces_endpoint
+#[rstest]
+#[case::host_otlp_on(true)]
+#[case::host_otlp_off(false)]
+fn browser_host_spans_join_the_engines_trace_only_while_its_otlp_export_is_on(
+    #[case] host_otlp_on: bool,
+) {
+    let engine_env = TestEnv::new();
+    let host_env = TestEnv::new();
+    let browsers = browser_cache(&host_env).unwrap();
+    let collie = tools().unwrap().path(Tool::Collie).unwrap().to_path_buf();
+
+    let (engine_endpoint, engine_exports) = collector();
+    let (host_endpoint, host_exports) = collector();
+    if host_otlp_on {
+        host_env.user_configuration(&format!("otlp.traces_endpoint = \"{host_endpoint}\""));
+    }
+
+    let token_path = host_env.folder().join("otlp-host.token");
+    let token = "browser-host-otlp-test-token";
+    std::fs::write(&token_path, token).unwrap();
+
+    let mut host_child = std::process::Command::new(&collie)
+        .env_clear()
+        .envs(host_env.env())
+        .env(BROWSERS_PATH_VARIABLE, &browsers)
+        .args([
+            goodfetch_protocol::cli::BROWSER_HOST,
+            "--listen",
+            "127.0.0.1:0",
+            "--token-file",
+        ])
+        .arg(&token_path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut host_stdout = BufReader::new(host_child.stdout.take().unwrap());
+    let mut ready_line = String::new();
+    assert!(host_stdout.read_line(&mut ready_line).unwrap() > 0);
+    let ready: goodfetch_protocol::page::browser_host::BrowserHostReady =
+        serde_json::from_str(ready_line.trim()).unwrap();
+
+    engine_env.user_configuration(&format!(
+        "otlp.traces_endpoint = \"{engine_endpoint}\"\nbrowser.host = {{ address = \"{}\", token_file = \"{}\" }}\n",
+        ready.address,
+        token_path.display()
+    ));
+
+    let mut engine = Attached::start(&engine_env, COLLIE);
+    engine.send(&hello(Product::Collie));
+    let _ = engine.next();
+    engine.send(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "run.start",
+        "params": { "run_id": "traced-host" },
+    }));
+    let started = engine.next().unwrap();
+    assert!(started.get("result").is_some(), "{started}");
+
+    engine.send(&json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "run.new_session",
+        "params": {
+            "run_id": "traced-host",
+            "_meta": { "traceparent": TRACEPARENT },
+        },
+    }));
+    let opened = engine.next().unwrap();
+    let session_id = opened["result"]["session_id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("expected session_id: {opened}"))
+        .to_owned();
+
+    engine.send(&json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "session.close",
+        "params": { "session_id": session_id },
+    }));
+    let closed = engine.next().unwrap();
+    assert!(closed.get("result").is_some(), "{closed}");
+
+    engine.send(&json!({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "run.finish",
+        "params": { "run_id": "traced-host" },
+    }));
+    let finished = engine.next().unwrap();
+    assert!(finished.get("result").is_some(), "{finished}");
+
+    let (_, succeeded) = engine.finish();
+    assert!(succeeded);
+    let host_status = host_child.wait().unwrap();
+    assert!(
+        host_status.success(),
+        "browser-host exited with {host_status}"
+    );
+
+    let expected_trace_id = vec![
+        0x0a, 0xf7, 0x65, 0x19, 0x16, 0xcd, 0x43, 0xdd, 0x84, 0x48, 0xeb, 0x21, 0x1c, 0x80, 0x31,
+        0x9c,
+    ];
+    let engine_client_spans: Vec<(String, Vec<u8>, Vec<u8>)> = engine_exports
+        .try_iter()
+        .flat_map(|request| request.resource_spans)
+        .flat_map(|resource| resource.scope_spans)
+        .flat_map(|scope| scope.spans)
+        .filter(|span| span.kind == 3 && span.trace_id == expected_trace_id)
+        .map(|span| (span.name, span.trace_id, span.span_id))
+        .collect();
+    assert!(
+        engine_client_spans
+            .iter()
+            .any(|(name, _, _)| name == "run.new_session"),
+        "expected engine CLIENT span for run.new_session on trace {expected_trace_id:02x?}, got {engine_client_spans:?}"
+    );
+
+    let host_server_spans: Vec<(String, Vec<u8>, Vec<u8>, i32)> = host_exports
+        .try_iter()
+        .flat_map(|request| request.resource_spans)
+        .flat_map(|resource| resource.scope_spans)
+        .flat_map(|scope| scope.spans)
+        .map(|span| (span.name, span.trace_id, span.parent_span_id, span.kind))
+        .collect();
+
+    if host_otlp_on {
+        let joined = host_server_spans
+            .iter()
+            .any(|(name, trace_id, parent_id, kind)| {
+                name == "run.new_session"
+                    && *kind == 2
+                    && *trace_id == expected_trace_id
+                    && engine_client_spans.iter().any(|(cname, _, cspan_id)| {
+                        cname == "run.new_session" && cspan_id == parent_id
+                    })
+            });
+        assert!(
+            joined,
+            "expected Browser host SERVER span for run.new_session to parent under engine CLIENT span; engine={engine_client_spans:?}, host={host_server_spans:?}"
+        );
+    } else {
+        assert!(
+            host_server_spans.is_empty(),
+            "expected no Browser host spans while its OTLP export is off, got {host_server_spans:?}"
+        );
+    }
 }

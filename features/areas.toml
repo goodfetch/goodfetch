@@ -1616,6 +1616,12 @@ number = 5
 kind = "error"
 prefix = "browser_host_unreachable"
 
+# The `browser-host` command (ADRs 0022, 0096; #753).
+[[area]]
+number = 5
+kind = "command"
+prefix = "browser-host"
+
 # Area 10, Scheduling (specs #588 and #589): the Schedule operations, the
 # CLI's `schedule` commands and their Error codes (#854).
 [[area]]

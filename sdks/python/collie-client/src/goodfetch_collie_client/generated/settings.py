@@ -33,6 +33,29 @@ class BrowserGeolocation(TypedDict):
     """Longitude in degrees, from -180 to 180."""
 
 
+class BrowserHost(TypedDict):
+    """What `browser.host` holds: the Browser host a Run's Sessions drive their
+    browsers through (ADRs 0022 and 0096).
+    """
+
+    address: str
+    """The Browser host's address, such as `127.0.0.1:9444`,
+    `ws://127.0.0.1:9444` or `wss://browser-host.example:9444`. A
+    non-loopback address without TLS (`wss://`) is refused, as `daemon run`
+    refuses one (ADRs 0017 and 0022).
+    """
+
+    token: NotRequired[str | None]
+    """Secret reference holding the Browser host's authentication token (such
+    as `env:BROWSER_HOST_TOKEN`), never a bare token value.
+    """
+
+    token_file: NotRequired[str | None]
+    """Path to the file holding the Browser host's authentication token (what
+    `browser-host --token-file` reads).
+    """
+
+
 class BrowserViewport(TypedDict):
     """A page's viewport size in CSS pixels (spec #578, SA-23): both dimensions
     at least 1. Default is 1280×720, Playwright's; `null` clears it for the
@@ -101,6 +124,12 @@ class ConnectionBrowserSettings(TypedDict):
     """Whether the Session's Chromium is Chrome for Testing's `chrome-headless-shell` build, of the same pinned release, in place of the full browser: `false` by default. The shell runs only headless and differs from the full browser in fingerprint and features: a site sees its own identity, `HeadlessChrome` in its user agent and client hints, where the full build shows its window's. It starts where the full browser's headless mode cannot, such as on macOS with no GUI session (`browser_needs_gui_session`). It is downloaded on first use, as the full build is. Refused with `setting_not_applicable` beside `browser.headless: false`, and under the `stealth` Access mode, which launches its own build; a Borrowed browser launches nothing, so it takes no effect there.
 
     `browser.headless_shell`.
+    """
+
+    host: NotRequired[BrowserHost | None]
+    """The Browser host a Run's Sessions drive their browsers through (ADRs 0022 and 0096): `{ address, token_file }` or `{ address, token }`, where `token` is a Secret reference such as `env:BROWSER_HOST_TOKEN`. Left unset (`null`), Sessions launch browsers locally; changing this setting alone moves the same program between a local browser and a Browser host. A non-loopback address without TLS (`wss://`) is refused. Only the program's own code, configuration and Operator policy set it.
+
+    `browser.host`.
     """
 
     is_mobile: NotRequired[bool]
@@ -1413,6 +1442,12 @@ class RunBrowserSettings(TypedDict):
     """Whether the Session's Chromium is Chrome for Testing's `chrome-headless-shell` build, of the same pinned release, in place of the full browser: `false` by default. The shell runs only headless and differs from the full browser in fingerprint and features: a site sees its own identity, `HeadlessChrome` in its user agent and client hints, where the full build shows its window's. It starts where the full browser's headless mode cannot, such as on macOS with no GUI session (`browser_needs_gui_session`). It is downloaded on first use, as the full build is. Refused with `setting_not_applicable` beside `browser.headless: false`, and under the `stealth` Access mode, which launches its own build; a Borrowed browser launches nothing, so it takes no effect there.
 
     `browser.headless_shell`.
+    """
+
+    host: NotRequired[BrowserHost | None]
+    """The Browser host a Run's Sessions drive their browsers through (ADRs 0022 and 0096): `{ address, token_file }` or `{ address, token }`, where `token` is a Secret reference such as `env:BROWSER_HOST_TOKEN`. Left unset (`null`), Sessions launch browsers locally; changing this setting alone moves the same program between a local browser and a Browser host. A non-loopback address without TLS (`wss://`) is refused. Only the program's own code, configuration and Operator policy set it.
+
+    `browser.host`.
     """
 
     is_mobile: NotRequired[bool]

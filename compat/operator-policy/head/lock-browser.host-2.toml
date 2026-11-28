@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[lock.browser]
+host = { address = "wss://browser-host.example:9444", token = "env:BROWSER_HOST_TOKEN" }

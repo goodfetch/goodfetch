@@ -96,6 +96,15 @@ impl Connection {
     pub fn split(self) -> (ConnectionReader, ConnectionWriter) {
         (self.reader, self.writer)
     }
+
+    /// Rejoins a split reader and writer back into a [`Connection`].
+    pub fn rejoin(reader: ConnectionReader, writer: ConnectionWriter) -> Self {
+        Self {
+            reader,
+            writer,
+            addresses: None,
+        }
+    }
 }
 
 /// What a Connection receives.

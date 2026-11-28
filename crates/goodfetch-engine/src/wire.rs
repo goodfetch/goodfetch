@@ -49,7 +49,7 @@ impl From<Vec<u8>> for Line {
 }
 
 /// The line of the notification `method` with `params`, encoded once.
-pub(crate) fn notification_line(method: &str, params: &impl Serialize) -> Vec<u8> {
+pub fn notification_line(method: &str, params: &impl Serialize) -> Vec<u8> {
     line(&Outgoing {
         jsonrpc: Version,
         method,
@@ -100,7 +100,7 @@ struct Request<'a, P> {
 /// Callgrind (`--cfg goodfetch_callgrind_names`), so that the run can name it
 /// in `E1.handled_page_wire_share` (ADR 0140).
 #[cfg_attr(goodfetch_callgrind_names, inline(never))]
-pub(crate) fn request_line(
+pub fn request_line(
     id: &RequestId,
     method: &str,
     params: &impl Serialize,
@@ -128,10 +128,7 @@ struct Success<'a, R> {
 /// reads under Callgrind (`--cfg goodfetch_callgrind_names`), so that the run
 /// can name it in `E1.handled_page_wire_share` (ADR 0140).
 #[cfg_attr(goodfetch_callgrind_names, inline(never))]
-pub(crate) fn success_line(
-    id: &RequestId,
-    result: &impl Serialize,
-) -> Result<Vec<u8>, serde_json::Error> {
+pub fn success_line(id: &RequestId, result: &impl Serialize) -> Result<Vec<u8>, serde_json::Error> {
     let mut line = serde_json::to_vec(&Success {
         jsonrpc: Version,
         id,
@@ -142,7 +139,7 @@ pub(crate) fn success_line(
 }
 
 /// The line of `message`, a message of JSON values.
-pub(crate) fn line(message: &impl Serialize) -> Vec<u8> {
+pub fn line(message: &impl Serialize) -> Vec<u8> {
     let mut line =
         serde_json::to_vec(message).expect("invariant: a message of JSON values always encodes");
     line.push(b'\n');

@@ -202,17 +202,43 @@ pub(crate) enum Access {
     LiveView(Arc<dyn DaemonSide>, Arc<Authorities>),
     /// An Attached engine's private endpoint: its token.
     PrivateEndpoint(Arc<str>),
+    /// A Browser host listening for an engine (`browser-host --listen`,
+    /// ADRs 0022 and 0096): requires its token, accepts engines of either
+    /// Product as Collie under `LowerMinor`.
+    BrowserHost(Arc<str>, crate::run_trace::TraceMirror),
+    /// A Browser host that connected out to an engine (`browser-host --connect`,
+    /// ADR 0056): already authenticated by its outbound `hello`, ready to serve
+    /// Session operations.
+    BrowserHostOutbound(crate::run_trace::TraceMirror),
 }
 
 impl Access {
+    /// The Run-trace mirror for a Browser host Connection, if any.
+    fn trace_mirror(&self) -> Option<crate::run_trace::TraceMirror> {
+        match self {
+            Self::BrowserHost(_, mirror) | Self::BrowserHostOutbound(mirror) => {
+                Some(mirror.clone())
+            }
+            _ => None,
+        }
+    }
+
+    /// The handshake role this access mode accepts.
+    const fn handshake_role(&self) -> handshake::Role {
+        match self {
+            Self::BrowserHost(..) => handshake::Role::BrowserHost,
+            _ => handshake::Role::Engine,
+        }
+    }
+
     /// The token its `hello` must carry, if any.
     fn token(&self) -> Option<&str> {
         match self {
-            Self::Attached(..) => None,
+            Self::Attached(..) | Self::BrowserHostOutbound(_) => None,
             Self::Daemon(daemon) | Self::Exposed(daemon, _) | Self::LiveView(daemon, _) => {
                 Some(daemon.token())
             }
-            Self::PrivateEndpoint(token) => Some(token),
+            Self::PrivateEndpoint(token) | Self::BrowserHost(token, _) => Some(token),
         }
     }
 
@@ -226,7 +252,11 @@ impl Access {
         let carriage = match self {
             _ if behind_gateway => Carriage::Remote,
             Self::Exposed(..) | Self::LiveView(..) => Carriage::Remote,
-            Self::Attached(..) | Self::Daemon(_) | Self::PrivateEndpoint(_) => Carriage::Local,
+            Self::Attached(..)
+            | Self::Daemon(_)
+            | Self::PrivateEndpoint(_)
+            | Self::BrowserHost(..)
+            | Self::BrowserHostOutbound(_) => Carriage::Local,
         };
         Principal::of(carriage)
     }
@@ -237,7 +267,10 @@ impl Access {
             Self::Daemon(daemon) | Self::Exposed(daemon, _) | Self::LiveView(daemon, _) => {
                 Some(Arc::clone(daemon))
             }
-            Self::Attached(..) | Self::PrivateEndpoint(_) => None,
+            Self::Attached(..)
+            | Self::PrivateEndpoint(_)
+            | Self::BrowserHost(..)
+            | Self::BrowserHostOutbound(_) => None,
         }
     }
 
@@ -248,7 +281,9 @@ impl Access {
         match self {
             Self::Attached(..) => Listener::Stdio,
             Self::Daemon(_) => Listener::DaemonSocket,
-            Self::Exposed(..) => Listener::ExposedDaemon,
+            Self::Exposed(..) | Self::BrowserHost(..) | Self::BrowserHostOutbound(_) => {
+                Listener::ExposedDaemon
+            }
             Self::LiveView(..) => Listener::LiveView,
             Self::PrivateEndpoint(_) => Listener::PrivateEndpoint,
         }
@@ -422,7 +457,11 @@ async fn carriage(
                 Forwarded::Ignored,
                 &[Path::LiveView],
             ),
-            Access::Attached(..) | Access::Daemon(_) | Access::PrivateEndpoint(_) => {
+            Access::Attached(..)
+            | Access::Daemon(_)
+            | Access::PrivateEndpoint(_)
+            | Access::BrowserHost(..)
+            | Access::BrowserHostOutbound(_) => {
                 let (reader, writer) = connection.split();
                 let reader = Prefixed::new(Vec::new(), reader);
                 return Some(Way::Protocol(
@@ -593,6 +632,8 @@ async fn terminated(
 
 /// Serves `connection` until it ends, its tasks those of `owner`, its calls
 /// given `engine`, lingering on its clock after the engine closes it.
+/// Returns `true` when the Connection opened via an accepted `hello` (or was
+/// pre-authenticated outbound).
 ///
 /// # Cancel safety
 ///
@@ -606,7 +647,7 @@ pub(crate) async fn serve(
     events: Events,
     access: Access,
     engine: EngineContext,
-) {
+) -> bool {
     let metrics = dispatch.metrics.clone();
     let serving = async {
         let (opening, machine) = Opening::of(&access, &engine).await.unzip();
@@ -630,9 +671,10 @@ pub(crate) async fn serve(
             Some(Way::Protocol(reading, writing, listener)) => (reading, writing, listener),
             Some(Way::LiveView(socket)) => {
                 let opened = opening.zip(machine);
-                return watch(*socket, &access, dispatch.masks.clone(), opened, &engine).await;
+                watch(*socket, &access, dispatch.masks.clone(), opened, &engine).await;
+                return false;
             }
-            None => return,
+            None => return false,
         };
         serve_carried(
             dispatch,
@@ -648,18 +690,21 @@ pub(crate) async fn serve(
             access,
             engine,
         )
-        .await;
+        .await
     };
     // The serving task's watch (ADR 0148): its own panic, such as one
     // while it handles a message, ends only its Connection, which its
     // caller then stops as when its Client went away.
-    if AssertUnwindSafe(serving).catch_unwind().await.is_err() {
+    if let Ok(authenticated) = AssertUnwindSafe(serving).catch_unwind().await {
+        authenticated
+    } else {
         metrics.panicked(PanicEnded::Connection);
         tracing::error!(
             owner = OwnerKind::Connection.as_str(),
             crash_report = crash_report::take_written().as_deref(),
             "the task that serves a Connection panicked; the Connection ends"
         );
+        false
     }
 }
 
@@ -682,7 +727,7 @@ async fn serve_carried(
     events: Events,
     access: Access,
     engine: EngineContext,
-) {
+) -> bool {
     let clock = engine.clock();
     let Carried {
         mut reading,
@@ -730,6 +775,69 @@ async fn serve_carried(
             () = stop_logging.cancelled() => {}
         }
     });
+    let (connection, state) = open_context(
+        &dispatch, client, runs, events, engine, daemon, &access, log,
+    );
+    let trace_mirror = access.trace_mirror();
+    if let Some(mirror) = &trace_mirror {
+        mirror.attach(outgoing.clone()).await;
+    }
+    let mut session = Session {
+        dispatch,
+        owner,
+        outgoing,
+        completed,
+        completions,
+        own_task_panicked: false,
+        in_flight: BTreeMap::new(),
+        state,
+        connection,
+        requests,
+        pending: BTreeMap::new(),
+        opened_client: None,
+        access,
+        listener,
+        opening,
+        closing,
+        fallback_trace: None,
+        single_request: false,
+    };
+    let ended = session.run(&mut reading).await;
+    if let Some(mirror) = &trace_mirror {
+        mirror.detach().await;
+    }
+    let authenticated = session.connection.surface.get().is_some();
+    logging.cancel();
+    session.cancel_in_flight();
+    drop(session);
+    owner.wait().await;
+    let panicked = owner.has_panicked();
+    if panicked {
+        metrics.panicked(PanicEnded::Connection);
+    }
+    if !ended && !panicked {
+        linger(&mut reading, clock).await;
+    }
+    authenticated
+}
+
+/// Builds the Connection's [`ConnectionContext`] and initial [`ConnectionState`],
+/// pre-authenticating an outbound Browser host connection whose `hello` already
+/// succeeded.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "assembles ConnectionContext's fields from serve_carried"
+)]
+fn open_context(
+    dispatch: &Dispatch,
+    client: Client,
+    runs: Runs,
+    events: Events,
+    engine: EngineContext,
+    daemon: Option<Arc<dyn DaemonSide>>,
+    access: &Access,
+    log: ConnectionLog,
+) -> (Arc<ConnectionContext>, ConnectionState) {
     let connection = Arc::new(ConnectionContext {
         identity: Arc::clone(&dispatch.identity),
         client,
@@ -748,41 +856,18 @@ async fn serve_carried(
         exposed: matches!(access, Access::Exposed(..)),
         log,
     });
-    let mut session = Session {
-        dispatch,
-        owner,
-        outgoing,
-        completed,
-        completions,
-        own_task_panicked: false,
-        in_flight: BTreeMap::new(),
-        state: ConnectionState::Opening,
-        connection,
-        requests,
-        pending: BTreeMap::new(),
-        opened_client: None,
-        access,
-        listener,
-        opening,
-        closing,
-        fallback_trace: None,
-        single_request: false,
+    let state = if matches!(access, Access::BrowserHostOutbound(_)) {
+        let _ = connection.principal.set(Principal::of(Carriage::Local));
+        let _ = connection.surface.set(Surface::Rust);
+        let _ = connection.form.set(Form::Catalog);
+        let _ = connection.behind_gateway.set(false);
+        let _ = connection.settings.set(Map::new());
+        let _ = connection.registered.set(Map::new());
+        ConnectionState::Open
+    } else {
+        ConnectionState::Opening
     };
-    let ended = session.run(&mut reading).await;
-    logging.cancel();
-    session.cancel_in_flight();
-    drop(session);
-    owner.wait().await;
-    // Every task of its owner ended, so a panic among them was told, even
-    // one the serving loop met first as its writer gone (ADR 0148): it
-    // counts once, and the Connection ends without lingering.
-    let panicked = owner.has_panicked();
-    if panicked {
-        metrics.panicked(PanicEnded::Connection);
-    }
-    if !ended && !panicked {
-        linger(&mut reading, clock).await;
-    }
+    (connection, state)
 }
 
 /// Once the engine closed a Connection whose Client still sends, such as
@@ -1310,6 +1395,7 @@ impl Session<'_> {
                 &self.dispatch.identity,
                 self.connection.events.instance(),
                 &hello,
+                self.access.handshake_role(),
             )
             .map(|accepted| {
                 let surface = accepted.surface;
@@ -1921,7 +2007,12 @@ pub(crate) async fn check_http_hello(
     daemon: &dyn DaemonSide,
     hello: &HelloParams,
 ) -> Result<(), CallError> {
-    match handshake::answer(&dispatch.identity, events.instance(), hello) {
+    match handshake::answer(
+        &dispatch.identity,
+        events.instance(),
+        hello,
+        handshake::Role::Engine,
+    ) {
         Ok(_) => Ok(()),
         Err(refusal) => {
             let handover = if refusal.by_product_or_version() {
@@ -1985,6 +2076,7 @@ async fn serve_http_inner(
         &context.dispatch.identity,
         context.events.instance(),
         &request.hello,
+        handshake::Role::Engine,
     ) {
         Ok(accepted) => accepted,
         Err(refusal) => {

@@ -117,7 +117,7 @@ mod usage;
 pub mod user_store;
 pub mod warc;
 pub mod webhook_signing;
-mod wire;
+pub mod wire;
 
 pub use call_error::{CallError, named};
 pub use composition::{
@@ -127,7 +127,7 @@ pub use composition::{
 pub use engine::{AttachedFailure, Dependencies, Engine};
 pub use engine_context::{CALLER, EngineContext};
 pub use forward::DaemonReach;
-pub use info::contribution;
+pub use info::{browser_host_contribution, contribution};
 pub use kept_by_the_daemon::kept_by_the_daemon;
 pub use product::{Channel, Identity, Requested};
 pub use run_index::RunIndex;

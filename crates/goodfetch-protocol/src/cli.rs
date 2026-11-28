@@ -18,6 +18,10 @@ use crate::entries::MODULES;
 /// harnesses start (ADR 0024).
 pub const ATTACHED_ENGINE: &str = "attached-engine";
 
+/// The command of both Products' executables that runs as a Browser host beside
+/// a browser (ADRs 0022 and 0096).
+pub const BROWSER_HOST: &str = "browser-host";
+
 /// What a command prints under `--json` when it fails.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

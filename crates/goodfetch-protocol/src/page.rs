@@ -55,6 +55,7 @@ use crate::settings::SettingLimit;
 pub mod access_mode;
 pub mod ai_work;
 pub mod borrow;
+pub mod browser_host;
 pub mod cdp_session;
 pub mod cdp_url;
 pub mod dialog;
@@ -2117,6 +2118,7 @@ pub const ENTRIES: Entries = Entries {
         BROWSER_CDP_COMMAND_LOG,
         BROWSER_BLOCK_RESOURCES,
         BROWSER_SERVICE_WORKERS,
+        browser_host::BROWSER_HOST,
         LIVE_VIEW_HIDING,
         CONTENT_EXTRACTOR,
         EXTRACTION_REMOVAL_SHARE,

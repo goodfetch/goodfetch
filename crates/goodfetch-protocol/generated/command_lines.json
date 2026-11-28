@@ -23,6 +23,10 @@
         "name": "browser"
       },
       {
+        "commands": [],
+        "name": "browser-host"
+      },
+      {
         "commands": [
           {
             "commands": [],
@@ -533,6 +537,10 @@
           }
         ],
         "name": "browser"
+      },
+      {
+        "commands": [],
+        "name": "browser-host"
       },
       {
         "commands": [

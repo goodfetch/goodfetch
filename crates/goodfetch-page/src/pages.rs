@@ -57,7 +57,9 @@ use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::run::{limit_not_understood, limit_reached};
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::settings::RunSettings;
-use goodfetch_engine::{CallContext, CallError, Contribution, Enclose, Guard, Handler, named};
+use goodfetch_engine::{
+    CallContext, CallError, Contribution, Enclose, Guard, Handler, RunOfCall, named,
+};
 use goodfetch_extractor::{BuiltIn, Serialization};
 use goodfetch_protocol::connection::{Form, WaitedFor};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
@@ -83,7 +85,7 @@ use goodfetch_protocol::page::route::{
 };
 use goodfetch_protocol::page::session::{
     NewSessionPageParams, NewSessionParams, RUN_NEW_SESSION, SESSION_CLOSE, SESSION_NEW_PAGE,
-    SessionClosed, SessionParams,
+    SessionClosed, SessionOpened, SessionParams,
 };
 use goodfetch_protocol::page::session_pages::{
     self, PageCloseParams, PageClosed, SESSION_ON, SESSION_PAGES, SessionEventName, SessionOnParams,
@@ -91,8 +93,8 @@ use goodfetch_protocol::page::session_pages::{
 use goodfetch_protocol::page::{
     Acted, ClickParams, FillParams, FormatsParams, FormatsRequest, GotoParams, LOCATOR_CLICK,
     LOCATOR_FILL, LOCATOR_PRESS, Locator, Navigated, NewPageParams, PAGE_FORMATS, PAGE_GO_BACK,
-    PAGE_GO_FORWARD, PAGE_GOTO, PAGE_RELOAD, PageFormats, PageId, PageParams, PageResponse,
-    PressParams, RUN_NEW_PAGE, SessionId, WaitUntil,
+    PAGE_GO_FORWARD, PAGE_GOTO, PAGE_RELOAD, PageFormats, PageId, PageOpened, PageParams,
+    PageResponse, PressParams, RUN_NEW_PAGE, SessionId, WaitUntil,
 };
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingsLayer};
@@ -101,6 +103,7 @@ use serde_json::Value;
 
 use crate::blocks::{Block, BlockClassifier, NoBlocks};
 use crate::browser_fetch;
+use crate::browser_host::{self, RemoteSessions};
 use crate::browser_run::BrowserRun;
 use crate::cdp::launch::Launcher;
 use crate::cdp::{CdpPage, SerializedDocument};
@@ -160,6 +163,47 @@ pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
     )
 }
 
+/// What the page crate adds to a Browser host engine (ADRs 0022, 0096):
+/// `goodfetch-page`'s full driver, guard and interception running beside its
+/// browser; when `single_session` is true (`browser-host --listen`), it
+/// serves at most one Session.
+pub fn browser_host_contribution(
+    pins: Vec<PinnedArtifact>,
+    blocks: Arc<dyn BlockClassifier>,
+    single_session: bool,
+) -> Contribution {
+    let contribution = contribution_with((pins, Launcher::Executable), ProgramPages, blocks);
+    if single_session {
+        contribution.guarded(&browser_host::single_session_guard())
+    } else {
+        contribution
+    }
+}
+
+/// Finds the Run of a local or Browser-host page/Session for `RunOfCall`.
+struct PageRuns {
+    sessions: Sessions,
+    remote: Arc<RemoteSessions>,
+}
+
+impl RunOfCall for PageRuns {
+    fn page_run<'a>(
+        &'a self,
+        page_id: &'a str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<RunId>> + Send + 'a>> {
+        Box::pin(async move {
+            if let Some(run_id) = self.sessions.page_run(page_id).await {
+                return Some(run_id);
+            }
+            self.remote.page_run(&PageId(page_id.to_owned())).await
+        })
+    }
+
+    fn session_run(&self, session_id: &str) -> Option<RunId> {
+        self.sessions.session_run(session_id)
+    }
+}
+
 /// What the page crate adds to the engine, as [`contribution`], each page
 /// it opens taking its value and its response observer from
 /// `handler_pages` (ADR 0087): the seam through which Foxhound sets them
@@ -175,6 +219,7 @@ pub fn contribution_with(
     let handler_pages: Arc<dyn HandlerPages> = Arc::new(handler_pages);
     let interception = Interception::with_blocks(Arc::clone(&blocks));
     let dialogs = Dialogs::default();
+    let remote = Arc::new(RemoteSessions::default());
     let pages = Pages {
         sessions: Sessions::new(
             (pins, launcher),
@@ -189,10 +234,14 @@ pub fn contribution_with(
         lends: lend::ActiveLends::default(),
         product: handler_pages,
         blocks,
+        remote: Arc::clone(&remote),
     };
     let contribution = with_page_handlers(
         Contribution::new("page")
-            .with_run_of_call(Arc::new(pages.sessions.clone()))
+            .with_run_of_call(Arc::new(PageRuns {
+                sessions: pages.sessions.clone(),
+                remote: Arc::clone(&remote),
+            }))
             .with_watched_sessions(Arc::new(pages.sessions.watched()))
             .with_run_state_tables(sessions::TABLES)
             .with_politeness_tables(proxy::TABLES)
@@ -200,7 +249,7 @@ pub fn contribution_with(
         &pages,
     );
     let contribution = with_page_read_handlers(contribution, &pages);
-    let contribution = with_session_handlers(contribution, &pages.sessions);
+    let contribution = with_session_handlers(contribution, &pages.sessions, &remote);
     let contribution = with_locator_handlers(contribution, &pages);
     let contribution = input::with_input_handlers(contribution, &pages);
     let contribution = with_event_handlers(contribution, &pages);
@@ -218,6 +267,8 @@ pub fn contribution_with(
     pages.product.opened(Arc::new(Opener {
         pages: pages.clone(),
     }));
+    // Route calls on Sessions driven through a Browser host over their link.
+    let contribution = contribution.guarded(&remote.guard());
     // A call on a page a fetch tier serves from a document is the
     // Product's to answer, serve or refuse (ADR 0093).
     let product = Arc::clone(&pages.product);
@@ -518,8 +569,13 @@ fn pattern_of(matcher: &UrlMatcher) -> Result<UrlPattern, CallError> {
 
 /// Adds the handlers of `run.new_session`, `session.new_page`,
 /// `session.close`, `session.pages`, `session.on` and `page.close`.
-fn with_session_handlers(contribution: Contribution, sessions: &Sessions) -> Contribution {
+fn with_session_handlers(
+    contribution: Contribution,
+    sessions: &Sessions,
+    remote: &Arc<RemoteSessions>,
+) -> Contribution {
     let (opening, paging, closing) = (sessions.clone(), sessions.clone(), sessions.clone());
+    let opening_remote = Arc::clone(remote);
     let (listing, listening, closing_page, saving) = (
         sessions.clone(),
         sessions.clone(),
@@ -566,7 +622,23 @@ fn with_session_handlers(contribution: Contribution, sessions: &Sessions) -> Con
             &RUN_NEW_SESSION,
             move |params: NewSessionParams, context: CallContext| {
                 let sessions = opening.clone();
-                async move { sessions.new_session(params, &context).await }
+                let remote = Arc::clone(&opening_remote);
+                async move {
+                    if let Some(opened) = browser_host::maybe_open_remote(
+                        &remote,
+                        &RUN_NEW_SESSION,
+                        &params,
+                        params.run_id.clone(),
+                        &context,
+                    )
+                    .await?
+                    {
+                        return serde_json::from_value::<SessionOpened>(opened).map_err(|error| {
+                            CallError::protocol(ProtocolFailure::InternalError, error.to_string())
+                        });
+                    }
+                    sessions.new_session(params, &context).await
+                }
             },
         ))
         .with_handler(Handler::new(
@@ -812,6 +884,34 @@ fn answered(reply: Result<Reply, CallError>) -> Result<RouteAnswered, CallError>
     reply.map(|_| RouteAnswered {})
 }
 
+/// Opens a page in the Run's default Session, routing to a Browser host when
+/// `browser.host` is configured on the Run.
+async fn open_default_page(
+    pages: Pages,
+    params: NewPageParams,
+    context: CallContext,
+) -> Result<PageOpened, CallError> {
+    if let Some(opened) = Box::pin(browser_host::maybe_open_remote(
+        &pages.remote,
+        &RUN_NEW_PAGE,
+        &params,
+        params.run_id.clone(),
+        &context,
+    ))
+    .await?
+    {
+        return serde_json::from_value::<PageOpened>(opened).map_err(|error| {
+            CallError::protocol(ProtocolFailure::InternalError, error.to_string())
+        });
+    }
+    Box::pin(
+        pages
+            .sessions
+            .new_default_page(&params.run_id, &params.settings, &context),
+    )
+    .await
+}
+
 /// Adds the handlers of `run.new_page` and the navigations.
 fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
     let (opening, going, reloading, going_back, going_forward) = (
@@ -825,17 +925,9 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
         .with_handler(Handler::new(
             &RUN_NEW_PAGE,
             move |params: NewPageParams, context: CallContext| {
-                let pages = opening.clone();
                 // Boxed: a page's opening, its browser's launch included, is
                 // past clippy's large-future size on Windows.
-                async move {
-                    Box::pin(pages.sessions.new_default_page(
-                        &params.run_id,
-                        &params.settings,
-                        &context,
-                    ))
-                    .await
-                }
+                Box::pin(open_default_page(opening.clone(), params, context))
             },
         ))
         .with_handler(Handler::new(
@@ -1311,6 +1403,8 @@ struct Pages {
     product: Arc<dyn HandlerPages>,
     /// The Product's Block classification.
     blocks: Arc<dyn BlockClassifier>,
+    /// Routing table of Sessions driven through remote Browser hosts.
+    remote: Arc<RemoteSessions>,
 }
 
 impl Pages {

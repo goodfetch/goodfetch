@@ -81,7 +81,7 @@ use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{Composition, Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::cli::ATTACHED_ENGINE;
+use goodfetch_protocol::cli::{ATTACHED_ENGINE, BROWSER_HOST};
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::daemon::DRAIN_GRACE;
 use goodfetch_protocol::governor::HUGE_PAGES;
@@ -101,6 +101,7 @@ mod allocator;
 mod attached_ops;
 mod audit;
 mod audit_events;
+mod browser_host;
 mod browsers;
 pub mod catalog_commands;
 mod certs;
@@ -180,6 +181,9 @@ enum Command {
         #[command(flatten)]
         _colour: ColourFlag,
     },
+    /// `browser-host`, whose help is its arguments' doc comment.
+    #[command(name = BROWSER_HOST)]
+    BrowserHost(browser_host::Arguments),
     /// Exports and verifies the user's Audit log.
     Audit {
         #[command(subcommand)]
@@ -509,36 +513,32 @@ pub fn main(start: &Start) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let engine = match Engine::new(identity, &(start.composition)()) {
-        // Settings that cannot be read keep the drain grace's default.
-        Ok(engine) => instrumented(engine, log_events, logs.audit_events())
-            .with_masks(masks)
-            .with_driver_slot(keys)
-            .with_drain_grace(get_or_default(read, &DRAIN_GRACE)),
-        Err(error) => {
-            tracing::error!(%error, "the composition cannot start an engine");
-            return ExitCode::FAILURE;
-        }
+    let Ok(engine) = build_engine(
+        start,
+        &parsed,
+        identity,
+        read,
+        log_events,
+        logs.audit_events(),
+        masks,
+        keys,
+    ) else {
+        return ExitCode::FAILURE;
     };
-    // Both are found once the Product version parsed, as `identity` asks.
     let Some((home, settings)) = home.zip(settings) else {
         tracing::error!("no Goodfetch home: set GOODFETCH_HOME, or a home folder the OS knows");
         return ExitCode::FAILURE;
     };
-    // An Attached engine sends the calls its major's Daemon keeps to it,
-    // starting it as a relay does; a Daemon serves them itself.
-    let reach = daemon::DaemonOfTheMajor {
-        identity: engine.identity().clone(),
-        home: home.clone(),
-        environment: environment.clone(),
-        executable: std::env::current_exe().ok(),
+    let engine = attach_daemon_and_age_notice(
+        engine,
+        start.release_date,
+        &parsed,
+        launched,
+        &home,
+        &environment,
         clock,
-        settings: settings.clone(),
-    };
-    let engine = engine.with_daemon_reach(Arc::new(reach));
-    if !launched {
-        age_notice(start.release_date, &home, engine.identity(), clock);
-    }
+        &settings,
+    );
     let Ok(entropy) = entropy.inspect_err(|error| {
         tracing::error!(%error, "the engine has no seed for its random choices");
     }) else {
@@ -563,6 +563,79 @@ pub fn main(start: &Start) -> ExitCode {
         &environment,
         &human,
     )
+}
+
+/// Builds the process's [`Engine`], choosing the minimal Browser host
+/// composition (as Collie) for `browser-host` and the executable's full
+/// composition for every other command.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "assembles Engine from main's already-initialized handles"
+)]
+fn build_engine(
+    start: &Start,
+    parsed: &Parsed,
+    identity: Identity,
+    read: Option<&Resolved>,
+    log_events: LogEvents,
+    audit_events: Option<AuditEvents>,
+    masks: Masks,
+    keys: DriverSlot,
+) -> Result<Engine, ()> {
+    let (engine_identity, composition) = match parsed {
+        Parsed::HandWritten(Command::BrowserHost(arguments)) => (
+            Identity {
+                product: Product::Collie,
+                ..identity
+            },
+            crate::composition::browser_host_composition(arguments.listen.is_some()),
+        ),
+        _ => (identity, (start.composition)()),
+    };
+    match Engine::new(engine_identity, &composition) {
+        Ok(engine) => Ok(instrumented(engine, log_events, audit_events)
+            .with_masks(masks)
+            .with_driver_slot(keys)
+            .with_drain_grace(get_or_default(read, &DRAIN_GRACE))),
+        Err(error) => {
+            tracing::error!(%error, "the composition cannot start an engine");
+            Err(())
+        }
+    }
+}
+
+/// Attaches the major's Daemon reach and prints any release-age notice for
+/// normal commands, omitting both on a Browser host.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "passes main's already-initialized home, environment, clock and settings"
+)]
+fn attach_daemon_and_age_notice(
+    engine: Engine,
+    release_date: Option<&'static str>,
+    parsed: &Parsed,
+    launched: bool,
+    home: &Home,
+    environment: &BTreeMap<OsString, OsString>,
+    clock: Clock,
+    settings: &Result<Resolved, SettingsError>,
+) -> Engine {
+    if matches!(parsed, Parsed::HandWritten(Command::BrowserHost(_))) {
+        return engine;
+    }
+    let reach = daemon::DaemonOfTheMajor {
+        identity: engine.identity().clone(),
+        home: home.clone(),
+        environment: environment.clone(),
+        executable: std::env::current_exe().ok(),
+        clock,
+        settings: settings.clone(),
+    };
+    let engine = engine.with_daemon_reach(Arc::new(reach));
+    if !launched {
+        age_notice(release_date, home, engine.identity(), clock);
+    }
+    engine
 }
 
 /// The hidden `plugin-shim` mode, a Plugin's launcher (ADR 0033), which
@@ -764,10 +837,12 @@ fn with_passed_variables(
 fn records_the_executable(parsed: &Parsed) -> bool {
     !matches!(
         parsed,
-        Parsed::HandWritten(Command::Daemon {
-            command: DaemonCommand::Launched { .. },
-            ..
-        })
+        Parsed::HandWritten(
+            Command::Daemon {
+                command: DaemonCommand::Launched { .. },
+                ..
+            } | Command::BrowserHost(_)
+        )
     )
 }
 
@@ -810,6 +885,9 @@ fn run(
             command: BrowserCommand::Clean { dry_run, json },
             ..
         } => browsers::clean(&machine, (dry_run, json), human),
+        Command::BrowserHost(arguments) => {
+            browser_host::run(&arguments, engine, dependencies, &machine)
+        }
         Command::Config {
             command:
                 ConfigCommand::Explain {

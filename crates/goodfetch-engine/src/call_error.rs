@@ -36,6 +36,15 @@ enum Failure {
         failure: ProtocolFailure,
         message: String,
     },
+    /// A failure relayed from another Goodfetch process (such as a Browser
+    /// host) whose Error code was not in this catalog.
+    Forwarded {
+        code: i32,
+        error_code: &'static str,
+        retryable: bool,
+        message: String,
+        details: Map<String, Value>,
+    },
 }
 
 /// A failure's message and details as written, marks and all.
@@ -126,18 +135,54 @@ impl CallError {
         self
     }
 
+    /// Reconstructs a [`CallError`] from a wire [`ErrorObject`] returned by
+    /// another Goodfetch process such as a Browser host, preserving its Error
+    /// code, retryable flag, message and details.
+    pub fn from_wire(error: ErrorObject) -> Self {
+        if let Some(definition) = goodfetch_protocol::entries::error_code(&error.data.code) {
+            return Self(Box::new(Failure::Code {
+                definition,
+                message: error.message,
+                details: error.data.details,
+                marked: None,
+            }));
+        }
+        let protocol = match error.code {
+            -32700 => Some(ProtocolFailure::ParseError),
+            -32600 => Some(ProtocolFailure::InvalidRequest),
+            -32601 => Some(ProtocolFailure::MethodNotFound),
+            -32602 => Some(ProtocolFailure::InvalidParams),
+            -32603 => Some(ProtocolFailure::InternalError),
+            _ => None,
+        };
+        if let Some(failure) = protocol {
+            return Self(Box::new(Failure::Protocol {
+                failure,
+                message: error.message,
+            }));
+        }
+        Self(Box::new(Failure::Forwarded {
+            code: error.code,
+            error_code: "internal_error",
+            retryable: error.data.retryable,
+            message: error.message,
+            details: error.data.details,
+        }))
+    }
+
     /// Its Error code, or the protocol failure's name.
     pub fn code(&self) -> &'static str {
         match &*self.0 {
             Failure::Code { definition, .. } => definition.name,
             Failure::Protocol { failure, .. } => failure.name(),
+            Failure::Forwarded { error_code, .. } => error_code,
         }
     }
 
     /// Its Error code's details; none for a protocol failure.
     pub fn details(&self) -> Option<&Map<String, Value>> {
         match &*self.0 {
-            Failure::Code { details, .. } => Some(details),
+            Failure::Code { details, .. } | Failure::Forwarded { details, .. } => Some(details),
             Failure::Protocol { .. } => None,
         }
     }
@@ -145,7 +190,9 @@ impl CallError {
     /// What it says, for people.
     pub fn message(&self) -> &str {
         match &*self.0 {
-            Failure::Code { message, .. } | Failure::Protocol { message, .. } => message,
+            Failure::Code { message, .. }
+            | Failure::Protocol { message, .. }
+            | Failure::Forwarded { message, .. } => message,
         }
     }
 
@@ -155,6 +202,7 @@ impl CallError {
         match &*self.0 {
             Failure::Code { definition, .. } => definition.retryable,
             Failure::Protocol { .. } => false,
+            Failure::Forwarded { retryable, .. } => *retryable,
         }
     }
 
@@ -164,6 +212,7 @@ impl CallError {
         match &*self.0 {
             Failure::Code { definition, .. } => definition.group.json_rpc_class(),
             Failure::Protocol { failure, .. } => failure.code(),
+            Failure::Forwarded { code, .. } => *code,
         }
     }
 
@@ -181,6 +230,12 @@ impl CallError {
                 details.clone(),
             ),
             Failure::Protocol { failure, .. } => (failure.code(), false, Map::new()),
+            Failure::Forwarded {
+                code,
+                retryable,
+                details,
+                ..
+            } => (*code, *retryable, details.clone()),
         }
     }
 
@@ -206,7 +261,9 @@ impl CallError {
                 let (message, details) = marked.rendered(form);
                 self.object(message, details)
             }
-            Failure::Code { .. } | Failure::Protocol { .. } => self.to_error_object(),
+            Failure::Code { .. } | Failure::Protocol { .. } | Failure::Forwarded { .. } => {
+                self.to_error_object()
+            }
         }
     }
 

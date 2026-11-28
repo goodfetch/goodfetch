@@ -121,6 +121,7 @@ headless_shell = true
 cdp_command_log = true
 block_resources = ["image"]
 service_workers = "allow"
+host = { address = "127.0.0.1:9444", token_file = "/run/goodfetch/browser-host.token" }
 access_mode = "standard"
 viewport = { height = 720, width = 1280 }
 device_scale_factor = 1.5
@@ -605,6 +606,7 @@ headless_shell = true
 cdp_command_log = true
 block_resources = ["image"]
 service_workers = "allow"
+host = { address = "127.0.0.1:9444", token_file = "/run/goodfetch/browser-host.token" }
 access_mode = "standard"
 viewport = { height = 720, width = 1280 }
 device_scale_factor = 1.5

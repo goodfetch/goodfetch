@@ -232,7 +232,7 @@ pub(crate) fn server_span(
 
 /// The `CLIENT` span of a request of `method` the process sends, the child
 /// of the current span. Only the RPC layer opens one.
-pub(crate) fn client_span(method: &'static str) -> Span {
+pub fn client_span(method: &'static str) -> Span {
     tracing::debug_span!(
         target: TRACE_TARGET,
         "request",
@@ -269,7 +269,7 @@ pub fn sent(span: &Span) -> Option<TraceContext> {
 /// Records on a request's `span` the id it went under, when that is a
 /// number: a text id is its sender's choice of any length and content,
 /// which a span never holds.
-pub(crate) fn record_id(span: &Span, id: &RequestId) {
+pub fn record_id(span: &Span, id: &RequestId) {
     if let RequestId::Number(number) = id {
         span.record("jsonrpc.request.id", tracing::field::display(number));
     }
@@ -278,7 +278,7 @@ pub(crate) fn record_id(span: &Span, id: &RequestId) {
 /// Records on a request's `span` the failure of its reply: its Error code
 /// and its JSON-RPC numeric code. A peer's code that is no Error code's
 /// shape, lowercase words joined by `_`, is not recorded.
-pub(crate) fn record_failure(span: &Span, error_code: &str, numeric_code: i32) {
+pub fn record_failure(span: &Span, error_code: &str, numeric_code: i32) {
     let shaped = !error_code.is_empty()
         && error_code.len() <= MAX_ERROR_CODE
         && error_code
@@ -343,7 +343,7 @@ pub(crate) async fn raw_call<F: Future>(mark: RawMark, handler: F) -> F::Output 
 }
 
 /// Whether the current task runs a raw call's handler.
-pub(crate) fn in_raw_call() -> bool {
+pub fn in_raw_call() -> bool {
     RAW_CALL.try_with(|_| ()).is_ok()
 }
 

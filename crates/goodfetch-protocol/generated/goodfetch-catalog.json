@@ -30627,6 +30627,58 @@
       },
       {
         "arrived_in": "0.1",
+        "authority": "not_by_recipe_or_model",
+        "clearable": true,
+        "default": null,
+        "deprecated": null,
+        "description": "The Browser host a Run's Sessions drive their browsers through (ADRs 0022 and 0096): `{ address, token_file }` or `{ address, token }`, where `token` is a Secret reference such as `env:BROWSER_HOST_TOKEN`. Left unset (`null`), Sessions launch browsers locally; changing this setting alone moves the same program between a local browser and a Browser host. A non-loopback address without TLS (`wss://`) is refused. Only the program's own code, configuration and Operator policy set it.",
+        "fixed_for_run": false,
+        "name": "browser.host",
+        "product": "collie",
+        "products": [
+          "collie",
+          "foxhound"
+        ],
+        "scopes": [
+          "connection",
+          "run"
+        ],
+        "value": {
+          "additionalProperties": false,
+          "description": "What `browser.host` holds: the Browser host a Run's Sessions drive their\nbrowsers through (ADRs 0022 and 0096).",
+          "properties": {
+            "address": {
+              "arrived_in": "0.1",
+              "description": "The Browser host's address, such as `127.0.0.1:9444`,\n`ws://127.0.0.1:9444` or `wss://browser-host.example:9444`. A\nnon-loopback address without TLS (`wss://`) is refused, as `daemon run`\nrefuses one (ADRs 0017 and 0022).",
+              "type": "string"
+            },
+            "token": {
+              "arrived_in": "0.1",
+              "description": "Secret reference holding the Browser host's authentication token (such\nas `env:BROWSER_HOST_TOKEN`), never a bare token value.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "token_file": {
+              "arrived_in": "0.1",
+              "description": "Path to the file holding the Browser host's authentication token (what\n`browser-host --token-file` reads).",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "address"
+          ],
+          "type": "object"
+        },
+        "weakening": null,
+        "weakens": false
+      },
+      {
+        "arrived_in": "0.1",
         "authority": "every",
         "clearable": false,
         "default": false,

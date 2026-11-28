@@ -9,6 +9,7 @@ Usage: goodfetch-collie [OPTIONS] <COMMAND>
 
 Commands:
   browser          Manages the browser builds this version pins in the Browser cache
+  browser-host     Runs a Browser host beside its browser to serve a Session for an engine
   audit            Exports and verifies the user's Audit log
   certs            Lists, accepts and forgets the certificate pins of the user's known-certificates store
   config           Shows the settings and where each value comes from
@@ -93,6 +94,18 @@ Options:
       --json          Prints the result as JSON
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
+
+$ goodfetch-collie browser-host --help
+Runs a Browser host beside its browser to serve a Session for an engine
+
+Usage: goodfetch-collie browser-host [OPTIONS] --token-file <PATH>
+
+Options:
+      --listen <ADDRESS>      Address to listen on (`host:port`, `ws://...`, or `wss://...`). Serves one Session, wipes its profile, and exits
+      --connect <ENGINE_URL>  Engine URL to connect out to (`ws://...` or `wss://...`)
+      --token-file <PATH>     Path to the file containing the shared authentication token
+      --color <WHEN>          When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                  Print help
 
 $ goodfetch-collie audit --help
 Exports and verifies the user's Audit log
@@ -1012,9 +1025,10 @@ Calls the catalog's `session` operations
 Usage: goodfetch-collie session [OPTIONS] <COMMAND>
 
 Commands:
-  new-page  Opens a page in the Session, with its cookies and storage, and its own settings. Once the Session is closed, it raises `closed`
-  close     Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing
-  pages     Lists the Session's open pages, in the order they opened: those the program opened and the popups its pages opened. Once the Session is closed, it raises `closed`
+  new-page       Opens a page in the Session, with its cookies and storage, and its own settings. Once the Session is closed, it raises `closed`
+  close          Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing
+  pages          Lists the Session's open pages, in the order they opened: those the program opened and the popups its pages opened. Once the Session is closed, it raises `closed`
+  save-identity  Saves the Session's cookies and storage as a named Saved identity (ADR 0092). Refused with `session_not_savable` on a Profile directory used in place, naming the import that would work
 
 Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
@@ -1061,6 +1075,22 @@ Arguments:
   <SESSION_ID>  The Session
 
 Options:
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie session save-identity --help
+Saves the Session's cookies and storage as a named Saved identity (ADR 0092). Refused with `session_not_savable` on a Profile directory used in place, naming the import that would work
+
+Usage: goodfetch-collie session save-identity [OPTIONS] --name <NAME> <SESSION_ID>
+
+Arguments:
+  <SESSION_ID>  The Session whose login is saved
+
+Options:
+      --name <NAME>   The Saved identity's name
       --json          Prints the result as JSON
       --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
       --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
@@ -1487,7 +1517,8 @@ Usage: goodfetch-collie locator fill [OPTIONS] --locator <LOCATOR> --value <VALU
 
 Options:
       --locator <LOCATOR>  The locator
-      --value <VALUE>      The text the field holds afterwards; an empty text clears it
+      --secret <SECRET>    A Secret placeholder name bound in `secrets.placeholders` (ADR 0092): resolved at the moment of use only when the target field's frame is on the placeholder's bound domains and no other code may read the browser
+      --value <VALUE>      The text the field holds afterwards, or a `%name%` Secret placeholder (ADR 0092); an empty text clears it (or accompanies `secret`)
       --json               Prints the result as JSON
       --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
       --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command

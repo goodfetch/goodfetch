@@ -266,7 +266,7 @@ impl Engine {
         events: Events,
         context: EngineContext,
     ) {
-        rpc::serve(
+        let _ = rpc::serve(
             Arc::clone(&self.dispatch),
             connection,
             owner,
@@ -276,6 +276,182 @@ impl Engine {
             context,
         )
         .await;
+    }
+
+    /// Runs as a listening Browser host (`browser-host --listen`, ADRs 0022
+    /// and 0096): accepts connections on `listener` gated by `token`, accepts
+    /// engines of either Product as Collie under `LowerMinor`, serves one
+    /// authenticated engine connection, stops its Runs and tasks cleanly and
+    /// returns so the caller can wipe its ephemeral profile directory.
+    ///
+    /// # Errors
+    ///
+    /// When the listener closes before an authenticated engine connects.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future cancels nothing it started; run it to its end.
+    pub async fn run_browser_host_listen(
+        &self,
+        mut listener: DaemonListener,
+        token: String,
+        dependencies: Dependencies,
+        shutdown: CancellationToken,
+    ) -> Result<(), TransportError> {
+        let owner = TaskOwner::root(dependencies.blocking);
+        let trace_mirror = crate::run_trace::TraceMirror::default();
+        let (runs, events, context) = self.start_runs_with_trace_mirror(
+            dependencies,
+            &owner,
+            None,
+            None,
+            Some(trace_mirror.clone()),
+        );
+        let token: Arc<str> = Arc::from(token);
+        let mut outcome = Ok(());
+        loop {
+            let connection = tokio::select! {
+                biased;
+                () = shutdown.cancelled() => break,
+                accepted = listener.accept() => match accepted {
+                    Ok(connection) => connection,
+                    Err(TransportError::Stream(_)) => continue,
+                    Err(error) => {
+                        outcome = Err(error);
+                        break;
+                    }
+                }
+            };
+            let connection_owner = owner.child_for(OwnerKind::Connection);
+            let authenticated = tokio::select! {
+                biased;
+                () = shutdown.cancelled() => false,
+                authenticated = rpc::serve(
+                    Arc::clone(&self.dispatch),
+                    connection,
+                    &connection_owner,
+                    runs.clone(),
+                    events.clone(),
+                    Access::BrowserHost(Arc::clone(&token), trace_mirror.clone()),
+                    context.clone(),
+                ) => authenticated,
+            };
+            connection_owner.stop().await;
+            if authenticated {
+                break;
+            }
+        }
+        runs.stop_all().await;
+        drop(runs);
+        owner.stop().await;
+        outcome
+    }
+
+    /// Runs as an outbound Browser host (`browser-host --connect`, ADRs 0056
+    /// and 0096): sends a Browser host `hello` carrying `token` and this
+    /// executable's Product version over `connection`, verifies protocol
+    /// compatibility under `LowerMinor`, and serves the engine's Session
+    /// operations until the connection ends or `shutdown` cancels.
+    ///
+    /// # Errors
+    ///
+    /// When the outbound `hello` cannot be sent, is refused, or speaks an
+    /// incompatible protocol major.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future cancels nothing it started; run it to its end.
+    pub async fn run_browser_host_connect(
+        &self,
+        connection: Connection,
+        token: String,
+        dependencies: Dependencies,
+        shutdown: CancellationToken,
+    ) -> Result<(), String> {
+        use goodfetch_protocol::connection::{HELLO, HelloParams, HelloResult, Surface};
+        use goodfetch_protocol::jsonrpc::RequestId;
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+        let (mut reader, mut writer) = connection.split();
+        let hello = HelloParams {
+            token: Some(token),
+            needs: None,
+            ..HelloParams::new(
+                Surface::BrowserHost,
+                self.identity().product_version.clone(),
+            )
+        };
+        let request = crate::wire::request_line(&RequestId::Number(0), HELLO, &hello)
+            .expect("invariant: Browser host `hello` encodes as JSON");
+        writer
+            .write_all(&request)
+            .await
+            .map_err(|error| format!("sending Browser host `hello`: {error}"))?;
+        writer
+            .flush()
+            .await
+            .map_err(|error| format!("flushing Browser host `hello`: {error}"))?;
+        let mut line = Vec::new();
+        loop {
+            let mut byte = [0_u8; 1];
+            match reader.read(&mut byte).await {
+                Ok(0) => {
+                    return Err("the engine closed the connection before answering `hello`".into());
+                }
+                Ok(_) if byte[0] == b'\n' => break,
+                Ok(_) => {
+                    line.push(byte[0]);
+                    if line.len() > crate::framing::MAX_MESSAGE_BYTES {
+                        return Err("the engine's `hello` reply exceeded the line limit".into());
+                    }
+                }
+                Err(error) => {
+                    return Err(format!("reading engine's `hello` reply: {error}"));
+                }
+            }
+        }
+        let reply: serde_json::Value = serde_json::from_slice(&line)
+            .map_err(|error| format!("engine's `hello` reply is not JSON: {error}"))?;
+        if let Some(error) = reply.get("error") {
+            return Err(format!("the engine refused Browser host `hello`: {error}"));
+        }
+        let result: HelloResult = reply
+            .get("result")
+            .cloned()
+            .and_then(|value| serde_json::from_value(value).ok())
+            .ok_or_else(|| "the engine's `hello` reply is unreadable".to_owned())?;
+        if let Some((message, _)) = rpc::version_refusal(result.protocol_version, true) {
+            return Err(message);
+        }
+        let connection = Connection::rejoin(reader, writer);
+        let owner = TaskOwner::root(dependencies.blocking);
+        let trace_mirror = crate::run_trace::TraceMirror::default();
+        let (runs, events, context) = self.start_runs_with_trace_mirror(
+            dependencies,
+            &owner,
+            None,
+            None,
+            Some(trace_mirror.clone()),
+        );
+        let connection_owner = owner.child_for(OwnerKind::Connection);
+        tokio::select! {
+            biased;
+            () = shutdown.cancelled() => {}
+            _ = rpc::serve(
+                Arc::clone(&self.dispatch),
+                connection,
+                &connection_owner,
+                runs.clone(),
+                events,
+                Access::BrowserHostOutbound(trace_mirror),
+                context,
+            ) => {}
+        }
+        connection_owner.stop().await;
+        runs.stop_all().await;
+        drop(runs);
+        owner.stop().await;
+        Ok(())
     }
 
     /// Runs as a Daemon on `dependencies`: serves every Connection
@@ -391,10 +567,21 @@ impl Engine {
     /// one.
     fn start_runs(
         &self,
+        dependencies: Dependencies,
+        owner: &TaskOwner,
+        reached_at: Option<RunOwner>,
+        install: Option<InstallDatabase>,
+    ) -> (Runs, Events, EngineContext) {
+        self.start_runs_with_trace_mirror(dependencies, owner, reached_at, install, None)
+    }
+
+    fn start_runs_with_trace_mirror(
+        &self,
         mut dependencies: Dependencies,
         owner: &TaskOwner,
         reached_at: Option<RunOwner>,
         install: Option<InstallDatabase>,
+        trace_mirror: Option<crate::run_trace::TraceMirror>,
     ) -> (Runs, Events, EngineContext) {
         dependencies.run_state.work = self.metrics.counted_work().clone();
         dependencies.run_state.metrics = Some(self.metrics.clone());
@@ -486,6 +673,7 @@ impl Engine {
                 governor,
                 controls: self.controls.clone(),
                 masks: self.dispatch.masks.clone(),
+                trace_mirror,
             },
             Box::pin(write_managed(
                 context.clone(),
@@ -732,7 +920,7 @@ impl Engine {
         }
         let panicked = owner.panicked();
         let ended = tokio::select! {
-            () = stdio => EngineEvent::StdioEnded,
+            _ = stdio => EngineEvent::StdioEnded,
             () = gone => {
                 tracing::warn!("the Attached engine's parent is gone: its Runs stop");
                 EngineEvent::ParentGone
@@ -1057,7 +1245,7 @@ async fn accept_private_connections(
         owner.spawn(async move {
             tokio::select! {
                 () = its_owner.token().cancelled() => {}
-                () = rpc::serve(dispatch, connection, &its_owner, runs, events, Access::PrivateEndpoint(token), context) => {}
+                _ = rpc::serve(dispatch, connection, &its_owner, runs, events, Access::PrivateEndpoint(token), context) => {}
             }
             its_owner.stop().await;
         });

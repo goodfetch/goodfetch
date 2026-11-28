@@ -49,6 +49,7 @@ use tungstenite::client::IntoClientRequest as _;
 use tungstenite::{Message, WebSocket};
 
 use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile};
+use goodfetch_protocol::page::browser_host::BrowserHostReady;
 use goodfetch_protocol::plugin;
 
 use super::gateway::GatewayTarget;
@@ -124,6 +125,8 @@ pub enum EngineMode {
     Attached,
     /// A Daemon over the socket its runtime file names, with its token.
     Daemon,
+    /// A Browser host started with `browser-host --listen 127.0.0.1:0 --token-file`.
+    BrowserHost,
 }
 
 impl EngineMode {
@@ -132,6 +135,7 @@ impl EngineMode {
         match self {
             Self::Attached => "attached",
             Self::Daemon => "daemon",
+            Self::BrowserHost => "browser_host",
         }
     }
 }
@@ -224,11 +228,32 @@ impl Started {
             .current_dir(&target.folder)
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
-        match target.mode {
-            EngineMode::Attached => command
-                .arg(goodfetch_protocol::cli::ATTACHED_ENGINE)
-                .stdin(Stdio::piped()),
-            EngineMode::Daemon => command.args(["daemon", "launched"]).stdin(Stdio::null()),
+        let browser_host_token = if target.mode == EngineMode::BrowserHost {
+            let token = "browser-host-conformance-test-token".to_owned();
+            let token_path = target.folder.join("browser-host.token");
+            std::fs::write(&token_path, &token).map_err(|source| StartError::Spawn {
+                executable: target.executable.clone(),
+                source,
+            })?;
+            command
+                .args([
+                    goodfetch_protocol::cli::BROWSER_HOST,
+                    "--listen",
+                    "127.0.0.1:0",
+                    "--token-file",
+                ])
+                .arg(&token_path)
+                .stdin(Stdio::null());
+            Some(token)
+        } else {
+            match target.mode {
+                EngineMode::Attached => command
+                    .arg(goodfetch_protocol::cli::ATTACHED_ENGINE)
+                    .stdin(Stdio::piped()),
+                EngineMode::Daemon => command.args(["daemon", "launched"]).stdin(Stdio::null()),
+                EngineMode::BrowserHost => unreachable!(),
+            };
+            None
         };
         let mut child = command.spawn().map_err(|source| StartError::Spawn {
             executable: target.executable.clone(),
@@ -251,6 +276,11 @@ impl Started {
                 })
             }
             EngineMode::Daemon => Self::connect_daemon(child, stdout),
+            EngineMode::BrowserHost => Self::connect_browser_host(
+                child,
+                stdout,
+                browser_host_token.expect("invariant: token written for BrowserHost"),
+            ),
         }
     }
 
@@ -328,6 +358,63 @@ impl Started {
         started.lines = read_lines(reader);
         started.token = Some(runtime.token.expose().to_owned());
         started.endpoint = Some(runtime.endpoint);
+        Ok(started)
+    }
+
+    /// Reads the [`BrowserHostReady`] line the Browser host prints once
+    /// listening and connects to its bound loopback address.
+    fn connect_browser_host(
+        child: Child,
+        stdout: ChildStdout,
+        token: String,
+    ) -> Result<Self, StartError> {
+        let mut started = Self {
+            child: Some(child),
+            link: Link::Stdin(None),
+            lines: mpsc::channel().1,
+            exited: Some(read_lines(stdout)),
+            token: None,
+            endpoint: None,
+        };
+        let ready = started
+            .exited
+            .as_ref()
+            .expect("invariant: a Browser host's stdout is read")
+            .recv_timeout(START_DEADLINE);
+        let ready: BrowserHostReady = match ready {
+            Ok(Ok(line)) => serde_json::from_str(&line).map_err(|error| StartError::NotReady {
+                reason: format!("its first line is no BrowserHostReady ({error}): {line}"),
+            })?,
+            Ok(Err(error)) => {
+                return Err(StartError::NotReady {
+                    reason: format!("its stdout failed: {error}"),
+                });
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                return Err(StartError::NotReady {
+                    reason: format!("nothing came within {} s", START_DEADLINE.as_secs()),
+                });
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err(StartError::NotReady {
+                    reason: "it exited first".to_owned(),
+                });
+            }
+        };
+        let addr: std::net::SocketAddr =
+            ready
+                .address
+                .parse()
+                .map_err(|error| StartError::NotReady {
+                    reason: format!(
+                        "BrowserHostReady address `{}` is invalid: {error}",
+                        ready.address
+                    ),
+                })?;
+        let (link, reader) = connect(&DaemonEndpoint::Tcp(addr))?;
+        started.link = link;
+        started.lines = read_lines(reader);
+        started.token = Some(token);
         Ok(started)
     }
 

@@ -79,6 +79,52 @@ use tokio::sync::{OnceCell, mpsc, oneshot};
 
 use crate::mask::{Mask, Scope};
 use crate::tasks::TaskOwner;
+use crate::wire;
+
+/// JSON-RPC notification method carrying one Run trace line from a Browser
+/// host back to its engine's Run trace (ticket #753).
+pub const RUN_TRACE_NOTIFICATION: &str = "$/run_trace";
+
+/// Forwards a Browser host's Run trace lines over its active JSON-RPC
+/// connection so Provenance, request logs and CDP command logs land in the
+/// engine's Run trace in strict happens-before order before each RPC reply.
+#[derive(Clone, Default, Debug)]
+pub(crate) struct TraceMirror(Arc<tokio::sync::RwLock<Option<mpsc::Sender<wire::Line>>>>);
+
+impl TraceMirror {
+    pub(crate) async fn attach(&self, outgoing: mpsc::Sender<wire::Line>) {
+        *self.0.write().await = Some(outgoing);
+    }
+
+    pub(crate) async fn detach(&self) {
+        *self.0.write().await = None;
+    }
+
+    async fn send(&self, file: &'static str, line: &[u8]) {
+        let sender = self.0.read().await.clone();
+        if let Some(sender) = sender {
+            let payload = serde_json::json!({
+                "file": file,
+                "line": String::from_utf8_lossy(line),
+            });
+            let bytes = wire::notification_line(RUN_TRACE_NOTIFICATION, &payload);
+            let _ = sender.send(wire::Line::from(bytes)).await;
+        }
+    }
+
+    fn try_send(&self, file: &'static str, line: &[u8]) {
+        if let Ok(guard) = self.0.try_read()
+            && let Some(sender) = guard.as_ref()
+        {
+            let payload = serde_json::json!({
+                "file": file,
+                "line": String::from_utf8_lossy(line),
+            });
+            let bytes = wire::notification_line(RUN_TRACE_NOTIFICATION, &payload);
+            let _ = sender.try_send(wire::Line::from(bytes));
+        }
+    }
+}
 
 /// How many entries wait for the writer before a sender waits.
 const QUEUE: usize = 1024;
@@ -110,6 +156,8 @@ struct Trace {
     /// Whether an entry tried to start the writer: the first try is the
     /// Run's, and one after it failed is the entry's that tries again.
     tried: AtomicBool,
+    /// Optional Browser-host mirror forwarding Run trace lines to the engine.
+    mirror: Option<TraceMirror>,
 }
 
 /// One line the writer appends to `log`, and who waits for it, if anyone.
@@ -171,6 +219,20 @@ impl Log {
             Self::Pauses => RUN_TRACE_PAUSES,
         }
     }
+
+    /// Resolves a trace file name back to its [`Log`] variant.
+    fn from_file(file: &str) -> Option<Self> {
+        match file {
+            RUN_TRACE_PROVENANCE => Some(Self::Provenance),
+            RUN_TRACE_REQUESTS => Some(Self::Requests),
+            RUN_TRACE_CDP_COMMANDS => Some(Self::CdpCommands),
+            RUN_TRACE_CALLS => Some(Self::Calls),
+            RUN_TRACE_SETTINGS => Some(Self::Settings),
+            RUN_TRACE_PLUGIN_CALLS => Some(Self::PluginCalls),
+            RUN_TRACE_PAUSES => Some(Self::Pauses),
+            _ => None,
+        }
+    }
 }
 
 // Each log's place is its index in `Log::ALL`, which every log is in.
@@ -194,6 +256,19 @@ impl RunTrace {
         work: CountedWork,
         logs_provenance: bool,
     ) -> Self {
+        Self::new_with_mirror(owner, run_folder, mask, work, logs_provenance, None)
+    }
+
+    /// As [`Self::new`], optionally mirroring written lines over a Browser
+    /// host's connection.
+    pub(crate) fn new_with_mirror(
+        owner: Arc<TaskOwner>,
+        run_folder: &Path,
+        mask: Mask,
+        work: CountedWork,
+        logs_provenance: bool,
+        mirror: Option<TraceMirror>,
+    ) -> Self {
         Self(Arc::new(Trace {
             folder: run_folder.to_owned(),
             owner,
@@ -202,7 +277,27 @@ impl RunTrace {
             logs_provenance,
             writer: OnceCell::new(),
             tried: AtomicBool::new(false),
+            mirror,
         }))
+    }
+
+    /// Appends a pre-formatted line mirrored from a Browser host into `file`
+    /// and waits until it is written on disk.
+    ///
+    /// # Errors
+    ///
+    /// When the writer cannot start or the file cannot be written.
+    pub async fn append_mirrored(&self, file: &str, mut line: Vec<u8>) -> io::Result<()> {
+        let Some(log) = Log::from_file(file) else {
+            return Ok(());
+        };
+        if matches!(log, Log::Provenance) && !self.0.logs_provenance {
+            return Ok(());
+        }
+        if !line.ends_with(b"\n") {
+            line.push(b'\n');
+        }
+        self.written(log, line).await
     }
 
     /// Starts the writer, unless an entry already did: the Run's work, once,
@@ -338,6 +433,9 @@ impl RunTrace {
             return;
         }
         line.push(b'\n');
+        if let Some(mirror) = &self.0.mirror {
+            mirror.try_send(Log::CdpCommands.file(), &line);
+        }
         match self.writer().await {
             Ok(writer) => {
                 let _ = writer
@@ -376,6 +474,9 @@ impl RunTrace {
 
     /// Sends `line` to the writer for `log` and waits until it is written.
     async fn written(&self, log: Log, line: Vec<u8>) -> io::Result<()> {
+        if let Some(mirror) = &self.0.mirror {
+            mirror.send(log.file(), &line).await;
+        }
         let writer = self.writer().await?;
         let (written, wrote) = oneshot::channel();
         writer
@@ -547,6 +648,9 @@ impl RequestLog {
                 return;
             }
         };
+        if let Some(mirror) = &self.trace.0.mirror {
+            mirror.try_send(Log::Requests.file(), &line);
+        }
         let entry = Entry {
             log: Log::Requests,
             line,

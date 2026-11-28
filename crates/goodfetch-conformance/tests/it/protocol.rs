@@ -297,12 +297,12 @@ fn a_daemons_token_reaches_no_document_and_its_hello_keeps_the_rest() {
 }
 
 /// The suite unchanged against Collie's executable, given by path, as an
-/// Attached engine and as a Daemon.
+/// Attached engine, as a Daemon, and as a Browser host (`browser-host`).
 ///
-/// Covers: story:2-50, story:2-53, story:2-54
+/// Covers: story:2-50, story:2-53, story:2-54, story:5-108
 #[rstest::rstest]
 fn the_suite_runs_unchanged_against_collies_attached_engine_and_daemon(
-    #[values(EngineMode::Attached, EngineMode::Daemon)] mode: EngineMode,
+    #[values(EngineMode::Attached, EngineMode::Daemon, EngineMode::BrowserHost)] mode: EngineMode,
 ) {
     let env = TestEnv::new();
     let copy = LocalCopy::start(&env, env.seed()).unwrap();

@@ -123,13 +123,16 @@ fn kept(
     deferred: Option<&DeferredStores>,
     request: CacheRequest,
     sent: Sent,
+    in_effect: bool,
 ) -> Sent {
     let head = ResponseHead {
         status: sent.status,
         headers: sent.headers.clone(),
     };
-    let kept_out = (sent.certificate_exception.is_some() || sent.custom_tls)
-        .then_some(KeptOut::CertificateException);
+    let kept_out = in_effect.then_some(KeptOut::Effect).or_else(|| {
+        (sent.certificate_exception.is_some() || sent.custom_tls)
+            .then_some(KeptOut::CertificateException)
+    });
     let store_in_cache = !sent.decoded && caching.stores(&request, &head, kept_out);
     let record_live = caching.recording();
     if !store_in_cache && !record_live {
@@ -175,13 +178,17 @@ impl Transport for Cached {
     fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent> {
         Box::pin(async move {
             let caching = &self.caching;
+            let in_effect = caching.in_effect();
             let request = CacheRequest::new(
                 hop.method.as_str(),
                 &hop.url,
                 &hop.headers,
                 hop.body.clone().unwrap_or_default(),
             );
-            let stale = match caching.source(&request, None).await {
+            let stale = match caching
+                .source(&request, in_effect.then_some(KeptOut::Effect))
+                .await
+            {
                 Source::Routed(served) => {
                     return Ok(whole(served.head, served.body, None));
                 }
@@ -213,7 +220,13 @@ impl Transport for Cached {
                 }
                 Source::Network => {
                     let sent = self.transport.send(hop, reuse).await?;
-                    return Ok(kept(caching, self.deferred.as_ref(), request, sent));
+                    return Ok(kept(
+                        caching,
+                        self.deferred.as_ref(),
+                        request,
+                        sent,
+                        in_effect,
+                    ));
                 }
                 Source::Stale(stale) => stale,
             };
@@ -227,7 +240,13 @@ impl Transport for Cached {
             conditional.headers.extend(stale.conditions.iter().cloned());
             let sent = self.transport.send(&conditional, reuse).await?;
             if sent.status != 304 {
-                return Ok(kept(caching, self.deferred.as_ref(), request, sent));
+                return Ok(kept(
+                    caching,
+                    self.deferred.as_ref(),
+                    request,
+                    sent,
+                    in_effect,
+                ));
             }
             let head = ResponseHead {
                 status: sent.status,
@@ -250,7 +269,13 @@ impl Transport for Cached {
             // without the conditions, as the site was asked.
             drop(sent);
             let sent = self.transport.send(hop, reuse).await?;
-            Ok(kept(caching, self.deferred.as_ref(), request, sent))
+            Ok(kept(
+                caching,
+                self.deferred.as_ref(),
+                request,
+                sent,
+                in_effect,
+            ))
         })
     }
 }

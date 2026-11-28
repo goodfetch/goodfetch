@@ -368,8 +368,10 @@ async fn revalidate_and_replay_never_answer_each_other() {
 #[case::paid(CacheMode::Revalidate, KeptOut::Paid)]
 #[case::resolved_secret(CacheMode::Revalidate, KeptOut::ResolvedSecret)]
 #[case::certificate_exception(CacheMode::Revalidate, KeptOut::CertificateException)]
+#[case::effect(CacheMode::Revalidate, KeptOut::Effect)]
 #[case::replayed_block(CacheMode::Replay, KeptOut::Blocked)]
 #[case::replayed_resolved_secret(CacheMode::Replay, KeptOut::ResolvedSecret)]
+#[case::replayed_effect(CacheMode::Replay, KeptOut::Effect)]
 #[tokio::test]
 async fn a_response_its_outcome_keeps_out_is_never_stored(
     #[case] mode: CacheMode,
@@ -655,4 +657,80 @@ async fn a_record_run_reads_no_cache_entry_but_may_store_into_the_cache(#[case] 
             )
             .await
     );
+}
+
+/// Under `cache.mode: replay`, a request sent while a declared Effect's body
+/// runs is neither served from nor stored in the cache, and checking whether
+/// a body runs uses the Run's in-memory counter with zero cache lookups, file
+/// opens or spawns (`C5.file_opens`, `C5.spawns`, ADRs 0046, 0106, 0140).
+/// Covers: story:6-40
+#[tokio::test]
+async fn an_active_effect_body_bypasses_replay_cache_and_never_stores_with_zero_counted_work() {
+    use crate::runs::ActiveEffects;
+
+    let env = TestEnv::new();
+    let work = CountedWork::default();
+    let cache = cache(&env, &work);
+    let cached = served("seeded");
+    let seeded_req = page();
+    assert!(
+        cache
+            .store_replayed(
+                &ada(),
+                &seeded_req,
+                &cached.head,
+                cached.body.clone(),
+                None,
+                start(),
+            )
+            .await
+    );
+    let active = ActiveEffects::default();
+    active.set(1);
+    let source = ResponseSource::of(&cache, CacheMode::Replay).active_effects(active.clone());
+    let now = start() + Duration::from_secs(1);
+
+    let lookups_before = work.read(Row::CacheLookups);
+    let answer = source.source(None, &ada(), &seeded_req, None, now).await;
+    assert_eq!(answer, Source::Network);
+    assert_eq!(
+        work.read(Row::CacheLookups),
+        lookups_before,
+        "checking active Effect bodies must not touch the cache index"
+    );
+
+    let effect_req = CacheRequest::new(
+        "POST",
+        &url::Url::parse("https://cache.test/charge").unwrap(),
+        &[],
+        Bytes::from_static(b"{}"),
+    );
+    assert!(!source.may_store(&effect_req, None));
+    assert!(!source.stores(&ada(), &effect_req, &cached.head, None));
+    assert!(
+        !source
+            .store(
+                &ada(),
+                &effect_req,
+                &cached.head,
+                Bytes::from_static(b"charged"),
+                None,
+                None,
+                now,
+            )
+            .await
+    );
+    assert_eq!(
+        cache.stats("ada").await.unwrap().entries,
+        1,
+        "the Effect request must not enter the cache index"
+    );
+
+    // Once the Effect body finishes, replay serving and storing resume.
+    active.set(0);
+    assert!(matches!(
+        source.source(None, &ada(), &seeded_req, None, now).await,
+        Source::Fresh(_)
+    ));
+    assert!(source.may_store(&effect_req, None));
 }

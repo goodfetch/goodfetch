@@ -111,6 +111,13 @@ impl Caching {
         self.source.replaying()
     }
 
+    /// Whether a declared Effect's body is currently running in this Run,
+    /// read in memory with a single atomic load (ADRs 0046, 0106 and 0140).
+    #[must_use]
+    pub fn in_effect(&self) -> bool {
+        self.source.in_effect()
+    }
+
     /// Whether `url` is answered from the Run's Response recording rather than
     /// reached live: true when replaying a recording and `url`'s host is not
     /// mapped to loopback by `network.resolve` (ADR 0105).

@@ -6,12 +6,50 @@
 use std::pin::Pin;
 use std::sync::Arc;
 
+use goodfetch_protocol::run::RunId;
 use tokio::time::Instant;
 
 use crate::call_error::CallError;
 use crate::lease::LeaseCheck;
 use crate::run_identity::RunIdentity;
 use crate::run_state::RunState;
+use crate::sync::{AtomicU64, Ordering};
+
+/// In-memory count of declared Effect bodies currently running for one Run,
+/// read with a single atomic load and no I/O on the Response cache hot path
+/// (ADRs 0046, 0106 and 0140).
+#[derive(Clone, Debug, Default)]
+pub struct ActiveEffects(Arc<AtomicU64>);
+
+impl ActiveEffects {
+    /// Whether at least one declared Effect body is currently running.
+    #[must_use]
+    pub fn is_running(&self) -> bool {
+        self.0.load(Ordering::Acquire) > 0
+    }
+
+    /// Updates the running body count.
+    pub(crate) fn set(&self, count: usize) {
+        self.0
+            .store(u64::try_from(count).unwrap_or(u64::MAX), Ordering::Release);
+    }
+
+    /// Downgrades to a weak handle so [`crate::effect::Effects`] drops entries
+    /// once no Run or Shelf holds them.
+    pub(crate) fn downgrade(&self) -> std::sync::Weak<AtomicU64> {
+        Arc::downgrade(&self.0)
+    }
+
+    /// Upgrades a weak handle back into an [`ActiveEffects`] handle.
+    pub(crate) fn upgrade(weak: &std::sync::Weak<AtomicU64>) -> Option<Self> {
+        weak.upgrade().map(Self)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn count(&self) -> u64 {
+        self.0.load(Ordering::Acquire)
+    }
+}
 
 /// ADR 0106's send window: the engine's declared Effects, which mark the
 /// bodies a Run's command counts for sent before it goes out, and which a
@@ -44,6 +82,11 @@ pub(crate) trait SendWindow: Send + Sync {
         lease: Option<&'a dyn LeaseCheck>,
         command: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<(), CallError>> + Send + 'a>>;
+
+    /// Returns the Run's in-memory count of running declared Effect bodies,
+    /// read without locks, file opens or spawns on the Response cache hot
+    /// path (ADRs 0046, 0106 and 0140).
+    fn active_bodies(&self, run: &RunId) -> ActiveEffects;
 }
 
 /// A live Run's send window, which a function takes in place of the Run's
@@ -54,6 +97,7 @@ pub struct RunSendWindow {
     window: Option<Arc<dyn SendWindow>>,
     identity: RunIdentity,
     state: RunState,
+    active_bodies: ActiveEffects,
 }
 
 impl std::fmt::Debug for RunSendWindow {
@@ -62,6 +106,7 @@ impl std::fmt::Debug for RunSendWindow {
             .debug_struct("RunSendWindow")
             .field("run_id", self.identity.id())
             .field("window", &self.window.is_some())
+            .field("in_effect", &self.active_bodies.is_running())
             .finish_non_exhaustive()
     }
 }
@@ -74,11 +119,29 @@ impl RunSendWindow {
         identity: RunIdentity,
         state: RunState,
     ) -> Self {
+        let active_bodies = window
+            .as_ref()
+            .map_or_else(ActiveEffects::default, |w| w.active_bodies(identity.id()));
         Self {
             window,
             identity,
             state,
+            active_bodies,
         }
+    }
+
+    /// The Run's in-memory count of running declared Effect bodies, shared
+    /// with the Response cache so checking whether an Effect's body runs
+    /// performs a single atomic load with no I/O (ADRs 0046, 0106 and 0140).
+    #[must_use]
+    pub fn active_bodies(&self) -> ActiveEffects {
+        self.active_bodies.clone()
+    }
+
+    /// Whether any declared Effect body of this Run is currently running.
+    #[must_use]
+    pub fn in_effect(&self) -> bool {
+        self.active_bodies.is_running()
     }
 
     /// Marks sent, synced, each body of the Run declared through the

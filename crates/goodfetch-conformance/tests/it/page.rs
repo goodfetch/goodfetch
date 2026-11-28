@@ -364,13 +364,13 @@ fn the_page_suite_proves_robots_txt_against_collies_attached_engine() {
     prove(ROBOTS_TXT);
 }
 
-/// Covers: story:6-41, story:6-51, setting:cache.mode, setting:browser.service_workers, operation:page.goto, operation:page.evaluate, operation:run.new_session, operation:session.new_page
+/// Covers: story:6-40, story:6-41, story:6-51, setting:cache.mode, setting:browser.service_workers, operation:page.goto, operation:page.evaluate, operation:run.new_session, operation:session.new_page, operation:effect.open, operation:effect.close
 #[test]
 fn the_page_suite_proves_the_response_cache_against_collies_attached_engine() {
     prove(RESPONSE_CACHE);
 }
 
-/// Covers: story:6-52, story:6-53, story:6-54, story:6-55, story:6-56, story:6-57, story:6-58, story:6-59, story:6-60, story:6-61, error:response_not_recorded, error:recording_invalid, error:response_truncated, setting:site_preferences.read_robots_txt_for_navigation, setting:network.resolve, setting:cache.mode, setting:provenance.log, operation:run.start, operation:page.goto, operation:page.request, operation:page.evaluate, operation:run.finish
+/// Covers: story:6-52, story:6-53, story:6-54, story:6-55, story:6-56, story:6-57, story:6-58, story:6-59, story:6-60, story:6-61, error:response_not_recorded, error:recording_invalid, error:response_truncated, setting:site_preferences.read_robots_txt_for_navigation, setting:network.resolve, setting:cache.mode, setting:provenance.log, operation:run.start, operation:page.goto, operation:page.request, operation:page.evaluate, operation:effect.open, operation:effect.close, operation:run.finish
 #[test]
 fn the_page_suite_proves_response_recordings_against_collies_attached_engine() {
     prove(RESPONSE_RECORDING);

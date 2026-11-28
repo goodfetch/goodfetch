@@ -27,7 +27,7 @@ pub use journal::{Report, TABLES};
 
 use std::collections::HashMap;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError, Weak};
 use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::audit::Actor;
@@ -58,9 +58,10 @@ use crate::mask::Scope;
 use crate::run::{run_error, state_unavailable, unwritten};
 use crate::run_identity::RunIdentity;
 use crate::run_state::{RunState, RunStateError, Syncing};
-use crate::runs::{RunError, RunParts, SendWindow};
+use crate::runs::{ActiveEffects, RunError, RunParts, SendWindow};
 use crate::settings::{RunSettings, get_or_default};
 use crate::staging::{AttemptWrites, Unstaged};
+use crate::sync::AtomicU64;
 
 /// How often a declaration that waits for another attempt's body checks
 /// whether that attempt still holds.
@@ -72,22 +73,56 @@ const HOLD_CHECK: Duration = Duration::from_secs(1);
 #[derive(Clone, Default)]
 pub struct Effects {
     shelves: Arc<Mutex<HashMap<RunId, Arc<Shelf>>>>,
+    #[expect(
+        clippy::disallowed_types,
+        reason = "locks only to look up or insert a Weak<AtomicU64> per RunId, never across an `.await` or under another lock, so there is no lock order to test under loom (ADR 0060)"
+    )]
+    active: Arc<std::sync::Mutex<HashMap<RunId, Weak<AtomicU64>>>>,
 }
 
 /// One Run's bodies and answers, and the signal that a body was judged.
-#[derive(Default)]
 struct Shelf {
     book: Mutex<Book>,
     judged: Notify,
 }
 
-#[derive(Default)]
+impl Shelf {
+    fn new(active: ActiveEffects) -> Self {
+        Self {
+            book: Mutex::new(Book::new(active)),
+            judged: Notify::new(),
+        }
+    }
+}
+
 struct Book {
     bodies: Vec<Body>,
     answered: Vec<Answered>,
+    /// Live count of `bodies.len()`, read in memory by the Response cache
+    /// stage without locking `book` or touching run state (ADR 0140).
+    active: ActiveEffects,
 }
 
 impl Book {
+    fn new(active: ActiveEffects) -> Self {
+        Self {
+            bodies: Vec::new(),
+            answered: Vec::new(),
+            active,
+        }
+    }
+
+    fn push_body(&mut self, body: Body) {
+        self.bodies.push(body);
+        self.active.set(self.bodies.len());
+    }
+
+    fn remove_body(&mut self, at: usize) -> Body {
+        let body = self.bodies.swap_remove(at);
+        self.active.set(self.bodies.len());
+        body
+    }
+
     /// Whether it holds nothing a live caller needs.
     fn idle(&self) -> bool {
         self.bodies.is_empty()
@@ -125,6 +160,7 @@ impl Book {
             .into_iter()
             .partition(|body| entries.contains(&body.entry));
         self.bodies = kept;
+        self.active.set(self.bodies.len());
         judged
     }
 }
@@ -255,6 +291,19 @@ pub enum Reconciled {
 }
 
 impl Effects {
+    /// The in-memory active-body counter for `run_id`, created on first ask
+    /// and shared between the Run's [`RunSendWindow`] and its [`Shelf`].
+    fn active_counter(&self, run_id: &RunId) -> ActiveEffects {
+        let mut active = self.active.lock().unwrap_or_else(PoisonError::into_inner);
+        active.retain(|kept, weak| kept == run_id || weak.strong_count() > 0);
+        if let Some(counter) = active.get(run_id).and_then(ActiveEffects::upgrade) {
+            return counter;
+        }
+        let counter = ActiveEffects::default();
+        active.insert(run_id.clone(), counter.downgrade());
+        counter
+    }
+
     /// The shelf of the Run `run_id`, made when it has none; shelves no
     /// live caller needs are dropped.
     async fn shelf(&self, run_id: &RunId) -> Arc<Shelf> {
@@ -262,7 +311,11 @@ impl Effects {
         shelves.retain(|kept, shelf| {
             kept == run_id || !shelf.book.try_lock().is_ok_and(|book| book.idle())
         });
-        Arc::clone(shelves.entry(run_id.clone()).or_default())
+        Arc::clone(
+            shelves
+                .entry(run_id.clone())
+                .or_insert_with(|| Arc::new(Shelf::new(self.active_counter(run_id)))),
+        )
     }
 
     /// The shelf of the Run `run_id`, if it has one.
@@ -320,7 +373,7 @@ impl Effects {
         let answer = match declared(declaring, &namespace, &key, repeatable, context).await {
             Ok(Declared::Perform { entry, secret }) => {
                 let idempotency_key = idempotency_key(&secret, &namespace, &key);
-                book.bodies.push(Body {
+                book.push_body(Body {
                     entry,
                     namespace,
                     key,
@@ -383,7 +436,7 @@ impl Effects {
             &EFFECT_OUTPUT_MAX_SIZE,
         );
         let (event, output, oversized) = ended(outcome, limit);
-        let body = book.bodies.swap_remove(at);
+        let body = book.remove_body(at);
         let judged = match apply(body.state(), event) {
             Ok(Next::To(EffectState::Done)) => {
                 let performed_at = identity.point_in_time();
@@ -635,6 +688,10 @@ impl SendWindow for Effects {
     ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
         Box::pin(self.settle_run((run, state), by))
     }
+
+    fn active_bodies(&self, run: &RunId) -> ActiveEffects {
+        self.active_counter(run)
+    }
 }
 
 /// The operations `effect.open` and `effect.close`, on `effects`.
@@ -705,7 +762,7 @@ impl Shelf {
                 return Err(reused());
             }
             if !running.owner.is_alive() {
-                let gone = book.bodies.swap_remove(at);
+                let gone = book.remove_body(at);
                 gone.owner.end_effect();
                 self.judged.notify_waiters();
                 return Ok(book);

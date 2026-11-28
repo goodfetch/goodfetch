@@ -505,14 +505,18 @@ impl PageContext {
     }
 
     /// Why a response to the request to `url` with `headers` and `body`
-    /// is never stored: its host is reached through a certificate
-    /// exception, or it carries a resolved secret.
+    /// is never stored: a declared Effect's body is running, its host is
+    /// reached through a certificate exception, or it carries a resolved
+    /// secret.
     fn kept_out(
         &self,
         url: &url::Url,
         headers: &[(String, String)],
         body: &[u8],
     ) -> Option<KeptOut> {
+        if self.state.caching.as_ref().is_some_and(|c| c.in_effect()) {
+            return Some(KeptOut::Effect);
+        }
         let excepted = url.scheme() == "https"
             && url
                 .host_str()

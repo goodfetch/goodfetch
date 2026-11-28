@@ -112,8 +112,8 @@ pub use self::progress::{PartValue, PauseHeld, Progress, ProgressPart, TypedPart
 pub use self::reader::{RunFileOpener, RunReader};
 pub use self::reindex::{Reindexed, reindex};
 pub use self::report::{ReportPart, ReportWarnings};
-pub use self::send_window::RunSendWindow;
 pub(crate) use self::send_window::SendWindow;
+pub use self::send_window::{ActiveEffects, RunSendWindow};
 pub use self::writer::{Writer, test_writer};
 pub use crate::run_state::UnsupportedFolder;
 

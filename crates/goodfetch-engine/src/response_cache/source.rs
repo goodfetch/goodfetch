@@ -17,6 +17,7 @@ use goodfetch_protocol::response_cache::CacheMode;
 use goodfetch_protocol::run::RunId;
 
 use crate::dns::HostMapping;
+use crate::runs::ActiveEffects;
 
 use super::{
     CacheRequest, EntryScope, Hit, Lookup, Partition, ResponseCache, ResponseCacheError,
@@ -146,6 +147,9 @@ pub enum KeptOut {
     /// It was fetched under `trusted_cas`, `client_certificates` or
     /// `accept_invalid_certs`.
     CertificateException,
+    /// It was sent while a declared Effect's body ran (ADR 0106): never
+    /// stored in any mode, and never served from the cache under `replay`.
+    Effect,
 }
 
 impl KeptOut {
@@ -170,6 +174,9 @@ pub struct ResponseSource {
     /// The Run's Wall allowance, built once from its settings so Wall-tagged
     /// entries are served only to Runs whose settings cover them (ADR 0052).
     wall_allowance: WallAllowance,
+    /// The Run's in-memory count of active declared Effect bodies, read with
+    /// a single atomic load and no I/O per request (ADRs 0046, 0106, 0140).
+    active_effects: Option<ActiveEffects>,
 }
 
 /// How a Run uses the cache, as its `cache.mode` says.
@@ -198,7 +205,27 @@ impl ResponseSource {
             capture: None,
             resolve: Arc::new(HostMapping::default()),
             wall_allowance: WallAllowance::default(),
+            active_effects: None,
         }
+    }
+
+    /// Attaches the Run's in-memory count of running declared Effect bodies,
+    /// read with no lock, file open or spawn per request (ADRs 0046, 0106 and
+    /// 0140, issue 825).
+    #[must_use]
+    pub fn active_effects(self, active_effects: ActiveEffects) -> Self {
+        Self {
+            active_effects: Some(active_effects),
+            ..self
+        }
+    }
+
+    /// Whether a declared Effect's body is currently running in this Run.
+    #[must_use]
+    pub fn in_effect(&self) -> bool {
+        self.active_effects
+            .as_ref()
+            .is_some_and(ActiveEffects::is_running)
     }
 
     /// Attaches the Run's [`WallAllowance`], built once from its settings
@@ -301,6 +328,7 @@ impl ResponseSource {
         }
         self.recording.is_none()
             && kept_out.is_none()
+            && !self.in_effect()
             && match &self.cache {
                 Keeping::Off => false,
                 Keeping::Revalidate(cache) => cache.storing() && freshness::revalidates(request),
@@ -401,13 +429,18 @@ impl ResponseSource {
                 Lookup::Fresh(hit) => Source::Fresh(hit),
                 Lookup::Stale(stale) => Source::Stale(stale),
             },
-            Keeping::Replay(cache) => match cache
-                .replayed_scoped(partition, request, &self.wall_allowance, false, now)
-                .await
-            {
-                Some(hit) => Source::Fresh(hit),
-                None => Source::Network,
-            },
+            Keeping::Replay(cache) => {
+                if self.in_effect() || kept_out == Some(KeptOut::Effect) {
+                    return Source::Network;
+                }
+                match cache
+                    .replayed_scoped(partition, request, &self.wall_allowance, false, now)
+                    .await
+                {
+                    Some(hit) => Source::Fresh(hit),
+                    None => Source::Network,
+                }
+            }
         }
     }
 
@@ -437,7 +470,7 @@ impl ResponseSource {
         head: &ResponseHead,
         kept_out: Option<KeptOut>,
     ) -> bool {
-        if self.recording.is_some() {
+        if self.recording.is_some() || self.in_effect() {
             return false;
         }
         let variant = match &self.cache {
@@ -500,7 +533,7 @@ impl ResponseSource {
         run_id: Option<&RunId>,
         now: SystemTime,
     ) -> bool {
-        if self.recording.is_some() || kept_out.is_some() {
+        if self.recording.is_some() || kept_out.is_some() || self.in_effect() {
             return false;
         }
         match &self.cache {

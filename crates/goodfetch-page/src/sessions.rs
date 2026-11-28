@@ -2450,7 +2450,8 @@ fn session_interception(
     let caching = run.identity.settings().and_then(|settings| {
         Caching::of(
             run.engine
-                .response_source_for(run.identity.id(), settings.resolved()),
+                .response_source_for(run.identity.id(), settings.resolved())
+                .active_effects(run.send_window.active_bodies()),
             CALLER,
             run.identity.id().clone(),
             run.identity.clock(),

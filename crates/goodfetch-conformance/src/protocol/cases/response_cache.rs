@@ -9,6 +9,7 @@
 //! ground counts the requests the site saw. The service worker line of the
 //! same ticket is a service worker case.
 
+use goodfetch_protocol::effect::{EFFECT_CLOSE, EFFECT_OPEN};
 use goodfetch_protocol::page::functions::PAGE_EVALUATE;
 use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_CLOSE, SESSION_NEW_PAGE};
 use goodfetch_protocol::page::{BLOCKED, PAGE_CHECK_FAILED, PageOpened};
@@ -34,6 +35,7 @@ pub(crate) enum Case {
     PartitionsIsolate,
     ExclusionsNeverCached,
     HitsMarkResults,
+    EffectBypassesReplayAndNeverStores,
 }
 
 impl Case {
@@ -52,6 +54,9 @@ impl Case {
             "cache-hits-mark-provenance-completeness-usage-and-replay-report" => {
                 Self::HitsMarkResults
             }
+            "requests-inside-an-effect-body-bypass-replay-cache-and-are-never-stored" => {
+                Self::EffectBypassesReplayAndNeverStores
+            }
             _ => return None,
         })
     }
@@ -69,6 +74,9 @@ impl Case {
             Self::PartitionsIsolate => partitions_isolate(connection, site, checks),
             Self::ExclusionsNeverCached => exclusions_never_cached(connection, site, checks),
             Self::HitsMarkResults => hits_mark_results(connection, target, site, checks),
+            Self::EffectBypassesReplayAndNeverStores => {
+                effect_bypasses_replay_and_never_stores(connection, site, checks)
+            }
         }
     }
 }
@@ -621,5 +629,128 @@ fn hits_mark_results(
         "Provenance marks the cache hit with its original fetched_at and fetching run_id",
         cache_entry.is_some(),
     );
+    Ok(())
+}
+
+/// Under `cache.mode: replay`, a request sent while a declared Effect's body
+/// runs is neither served from nor stored in the cache, and leaves no entry in
+/// the cache's index (ADRs 0046 and 0106, issue 825, `story:6-40`).
+fn effect_bypasses_replay_and_never_stores(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-cache-effect-exclusion";
+    let replay_settings = json!({ "cache": { "mode": "replay" } });
+    start_run(connection, site, run_id, &replay_settings, checks)?;
+    let Some(page) = new_page(connection, run_id, checks)? else {
+        finish_run(connection, run_id)?;
+        return Ok(());
+    };
+
+    // Seed one URL in the replay cache outside any Effect.
+    let seeded_path = "/fresh/effect-seeded";
+    let seeded_url = site.named_url(HOST, seeded_path);
+    let seeded_before = received(site, HOST, seeded_path);
+    let seed_load = connection.goto(&page, &seeded_url)?;
+    answered(&seed_load, "seeded replay load", &seeded_url, 200, checks);
+    let stats_before = connection.call(CACHE_STATS.name, &json!({}))?;
+    let entries_before = stats_before["result"]["entries"].as_u64().unwrap_or(0);
+
+    // Open a declared Effect and fetch both the seeded URL (in a fresh session
+    // so Chromium's own per-session HTTP cache does not mask the engine cache)
+    // and a brand-new URL.
+    let opened = connection.call(
+        EFFECT_OPEN.name,
+        &json!({ "run_id": run_id, "key": "charge-order-1" }),
+    )?;
+    let entry = opened["result"]["entry"].as_str().unwrap_or_default();
+    checks.check(
+        "effect.open answers perform with an entry",
+        opened["result"]["answer"] == json!("perform") && !entry.is_empty(),
+    );
+
+    let effect_only_path = "/fresh/effect-only";
+    let effect_only_url = site.named_url(HOST, effect_only_path);
+    let only_before = received(site, HOST, effect_only_path);
+    if let Some((effect_sid, effect_page)) = open_session_page(
+        connection,
+        run_id,
+        &json!({}),
+        "fresh session inside Effect body",
+        checks,
+    )? {
+        let during_seeded = connection.goto(&effect_page, &seeded_url)?;
+        answered(
+            &during_seeded,
+            "seeded URL inside Effect body",
+            &seeded_url,
+            200,
+            checks,
+        );
+        let during_seeded_text = body_text(connection, &effect_page)?;
+        checks.check(
+            "under replay, a request inside an Effect body bypasses the cached entry and reaches the site",
+            during_seeded_text.contains("Answer 2")
+                && received(site, HOST, seeded_path) == seeded_before + 2,
+        );
+
+        let during_only = connection.goto(&effect_page, &effect_only_url)?;
+        answered(
+            &during_only,
+            "new URL inside Effect body",
+            &effect_only_url,
+            200,
+            checks,
+        );
+        close_session(connection, &effect_sid)?;
+    }
+
+    let closed = connection.call(
+        EFFECT_CLOSE.name,
+        &json!({
+            "run_id": run_id,
+            "entry": entry,
+            "outcome": { "ended": "returned", "output": { "ok": true } },
+        }),
+    )?;
+    checks.check(
+        "effect.close judges the Effect done",
+        closed["result"]["judged"] == json!("done"),
+    );
+
+    let stats_after = connection.call(CACHE_STATS.name, &json!({}))?;
+    let entries_after = stats_after["result"]["entries"].as_u64().unwrap_or(0);
+    checks.check(
+        "requests inside an Effect body add no entry to the cache index",
+        entries_after == entries_before,
+    );
+
+    // Outside the Effect, the Effect-only URL must still miss the replay cache.
+    if let Some((second_sid, second_page)) = open_session_page(
+        connection,
+        run_id,
+        &json!({}),
+        "second session to verify Effect request was not cached",
+        checks,
+    )? {
+        let after_only = connection.goto(&second_page, &effect_only_url)?;
+        answered(
+            &after_only,
+            "Effect-only URL loaded outside Effect",
+            &effect_only_url,
+            200,
+            checks,
+        );
+        let after_text = body_text(connection, &second_page)?;
+        checks.check(
+            "a request sent inside an Effect body is not replayed from the cache afterwards",
+            after_text.contains("Answer 2")
+                && received(site, HOST, effect_only_path) == only_before + 2,
+        );
+        close_session(connection, &second_sid)?;
+    }
+
+    finish_run(connection, run_id)?;
     Ok(())
 }

@@ -11,6 +11,7 @@
 //! file.
 
 mod determinism;
+mod effects;
 mod record;
 mod report_provenance;
 
@@ -54,6 +55,7 @@ pub(crate) enum Case {
     ReplayClockAndRandomness,
     LoopbackResolveBypassDuringReplay,
     ReportAndProvenanceOfOldRecording,
+    RecordedRequestMarksEffectSent,
 }
 
 impl Case {
@@ -92,6 +94,9 @@ impl Case {
             }
             "a-recording-shows-its-fields-in-the-run-report-marks-provenance-and-replays-old-recordings-without-warning" => {
                 Self::ReportAndProvenanceOfOldRecording
+            }
+            "a-recorded-request-inside-an-effect-body-marks-the-effect-sent-just-like-a-live-run" => {
+                Self::RecordedRequestMarksEffectSent
             }
             _ => return None,
         })
@@ -138,6 +143,9 @@ impl Case {
                 report_provenance::report_and_provenance_of_old_recording(
                     connection, target, site, checks,
                 )
+            }
+            Self::RecordedRequestMarksEffectSent => {
+                effects::recorded_request_marks_effect_sent(connection, target, site, checks)
             }
         }
     }

@@ -827,6 +827,10 @@ covers = ["story:6-40", "story:8-65", "setting:cache.mode", "setting:session.pag
 id = "cache-hits-mark-provenance-completeness-usage-and-replay-report"
 covers = ["story:6-46", "setting:cache.mode", "operation:run.start", "operation:run.finish", "operation:page.goto"]
 
+[[capability.case]]
+id = "requests-inside-an-effect-body-bypass-replay-cache-and-are-never-stored"
+covers = ["story:6-40", "setting:cache.mode", "operation:run.start", "operation:effect.open", "operation:effect.close", "operation:page.goto", "operation:cache.stats", "operation:run.finish"]
+
 [[capability]]
 name = "response_recording"
 
@@ -873,3 +877,7 @@ covers = ["story:6-59", "setting:network.resolve", "operation:run.start", "opera
 [[capability.case]]
 id = "a-recording-shows-its-fields-in-the-run-report-marks-provenance-and-replays-old-recordings-without-warning"
 covers = ["story:6-60", "setting:provenance.log", "operation:run.start", "operation:page.goto", "operation:page.request", "operation:run.finish"]
+
+[[capability.case]]
+id = "a-recorded-request-inside-an-effect-body-marks-the-effect-sent-just-like-a-live-run"
+covers = ["story:6-52", "operation:run.start", "operation:effect.open", "operation:effect.close", "operation:page.goto", "operation:page.request", "operation:run.finish"]

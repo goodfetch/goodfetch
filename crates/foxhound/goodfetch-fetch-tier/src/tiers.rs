@@ -1170,7 +1170,9 @@ impl FetchTiers {
             None => (Arc::new(reqwest), None),
         };
         let caching = Caching::of(
-            engine.response_source_for(run.identity.id(), settings),
+            engine
+                .response_source_for(run.identity.id(), settings)
+                .active_effects(run.send_window.active_bodies()),
             CALLER,
             run.identity.id().clone(),
             run.identity.clock(),

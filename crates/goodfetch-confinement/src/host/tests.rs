@@ -39,6 +39,10 @@ fn host(user_namespace: UserNamespace, landlock_abi: u8) -> HostFacts {
     false
 )]
 #[case::wsl1_even_with_a_namespace(HostFacts { wsl1: true, ..host(UserNamespace::Created, 0) }, false)]
+#[case::macos_seatbelt_refused(
+    HostFacts { seatbelt_refused: true, ..HostFacts::NO_NAMESPACE_NEEDED },
+    false
+)]
 fn a_plugin_is_confined_by_landlock_6_or_a_user_namespace(
     #[case] facts: HostFacts,
     #[case] confines: bool,

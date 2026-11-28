@@ -135,6 +135,7 @@ impl Plugin {
             args: vec![played.to_string_lossy().into_owned()],
             folder: layout.instance.clone(),
             proxy_relay: None,
+            proxy_loopback: None,
             reduced_confinement: false,
         };
         Self {
@@ -803,6 +804,7 @@ fn proxy_tcp_plugin() -> Plugin {
         args: vec![played.to_string_lossy().into_owned()],
         folder: layout.instance.clone(),
         proxy_relay: None,
+        proxy_loopback: None,
         reduced_confinement: false,
     };
     Plugin {
@@ -978,6 +980,7 @@ fn plugin_with_limits(limits: &Value, script: &Value) -> Plugin {
         args: vec![played.to_string_lossy().into_owned()],
         folder: layout.instance.clone(),
         proxy_relay: None,
+        proxy_loopback: None,
         reduced_confinement: false,
     };
     Plugin {
@@ -1154,5 +1157,190 @@ async fn confined_linux_plugin_resource_limits_kill_with_plugin_limit_exceeded()
         inst.stop().await;
     }
 
+    root.stop().await;
+}
+
+#[cfg(target_os = "linux")]
+fn write_stand_in_proc(scratch: &Path) -> std::path::PathBuf {
+    const MIB: u64 = 1 << 20;
+    const GIB: u64 = 1 << 30;
+    let proc_dir = scratch.join("proc");
+    let cgroup_dir = scratch.join("cgroup");
+    let write_file = |path: &Path, text: &str| {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    };
+    let rollup = |pss: u64| format!("Rss: {} kB\nPss: {} kB\n", pss / 1024 * 2, pss / 1024);
+    write_file(
+        &proc_dir.join("meminfo"),
+        &format!(
+            "MemTotal: {} kB\nMemAvailable: {} kB\n",
+            8 * GIB / 1024,
+            6 * GIB / 1024
+        ),
+    );
+    write_file(
+        &proc_dir.join("pressure/memory"),
+        "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n",
+    );
+    write_file(&proc_dir.join("self/smaps_rollup"), &rollup(64 * MIB));
+    write_file(
+        &proc_dir.join("self/stat"),
+        "1 (engine) S 1 1 1 0 -1 0 0 0 0 0 0 0 0 0\n",
+    );
+    write_file(&proc_dir.join("self/cgroup"), "0::/pod.scope\n");
+    write_file(
+        &proc_dir.join("self/mountinfo"),
+        &format!(
+            "48 22 0:30 / {} rw,relatime - cgroup2 cgroup2 rw\n",
+            cgroup_dir.display()
+        ),
+    );
+    write_file(&cgroup_dir.join("memory.max"), "max\n");
+    write_file(
+        &cgroup_dir.join("pod.scope/memory.max"),
+        &format!("{}\n", 4 * GIB),
+    );
+    proc_dir
+}
+
+#[cfg(target_os = "linux")]
+fn first_child_pid() -> u32 {
+    fs::read_dir("/proc/self/task")
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter_map(|e| fs::read_to_string(e.path().join("children")).ok())
+        .flat_map(|s| {
+            s.split_whitespace()
+                .filter_map(|p| p.parse::<u32>().ok())
+                .collect::<Vec<_>>()
+        })
+        .next()
+        .expect("expected live confined Plugin child PID")
+}
+
+#[cfg(target_os = "linux")]
+fn write_proc_footprint(proc_dir: &Path, pid: u32, pss_bytes: u64) {
+    let path = proc_dir.join(format!("{pid}/smaps_rollup"));
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(
+        path,
+        format!(
+            "Rss: {} kB\nPss: {} kB\n",
+            pss_bytes / 1024 * 2,
+            pss_bytes / 1024
+        ),
+    )
+    .unwrap();
+}
+
+/// Governor footprint sampling enforces a Plugin's manifest `memory` limit:
+/// a footprint under the limit leaves the instance untouched across samples,
+/// and a footprint past the limit kills it with non-retryable
+/// `plugin_limit_exceeded` on the governor's sample without any per-instance
+/// sampling task or timer (ADRs 0033 and 0040, issue 867).
+///
+/// Covers: story:7-22, error:plugin_limit_exceeded
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn governor_footprint_sampling_enforces_memory_limit_and_leaves_under_limit_untouched() {
+    use goodfetch_engine::governor::{Governor, System};
+    use goodfetch_engine::metrics::Metrics;
+    use goodfetch_engine::settings::{Settings, SettingsFiles};
+    use goodfetch_protocol::connection::ProductVersion;
+
+    const MIB: u64 = 1 << 20;
+    let memory_limit = 100 * MIB;
+    let scratch = tempfile::tempdir().unwrap();
+    let proc_dir = write_stand_in_proc(scratch.path());
+
+    let home = Home::new(scratch.path().join("home"));
+    let files = SettingsFiles::of(&home, &ProductVersion::parse("0.0.0").unwrap());
+    fs::create_dir_all(files.user_configuration().parent().unwrap()).unwrap();
+    fs::write(
+        files.user_configuration(),
+        "version = \"0.1\"\n\n[settings]\ngovernor.sample_interval = 25\n",
+    )
+    .unwrap();
+
+    let root = TaskOwner::root(BlockingPolicy::Threads);
+    let settings = Settings::new(files, Product::Collie, root.child());
+    let governor = Governor::start(
+        System::linux_files(proc_dir.clone()),
+        settings,
+        Clock::system(),
+        &root,
+        Metrics::none().counted_work().clone(),
+    );
+    let mut info = governor.system_info();
+    while info.borrow_and_update().is_none() {
+        info.changed().await.unwrap();
+    }
+
+    let gate = scratch.path().join("hold.gate");
+    let plugin = plugin_with_limits(
+        &json!({ "memory": memory_limit, "cpu_time": 30, "open_files": 64 }),
+        &json!({
+            "hello": hello(&json!([{ "kind": "proxy", "capabilities": [] }])),
+            "answers": {
+                "work.ping": { "result": { "ok": true } },
+                "work.hold": { "hold": gate.to_string_lossy() },
+            },
+        }),
+    );
+    let inst = PluginInstance::start_with(
+        &root,
+        plugin.instance(),
+        Scope::Task(None),
+        InstanceHooks {
+            governor: Some(governor.clone()),
+            ..InstanceHooks::default()
+        },
+    );
+
+    let ping: Value = inst
+        .call("work.ping", &json!({}))
+        .await
+        .unwrap()
+        .read()
+        .unwrap();
+    assert_eq!(ping, json!({ "ok": true }));
+
+    let child_pid = first_child_pid();
+    let children_path = proc_dir.join("self/task/1/children");
+    fs::create_dir_all(children_path.parent().unwrap()).unwrap();
+    fs::write(&children_path, format!("{child_pid}\n")).unwrap();
+    write_proc_footprint(&proc_dir, child_pid, 50 * MIB);
+    info.changed().await.unwrap();
+    info.changed().await.unwrap();
+    assert_eq!(
+        inst.call("work.ping", &json!({}))
+            .await
+            .unwrap()
+            .read::<Value>()
+            .unwrap(),
+        json!({ "ok": true })
+    );
+
+    let held_inst = inst.clone();
+    let held_call = tokio::spawn(async move { held_inst.call("work.hold", &json!({})).await });
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    write_proc_footprint(&proc_dir, child_pid, 150 * MIB);
+
+    let CallFailure::Unavailable(error) = held_call.await.unwrap().unwrap_err() else {
+        panic!("expected Unavailable(plugin_limit_exceeded)");
+    };
+    assert_eq!(error.code(), "plugin_limit_exceeded");
+    assert!(!error.retryable());
+    assert_eq!(
+        error.details().map(|d| d["resource"].clone()),
+        Some(json!("memory"))
+    );
+    assert_eq!(
+        error.details().map(|d| d["limit"].clone()),
+        Some(json!(memory_limit))
+    );
+
+    inst.stop().await;
     root.stop().await;
 }

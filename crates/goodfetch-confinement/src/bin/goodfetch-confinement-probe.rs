@@ -27,7 +27,9 @@ fn main() -> ExitCode {
     }
     #[cfg(target_os = "linux")]
     let status = linux::run();
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    let status = macos::run();
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     let status = u8::MAX;
     ExitCode::from(status)
 }
@@ -338,6 +340,171 @@ mod linux {
             return Report::Outcome(Outcome::Exit(2));
         }
         Report::Outcome(Outcome::Ok)
+    }
+
+    fn last_errno() -> Report {
+        std::io::Error::last_os_error()
+            .raw_os_error()
+            .map_or(Report::Fault(Fault::ErrnoOutOfRange), Report::errno)
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[expect(
+    unsafe_code,
+    reason = "macOS confinement probe invokes raw POSIX syscalls (open, kill, fork) to verify exact Seatbelt errno outcomes"
+)]
+mod macos {
+    use std::ffi::{CString, c_int, c_uint};
+    use std::net::{TcpListener, TcpStream, ToSocketAddrs as _};
+    use std::os::unix::ffi::OsStrExt as _;
+    use std::os::unix::net::UnixStream;
+    use std::path::Path;
+
+    use goodfetch_confinement::macos::probe::{Fault, Probe, Report, Request};
+    use goodfetch_confinement::macos::{Mechanism, SeatbeltOperation, confine_self, is_sandboxed};
+    use goodfetch_confinement::probes::{Access, Errno, Outcome};
+
+    pub(super) fn run() -> u8 {
+        report().status()
+    }
+
+    fn report() -> Report {
+        let Some(text) = std::env::args().nth(1) else {
+            return Report::Fault(Fault::Request);
+        };
+        let Ok(request) = serde_json::from_str::<Request>(&text) else {
+            return Report::Fault(Fault::Request);
+        };
+        let parent = std::os::unix::process::parent_id();
+        let mechanism = match &request.policy {
+            None => None,
+            Some(policy) => match confine_self(policy, request.proxy_port) {
+                Ok(mechanism) => Some(mechanism),
+                Err(error) => return Report::Fault(Fault::from(&error)),
+            },
+        };
+        match (request.probe, mechanism) {
+            (
+                Probe::Operation {
+                    operation,
+                    port,
+                    unix_path,
+                },
+                _,
+            ) => run_operation(operation, port, unix_path.as_deref(), parent),
+            (Probe::Path { access, path }, _) => opened(access, &path),
+            (Probe::Mechanism, Some(Mechanism::Seatbelt)) => {
+                if is_sandboxed(std::process::id()) {
+                    Report::Mechanism(Mechanism::Seatbelt)
+                } else {
+                    Report::Fault(Fault::NotConfined)
+                }
+            }
+            (Probe::Mechanism, None) => Report::Fault(Fault::Request),
+            (Probe::Raise { resource, to }, _) => match resource.set_both(to) {
+                Ok(()) => Report::Outcome(Outcome::Ok),
+                Err(error) => error
+                    .raw_os_error()
+                    .map_or(Report::Fault(Fault::ErrnoOutOfRange), Report::errno),
+            },
+        }
+    }
+
+    fn run_operation(
+        operation: SeatbeltOperation,
+        port: Option<u16>,
+        unix_path: Option<&Path>,
+        parent: u32,
+    ) -> Report {
+        match operation {
+            SeatbeltOperation::NetworkOutboundIp | SeatbeltOperation::NetworkOutboundProxy => {
+                let Some(port) = port else {
+                    return Report::Fault(Fault::Request);
+                };
+                match TcpStream::connect(("127.0.0.1", port)) {
+                    Ok(_) => Report::Outcome(Outcome::Ok),
+                    Err(error) => io_errno(error),
+                }
+            }
+            SeatbeltOperation::NetworkInbound => match TcpListener::bind(("127.0.0.1", 0)) {
+                Ok(listener) => {
+                    let _ = listener.set_nonblocking(true);
+                    Report::Outcome(Outcome::Ok)
+                }
+                Err(error) => io_errno(error),
+            },
+            SeatbeltOperation::NetworkBind => match TcpListener::bind(("127.0.0.1", 0)) {
+                Ok(_) => Report::Outcome(Outcome::Ok),
+                Err(error) => io_errno(error),
+            },
+            SeatbeltOperation::NetworkUnixSocket => {
+                let Some(path) = unix_path else {
+                    return Report::Fault(Fault::Request);
+                };
+                match UnixStream::connect(path) {
+                    Ok(_) => Report::Outcome(Outcome::Ok),
+                    Err(error) => io_errno(error),
+                }
+            }
+            SeatbeltOperation::MachLookupDns => match ("localhost", 80).to_socket_addrs() {
+                Ok(mut addrs) if addrs.next().is_some() => Report::Outcome(Outcome::Ok),
+                Ok(_) => Report::Outcome(Outcome::Errno(Errno::Eperm)),
+                Err(_) => Report::Outcome(Outcome::Errno(Errno::Eperm)),
+            },
+            SeatbeltOperation::ProcessFork => {
+                // SAFETY: single-threaded probe process forks and child exits immediately.
+                let pid = unsafe { libc::fork() };
+                if pid < 0 {
+                    return last_errno();
+                }
+                if pid == 0 {
+                    // SAFETY: child exits immediately without flushing shared buffers.
+                    unsafe { libc::_exit(0) }
+                }
+                // SAFETY: waits for the child just started.
+                if unsafe { libc::waitpid(pid, std::ptr::null_mut(), 0) } == -1 {
+                    return last_errno();
+                }
+                Report::Outcome(Outcome::Ok)
+            }
+            SeatbeltOperation::SignalOutside => {
+                let Ok(pid) = c_int::try_from(parent) else {
+                    return Report::Fault(Fault::Request);
+                };
+                // SAFETY: signal 0 checks permission without delivering a signal.
+                if unsafe { libc::kill(pid, 0) } == -1 {
+                    last_errno()
+                } else {
+                    Report::Outcome(Outcome::Ok)
+                }
+            }
+        }
+    }
+
+    fn opened(access: Access, path: &Path) -> Report {
+        let Ok(path) = CString::new(path.as_os_str().as_bytes()) else {
+            return Report::Fault(Fault::Request);
+        };
+        let flags = match access {
+            Access::Read => libc::O_RDONLY,
+            Access::Write => libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC,
+        } | libc::O_CLOEXEC;
+        let mode: c_uint = 0o600;
+        // SAFETY: `path` is a valid NUL-terminated C string outliving the call.
+        let fd = unsafe { libc::open(path.as_ptr(), flags, mode) };
+        if fd == -1 {
+            return last_errno();
+        }
+        // SAFETY: closes the descriptor just opened.
+        unsafe { libc::close(fd) };
+        Report::Outcome(Outcome::Ok)
+    }
+
+    fn io_errno(error: std::io::Error) -> Report {
+        error
+            .raw_os_error()
+            .map_or(Report::Fault(Fault::ErrnoOutOfRange), Report::errno)
     }
 
     fn last_errno() -> Report {

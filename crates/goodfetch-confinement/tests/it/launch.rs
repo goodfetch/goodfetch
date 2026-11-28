@@ -91,6 +91,7 @@ impl Plugin {
             args: vec![serde_json::to_string(&request).unwrap()],
             folder: self.layout.instance.clone(),
             proxy_relay: None,
+            proxy_loopback: None,
             reduced_confinement: false,
         };
         let status = Command::new(PROBE)

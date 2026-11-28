@@ -48,18 +48,21 @@ use crate::tasks::TaskOwner;
 mod browsers;
 mod controller;
 mod ladder;
+mod plugins;
 mod shares;
 mod storage;
 mod system;
 
 pub use browsers::{BrowserUse, GovernedBrowser, PageHold};
 pub use ladder::{Weight, last_resort_run};
+pub use plugins::GovernedPlugin;
 pub use shares::{Permit, RunShare};
 pub use storage::{
     Filesystem, FilesystemInodes, FilesystemReading, FilesystemSource, Held, StorageSample,
 };
 pub use system::{System, footprint_of};
 
+use plugins::Plugins;
 use storage::{Disks, Folders, Settled};
 
 use controller::{Bounds, Controller, Decision, Limits, Reading};
@@ -70,6 +73,7 @@ use system::{Cgroup, Inputs, SystemReading};
 #[derive(Clone, Debug)]
 pub struct Governor {
     shares: Shares,
+    plugins: Plugins,
     info: watch::Receiver<Option<SystemInfo>>,
     /// Where it reads filesystems; none when it never samples.
     disks: Option<Disks>,
@@ -136,6 +140,7 @@ impl Governor {
         work: CountedWork,
     ) -> Self {
         let shares = Shares::new([0; 3]);
+        let plugins = Plugins::default();
         let (sender, info) = watch::channel(None);
         let (stored, storage) = watch::channel(Arc::new(StorageSample::default()));
         let (beginning, begun) = watch::channel(0);
@@ -149,6 +154,7 @@ impl Governor {
             settings,
             clock,
             shares: shares.clone(),
+            plugins: plugins.clone(),
             sender,
             blocking: owner.part("Resource governor"),
             folders: folders.clone(),
@@ -166,6 +172,7 @@ impl Governor {
         });
         Self {
             shares,
+            plugins,
             info,
             disks: Some(disks),
             folders,
@@ -183,6 +190,7 @@ impl Governor {
             .map(|kind| u32::try_from(catalog_default::<u64>(kind.ceiling())).unwrap_or(u32::MAX));
         Self {
             shares: Shares::new(ceilings),
+            plugins: Plugins::default(),
             info: watch::channel(None).1,
             disks: None,
             folders: Folders::default(),
@@ -191,6 +199,14 @@ impl Governor {
             settled: watch::channel(Settled::built_in()).1,
             last_resort: watch::channel(LastResort::default()).1,
         }
+    }
+
+    /// Registers a running process Plugin's OS process ID with the governor's
+    /// sampler (ADRs 0033 and 0040, issue 867): at each `governor.sample_interval`
+    /// the sampler measures its footprint once alongside the browsers and
+    /// publishes it on the returned handle. Dropping the handle unregisters it.
+    pub fn register_plugin(&self, process: u32) -> GovernedPlugin {
+        self.plugins.register(process)
     }
 
     /// Samples the filesystem holding `folder` from the next sample on,
@@ -338,6 +354,7 @@ struct Sampler {
     defaults: Resolved,
     clock: Clock,
     shares: Shares,
+    plugins: Plugins,
     sender: watch::Sender<Option<SystemInfo>>,
     /// Where the readings, which block, run.
     blocking: TaskOwner,
@@ -381,8 +398,8 @@ impl Sampler {
                 host_memory: settings.get(&HOST_MEMORY),
             };
             let read;
-            (read, levels) = self.sample(settings, &cgroup, inputs, &levels).await;
-            let browsers = read.browsers.iter().sum();
+            let browsers;
+            (read, browsers, levels) = self.sample(settings, &cgroup, inputs, &levels).await;
             let now = self.clock.now();
             let tokio_busy = tokio_busy();
             let parallelism = read.parallelism;
@@ -464,13 +481,17 @@ impl Sampler {
         cgroup: &Arc<Cgroup>,
         inputs: Inputs,
         before: &[(Vec<PathBuf>, StorageLevel)],
-    ) -> (SystemReading, Vec<(Vec<PathBuf>, StorageLevel)>) {
+    ) -> (SystemReading, u64, Vec<(Vec<PathBuf>, StorageLevel)>) {
         let settled = Settled::of(settings);
         let folders = self.folders.now();
         let system = self.system.clone();
         let cgroup = Arc::clone(cgroup);
-        let (ids, processes): (Vec<u64>, Vec<u32>) =
+        let (browser_ids, mut processes): (Vec<u64>, Vec<u32>) =
             self.shares.browsers().processes().into_iter().unzip();
+        let browser_count = browser_ids.len();
+        let (plugin_ids, plugin_processes): (Vec<u64>, Vec<u32>) =
+            self.plugins.processes().into_iter().unzip();
+        processes.extend(plugin_processes);
         let mut number = 0;
         self.beginning.send_modify(|begun| {
             *begun += 1;
@@ -483,9 +504,19 @@ impl Sampler {
                 (sample, system.read(&cgroup, &inputs, &processes))
             })
             .await;
-        let footprints: Vec<(u64, u64)> =
-            ids.into_iter().zip(read.browsers.iter().copied()).collect();
-        self.shares.browsers().measured(&footprints);
+        let split = browser_count.min(read.browsers.len());
+        let (browser_reads, plugin_reads) = read.browsers.split_at(split);
+        let browsers_total: u64 = browser_reads.iter().sum();
+        let browser_footprints: Vec<(u64, u64)> = browser_ids
+            .into_iter()
+            .zip(browser_reads.iter().copied())
+            .collect();
+        self.shares.browsers().measured(&browser_footprints);
+        let plugin_footprints: Vec<(u64, u64)> = plugin_ids
+            .into_iter()
+            .zip(plugin_reads.iter().copied())
+            .collect();
+        self.plugins.measured(&plugin_footprints);
         for filesystem in &sample.filesystems {
             let was = before
                 .iter()
@@ -504,7 +535,7 @@ impl Sampler {
             .collect();
         self.settling.send_replace(settled);
         self.stored.send_replace(Arc::new(sample));
-        (read, levels)
+        (read, browsers_total, levels)
     }
 
     /// The governor's settings from `machine`, the engine's snapshot of

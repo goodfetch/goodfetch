@@ -69,6 +69,7 @@ pub fn read_with_helper(helper_path: &Path) -> HostFacts {
         landlock_abi: super::kernel_abi(),
         wsl1,
         sandbox_helper,
+        seatbelt_refused: false,
     }
 }
 

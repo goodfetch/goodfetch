@@ -146,3 +146,32 @@ fn apparmor_restriction_refuses_proxy_tcp_naming_plugin_setup_until_helper_is_in
             .needs_sandbox_helper(goodfetch_protocol::plugin::NetworkLevel::ProxyTcp)
     );
 }
+
+/// A macOS host where Seatbelt (`sandbox_init`) is refused rejects Plugins
+/// with non-retryable `confinement_unavailable` at every network level and
+/// never runs them weakened (ADR 0033, issue 867).
+/// Covers: story:7-22, error:confinement_unavailable
+#[rstest]
+#[case::none(goodfetch_protocol::plugin::NetworkLevel::None)]
+#[case::proxy_tcp(goodfetch_protocol::plugin::NetworkLevel::ProxyTcp)]
+#[case::direct(goodfetch_protocol::plugin::NetworkLevel::Direct)]
+fn macos_host_that_refuses_seatbelt_refuses_plugins_with_confinement_unavailable(
+    #[case] level: goodfetch_protocol::plugin::NetworkLevel,
+) {
+    let host = facts(HostFacts {
+        seatbelt_refused: true,
+        ..HostFacts::NO_NAMESPACE_NEEDED
+    });
+    let (missing, refusal) = host
+        .plugin_confinement(level)
+        .expect_err("a macOS host refusing Seatbelt must refuse Plugins");
+
+    assert_eq!(missing, vec!["seatbelt".to_owned()]);
+    assert_eq!(refusal.code(), "confinement_unavailable");
+    assert!(!refusal.retryable());
+    let data = refusal.details().unwrap();
+    assert!(
+        data["fix"].as_str().unwrap().contains("Seatbelt"),
+        "expected fix to mention Seatbelt: {data:?}"
+    );
+}

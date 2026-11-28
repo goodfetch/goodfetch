@@ -168,6 +168,16 @@ impl Facts {
         if self.host.confines() {
             return None;
         }
+        if self.host.seatbelt_refused {
+            return Some(CallError::new(
+                &CONFINEMENT_UNAVAILABLE,
+                "this host cannot confine a process Plugin (unknown): macOS Seatbelt (`sandbox_init`) refused confinement",
+                &ConfinementUnavailableDetails {
+                    environment: SandboxEnvironment::Unknown,
+                    fix: "Run Goodfetch outside any outer sandbox or policy that forbids macOS Seatbelt (`sandbox_init`); Plugins are never started unconfined.".to_owned(),
+                },
+            ));
+        }
         let (environment, failure) = match judge(&Self {
             platform: None,
             ..*self
@@ -374,9 +384,14 @@ fn read_host() -> HostFacts {
     goodfetch_confinement::linux::host::read()
 }
 
-/// Outside Linux, Chromium's sandboxes and a Plugin's confinement need no
-/// user namespace.
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
+fn read_host() -> HostFacts {
+    goodfetch_confinement::macos::host::read()
+}
+
+/// Outside Linux and macOS, Chromium's sandboxes and a Plugin's confinement
+/// need no user namespace or Seatbelt probe.
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn read_host() -> HostFacts {
     HostFacts::NO_NAMESPACE_NEEDED
 }

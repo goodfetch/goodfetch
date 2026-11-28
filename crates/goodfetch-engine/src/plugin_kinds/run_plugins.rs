@@ -48,6 +48,7 @@ use crate::audit::{AuditLog, Origin as AuditOrigin};
 use crate::browser_cache::{BrowserCache, CacheLocation, HeldArtifact};
 use crate::call_error::CallError;
 use crate::clock::Clock;
+use crate::governor::Governor;
 use crate::home::Home;
 use crate::pinned_download::Fetching;
 use crate::plugin_gate::{
@@ -101,6 +102,10 @@ pub struct RunPlugins {
     /// How this Run locates its `plugin-shim` launcher executable (ADR 0051,
     /// issue 1077).
     shim: PluginShim,
+    /// The engine's Resource governor, which samples each started Plugin's
+    /// memory footprint once per `governor.sample_interval` (ADRs 0033 and
+    /// 0040, issue 867).
+    governor: Option<Governor>,
     /// What its Plugins' `net.fetch` waits on.
     clock: Clock,
     /// Shared cache locks held for each started Plugin's runtime until the
@@ -165,6 +170,7 @@ impl RunPlugins {
             run_id,
             owner,
             shim: PluginShim::CurrentExecutable,
+            governor: None,
             clock,
             held_runtimes: tokio::sync::Mutex::new(Vec::new()),
             running: tokio::sync::Mutex::new(BTreeMap::new()),
@@ -231,6 +237,15 @@ impl RunPlugins {
     #[must_use]
     pub fn with_shim(mut self, shim: PluginShim) -> Self {
         self.shim = shim;
+        self
+    }
+
+    /// Attaches the engine's Resource governor so each started process Plugin
+    /// registers its PID on start and unregisters on stop (ADRs 0033 and 0040,
+    /// issue 867).
+    #[must_use]
+    pub fn with_governor(mut self, governor: Governor) -> Self {
+        self.governor = Some(governor);
         self
     }
 
@@ -822,6 +837,7 @@ impl RunPlugins {
             InstanceHooks {
                 audit: self.audit.clone(),
                 quarantine_notifier: self.quarantine_notifier.clone(),
+                governor: self.governor.clone(),
                 ..InstanceHooks::default()
             },
         );
@@ -1440,6 +1456,7 @@ fn set_up(
             args,
             folder,
             proxy_relay: None,
+            proxy_loopback: None,
             reduced_confinement,
         },
         manifest: installed.manifest,

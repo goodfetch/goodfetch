@@ -97,6 +97,7 @@ use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::deadline::{Deadline, Enclosing};
 use crate::framing::{self, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
+use crate::governor::{GovernedPlugin, Governor};
 use crate::lease::LeaseCheck;
 use crate::plugin_gate::{CALL_BACKS, OpenStreams, PluginFetch, admit_call_back};
 use crate::tasks::TaskOwner;
@@ -230,8 +231,14 @@ pub struct InstanceHooks {
     pub audit: Option<AuditLog>,
     /// Notification sink invoked once when the instance is quarantined.
     pub quarantine_notifier: Option<Arc<dyn QuarantineNotifier>>,
-    /// Explicit resource monitor overriding the default OS `/proc` sampler.
+    /// Explicit resource monitor overriding the governor's footprint watch
+    /// (used in unit/integration tests for synthetic limit samples).
     pub resource_monitor: Option<Arc<dyn ResourceMonitor>>,
+    /// The engine's Resource governor (ADRs 0033 and 0040, issue 867): each
+    /// started process registers with the governor's sampler on start and
+    /// unregisters on stop so its footprint is measured once per governor
+    /// sample without any per-instance sampling task, timer or memory read.
+    pub governor: Option<Governor>,
     /// Active `proxy_tcp` open stream counter for abandoned-call restart checks.
     pub proxied_streams: Option<OpenStreams>,
 }
@@ -1106,10 +1113,11 @@ enum Exit {
 
 /// Active per-generation runtime handles dropped when a generation ends.
 struct GenerationGuards {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     _proxy: Option<crate::plugin_gate::PluginProxy>,
     proxied_streams: Option<OpenStreams>,
     monitor: Option<Arc<dyn ResourceMonitor>>,
+    governed: Option<GovernedPlugin>,
 }
 
 impl Running {
@@ -1312,10 +1320,11 @@ impl Running {
         stream_rx: mpsc::Receiver<StreamEvent>,
     ) -> Exit {
         let guards = GenerationGuards {
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             _proxy: None,
             proxied_streams: self.hooks.proxied_streams.clone(),
             monitor: self.hooks.resource_monitor.clone(),
+            governed: None,
         };
         let mut backend = Backend::InMemory;
         self.run_generation_pipes(
@@ -1327,11 +1336,19 @@ impl Running {
         .await
     }
 
-    /// Resolves the resource monitor for a started process generation (either
-    /// an injected test monitor or Linux's `/proc`-based group monitor).
+    /// Resolves an explicit test resource monitor if attached. When a
+    /// Resource governor is attached (production Runs and governor tests),
+    /// memory is sampled once per governor sample through
+    /// `Governor::register_plugin` with no per-instance sampling task, timer
+    /// or memory read (ADRs 0033 and 0040, issue 867). Only a standalone
+    /// Linux `PluginInstance` started without a governor falls back to
+    /// `ProcGroupMonitor`.
     fn monitor_for_process(&self, process: &PluginProcess) -> Option<Arc<dyn ResourceMonitor>> {
         if let Some(custom) = &self.hooks.resource_monitor {
             return Some(Arc::clone(custom));
+        }
+        if self.hooks.governor.is_some() {
+            return None;
         }
         #[cfg(target_os = "linux")]
         {
@@ -1344,6 +1361,105 @@ impl Running {
         {
             let _ = process;
             None
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn start_generation_process(
+        &self,
+        start: &ProcessStart,
+        launch: &mut goodfetch_confinement::launch::Launch,
+    ) -> (
+        Option<crate::plugin_gate::PluginProxy>,
+        Option<OpenStreams>,
+        std::io::Result<(PluginProcess, Pipes)>,
+    ) {
+        if self.config.manifest.network_level == goodfetch_protocol::plugin::NetworkLevel::ProxyTcp
+            && launch.proxy_relay.is_none()
+        {
+            match crate::plugin_gate::PluginProxy::start_linux_relay(
+                &self.owner,
+                self.config.manifest.name.clone(),
+                Arc::clone(&self.config.fetch),
+                self.config.fetch.stream_accountant(),
+            ) {
+                Ok((proxy, control_fd)) => {
+                    let creds = proxy.credentials();
+                    let counter = proxy.open_streams_counter();
+                    launch.proxy_relay = Some(goodfetch_confinement::launch::ProxyRelay {
+                        control_fd: goodfetch_confinement::linux::relay::CONTROL_FD,
+                        username: creds.username.clone(),
+                        password: creds.password.clone(),
+                    });
+                    let started = PluginProcess::start_with_fd_and_env(
+                        &start.launcher,
+                        launch,
+                        &start.launcher_env,
+                        control_fd,
+                        goodfetch_confinement::linux::relay::CONTROL_FD,
+                    );
+                    (Some(proxy), Some(counter), started)
+                }
+                Err(error) => (None, None, Err(error)),
+            }
+        } else {
+            (
+                None,
+                self.hooks.proxied_streams.clone(),
+                PluginProcess::start_with_env(&start.launcher, launch, &start.launcher_env),
+            )
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    async fn start_generation_process(
+        &self,
+        start: &ProcessStart,
+        launch: &mut goodfetch_confinement::launch::Launch,
+    ) -> (
+        Option<crate::plugin_gate::PluginProxy>,
+        Option<OpenStreams>,
+        std::io::Result<(PluginProcess, Pipes)>,
+    ) {
+        if self.config.manifest.network_level == goodfetch_protocol::plugin::NetworkLevel::ProxyTcp
+            && launch.proxy_loopback.is_none()
+        {
+            match crate::plugin_gate::PluginProxy::start_loopback(
+                &self.owner,
+                self.config.manifest.name.clone(),
+                Arc::clone(&self.config.fetch),
+                self.config.fetch.stream_accountant(),
+                None,
+            )
+            .await
+            {
+                Ok(proxy) => {
+                    let Some(addr) = proxy.local_addr() else {
+                        return (
+                            None,
+                            None,
+                            Err(std::io::Error::other("loopback proxy bound no address")),
+                        );
+                    };
+                    let creds = proxy.credentials();
+                    let counter = proxy.open_streams_counter();
+                    launch.proxy_loopback = Some(goodfetch_confinement::launch::ProxyLoopback {
+                        port: addr.port(),
+                        username: creds.username.clone(),
+                        password: creds.password.clone(),
+                    });
+                    let started =
+                        PluginProcess::start_with_env(&start.launcher, launch, &start.launcher_env);
+                    (Some(proxy), Some(counter), started)
+                }
+                Err(error) => (None, None, Err(error)),
+            }
+        } else {
+            (
+                None,
+                self.hooks.proxied_streams.clone(),
+                PluginProcess::start_with_env(&start.launcher, launch, &start.launcher_env),
+            )
         }
     }
 
@@ -1369,43 +1485,12 @@ impl Running {
 
         let mut launch = start.launch.clone();
         #[cfg(target_os = "linux")]
-        let (proxy_guard, proxied_streams, started) = if self.config.manifest.network_level
-            == goodfetch_protocol::plugin::NetworkLevel::ProxyTcp
-            && launch.proxy_relay.is_none()
-        {
-            match crate::plugin_gate::PluginProxy::start_linux_relay(
-                &self.owner,
-                self.config.manifest.name.clone(),
-                Arc::clone(&self.config.fetch),
-                self.config.fetch.stream_accountant(),
-            ) {
-                Ok((proxy, control_fd)) => {
-                    let creds = proxy.credentials();
-                    let counter = proxy.open_streams_counter();
-                    launch.proxy_relay = Some(goodfetch_confinement::launch::ProxyRelay {
-                        control_fd: goodfetch_confinement::linux::relay::CONTROL_FD,
-                        username: creds.username.clone(),
-                        password: creds.password.clone(),
-                    });
-                    let started = PluginProcess::start_with_fd_and_env(
-                        &start.launcher,
-                        &launch,
-                        &start.launcher_env,
-                        control_fd,
-                        goodfetch_confinement::linux::relay::CONTROL_FD,
-                    );
-                    (Some(proxy), Some(counter), started)
-                }
-                Err(error) => (None, None, Err(error)),
-            }
-        } else {
-            (
-                None,
-                self.hooks.proxied_streams.clone(),
-                PluginProcess::start_with_env(&start.launcher, &launch, &start.launcher_env),
-            )
-        };
-        #[cfg(not(target_os = "linux"))]
+        let (proxy_guard, proxied_streams, started) =
+            self.start_generation_process(start, &mut launch);
+        #[cfg(target_os = "macos")]
+        let (proxy_guard, proxied_streams, started) =
+            self.start_generation_process(start, &mut launch).await;
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         let (proxied_streams, started) = (
             self.hooks.proxied_streams.clone(),
             PluginProcess::start_with_env(&start.launcher, &launch, &start.launcher_env),
@@ -1421,12 +1506,18 @@ impl Running {
         };
 
         let monitor = self.monitor_for_process(&process);
+        let governed = self
+            .hooks
+            .governor
+            .as_ref()
+            .and_then(|governor| process.pid().map(|pid| governor.register_plugin(pid)));
 
         let guards = GenerationGuards {
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             _proxy: proxy_guard,
             proxied_streams,
             monitor,
+            governed,
         };
         let mut backend = Backend::Process(Box::new(process));
         let exit = self
@@ -1644,6 +1735,10 @@ impl Running {
             .monitor
             .is_some()
             .then(|| self.clock.now() + RESOURCE_POLL_INTERVAL);
+        let mut governed_footprint = guards.governed.as_ref().map(GovernedPlugin::watch);
+        if let Some(exit) = self.poll_governed_memory(&mut governed_footprint) {
+            return exit;
+        }
         let clock = self.clock;
         loop {
             if instance.state == InstanceState::Ready && next_ping.is_none() {
@@ -1674,27 +1769,11 @@ impl Running {
                 }
                 // Before its end, so that what it said last is read.
                 read = stdout.read(&mut buffer), if reading => {
-                    match read {
-                        // The Plugin closed its stdout: its end comes next.
-                        Ok(0) | Err(_) => {
-                            reading = false;
-                            parsed.extend(framer.finish());
-                        }
-                        Ok(read) => framer.feed(&buffer[..read], &mut parsed),
-                    }
-                    for frame in parsed.drain(..) {
-                        if let Some(exit) = self.received(instance, stdin, frame).await {
-                            return exit;
-                        }
-                    }
-                    if !reading && backend.is_in_memory() {
-                        return Exit::Crashed {
-                            ping_missed: false,
-                            reason: code(
-                                &PLUGIN_CRASHED,
-                                "the Plugin closed its stdout",
-                            ),
-                        };
+                    if let Some(exit) = self
+                        .handle_stdout_read(instance, stdin, backend, (&mut reading, &mut framer, &mut parsed, &buffer, read))
+                        .await
+                    {
+                        return exit;
                     }
                 }
                 ended = backend.ended() => {
@@ -1711,6 +1790,13 @@ impl Running {
                         return exit;
                     }
                     next_sample = Some(clock.now() + RESOURCE_POLL_INTERVAL);
+                }
+                changed = wait_governed_footprint(&mut governed_footprint), if governed_footprint.is_some() => {
+                    if !changed {
+                        governed_footprint = None;
+                    } else if let Some(exit) = self.poll_governed_memory(&mut governed_footprint) {
+                        return exit;
+                    }
                 }
                 // The instance holds a sender, so this never ends.
                 Some(line) = call_backs_answered.recv() => {
@@ -1767,6 +1853,57 @@ impl Running {
         Some(Exit::Crashed {
             ping_missed: false,
             reason: limit_exceeded_error(&self.config.manifest.name, resource, limit),
+        })
+    }
+
+    async fn handle_stdout_read<W: AsyncWrite + Unpin>(
+        &mut self,
+        instance: &mut Instance,
+        stdin: &mut W,
+        backend: &Backend,
+        (reading, framer, parsed, buffer, read): (
+            &mut bool,
+            &mut Framer,
+            &mut Vec<Frame>,
+            &[u8],
+            std::io::Result<usize>,
+        ),
+    ) -> Option<Exit> {
+        match read {
+            // The Plugin closed its stdout: its end comes next.
+            Ok(0) | Err(_) => {
+                *reading = false;
+                parsed.extend(framer.finish());
+            }
+            Ok(count) => framer.feed(&buffer[..count], parsed),
+        }
+        for frame in parsed.drain(..) {
+            if let Some(exit) = self.received(instance, stdin, frame).await {
+                return Some(exit);
+            }
+        }
+        if !*reading && backend.is_in_memory() {
+            return Some(Exit::Crashed {
+                ping_missed: false,
+                reason: code(&PLUGIN_CRASHED, "the Plugin closed its stdout"),
+            });
+        }
+        None
+    }
+
+    /// Reads the latest footprint published by the Resource governor and
+    /// returns a `plugin_limit_exceeded` crash exit once it passes the
+    /// manifest's `memory` limit (ADRs 0033 and 0040, issue 867).
+    fn poll_governed_memory(&self, rx: &mut Option<watch::Receiver<Option<u64>>>) -> Option<Exit> {
+        let bytes = rx.as_mut().and_then(|watch| *watch.borrow_and_update())?;
+        let limit = self.config.manifest.limits.memory;
+        (bytes > limit).then(|| Exit::Crashed {
+            ping_missed: false,
+            reason: limit_exceeded_error(
+                &self.config.manifest.name,
+                PluginResourceLimit::Memory,
+                limit,
+            ),
         })
     }
 
@@ -2581,6 +2718,15 @@ fn quarantined_error(plugin: &str) -> CallError {
         &PLUGIN_QUARANTINED,
         &format!("the Plugin `{plugin}` is quarantined for the rest of its run"),
     )
+}
+
+/// Waits for the Resource governor to publish the next footprint sample;
+/// returns `false` if the watch sender closed.
+async fn wait_governed_footprint(rx: &mut Option<watch::Receiver<Option<u64>>>) -> bool {
+    match rx.as_mut() {
+        Some(watch) => watch.changed().await.is_ok(),
+        None => std::future::pending().await,
+    }
 }
 
 /// The non-retryable `plugin_limit_exceeded` error for `plugin` exceeding

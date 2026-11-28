@@ -693,3 +693,92 @@ fn a_browser_hosts_pages_are_admitted_by_its_reported_pressure() {
 
     assert_eq!((own, hosted, after_report), (1, 6, 1));
 }
+
+/// A registered process Plugin's footprint is read once per governor sample,
+/// together with the browsers', published on its handle without polluting
+/// `memory.browsers`, and stops being read once its handle drops (ADRs 0033,
+/// 0040 and 0140, issue 867).
+///
+/// Covers: story:7-22
+#[test]
+fn a_registered_plugin_process_is_measured_once_per_sample_and_unregistered_on_drop() {
+    const PLUGIN_PID: u32 = 4343;
+    let env = TestEnv::new();
+    env.user_configuration(SAMPLED);
+    let proc = Proc::new();
+    proc.file("self/task/1/children", &format!("{PLUGIN_PID}\n"));
+    proc.file(&format!("{PLUGIN_PID}/smaps_rollup"), &rollup(32 * MIB));
+
+    let work = CountedWork::default();
+    let files = SettingsFiles::of(
+        &Home::new(env.home().to_path_buf()),
+        &ProductVersion::parse("0.0.0").unwrap(),
+    );
+    let (
+        first_measure,
+        second_measure,
+        browsers_reported,
+        reads_while_registered,
+        reads_after_drop,
+    ) = goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let settings = Settings::new(files, Product::Collie, owner.child());
+        let clock = Clock::paused(SystemTime::UNIX_EPOCH);
+        let governor = Governor::start(
+            System::linux_files(proc.proc()),
+            settings,
+            clock,
+            &owner,
+            work.clone(),
+        );
+        let mut info = governor.system_info();
+        let plugin = governor.register_plugin(PLUGIN_PID);
+        let mut watch = plugin.watch();
+
+        // Wait for the first sample.
+        loop {
+            info.changed().await.unwrap();
+            if info.borrow_and_update().is_some() {
+                break;
+            }
+        }
+        let first_measure = *watch.borrow_and_update();
+        let browsers_reported = info.borrow().as_ref().unwrap().memory.browsers;
+        let before_second = work.read(goodfetch_counted_work::Row::GovernorProcessReads);
+
+        // Grow the Plugin's footprint and take one more sample.
+        proc.file(&format!("{PLUGIN_PID}/smaps_rollup"), &rollup(96 * MIB));
+        watch.changed().await.unwrap();
+        let second_measure = *watch.borrow_and_update();
+        info.changed().await.unwrap();
+        let _ = info.borrow_and_update();
+        let after_second = work.read(goodfetch_counted_work::Row::GovernorProcessReads);
+        let reads_while_registered = after_second - before_second;
+
+        // Unregister the Plugin (and remove it from engine children as if it exited).
+        drop(plugin);
+        proc.file("self/task/1/children", "");
+        let before_third = work.read(goodfetch_counted_work::Row::GovernorProcessReads);
+        info.changed().await.unwrap();
+        let _ = info.borrow_and_update();
+        let after_third = work.read(goodfetch_counted_work::Row::GovernorProcessReads);
+        let reads_after_drop = after_third - before_third;
+
+        owner.stop().await;
+        (
+            first_measure,
+            second_measure,
+            browsers_reported,
+            reads_while_registered,
+            reads_after_drop,
+        )
+    });
+
+    assert_eq!(first_measure, Some(32 * MIB));
+    assert_eq!(second_measure, Some(96 * MIB));
+    assert_eq!(browsers_reported, 0);
+    // Engine + registered Plugin = 2 process reads per sample (once each).
+    assert_eq!(reads_while_registered, 2);
+    // Engine alone after Plugin stops and unregisters = 1 process read.
+    assert_eq!(reads_after_drop, 1);
+}

@@ -5,5 +5,9 @@
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod launch;
+#[cfg(target_os = "macos")]
+mod macos_launch;
+#[cfg(target_os = "macos")]
+mod macos_probes;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod probes;

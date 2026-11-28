@@ -63,6 +63,7 @@ fn build_launch(layout: &Layout, program: PathBuf, args: Vec<String>) -> Launch 
         args,
         folder: layout.instance.clone(),
         proxy_relay: None,
+        proxy_loopback: None,
         reduced_confinement: false,
     }
 }

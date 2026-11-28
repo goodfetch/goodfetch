@@ -49,6 +49,9 @@ pub struct HostFacts {
     /// create and map a user namespace on this host (Ubuntu 23.10+ after
     /// `plugin setup`, ADRs 0033 and 0039).
     pub sandbox_helper: bool,
+    /// Whether macOS Seatbelt (`sandbox_init`) refused to confine a probe
+    /// child on this host (ADR 0033, issue 867).
+    pub seatbelt_refused: bool,
 }
 
 impl HostFacts {
@@ -61,14 +64,17 @@ impl HostFacts {
         landlock_abi: 0,
         wsl1: false,
         sandbox_helper: false,
+        seatbelt_refused: false,
     };
 
     /// Whether a Plugin can be confined here, by Landlock from ABI 6, by a
-    /// user namespace of its own, or through the installed `goodfetch-sandbox`
-    /// helper: never on WSL1, which has no seccomp, nor where none is given
-    /// (ADR 0033's hosts that cannot confine).
+    /// user namespace of its own, through the installed `goodfetch-sandbox`
+    /// helper, or by Seatbelt on macOS: never on WSL1, never when macOS
+    /// refuses Seatbelt, nor where none is given (ADR 0033's hosts that
+    /// cannot confine).
     pub fn confines(&self) -> bool {
         !self.wsl1
+            && !self.seatbelt_refused
             && (self.landlock_abi >= SIGNAL_SCOPE_ABI
                 || self.user_namespace == UserNamespace::Created
                 || self.sandbox_helper)
@@ -83,6 +89,7 @@ impl HostFacts {
     pub fn needs_sandbox_helper(&self, network_level: NetworkLevel) -> bool {
         self.sandbox_helper
             && !self.wsl1
+            && !self.seatbelt_refused
             && self.user_namespace != UserNamespace::Created
             && (network_level == NetworkLevel::ProxyTcp || self.landlock_abi < SIGNAL_SCOPE_ABI)
     }
@@ -92,6 +99,9 @@ impl HostFacts {
     /// (ADR 0033).
     #[must_use]
     pub fn missing_confinement(&self, network_level: NetworkLevel) -> Vec<&'static str> {
+        if self.seatbelt_refused {
+            return vec!["seatbelt"];
+        }
         if self.wsl1 {
             let mut missing = vec!["seccomp", "filesystem", "signal_scope", "user_namespace"];
             if network_level == NetworkLevel::ProxyTcp {

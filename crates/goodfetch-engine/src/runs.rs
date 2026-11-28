@@ -4628,7 +4628,8 @@ impl Registry {
             .with_spend(RunSpendAccountant::new(charging.clone(), warnings.clone()))
             .with_streams(RunStreamAccountant::new(charging.clone(), trace.clone()))
             .with_effects_journal(RunEffectJournal::new(state.clone(), clock))
-            .with_shim(self.setup.engine.plugin_shim().clone()),
+            .with_shim(self.setup.engine.plugin_shim().clone())
+            .with_governor(self.setup.governor.clone()),
         );
         secrets.set_plugin_provider(Arc::new(PluginSecretResolver::new(
             Arc::clone(&plugins),

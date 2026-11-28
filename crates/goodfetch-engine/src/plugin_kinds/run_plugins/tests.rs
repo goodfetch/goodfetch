@@ -707,6 +707,7 @@ fn unconfining_host() -> goodfetch_confinement::host::HostFacts {
         landlock_abi: 4,
         wsl1: false,
         sandbox_helper: false,
+        seatbelt_refused: false,
     }
 }
 

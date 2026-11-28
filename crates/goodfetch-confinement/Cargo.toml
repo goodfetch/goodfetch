@@ -23,7 +23,9 @@ goodfetch-workspace-hack.workspace = true
 # The applier (ADR 0033): Landlock, then the stacked seccomp filters.
 landlock.workspace = true
 seccompiler.workspace = true
-# The probe executable's raw system calls, and the calls' numbers.
+
+[target.'cfg(unix)'.dependencies]
+# Raw system calls on Linux and macOS (rlimits, fd closing, probe calls).
 libc.workspace = true
 
 [dev-dependencies]

@@ -429,6 +429,7 @@ fn build_proxy_tcp_launch() -> (tempfile::TempDir, PluginManifest, Launch) {
         args: vec![played.to_string_lossy().into_owned()],
         folder: layout.instance.clone(),
         proxy_relay: None,
+        proxy_loopback: None,
         reduced_confinement: false,
     };
     (plugin_root, manifest, launch)

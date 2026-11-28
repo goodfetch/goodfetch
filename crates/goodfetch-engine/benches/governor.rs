@@ -34,12 +34,15 @@ const ROWS: [Row; 5] = [
     Row::GovernorProcessReads,
 ];
 
-/// The processes each sample reads the memory of: the engine and its
-/// browser.
-pub(crate) const PROCESSES: u64 = 2;
+/// The processes each sample reads the memory of: the engine, its browser,
+/// and its registered Plugin process (ADR 0140, issue 867).
+pub(crate) const PROCESSES: u64 = 3;
 
 /// The browser's process ID in the stand-in `/proc`.
 const BROWSER: u32 = 4242;
+
+/// The registered Plugin's process ID in the stand-in `/proc`.
+const PLUGIN: u32 = 4343;
 
 const MIB: u64 = 1 << 20;
 const GIB: u64 = 1 << 30;
@@ -88,8 +91,9 @@ fn stand_in_proc(root: &Path) -> PathBuf {
     );
     file("self/smaps_rollup", &rollup(100 * MIB));
     file("self/stat", "1 (engine) S 1 1 1 0 -1 0 0 0 0 0 0 0 0 0\n");
-    file("self/task/1/children", &format!("{BROWSER}\n"));
+    file("self/task/1/children", &format!("{BROWSER} {PLUGIN}\n"));
     file(&format!("{BROWSER}/smaps_rollup"), &rollup(200 * MIB));
+    file(&format!("{PLUGIN}/smaps_rollup"), &rollup(50 * MIB));
     file("self/cgroup", "0::/pod.scope\n");
     file(
         "self/mountinfo",
@@ -124,6 +128,7 @@ fn planted(row: Row, proc: &Path, work: &CountedWork) {
         Row::GovernorProcessReads => {
             open("self/smaps_rollup".to_owned());
             open(format!("{BROWSER}/smaps_rollup"));
+            open(format!("{PLUGIN}/smaps_rollup"));
         }
         other => panic!("no governor plant for the row {}", other.name()),
     }
@@ -157,6 +162,7 @@ pub(crate) fn run(home: &Path, work: &CountedWork, plant: Option<Plant>) -> Samp
             governed.clone(),
         );
         let _browser = governor.join(100).browser(BROWSER);
+        let _plugin = governor.register_plugin(PLUGIN);
         let mut info = governor.system_info();
         // The governor's first sample, and its start before it, count
         // nothing: each later one counts from here.

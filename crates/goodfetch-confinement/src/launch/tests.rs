@@ -25,6 +25,7 @@ fn launch(env: &[(&str, &str)]) -> Launch {
         args: Vec::new(),
         folder: PathBuf::from("/instance/tmp"),
         proxy_relay: None,
+        proxy_loopback: None,
         reduced_confinement: false,
     }
 }

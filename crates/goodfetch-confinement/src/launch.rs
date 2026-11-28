@@ -41,6 +41,19 @@ pub struct ProxyRelay {
     pub password: String,
 }
 
+/// Parameters for a direct loopback TCP proxy at `proxy_tcp` on hosts whose
+/// confinement restricts outgoing network to one loopback port (macOS Seatbelt,
+/// ADR 0033, issue 867).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProxyLoopback {
+    /// Bound `127.0.0.1` port of the engine's per-instance proxy.
+    pub port: u16,
+    /// Per-instance proxy username.
+    pub username: String,
+    /// Per-instance proxy password.
+    pub password: String,
+}
+
 /// What the launcher starts, and under which policy.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Launch {
@@ -56,6 +69,10 @@ pub struct Launch {
     /// an isolated network namespace to the engine's per-instance proxy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proxy_relay: Option<ProxyRelay>,
+    /// Present for `proxy_tcp` on macOS where Seatbelt allows outgoing TCP to
+    /// the engine's loopback proxy port alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy_loopback: Option<ProxyLoopback>,
     /// When `true`, apply every confinement layer the host offers instead of
     /// failing with `Unavailable` when a layer is missing: set only for a
     /// first-party Plugin whose Operator policy sets
@@ -284,20 +301,7 @@ fn start_linux(launch: &Launch, sandbox_helper: bool) -> LaunchError {
         .map(|(k, v)| (k.to_owned(), v.to_owned()))
         .collect();
     if let (Some(relay), Some(port)) = (&launch.proxy_relay, relay_port) {
-        let http_url = format!(
-            "http://{}:{}@127.0.0.1:{port}",
-            relay.username, relay.password
-        );
-        let socks_url = format!(
-            "socks5h://{}:{}@127.0.0.1:{port}",
-            relay.username, relay.password
-        );
-        for key in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"] {
-            env.push((key.to_owned(), http_url.clone()));
-        }
-        for key in ["ALL_PROXY", "all_proxy"] {
-            env.push((key.to_owned(), socks_url.clone()));
-        }
+        push_proxy_env(&mut env, &relay.username, &relay.password, port);
     }
     #[expect(
         clippy::disallowed_methods,
@@ -311,7 +315,75 @@ fn start_linux(launch: &Launch, sandbox_helper: bool) -> LaunchError {
     LaunchError::Start(error)
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
+fn start(launch: &Launch) -> LaunchError {
+    use std::os::unix::process::CommandExt as _;
+
+    use crate::macos::{self, ConfineError};
+
+    if let Err(error) = macos::close_beyond_stdio() {
+        return LaunchError::Handles(error);
+    }
+    let folder = match std::fs::canonicalize(&launch.folder)
+        .and_then(|folder| std::env::set_current_dir(&folder).map(|()| folder))
+    {
+        Ok(folder) => folder,
+        Err(error) => return LaunchError::Folder(error),
+    };
+    let proxy_port = launch.proxy_loopback.as_ref().map(|proxy| proxy.port);
+    match macos::confine_self(&launch.policy, proxy_port) {
+        Ok(_) => {}
+        Err(ConfineError::Unavailable(reason)) if !launch.reduced_confinement => {
+            return LaunchError::Unavailable(reason);
+        }
+        Err(ConfineError::Unavailable(_)) => {}
+        Err(error) => return LaunchError::Confine(error.to_string()),
+    }
+    match std::env::current_dir() {
+        Ok(working) if working == folder => {}
+        Ok(working) => {
+            return LaunchError::Folder(std::io::Error::other(format!(
+                "the confined launcher works from `{}`",
+                working.display()
+            )));
+        }
+        Err(error) => return LaunchError::Folder(error),
+    }
+    if let Err(error) = macos::limits::limit_self(&launch.policy.limits) {
+        return LaunchError::Limits(error);
+    }
+    let mut env: Vec<(String, String)> = launch
+        .env()
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect();
+    if let Some(proxy) = &launch.proxy_loopback {
+        push_proxy_env(&mut env, &proxy.username, &proxy.password, proxy.port);
+    }
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the launcher's one thread replaces itself with the Plugin: no runtime runs here (ADR 0033)"
+    )]
+    let error = std::process::Command::new(&launch.program)
+        .args(&launch.args)
+        .env_clear()
+        .envs(env)
+        .exec();
+    LaunchError::Start(error)
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn push_proxy_env(env: &mut Vec<(String, String)>, username: &str, password: &str, port: u16) {
+    let http_url = format!("http://{username}:{password}@127.0.0.1:{port}");
+    let socks_url = format!("socks5h://{username}:{password}@127.0.0.1:{port}");
+    for key in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"] {
+        env.push((key.to_owned(), http_url.clone()));
+    }
+    for key in ["ALL_PROXY", "all_proxy"] {
+        env.push((key.to_owned(), socks_url.clone()));
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn start(_launch: &Launch) -> LaunchError {
     LaunchError::Unsupported
 }

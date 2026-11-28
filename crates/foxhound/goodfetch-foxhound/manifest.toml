@@ -356,6 +356,16 @@ form = "read"
 
 [[member]]
 crate = "goodfetch-foxhound"
+receiver = "StartCrawl"
+member = "workers"
+entry = "crawl.serve"
+reason = "Runs `count` serving loops on the Connection's runtime, joining extra loops via `crawl.serve` (ADR 0024)."
+only = "TypeScript's `startCrawl` takes it as its options' `workers`, and Python's `start_crawl` as `workers`."
+words = ["workers"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
 receiver = "(crate)"
 member = "CrawlTarget"
 entry = "none"
@@ -519,6 +529,16 @@ form = "read"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "Seed"
+member = "header"
+entry = "none"
+reason = "An extra request header a request seed is sent with, carried by `crawl.start`, with no round trip of its own."
+only = "TypeScript's `seed` takes it as its options' `headers`."
+words = ["header"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Seed"
 member = "body"
 entry = "none"
 reason = "The body a request seed is sent with, carried by `crawl.start`, with no round trip of its own."
@@ -658,6 +678,85 @@ form = "read"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "CrawlRun"
+member = "started_as"
+entry = "run.started_as"
+only = "TypeScript's `CrawlRun` and Python's `AsyncCrawlRun`/`CrawlRun` inherit `startedAs`/`started_as` from `Run`."
+words = ["started", "as"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRun"
+member = "seeds"
+entry = "run.seeds"
+words = ["seeds"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRun"
+member = "add_seed"
+entry = "run.add_seed"
+words = ["add", "seed"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRun"
+member = "add_seeds"
+entry = "run.add_seeds"
+words = ["add", "seeds"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "AddSeed"
+entry = "none"
+reason = "The builder `CrawlRun::add_seed` and `AttemptRun::add_seed` return, whose `.await` sends `run.add_seed` (ADR 0081)."
+only = "TypeScript and Python return a Promise / awaitable directly."
+words = ["add", "seed"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "AddSeed"
+member = "timeout"
+entry = "none"
+reason = "Sets the call timeout on `run.add_seed` (ADR 0081)."
+only = "TypeScript and Python pass `timeout` in options."
+words = ["timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "AddSeeds"
+entry = "none"
+reason = "The stream `CrawlRun::add_seeds` and `AttemptRun::add_seeds` return, driving `run.add_seeds` under `$/credit` backpressure (ADR 0081)."
+only = "TypeScript and Python return `Sequence<Enqueued>` / `AsyncSequence[Enqueued]`."
+words = ["add", "seeds"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "AttemptRun"
+member = "add_seed"
+entry = "run.add_seed"
+words = ["add", "seed"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "AttemptRun"
+member = "add_seeds"
+entry = "run.add_seeds"
+words = ["add", "seeds"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRun"
 member = "run"
 entry = "none"
 reason = "The Run the crawl's Run is, with every member a Run has, such as `close`."
@@ -679,6 +778,324 @@ receiver = "CrawlRun"
 member = "rejected_records"
 entry = "run.rejected_records"
 words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRun"
+member = "export"
+entry = "run.export"
+words = ["export"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRun"
+member = "outcomes"
+entry = "run.outcomes"
+words = ["outcomes"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRun"
+member = "failed_requests"
+entry = "run.failed_requests"
+words = ["failed", "requests"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRun"
+member = "retry_failed"
+entry = "run.retry_failed"
+words = ["retry", "failed"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "ReadOutcomes"
+entry = "none"
+reason = "The builder `CrawlRun::outcomes` returns, a stream that reads `run.outcomes` page after page once first polled (ADR 0099)."
+only = "TypeScript's `outcomes` takes its options as an object, `OutcomesOptions`, and Python's as keyword arguments."
+words = ["read", "outcomes"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ReadOutcomes"
+member = "kinds"
+entry = "none"
+reason = "Filters outcomes in the engine to only those of `kinds`, carried by `run.outcomes`."
+only = "TypeScript's `outcomes` takes it as its options' `kinds`, and Python's as a keyword argument."
+words = ["kinds"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ReadOutcomes"
+member = "labels"
+entry = "none"
+reason = "Filters outcomes in the engine to only requests of `labels`, carried by `run.outcomes`."
+only = "TypeScript's `outcomes` takes it as its options' `labels`, and Python's as a keyword argument."
+words = ["labels"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ReadOutcomes"
+member = "codes"
+entry = "none"
+reason = "Filters outcomes in the engine to only requests with one of `codes`, carried by `run.outcomes`."
+only = "TypeScript's `outcomes` takes it as its options' `codes`, and Python's as a keyword argument."
+words = ["codes"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ReadOutcomes"
+member = "after"
+entry = "none"
+reason = "Starts reading outcomes after a commit position, carried by `run.outcomes`."
+only = "TypeScript's `outcomes` takes it as its options' `after`, and Python's as a keyword argument."
+words = ["after"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ReadOutcomes"
+member = "after_now"
+entry = "none"
+reason = "Starts reading outcomes from the next commit (`after: \"now\"`), carried by `run.outcomes`."
+only = "TypeScript's and Python's `outcomes` take `after: \"now\"`."
+words = ["after", "now"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ReadOutcomes"
+member = "next"
+entry = "none"
+reason = "The next outcome, or `None` once the read has ended; the first call asks the first page."
+words = ["next"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "ReadFailedRequests"
+entry = "none"
+reason = "The builder `CrawlRun::failed_requests` returns, awaiting sends `run.failed_requests` (ADR 0099)."
+only = "TypeScript's `failedRequests` takes `FailedRequestsOptions`, and Python's takes keyword arguments."
+words = ["read", "failed", "requests"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ReadFailedRequests"
+member = "blocked"
+entry = "none"
+reason = "Also includes requests whose latest outcome is `blocked`, carried by `run.failed_requests`."
+only = "TypeScript's `failedRequests` takes it in options, and Python's as a keyword argument."
+words = ["blocked"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ReadFailedRequests"
+member = "timeout"
+entry = "none"
+reason = "Bounds the wait for `run.failed_requests` to answer."
+only = "TypeScript's and Python's `failedRequests` / `failed_requests` use cancellation / signal."
+words = ["timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "RetryFailed"
+entry = "none"
+reason = "The builder `CrawlRun::retry_failed` returns, awaiting sends `run.retry_failed` (ADR 0099)."
+only = "TypeScript's `retryFailed` takes `RetryFailedOptions`, and Python's takes keyword arguments."
+words = ["retry", "failed"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "RetryFailed"
+member = "blocked"
+entry = "none"
+reason = "Also re-admits requests whose latest outcome is `blocked`, carried by `run.retry_failed`."
+only = "TypeScript's `retryFailed` takes it in options, and Python's as a keyword argument."
+words = ["blocked"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "RetryFailed"
+member = "settings"
+entry = "none"
+reason = "Sets the Run's settings from the retry on, carried by `run.retry_failed`."
+only = "TypeScript's `retryFailed` takes it in options, and Python's as a keyword argument."
+words = ["settings"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "RetryFailed"
+member = "timeout"
+entry = "none"
+reason = "Bounds the wait for `run.retry_failed` to answer."
+only = "TypeScript's and Python's `retryFailed` / `retry_failed` use cancellation / signal."
+words = ["timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "ExportDataset"
+entry = "none"
+reason = "The builder `CrawlRun::export` returns to configure `run.export` before awaiting it (ADRs 0081 and 0103)."
+only = "Rust's `IntoFuture` builder for `CrawlRun::export` (ADR 0081); TypeScript and Python pass export options directly to `export()`."
+words = ["export", "dataset"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ExportDataset"
+member = "compression"
+entry = "none"
+reason = "Sets the Export's compression (`none`, `gzip` or `zstd`)."
+only = "Rust's `ExportDataset` builder option; TypeScript and Python take `compression` on `export()`."
+words = ["compression"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ExportDataset"
+member = "wall"
+entry = "none"
+reason = "Filters the Export by Wall Provenance (ADR 0052)."
+only = "Rust's `ExportDataset` builder option; TypeScript and Python take `wall` on `export()`."
+words = ["wall"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ExportDataset"
+member = "settings"
+entry = "none"
+reason = "Sets the Export's own settings (such as `export.csv.bom`) over the connection's settings (ADR 0083)."
+only = "Rust's `ExportDataset` builder option; TypeScript and Python take `settings` on `export()`."
+words = ["settings"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ExportDataset"
+member = "timeout"
+entry = "none"
+reason = "Bounds the wait for `run.export` to answer."
+only = "Rust's `ExportDataset` builder option; TypeScript and Python take `timeout` on `export()`."
+words = ["timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "Export"
+entry = "none"
+reason = "A completed Dataset Export handle returned by `CrawlRun::export`, holding its descriptor with `save_as` and `stream` (ADRs 0103 and 0116)."
+words = ["export"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Export"
+member = "id"
+entry = "none"
+reason = "The Export's ID."
+words = ["id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Export"
+member = "format"
+entry = "none"
+reason = "The Export's format."
+words = ["format"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Export"
+member = "compression"
+entry = "none"
+reason = "The Export's compression."
+words = ["compression"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Export"
+member = "records"
+entry = "none"
+reason = "How many Records the Export holds."
+words = ["records"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Export"
+member = "last_number"
+entry = "none"
+reason = "The number of the last Record the Export holds, 0 when empty."
+words = ["last", "number"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Export"
+member = "size"
+entry = "none"
+reason = "The Export's file size in bytes."
+words = ["size"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Export"
+member = "sha256"
+entry = "none"
+reason = "The SHA-256 of the Export's bytes in lowercase hexadecimal."
+words = ["sha256"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Export"
+member = "run_epoch"
+entry = "none"
+reason = "The run epoch of the Run's state the Export was written from (ADR 0003)."
+words = ["run", "epoch"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Export"
+member = "save_as"
+entry = "export.save_as"
+words = ["save", "as"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Export"
+member = "stream"
+entry = "export.stream"
+words = ["stream"]
 form = "opener"
 
 [[member]]
@@ -800,6 +1217,16 @@ entry = "none"
 reason = "The request's Label, from `crawl_request.handle`, read without a round trip."
 only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends; Python's holds the request's fields in one `CrawlRequest`, its `request`."
 words = ["label"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlContext"
+member = "headers"
+entry = "none"
+reason = "The extra request headers carried from the request's seed or enqueue, from `crawl_request.handle`, read without a round trip."
+only = "TypeScript's and Python's hold the request's fields on `ctx.request`."
+words = ["headers"]
 form = "read"
 
 [[member]]
@@ -1014,6 +1441,16 @@ entry = "none"
 reason = "The method an enqueued request is sent with, carried by `crawl_request.enqueue`, with no round trip of its own."
 only = "TypeScript's `enqueue` takes it as its options' `method`."
 words = ["method"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Enqueue"
+member = "header"
+entry = "none"
+reason = "An extra request header an enqueued request is sent with, carried by `crawl_request.enqueue`, with no round trip of its own."
+only = "TypeScript's `enqueue` takes it as its options' `headers`."
+words = ["header"]
 form = "read"
 
 [[member]]
@@ -1292,6 +1729,16 @@ form = "read"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "blocking::StartCrawl"
+member = "workers"
+entry = "crawl.serve"
+reason = "Runs `count` serving loops on the Connection's runtime, as `crate::StartCrawl::workers` does (ADR 0024)."
+only = "TypeScript's `startCrawl` takes it as its options' `workers`, and Python's `start_crawl` as `workers`."
+words = ["workers"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::StartCrawl"
 member = "send"
 entry = "none"
 reason = "Sends `crawl.start` and blocks the calling thread until the crawl's Run is started."
@@ -1377,6 +1824,94 @@ form = "read"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "blocking::CrawlRun"
+member = "started_as"
+entry = "run.started_as"
+only = "TypeScript's `CrawlRun` and Python's `AsyncCrawlRun`/`CrawlRun` inherit `startedAs`/`started_as` from `Run`."
+words = ["started", "as"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRun"
+member = "seeds"
+entry = "run.seeds"
+words = ["seeds"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRun"
+member = "add_seed"
+entry = "run.add_seed"
+words = ["add", "seed"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRun"
+member = "add_seeds"
+entry = "run.add_seeds"
+words = ["add", "seeds"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "AddSeed"
+entry = "none"
+reason = "The blocking builder `blocking::CrawlRun::add_seed` and `blocking::AttemptRun::add_seed` return (ADR 0081)."
+only = "TypeScript has no blocking API; Python returns `Enqueued` directly."
+words = ["add", "seed"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::AddSeed"
+member = "timeout"
+entry = "none"
+reason = "Sets the call timeout on `run.add_seed` (ADR 0081)."
+only = "TypeScript has no blocking API; Python passes `timeout` in options."
+words = ["timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::AddSeed"
+member = "send"
+entry = "run.add_seed"
+only = "Rust's blocking builders end in `send()` (ADR 0081)."
+words = ["send"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "AddSeeds"
+entry = "none"
+reason = "The blocking iterator `blocking::CrawlRun::add_seeds` and `blocking::AttemptRun::add_seeds` return (ADR 0081)."
+only = "TypeScript has no blocking API; Python returns `Sequence[Enqueued]`."
+words = ["add", "seeds"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::AttemptRun"
+member = "add_seed"
+entry = "run.add_seed"
+words = ["add", "seed"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::AttemptRun"
+member = "add_seeds"
+entry = "run.add_seeds"
+words = ["add", "seeds"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRun"
 member = "run"
 entry = "none"
 reason = "The blocking Run the crawl's Run is, with every member a blocking Run has, such as `close`."
@@ -1398,6 +1933,345 @@ receiver = "blocking::CrawlRun"
 member = "rejected_records"
 entry = "run.rejected_records"
 words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRun"
+member = "export"
+entry = "run.export"
+words = ["export"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRun"
+member = "outcomes"
+entry = "run.outcomes"
+words = ["outcomes"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRun"
+member = "failed_requests"
+entry = "run.failed_requests"
+words = ["failed", "requests"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRun"
+member = "retry_failed"
+entry = "run.retry_failed"
+words = ["retry", "failed"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "ReadOutcomes"
+entry = "none"
+reason = "`ReadOutcomes` without async: the builder `blocking::CrawlRun::outcomes` returns, an iterator over `run.outcomes` (ADRs 0081, 0099)."
+only = "TypeScript's `outcomes` takes `OutcomesOptions`, and Python's takes keyword arguments."
+words = ["read", "outcomes"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::ReadOutcomes"
+member = "kinds"
+entry = "none"
+reason = "Filters outcomes in the engine to only those of `kinds`, as `ReadOutcomes::kinds`."
+only = "TypeScript's `outcomes` takes it in options, and Python's as a keyword argument."
+words = ["kinds"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::ReadOutcomes"
+member = "labels"
+entry = "none"
+reason = "Filters outcomes in the engine to only requests of `labels`, as `ReadOutcomes::labels`."
+only = "TypeScript's `outcomes` takes it in options, and Python's as a keyword argument."
+words = ["labels"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::ReadOutcomes"
+member = "codes"
+entry = "none"
+reason = "Filters outcomes in the engine to only requests with one of `codes`, as `ReadOutcomes::codes`."
+only = "TypeScript's `outcomes` takes it in options, and Python's as a keyword argument."
+words = ["codes"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::ReadOutcomes"
+member = "after"
+entry = "none"
+reason = "Starts reading outcomes after a commit position, as `ReadOutcomes::after`."
+only = "TypeScript's `outcomes` takes it in options, and Python's as a keyword argument."
+words = ["after"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::ReadOutcomes"
+member = "after_now"
+entry = "none"
+reason = "Starts reading outcomes from the next commit, as `ReadOutcomes::after_now`."
+only = "TypeScript's and Python's `outcomes` take `after: \"now\"`."
+words = ["after", "now"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "ReadFailedRequests"
+entry = "none"
+reason = "`ReadFailedRequests` without async: the builder `blocking::CrawlRun::failed_requests` returns (ADRs 0081, 0099)."
+only = "TypeScript's `failedRequests` takes `FailedRequestsOptions`, and Python's takes keyword arguments."
+words = ["read", "failed", "requests"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::ReadFailedRequests"
+member = "blocked"
+entry = "none"
+reason = "Also lists blocked requests, as `ReadFailedRequests::blocked`."
+only = "TypeScript's `failedRequests` takes it in options, and Python's as a keyword argument."
+words = ["blocked"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::ReadFailedRequests"
+member = "timeout"
+entry = "none"
+reason = "Bounds the wait for `run.failed_requests`, as `ReadFailedRequests::timeout`."
+only = "TypeScript's and Python's `failedRequests` / `failed_requests` use cancellation / signal."
+words = ["timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::ReadFailedRequests"
+member = "send"
+entry = "none"
+reason = "Sends `run.failed_requests` and blocks until it answers (ADR 0081)."
+only = "Only Rust's blocking SDK ends calls with `send()`."
+words = ["send"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "RetryFailed"
+entry = "none"
+reason = "`RetryFailed` without async: the builder `blocking::CrawlRun::retry_failed` returns (ADRs 0081, 0099)."
+only = "TypeScript's `retryFailed` takes `RetryFailedOptions`, and Python's takes keyword arguments."
+words = ["retry", "failed"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::RetryFailed"
+member = "blocked"
+entry = "none"
+reason = "Also re-admits blocked requests, as `RetryFailed::blocked`."
+only = "TypeScript's `retryFailed` takes it in options, and Python's as a keyword argument."
+words = ["blocked"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::RetryFailed"
+member = "settings"
+entry = "none"
+reason = "Sets the Run's settings from the retry on, as `RetryFailed::settings`."
+only = "TypeScript's `retryFailed` takes it in options, and Python's as a keyword argument."
+words = ["settings"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::RetryFailed"
+member = "timeout"
+entry = "none"
+reason = "Bounds the wait for `run.retry_failed`, as `RetryFailed::timeout`."
+only = "TypeScript's and Python's `retryFailed` / `retry_failed` use cancellation / signal."
+words = ["timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::RetryFailed"
+member = "send"
+entry = "none"
+reason = "Sends `run.retry_failed` and blocks until it answers (ADR 0081)."
+only = "Only Rust's blocking SDK ends calls with `send()`."
+words = ["send"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "ExportDataset"
+entry = "none"
+reason = "The blocking twin of `ExportDataset` (ADR 0081)."
+only = "Rust's blocking builder for `CrawlRun::export` (ADR 0081)."
+words = ["export", "dataset"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::ExportDataset"
+member = "compression"
+entry = "none"
+reason = "Sets the Export's compression (`none`, `gzip` or `zstd`)."
+only = "Rust's blocking `ExportDataset` builder option."
+words = ["compression"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::ExportDataset"
+member = "wall"
+entry = "none"
+reason = "Filters the Export by Wall Provenance (ADR 0052)."
+only = "Rust's blocking `ExportDataset` builder option."
+words = ["wall"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::ExportDataset"
+member = "settings"
+entry = "none"
+reason = "Sets the Export's own settings (such as `export.csv.bom`)."
+only = "Rust's blocking `ExportDataset` builder option."
+words = ["settings"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::ExportDataset"
+member = "timeout"
+entry = "none"
+reason = "Bounds the wait for `run.export` to answer."
+only = "Rust's blocking `ExportDataset` builder option."
+words = ["timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::ExportDataset"
+member = "send"
+entry = "none"
+reason = "Sends `run.export` and blocks until the Export's file is whole."
+only = "Rust's blocking `ExportDataset` terminator (ADR 0081)."
+words = ["send"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "Export"
+entry = "none"
+reason = "The blocking twin of `Export` (ADR 0081)."
+words = ["export"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Export"
+member = "id"
+entry = "none"
+reason = "The Export's ID."
+words = ["id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Export"
+member = "format"
+entry = "none"
+reason = "The Export's format."
+words = ["format"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Export"
+member = "compression"
+entry = "none"
+reason = "The Export's compression."
+words = ["compression"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Export"
+member = "records"
+entry = "none"
+reason = "How many Records the Export holds."
+words = ["records"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Export"
+member = "last_number"
+entry = "none"
+reason = "The number of the last Record the Export holds, 0 when empty."
+words = ["last", "number"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Export"
+member = "size"
+entry = "none"
+reason = "The Export's file size in bytes."
+words = ["size"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Export"
+member = "sha256"
+entry = "none"
+reason = "The SHA-256 of the Export's bytes in lowercase hexadecimal."
+words = ["sha256"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Export"
+member = "run_epoch"
+entry = "none"
+reason = "The run epoch of the Run's state the Export was written from (ADR 0003)."
+words = ["run", "epoch"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Export"
+member = "save_as"
+entry = "export.save_as"
+words = ["save", "as"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Export"
+member = "stream"
+entry = "export.stream"
+words = ["stream"]
 form = "opener"
 
 [[member]]
@@ -1479,6 +2353,16 @@ entry = "none"
 reason = "The request's Label, from `crawl_request.handle`, read without a round trip."
 only = "TypeScript's `CrawlContext` holds the page and the calls that add to the crawl, not the request's fields or the attempt's own ends; Python's holds the request's fields in one `CrawlRequest`, its `request`."
 words = ["label"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlContext"
+member = "headers"
+entry = "none"
+reason = "The extra request headers carried from the request's seed or enqueue, from `crawl_request.handle`, read without a round trip."
+only = "TypeScript's and Python's hold the request's fields on `ctx.request`."
+words = ["headers"]
 form = "read"
 
 [[member]]
@@ -1671,6 +2555,16 @@ form = "read"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "blocking::Enqueue"
+member = "header"
+entry = "none"
+reason = "An extra request header an enqueued request is sent with, carried by `crawl_request.enqueue`, with no round trip of its own."
+only = "TypeScript's `enqueue` takes it as its options' `headers`."
+words = ["header"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Enqueue"
 member = "body"
 entry = "none"
 reason = "The body an enqueued request is sent with, carried by `crawl_request.enqueue`, with no round trip of its own."
@@ -1796,14 +2690,6 @@ entries = ["sample.crawl"]
 reason = "The engine's sample crawl, which tests and benchmarks call; no Product member serves it."
 
 [[unreached]]
-entries = ["sink.probe", "sink.list", "sink.deliver"]
-reason = "Operator Sink operations (issues 1128, 1146 and 1149); CLI and SDK views belong to area 11."
-
-[[unreached]]
-entries = ["crawl.serve"]
-reason = "A handler process of `workers=N` offers its handler with it (ADR 0024); issue 2804 adds `serve`."
-
-[[unreached]]
 entries = ["crawl_request.links"]
 reason = "What `enqueue_links` sends itself, before `crawl_request.enqueue_links`, when it is given a `LinkPayload::with` function: the function reads each link it answers, so it has no member of its own."
 
@@ -1812,20 +2698,13 @@ entries = ["dataset.list", "dataset.page", "dataset.query", "dataset.search", "r
 reason = "No member reads a Run's Datasets yet."
 
 [[unreached]]
-entries = ["run.export", "export.save_as", "export.stream"]
-reason = "Issue 1488 adds `run.export`, whose `Export` has `save_as` and `stream`."
-
-[[unreached]]
-entries = ["run.seeds", "run.add_seed", "run.add_seeds"]
-reason = "Issue 1494 adds `seeds`, `add_seed` and `add_seeds` to a running crawl."
-
-[[unreached]]
-entries = ["run.outcomes", "run.failed_requests", "run.retry_failed"]
-reason = "Issue 1495 adds `outcomes`, `failed_requests` and `retry_failed`."
+entries = ["sink.probe", "sink.list", "sink.deliver"]
+reason = "Operator Sink operations (issues 1128, 1146 and 1149); CLI and SDK views belong to area 11."
 
 [[unreached]]
 entries = ["crawl_request.enqueue_links_by_clicking_elements"]
 reason = "Issue 1087 builds the engine operation; Foxhound's SDK surface adds `enqueue_links_by_clicking_elements` in area 11."
+
 [[target]]
 crate = "goodfetch-collie-client"
 name = "goodfetch::client"

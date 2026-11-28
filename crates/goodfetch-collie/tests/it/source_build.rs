@@ -25,10 +25,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use goodfetch_test_support::{Suite, TestEnv, Variables};
+use goodfetch_test_support::TestEnv;
 use sha2::{Digest, Sha256};
 
 use crate::install_docs::{CONTAINERFILE, PREREQUISITES, Prerequisite};
+use crate::release_suite::skipped_outside_the_release_suite;
 
 /// Cargo's exit status when a build fails.
 const BUILD_FAILED: i32 = 101;
@@ -54,26 +55,6 @@ fn toolchain() -> String {
         "ci/source-build/Containerfile's image holds Rust {channel}"
     );
     channel.to_owned()
-}
-
-/// Whether the test skips here, outside the Release suite, saying so and
-/// `what` it runs on stderr. Asked before the test's [`TestEnv`], so a
-/// skipped test leaves no exercise record.
-pub(crate) fn skipped_outside_the_release_suite(what: &str) -> bool {
-    let suite = Variables::from_process()
-        .suite()
-        .expect("GOODFETCH_TEST_SUITE names a suite");
-    if suite == Suite::Release {
-        return false;
-    }
-    #[expect(
-        clippy::print_stderr,
-        reason = "a skipped test says why in its own output, which the test harness keeps"
-    )]
-    {
-        eprintln!("skipped outside the Release suite: {what}");
-    }
-    true
 }
 
 /// The container engine that answers on this host, Docker or Podman, as

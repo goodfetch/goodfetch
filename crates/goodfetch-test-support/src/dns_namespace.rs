@@ -41,9 +41,9 @@ pub use inside::{Inside, InsideUser};
 pub const DNS_NAMESPACE_COMMAND: &str = "dns-namespace";
 
 /// The `resolv.conf` the child reads: the namespace's own nameserver, asked
-/// once per query, so each query takes exactly one turn of an alternating
-/// name.
-const RESOLV_CONF: &str = "nameserver 127.0.0.1\noptions attempts:1 timeout:5\n";
+/// once per query over TCP (`use-vc`), so each query takes exactly one turn
+/// of an alternating name and cannot hang on a dropped loopback datagram.
+const RESOLV_CONF: &str = "nameserver 127.0.0.1\noptions attempts:1 timeout:5 use-vc\n";
 
 /// The host's file whose `hosts` line the namespace's copy replaces.
 const HOST_NSSWITCH_CONF: &str = "/etc/nsswitch.conf";

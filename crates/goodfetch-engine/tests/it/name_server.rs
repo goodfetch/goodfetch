@@ -1,18 +1,22 @@
 //! A name server on loopback for the engine's own resolver: it answers each
-//! name from its table over UDP and records every name it was asked, so a
-//! test sees whether a lookup reached it.
+//! name from its table over UDP and TCP and records every name it was asked,
+//! so a test sees whether a lookup reached it.
 #![expect(
     clippy::disallowed_types,
     reason = "the test's name server binds its own socket on loopback, as a name server outside the engine does (ADR 0060 covers the engine's sockets)"
 )]
 
 use std::collections::BTreeMap;
+use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr};
 
 use hickory_resolver::proto::op::{Message, ResponseCode};
 use hickory_resolver::proto::rr::rdata::A;
 use hickory_resolver::proto::rr::{RData, Record, RecordType};
-use tokio::net::UdpSocket;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
+use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinSet;
 
 /// What the name server answers for a name.
 #[derive(Clone, Debug)]
@@ -25,9 +29,10 @@ pub(crate) enum Answer {
     ServerFailure,
 }
 
-/// The name server: its socket, its table and the names it was asked.
+/// The name server: its sockets, its table and the names it was asked.
 pub(crate) struct NameServer {
-    socket: UdpSocket,
+    udp: UdpSocket,
+    tcp: TcpListener,
     answers: BTreeMap<String, Answer>,
     asked: Vec<String>,
 }
@@ -39,9 +44,18 @@ impl NameServer {
     pub(crate) async fn start<'name>(
         answers: impl IntoIterator<Item = (&'name str, Answer)>,
     ) -> Self {
-        let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let (tcp, udp) = loop {
+            let tcp = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+            let address = tcp.local_addr().unwrap();
+            match UdpSocket::bind(address).await {
+                Ok(udp) => break (tcp, udp),
+                Err(error) if error.kind() == ErrorKind::AddrInUse => {}
+                Err(error) => panic!("binding test name server UDP socket on {address}: {error}"),
+            }
+        };
         Self {
-            socket,
+            udp,
+            tcp,
             answers: answers
                 .into_iter()
                 .map(|(name, answer)| (name.to_owned(), answer))
@@ -52,7 +66,7 @@ impl NameServer {
 
     /// Where it listens.
     pub(crate) fn address(&self) -> SocketAddr {
-        self.socket.local_addr().unwrap()
+        self.udp.local_addr().unwrap()
     }
 
     /// The names it was asked, in order, each query once.
@@ -60,17 +74,35 @@ impl NameServer {
         &self.asked
     }
 
-    /// Answers queries until the future is dropped.
+    /// Answers UDP and TCP queries until the future is dropped.
     pub(crate) async fn serve(&mut self) {
         let mut buffer = [0_u8; 4096];
+        let (queries_tx, mut queries_rx) =
+            mpsc::unbounded_channel::<(Vec<u8>, oneshot::Sender<Vec<u8>>)>();
+        let mut connections = JoinSet::new();
         loop {
-            let (length, from) = self.socket.recv_from(&mut buffer).await.unwrap();
-            let query = Message::from_vec(&buffer[..length]).unwrap();
-            let response = self.respond(&query);
-            self.socket
-                .send_to(&response.to_vec().unwrap(), from)
-                .await
-                .unwrap();
+            tokio::select! {
+                received = self.udp.recv_from(&mut buffer) => {
+                    let (length, from) = received.unwrap();
+                    let query = Message::from_vec(&buffer[..length]).unwrap();
+                    let response = self.respond(&query);
+                    self.udp
+                        .send_to(&response.to_vec().unwrap(), from)
+                        .await
+                        .unwrap();
+                }
+                accepted = self.tcp.accept() => {
+                    let (stream, _) = accepted.unwrap();
+                    let _ = stream.set_nodelay(true);
+                    connections.spawn(serve_tcp_client(stream, queries_tx.clone()));
+                }
+                Some((raw, reply_tx)) = queries_rx.recv() => {
+                    let query = Message::from_vec(&raw).unwrap();
+                    let response = self.respond(&query).to_vec().unwrap();
+                    let _ = reply_tx.send(response);
+                }
+                Some(_) = connections.join_next(), if !connections.is_empty() => {}
+            }
         }
     }
 
@@ -104,5 +136,36 @@ impl NameServer {
             }
         }
         response
+    }
+}
+
+async fn serve_tcp_client(
+    mut stream: TcpStream,
+    queries: mpsc::UnboundedSender<(Vec<u8>, oneshot::Sender<Vec<u8>>)>,
+) {
+    let mut length_bytes = [0_u8; 2];
+    loop {
+        if stream.read_exact(&mut length_bytes).await.is_err() {
+            return;
+        }
+        let length = usize::from(u16::from_be_bytes(length_bytes));
+        let mut query = vec![0_u8; length];
+        if stream.read_exact(&mut query).await.is_err() {
+            return;
+        }
+        let (reply_tx, reply_rx) = oneshot::channel();
+        if queries.send((query, reply_tx)).is_err() {
+            return;
+        }
+        let Ok(reply) = reply_rx.await else {
+            return;
+        };
+        let reply_len = u16::try_from(reply.len()).unwrap();
+        let mut framed = Vec::with_capacity(2 + reply.len());
+        framed.extend_from_slice(&reply_len.to_be_bytes());
+        framed.extend_from_slice(&reply);
+        if stream.write_all(&framed).await.is_err() {
+            return;
+        }
     }
 }

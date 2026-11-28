@@ -16,15 +16,3 @@
 #   vitest      its full name, suites and title joined by ` > `;
 #   playwright  its file, suites and title joined by ` › `;
 #   pytest      its node ID, `tests/test_page.py::test_title`.
-
-[[test]]
-runner = "nextest"
-id = "goodfetch-foxhound::it navigation_gate::a_handler_waiting_for_a_permit_is_not_timed_out_and_its_wait_is_named"
-issue = 3495
-date = 2026-11-23
-
-[[test]]
-runner = "nextest"
-id = "goodfetch-engine::it resolver_cache::an_answer_is_reused_for_its_ttl_and_asked_again_after_it"
-issue = 3813
-date = 2026-11-25

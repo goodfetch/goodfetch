@@ -183,10 +183,7 @@ impl NetworkFixtures {
         tracker.spawn(self.chain.run(tracker.clone(), stop.clone()));
         tracker.spawn(self.facilitator.run(tracker.clone(), stop.clone()));
         let _held_until_stopped = self.down;
-        tokio::select! {
-            () = self.dns.run() => {}
-            () = stop.cancelled() => {}
-        }
+        self.dns.run(tracker, stop).await;
     }
 }
 

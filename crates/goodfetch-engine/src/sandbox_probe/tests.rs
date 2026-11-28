@@ -194,6 +194,50 @@ fn an_unknown_refusal_refuses_the_launch_with_the_probes_error() {
     );
 }
 
+/// A platform with no sandbox still refuses a launch with
+/// `browser_sandbox_unavailable` when `security.browser_sandbox` resolves
+/// to `true` (for example, locked on in Operator policy), naming the
+/// platform in its message and fix.
+/// Covers: story:4-86, error:browser_sandbox_unavailable
+#[rstest]
+#[case::lambda(NoSandboxPlatform::AwsLambda, "AWS Lambda")]
+#[case::fargate(NoSandboxPlatform::Fargate, "AWS Fargate")]
+#[case::eks_on_fargate(NoSandboxPlatform::EksFargate, "EKS on Fargate")]
+#[case::azure_container_apps(NoSandboxPlatform::AzureContainerApps, "Azure Container Apps")]
+fn a_no_sandbox_platform_refuses_a_sandboxed_launch_naming_the_platform(
+    #[case] platform: NoSandboxPlatform,
+    #[case] platform_name: &str,
+) {
+    let probed = Probed::NoSandbox(platform);
+
+    let refusal = probed.refusal().expect("refused when sandbox stays on");
+
+    let data = refusal.details().unwrap();
+    assert_eq!(
+        (
+            refusal.code(),
+            refusal.retryable(),
+            refusal.message().contains(platform_name),
+            data["environment"].clone(),
+            data["fix"].as_str().unwrap().contains(platform_name),
+            data["fix"]
+                .as_str()
+                .unwrap()
+                .contains("`security.browser_sandbox`"),
+        ),
+        (
+            "browser_sandbox_unavailable",
+            false,
+            true,
+            json!("unknown"),
+            true,
+            true,
+        ),
+        "{}",
+        refusal.message()
+    );
+}
+
 /// On a platform with no fix, the host's default switches the sandbox off;
 /// elsewhere the catalog's stays.
 /// Covers: story:4-86, setting:security.browser_sandbox

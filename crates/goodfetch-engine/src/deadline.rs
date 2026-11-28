@@ -300,6 +300,9 @@ impl Enclosing {
         observe: impl FnOnce() -> Option<String>,
     ) -> Result<T, CallError> {
         let started = clock.now();
+        if started >= (self.0.ends_at)() {
+            return Err(self.exceeded(Duration::ZERO, observe()));
+        }
         tokio::select! {
             biased;
             answer = work => answer,

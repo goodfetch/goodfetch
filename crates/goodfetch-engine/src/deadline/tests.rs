@@ -302,3 +302,31 @@ fn an_inner_call_outlives_an_enclosing_end_a_hold_moved_later() {
 
     assert_eq!(answered.ok(), Some("clicked"));
 }
+
+/// A call arriving after its enclosing call's end already passed fails
+/// with `deadline_exceeded` at once without polling its work, so no
+/// side effect (such as starting a browser navigation) leaves after the
+/// enclosing deadline passed (issue 3495).
+/// Covers: story:11-41
+#[test]
+fn an_inner_call_past_its_enclosing_end_never_polls_its_work() {
+    let mut polled = false;
+    let ended = goodfetch_test_support::runtime().block_on(async {
+        let clock = Clock::paused(UNIX_EPOCH);
+        let (_ends_at, ending) = watch::channel(clock.now() + Duration::from_secs(10));
+        let enclosing = enclosing(ending);
+        clock.sleep(Duration::from_secs(11)).await;
+        let work = async {
+            polled = true;
+            std::future::pending::<Result<(), crate::CallError>>().await
+        };
+        enclosing.bound(&clock, work, || None).await
+    });
+
+    let error = ended.unwrap_err();
+    let (_, _, details) = error.wire_parts();
+    assert_eq!(
+        (polled, error.code(), details.get("elapsed")),
+        (false, "deadline_exceeded", Some(&json!(0)))
+    );
+}

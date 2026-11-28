@@ -22,7 +22,7 @@ use goodfetch_test_support::{
 };
 
 use super::{COLLIE, PROJECT};
-use crate::source_build::skipped_outside_the_release_suite;
+use crate::release_suite::skipped_outside_the_release_suite;
 
 const SEED: u64 = 1422;
 

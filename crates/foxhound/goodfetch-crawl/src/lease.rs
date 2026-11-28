@@ -396,9 +396,11 @@ impl WorkItemLease {
                 return counted;
             }
             let lease = held.lease.renewed(now, length);
-            renewed = Some(lease);
             let lengthened = lease != held.lease;
-            held.lease = lease;
+            if lengthened {
+                renewed = Some(lease);
+                held.lease = lease;
+            }
             counted || lengthened
         });
         if let Some(lease) = renewed {
@@ -443,14 +445,18 @@ impl WorkItemLease {
     }
 
     /// Keeps the handler call `id`, sent under it, as the call enclosing
-    /// the calls its handler makes from now on (ADR 0080). Its end is the
-    /// lease's end less the lease's margin over the Run's
+    /// the calls its handler makes from now on (ADR 0080). Renews the lease
+    /// first so time spent on engine work before the handler call (fetching
+    /// its document, hooks, page checks) does not count against the
+    /// handler's `timeout.handler`; an already-ended lease stays ended. Its
+    /// end is the lease's end less the lease's margin over the Run's
     /// `timeout.handler`, so a renewal moves it as it moves the lease.
     /// While a navigation-gate permit's wait is under way (ADR 0093) its
     /// time does not run: its end stays the timeout ahead, and the wait's
     /// last renewal, at its end, starts the handler's time again from
     /// there.
     pub(crate) fn handler_sent(&self, id: RequestId) {
+        self.renew(self.0.length);
         let timeout = &self.0.leases.handler_timeout;
         let call = EnclosingCall {
             operation: CRAWL_REQUEST_HANDLE.name.to_owned(),

@@ -473,7 +473,7 @@ pub fn local_settings_error(error: &SettingsError, identity: &Identity) -> CallE
 /// `setting_invalid` for the setting `key`, set in `layer`, that lists
 /// `domain` in its `domains`, below its `registrable` domain, which the
 /// `fix` gives instead.
-fn below_registrable(
+pub fn below_registrable(
     message: String,
     (key, layer): (&str, Option<SettingsLayer>),
     domain: &str,

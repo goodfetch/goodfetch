@@ -108,8 +108,10 @@ pub(super) fn check(root: &Path) -> Result<Vec<Finding>> {
                 "browser sandbox probe must verify the `starts` positive control first",
             ));
         }
-        if matches!(case.expected_probed.as_str(), "refused" | "unknown")
-            && case.expected_error_code.as_deref() != Some("browser_sandbox_unavailable")
+        if matches!(
+            case.expected_probed.as_str(),
+            "refused" | "unknown" | "no_sandbox"
+        ) && case.expected_error_code.as_deref() != Some("browser_sandbox_unavailable")
         {
             findings.push(Finding::new(
                 "wrong-outcome",
@@ -238,7 +240,7 @@ fn platform_case(platform: &str) -> Result<BrowserSandboxCase> {
         expected_probed: "no_sandbox".to_owned(),
         expected_environment: None,
         expected_platform: Some(platform.to_owned()),
-        expected_error_code: None,
+        expected_error_code: Some("browser_sandbox_unavailable".to_owned()),
     })
 }
 

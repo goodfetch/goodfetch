@@ -124,6 +124,7 @@ mod proxy;
 mod proxy_limits;
 mod recipe;
 mod relay_fingerprint;
+mod release_suite;
 #[cfg(any(target_os = "macos", windows))]
 mod renderer_sandbox;
 mod request_kinds;

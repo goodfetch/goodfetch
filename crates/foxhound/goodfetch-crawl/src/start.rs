@@ -172,11 +172,12 @@ pub fn contribution(tiers: FetchTiers, sinks: Sinks) -> Contribution {
                         {
                             Ok(started) => started,
                             Err(error) => {
+                                redeclared.restore_delivering(run.identity.id());
                                 tracing::warn!(%error, run_id = %run.identity.id(), "the resumed crawl's Sinks were refused");
                                 return;
                             }
                         };
-                    let hooks = redeclared.record(&run.identity, &run.state).await;
+                    let hooks = redeclared.record(run.identity.id(), &run.state).await;
                     // Boxed: the resumed delivery's future is large.
                     Box::pin(delivery::resume(
                         run,
@@ -645,10 +646,31 @@ async fn resume_started(
     seeds: Vec<Enqueued>,
 ) -> Result<CrawlStarted, CallError> {
     // A crawl still ending the Run keeps nothing: the reopen is then
-    // checked as no start's (ADR 0104's note of #2912).
-    let kept = redeclared.keep(&run_id, kept, hooks, crawls).await;
+    // checked as no start's (ADR 0104's note of #2912). Stage directly for
+    // the resumed driver so a concurrent `run.retry_failed` cannot claim it.
+    let pending = redeclared
+        .keep_for_resume(&run_id, kept, hooks, crawls)
+        .await;
     let timeout = settings.resolved().get(&TIMEOUT_RUN);
-    let resumed = resume_run(context, run_id, None, settings, timeout, kept).await?;
+    let resumed =
+        match resume_run(context, run_id, None, settings, timeout, pending.is_some()).await {
+            Ok(resumed) => {
+                if let Some(pending) = pending {
+                    match resumed.started_as {
+                        StartedAs::Resumed => pending.commit(),
+                        StartedAs::Ended => pending.move_to_kept(),
+                        StartedAs::New => pending.cancel(),
+                    }
+                }
+                resumed
+            }
+            Err(error) => {
+                if let Some(pending) = pending {
+                    pending.cancel();
+                }
+                return Err(error);
+            }
+        };
     limits.give(&resumed, context).await?;
     Ok(CrawlStarted {
         started: resumed,

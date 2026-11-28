@@ -546,8 +546,50 @@ pub(crate) fn dns_query(server: &str, name: &str, record_type: RecordType) -> Dn
     socket
         .set_read_timeout(Some(Duration::from_secs(10)))
         .expect("a read timeout");
-    // Header: ID 0x1234, recursion desired, one question.
-    let mut query = vec![0x12, 0x34, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0];
+    let query = build_dns_query(0x1234, name, record_type);
+    socket.send_to(&query, server).expect("the query is sent");
+    let mut buffer = [0; 1500];
+    let (length, _) = socket.recv_from(&mut buffer).expect("an answer");
+    parse_dns_answer(&query, &buffer[..length])
+}
+
+/// Asks the DNS server at `server` for each `(name, record_type)` in turn
+/// over one TCP connection, framed with RFC 1035's two-byte length prefix.
+pub(crate) fn dns_queries_over_tcp(server: &str, queries: &[(&str, RecordType)]) -> Vec<DnsAnswer> {
+    let mut stream = TcpStream::connect(server).expect("a TCP connection to the DNS fixture");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .expect("a read timeout");
+    stream
+        .set_write_timeout(Some(Duration::from_secs(10)))
+        .expect("a write timeout");
+    let mut answers = Vec::with_capacity(queries.len());
+    for (index, &(name, record_type)) in queries.iter().enumerate() {
+        let id = 0x1234_u16.wrapping_add(u16::try_from(index).expect("few queries"));
+        let query = build_dns_query(id, name, record_type);
+        let length = u16::try_from(query.len()).expect("a short query");
+        stream
+            .write_all(&length.to_be_bytes())
+            .and_then(|()| stream.write_all(&query))
+            .expect("the TCP DNS query is sent");
+        let mut reply_len = [0_u8; 2];
+        stream
+            .read_exact(&mut reply_len)
+            .expect("the TCP DNS reply length");
+        let mut reply = vec![0_u8; usize::from(u16::from_be_bytes(reply_len))];
+        stream
+            .read_exact(&mut reply)
+            .expect("the TCP DNS reply body");
+        answers.push(parse_dns_answer(&query, &reply));
+    }
+    answers
+}
+
+fn build_dns_query(id: u16, name: &str, record_type: RecordType) -> Vec<u8> {
+    // Header: `id`, recursion desired, one question.
+    let mut query = Vec::new();
+    query.extend_from_slice(&id.to_be_bytes());
+    query.extend_from_slice(&[0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0]);
     for label in name.split('.') {
         query.push(u8::try_from(label.len()).expect("a short label"));
         query.extend_from_slice(label.as_bytes());
@@ -555,13 +597,13 @@ pub(crate) fn dns_query(server: &str, name: &str, record_type: RecordType) -> Dn
     query.push(0);
     query.extend_from_slice(&(record_type as u16).to_be_bytes());
     query.extend_from_slice(&1u16.to_be_bytes());
-    socket.send_to(&query, server).expect("the query is sent");
-    let mut buffer = [0; 1500];
-    let (length, _) = socket.recv_from(&mut buffer).expect("an answer");
-    let message = &buffer[..length];
+    query
+}
+
+fn parse_dns_answer(query: &[u8], message: &[u8]) -> DnsAnswer {
     assert_eq!(
         &message[..2],
-        &[0x12, 0x34],
+        &query[..2],
         "the answer carries the query's ID"
     );
     let count = usize::from(u16::from_be_bytes([message[6], message[7]]));

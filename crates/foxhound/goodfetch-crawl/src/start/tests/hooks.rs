@@ -685,6 +685,93 @@ fn a_retry_of_a_crawl_with_hooks_waits_for_a_start_to_declare_them() {
     );
 }
 
+/// Two concurrent `run.retry_failed` calls after one `crawl.start` of an ended
+/// crawl with a `before_record_commit` Hook: at most one reopens with its
+/// Hooks active and the other is refused (`hook_undeclared` or
+/// `run_interrupted`), so no Record ever commits without passing through the
+/// Hook (#3542).
+///
+/// Covers: error:hook_undeclared, operation:run.retry_failed
+#[test]
+fn two_concurrent_retries_after_one_start_never_reopen_without_hooks() {
+    let env = TestEnv::new();
+
+    let (first, second, hooked, committed) = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            crawled(client, "raced", (json!({}), json!({}), stamp()), |params| {
+                if is_hook(params) {
+                    Reply::Records(Vec::new())
+                } else {
+                    Reply::Fails("handler_failed", false)
+                }
+            })
+            .await;
+            client
+                .call("crawl.start", stamped_start("raced"), &mut answer_hooked)
+                .await;
+            let retry = json!({ "run_id": "raced" });
+            let mut attempt = 0usize;
+            let mut handler = |params: &Value| {
+                if is_hook(params) {
+                    Reply::Records(Vec::new())
+                } else {
+                    attempt += 1;
+                    // First retry fails fast so the Run ends quickly and would
+                    // let a second concurrent retry reopen if both saw
+                    // `redeclared: true`; any second delivery would try to
+                    // commit a Record without Hooks.
+                    if attempt == 1 {
+                        Reply::Fails("handler_failed", false)
+                    } else {
+                        Reply::Records(vec![json!({ "page": page_of(params) })])
+                    }
+                }
+            };
+            let (first, second) = client
+                .call_pair(
+                    ("run.retry_failed", retry.clone()),
+                    ("run.retry_failed", retry.clone()),
+                    &mut handler,
+                )
+                .await;
+            client.call("run.finish", retry, &mut handler).await;
+            let hooked: Vec<_> = client
+                .hooked
+                .iter()
+                .map(|params| params["hook"].clone())
+                .collect();
+            let committed = records(&run_file(&env, "raced")).len();
+            (first, second, hooked, committed)
+        },
+    );
+
+    let answers = [&first, &second];
+    let reopened = answers
+        .iter()
+        .filter(|answer| answer.get("result") == Some(&json!({ "readmitted": 1 })))
+        .count();
+    let refused_codes: Vec<_> = answers
+        .iter()
+        .filter_map(|answer| {
+            answer
+                .get("error")
+                .map(|error| error["data"]["code"].as_str().unwrap_or_default())
+        })
+        .collect();
+    assert_eq!(reopened, 1, "first={first}\nsecond={second}");
+    assert_eq!(refused_codes.len(), 1, "first={first}\nsecond={second}");
+    assert!(
+        matches!(refused_codes[0], "hook_undeclared" | "run_interrupted"),
+        "expected hook_undeclared or run_interrupted, got {refused_codes:?}\nfirst={first}\nsecond={second}"
+    );
+    assert_eq!(
+        committed,
+        hooked.len(),
+        "a Record committed without passing through its Hook: committed={committed}, hooked={hooked:?}"
+    );
+}
+
 /// `run.resume` alone never reopens a stopped crawl whose start declared
 /// Hooks in code: it is refused with `hook_undeclared`, naming the Hooks,
 /// and the Run stays stopped. A start under its ID resumes it, and its

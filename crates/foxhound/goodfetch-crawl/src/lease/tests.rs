@@ -345,3 +345,47 @@ fn a_permit_wait_longer_than_the_handlers_timeout_ends_none_of_its_calls() {
         );
     });
 }
+
+/// Time spent on the engine's own work before the handler call is sent
+/// (fetching its document, hooks, page checks) does not count against the
+/// handler's `timeout.handler` (ADR 0080): `handler_sent` renews the lease
+/// so the handler gets its full timeout from when it starts, and a call
+/// never answered ends one timeout after `handler_sent`.
+///
+/// Covers: story:11-41
+#[test]
+fn a_handlers_timeout_starts_when_the_handler_call_is_sent() {
+    on_paused_clock(async |leases, clock| {
+        let leases =
+            leases.handled_under(Deadline::given(&TIMEOUT_HANDLER, 1_000, SettingsLayer::Run));
+        let start = clock.now();
+        let lease = leases.grant("1", 1, Duration::from_secs(11));
+        clock.sleep(Duration::from_secs(2)).await;
+        lease.handler_sent(RequestId::Number(4));
+        let handler = lease.enclosing().expect("a handler call was sent");
+        let answered = async {
+            clock.sleep(Duration::from_millis(500)).await;
+            Ok("navigated")
+        };
+        let never_answered = async {
+            let ended = handler
+                .bound(&clock, std::future::pending::<Result<(), _>>(), || None)
+                .await;
+            (
+                ended.map_err(|error| error.code()),
+                clock.now().duration_since(start),
+            )
+        };
+
+        let (answer, never) =
+            tokio::join!(handler.bound(&clock, answered, || None), never_answered);
+
+        assert_eq!(
+            (answer.ok(), never),
+            (
+                Some("navigated"),
+                (Err("deadline_exceeded"), Duration::from_secs(3))
+            )
+        );
+    });
+}

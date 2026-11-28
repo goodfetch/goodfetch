@@ -160,26 +160,39 @@ impl ResolverConfiguration {
     /// [`ConfigurationUnreadable`] when the system's configuration cannot be
     /// read, such as a container with no `/etc/resolv.conf`.
     pub fn system() -> Result<Self, ConfigurationUnreadable> {
-        let (config, mut options) = hickory_resolver::system_conf::read_system_conf()
+        let (mut config, mut options) = hickory_resolver::system_conf::read_system_conf()
             .map_err(|error| ConfigurationUnreadable(error.to_string()))?;
+        #[cfg(unix)]
+        {
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "ResolverConfiguration::system reads /etc/resolv.conf on a blocking thread before the engine serves, beside hickory's read_system_conf"
+            )]
+            let use_vc = std::fs::read_to_string("/etc/resolv.conf")
+                .is_ok_and(|contents| resolv_conf_uses_vc(&contents));
+            if use_vc {
+                let (domain, search, mut name_servers) = config.into_parts();
+                for name_server in &mut name_servers {
+                    name_server.connections.retain(|connection| {
+                        connection.protocol == hickory_resolver::config::ProtocolConfig::Tcp
+                    });
+                }
+                config = ResolverConfig::from_parts(domain, search, name_servers);
+            }
+        }
         options.ip_strategy = LookupIpStrategy::Ipv4AndIpv6;
         Ok(Self { config, options })
     }
 
-    /// Only these name servers, over UDP and then TCP, with no search domain
-    /// and no hosts file.
+    /// Only these name servers, over TCP, with no search domain and no hosts
+    /// file.
     pub fn name_servers(addresses: impl IntoIterator<Item = SocketAddr>) -> Self {
         let name_servers = addresses
             .into_iter()
             .map(|address| {
-                let connections = [ConnectionConfig::udp(), ConnectionConfig::tcp()]
-                    .into_iter()
-                    .map(|mut connection| {
-                        connection.port = address.port();
-                        connection
-                    })
-                    .collect();
-                NameServerConfig::new(address.ip(), true, connections)
+                let mut connection = ConnectionConfig::tcp();
+                connection.port = address.port();
+                NameServerConfig::new(address.ip(), true, vec![connection])
             })
             .collect();
         let mut options = ResolverOpts::default();
@@ -190,6 +203,16 @@ impl ResolverConfiguration {
             options,
         }
     }
+}
+
+/// Whether a Unix `resolv.conf(5)` enables `options use-vc` (TCP DNS).
+#[cfg(unix)]
+fn resolv_conf_uses_vc(contents: &str) -> bool {
+    contents.lines().any(|line| {
+        let line = line.split(['#', ';']).next().unwrap_or("");
+        let mut tokens = line.split_ascii_whitespace();
+        matches!(tokens.next(), Some("options")) && tokens.any(|option| option == "use-vc")
+    })
 }
 
 /// The system's resolver configuration could not be read.

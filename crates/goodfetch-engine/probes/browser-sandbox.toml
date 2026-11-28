@@ -65,6 +65,7 @@ env_var = "AWS_LAMBDA_FUNCTION_NAME"
 env_value = "probe"
 expected_probed = "no_sandbox"
 expected_platform = "aws_lambda"
+expected_error_code = "browser_sandbox_unavailable"
 
 [[case]]
 rule = "browser_sandbox.platform.fargate"
@@ -77,6 +78,7 @@ env_var = "AWS_EXECUTION_ENV"
 env_value = "AWS_ECS_FARGATE"
 expected_probed = "no_sandbox"
 expected_platform = "fargate"
+expected_error_code = "browser_sandbox_unavailable"
 
 [[case]]
 rule = "browser_sandbox.platform.eks_fargate"
@@ -89,6 +91,7 @@ env_var = "GOODFETCH_EKS_FARGATE_PROFILE"
 env_value = "probe"
 expected_probed = "no_sandbox"
 expected_platform = "eks_fargate"
+expected_error_code = "browser_sandbox_unavailable"
 
 [[case]]
 rule = "browser_sandbox.platform.azure_container_apps"
@@ -101,4 +104,5 @@ env_var = "CONTAINER_APP_NAME"
 env_value = "probe"
 expected_probed = "no_sandbox"
 expected_platform = "azure_container_apps"
+expected_error_code = "browser_sandbox_unavailable"
 

@@ -195,6 +195,73 @@ impl Client {
         }
     }
 
+    /// Handles an engine-initiated request or cancel notification, returning
+    /// `None` when handled or `Some(message)` when `message` is a reply to a
+    /// client call.
+    async fn dispatch_engine_message(
+        &mut self,
+        message: Value,
+        handler: &mut impl FnMut(&Value) -> Reply,
+    ) -> Option<Value> {
+        if message.get("method").is_some() {
+            self.arrivals.push((message.clone(), Instant::now()));
+        }
+        if message.get("method").and_then(Value::as_str) == Some("$/cancel") {
+            let cancelled = &message["params"]["id"];
+            if let Some(records) = self.late.clone()
+                && self.silent.contains(cancelled)
+            {
+                let records: Vec<Value> = records
+                    .into_iter()
+                    .map(|data| json!({ "dataset": "pages", "data": data }))
+                    .collect();
+                self.send(
+                    &json!({ "jsonrpc": "2.0", "id": cancelled, "result": { "records": records } }),
+                )
+                .await;
+            }
+            None
+        } else if message.get("method").and_then(Value::as_str) == Some("crawl_request.handle") {
+            self.handled.push(message["params"].clone());
+            let reply = self.answering(handler(&message["params"])).await;
+            match reply {
+                Reply::Records(records) => {
+                    let records: Vec<Value> = records
+                        .into_iter()
+                        .map(|data| json!({ "dataset": "pages", "data": data }))
+                        .collect();
+                    self.send(&json!({ "jsonrpc": "2.0", "id": message["id"], "result": { "records": records } }))
+                        .await;
+                }
+                reply @ (Reply::Fails(..) | Reply::FailsWith(..) | Reply::Blocked(_)) => {
+                    self.failing(&message["id"], reply).await;
+                }
+                Reply::Skips(text) => {
+                    self.send(&json!({ "jsonrpc": "2.0", "id": message["id"], "result": { "skipped": { "message": text } } }))
+                        .await;
+                }
+                Reply::Silent => self.silent.push(message["id"].clone()),
+                Reply::Calls(..) | Reply::After(..) => {
+                    unreachable!("invariant: the calls were sent and the waits waited above")
+                }
+            }
+            None
+        } else if message.get("method").and_then(Value::as_str) == Some("crawl_hook.handle") {
+            self.hooked.push(message["params"].clone());
+            match self.answering(handler(&message["params"])).await {
+                Reply::Records(_) => {
+                    self.send(&json!({ "jsonrpc": "2.0", "id": message["id"], "result": {} }))
+                        .await;
+                }
+                Reply::Silent => self.silent.push(message["id"].clone()),
+                reply => self.failing(&message["id"], reply).await,
+            }
+            None
+        } else {
+            Some(message)
+        }
+    }
+
     /// Sends the call `method` and answers the engine's handler requests
     /// with `handler` until the call's reply arrives, which it answers. A
     /// `crawl.start` that declares no Dataset declares `pages`, which the
@@ -217,60 +284,48 @@ impl Client {
                 .next()
                 .await
                 .expect("the engine closed before replying");
-            if message.get("method").is_some() {
-                self.arrivals.push((message.clone(), Instant::now()));
-            }
-            if message.get("method").and_then(Value::as_str) == Some("$/cancel") {
-                let cancelled = &message["params"]["id"];
-                if let Some(records) = self.late.clone()
-                    && self.silent.contains(cancelled)
-                {
-                    let records: Vec<Value> = records
-                        .into_iter()
-                        .map(|data| json!({ "dataset": "pages", "data": data }))
-                        .collect();
-                    self.send(&json!({ "jsonrpc": "2.0", "id": cancelled, "result": { "records": records } }))
-                        .await;
-                }
-            } else if message.get("method").and_then(Value::as_str) == Some("crawl_request.handle")
+            if let Some(reply) = self.dispatch_engine_message(message, handler).await
+                && reply["id"] == json!(id)
             {
-                self.handled.push(message["params"].clone());
-                let reply = self.answering(handler(&message["params"])).await;
-                match reply {
-                    Reply::Records(records) => {
-                        let records: Vec<Value> = records
-                            .into_iter()
-                            .map(|data| json!({ "dataset": "pages", "data": data }))
-                            .collect();
-                        self.send(&json!({ "jsonrpc": "2.0", "id": message["id"], "result": { "records": records } }))
-                            .await;
-                    }
-                    reply @ (Reply::Fails(..) | Reply::FailsWith(..) | Reply::Blocked(_)) => {
-                        self.failing(&message["id"], reply).await;
-                    }
-                    Reply::Skips(text) => {
-                        self.send(&json!({ "jsonrpc": "2.0", "id": message["id"], "result": { "skipped": { "message": text } } }))
-                            .await;
-                    }
-                    Reply::Silent => self.silent.push(message["id"].clone()),
-                    Reply::Calls(..) | Reply::After(..) => {
-                        unreachable!("invariant: the calls were sent and the waits waited above")
-                    }
-                }
-            } else if message.get("method").and_then(Value::as_str) == Some("crawl_hook.handle") {
-                self.hooked.push(message["params"].clone());
-                match self.answering(handler(&message["params"])).await {
-                    Reply::Records(_) => {
-                        self.send(&json!({ "jsonrpc": "2.0", "id": message["id"], "result": {} }))
-                            .await;
-                    }
-                    Reply::Silent => self.silent.push(message["id"].clone()),
-                    reply => self.failing(&message["id"], reply).await,
-                }
-            } else if message["id"] == json!(id) {
-                return message;
+                return reply;
             }
         }
+    }
+
+    /// Sends two calls back-to-back without waiting for the first reply,
+    /// handling any engine requests until both replies arrive, and returns
+    /// them in request order.
+    pub(crate) async fn call_pair(
+        &mut self,
+        (first_method, first_params): (&str, Value),
+        (second_method, second_params): (&str, Value),
+        handler: &mut impl FnMut(&Value) -> Reply,
+    ) -> (Value, Value) {
+        let first_id = self.next_id;
+        self.next_id += 1;
+        let second_id = self.next_id;
+        self.next_id += 1;
+        let first_params = as_sent(first_method, first_params);
+        let second_params = as_sent(second_method, second_params);
+        self.send(&json!({ "jsonrpc": "2.0", "id": first_id, "method": first_method, "params": first_params }))
+            .await;
+        self.send(&json!({ "jsonrpc": "2.0", "id": second_id, "method": second_method, "params": second_params }))
+            .await;
+        let (mut first, mut second) = (None, None);
+        while first.is_none() || second.is_none() {
+            let message = self
+                .next()
+                .await
+                .expect("the engine closed before replying");
+            if let Some(reply) = self.dispatch_engine_message(message, handler).await {
+                if reply["id"] == json!(first_id) {
+                    first = Some(reply);
+                } else if reply["id"] == json!(second_id) {
+                    second = Some(reply);
+                }
+            }
+        }
+        (first.unwrap(), second.unwrap())
     }
 
     /// Answers the handler request or Hook call `id` with the failure

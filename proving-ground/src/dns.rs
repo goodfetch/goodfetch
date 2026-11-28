@@ -1,7 +1,7 @@
 //! The DNS fixture (ADR 0067: rebinding is tested against it, never a public
-//! rebinding service), on its own UDP address, and the zone it answers from,
-//! which the forward proxies resolve through too. An answer has a TTL of 0,
-//! so a resolver asks again each time, unless its name declares one:
+//! rebinding service), on its own UDP and TCP address, and the zone it answers
+//! from, which the forward proxies resolve through too. An answer has a TTL of
+//! 0, so a resolver asks again each time, unless its name declares one:
 //!
 //! - each host name the Proving ground serves resolves to its address;
 //! - a name under `alternating.dns.test` answers the entries its labels
@@ -23,17 +23,21 @@
 //! came from, so a test sees which local address a resolver asked from.
 #![expect(
     clippy::disallowed_types,
-    reason = "the DNS fixture opens its own UDP socket, outside the engine's transport (ADR 0060)"
+    reason = "the DNS fixture opens its own UDP and TCP sockets, outside the engine's transport (ADR 0060)"
 )]
 
 mod message;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 
-use anyhow::{Context as _, Result};
-use tokio::net::UdpSocket;
+use anyhow::{Context as _, Result, bail};
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
+use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 
 use crate::observation::Observations;
 use crate::sync::Mutex;
@@ -51,6 +55,12 @@ const ROTATION_LIMIT: usize = 100_000;
 
 /// The largest message read; a larger one is cut and read as malformed.
 const MESSAGE_LIMIT: usize = 4096;
+
+/// How many ephemeral TCP ports are tried while matching a free UDP port.
+const BIND_ATTEMPTS: usize = 64;
+
+/// How many times a UDP reply retries on `ErrorKind::Interrupted`.
+const UDP_SEND_ATTEMPTS: usize = 4;
 
 /// An address family, as a record type asks for one.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -268,66 +278,191 @@ fn address(label: &str) -> Option<IpAddr> {
         .map(IpAddr::V4)
 }
 
-/// The DNS fixture's bound socket.
+/// The DNS fixture's bound UDP socket and TCP listener on the same address.
 pub(crate) struct DnsServer {
-    socket: UdpSocket,
+    udp: UdpSocket,
+    tcp: TcpListener,
     zone: Arc<Zone>,
     observations: Arc<Observations>,
 }
 
 impl DnsServer {
-    /// Binds the address, port 0 a free port; every query it receives is
-    /// recorded into `observations` with the address it came from.
+    /// Binds both TCP and UDP on `address`, port 0 a free port shared by both;
+    /// every query it receives is recorded into `observations` with the
+    /// address it came from.
     pub(crate) async fn bind(
         address: SocketAddr,
         zone: Arc<Zone>,
         observations: Arc<Observations>,
     ) -> Result<Self> {
-        let socket = UdpSocket::bind(address)
-            .await
-            .with_context(|| format!("binding the DNS fixture on {address}"))?;
-        Ok(Self {
-            socket,
-            zone,
-            observations,
-        })
+        if address.port() != 0 {
+            let tcp = TcpListener::bind(address)
+                .await
+                .with_context(|| format!("binding the DNS fixture's TCP listener on {address}"))?;
+            let udp = UdpSocket::bind(address)
+                .await
+                .with_context(|| format!("binding the DNS fixture's UDP socket on {address}"))?;
+            return Ok(Self {
+                udp,
+                tcp,
+                zone,
+                observations,
+            });
+        }
+        for _ in 0..BIND_ATTEMPTS {
+            let tcp = TcpListener::bind(address)
+                .await
+                .with_context(|| format!("binding the DNS fixture's TCP listener on {address}"))?;
+            let bound = tcp
+                .local_addr()
+                .context("reading the DNS fixture's TCP address")?;
+            match UdpSocket::bind(bound).await {
+                Ok(udp) => {
+                    return Ok(Self {
+                        udp,
+                        tcp,
+                        zone,
+                        observations,
+                    });
+                }
+                Err(error) if error.kind() == ErrorKind::AddrInUse => {}
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("binding the DNS fixture's UDP socket on {bound}")
+                    });
+                }
+            }
+        }
+        bail!(
+            "binding the DNS fixture on {address}: no shared TCP and UDP port free after {BIND_ATTEMPTS} attempts"
+        );
     }
 
     /// The bound address.
     pub(crate) fn address(&self) -> Result<SocketAddr> {
-        self.socket
+        self.udp
             .local_addr()
             .context("reading the DNS fixture's address")
     }
 
-    /// Answers every query until dropped.
+    /// Answers every UDP and TCP query until `stop` is cancelled, spawning
+    /// each TCP connection on `tracker`.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future between messages loses none; one dropped while
-    /// its reply is sent is lost, as UDP may lose it anyway.
-    pub(crate) async fn run(self) {
+    /// its UDP reply is sent is lost, as UDP may lose it anyway.
+    pub(crate) async fn run(self, tracker: TaskTracker, stop: CancellationToken) {
         let mut buffer = vec![0; MESSAGE_LIMIT];
         loop {
-            let Ok((length, client)) = self.socket.recv_from(&mut buffer).await else {
-                // A failed read concerns only the client that sent it.
-                continue;
-            };
-            if let Ok(query) = message::parse(&buffer[..length]) {
-                let record_type = match query.record_type {
-                    message::A => "A".to_owned(),
-                    AAAA => "AAAA".to_owned(),
-                    other => other.to_string(),
-                };
-                self.observations.connection_record().dns_query(
-                    self.observations.stamp(),
-                    client,
-                    &query.name,
-                    &record_type,
-                );
+            tokio::select! {
+                () = stop.cancelled() => return,
+                received = self.udp.recv_from(&mut buffer) => {
+                    let Ok((length, client)) = received else {
+                        // A failed read concerns only the client that sent it.
+                        continue;
+                    };
+                    if let Some(reply) =
+                        answer_query(&self.zone, &self.observations, client, &buffer[..length])
+                    {
+                        send_udp_reply(&self.udp, &reply, client).await;
+                    }
+                }
+                accepted = self.tcp.accept() => {
+                    let Ok((stream, client)) = accepted else {
+                        continue;
+                    };
+                    let _ = stream.set_nodelay(true);
+                    tracker.spawn(serve_tcp(
+                        stream,
+                        client,
+                        Arc::clone(&self.zone),
+                        Arc::clone(&self.observations),
+                        stop.clone(),
+                    ));
+                }
             }
-            if let Some(reply) = self.zone.respond(&buffer[..length]) {
-                let _ = self.socket.send_to(&reply, client).await;
+        }
+    }
+}
+
+/// Records `message` if it parses as a query and returns the zone's reply.
+fn answer_query(
+    zone: &Zone,
+    observations: &Observations,
+    client: SocketAddr,
+    message: &[u8],
+) -> Option<Vec<u8>> {
+    if let Ok(query) = message::parse(message) {
+        let record_type = match query.record_type {
+            message::A => "A".to_owned(),
+            AAAA => "AAAA".to_owned(),
+            other => other.to_string(),
+        };
+        observations.connection_record().dns_query(
+            observations.stamp(),
+            client,
+            &query.name,
+            &record_type,
+        );
+    }
+    zone.respond(message)
+}
+
+/// Sends a UDP reply, retrying a signal interruption.
+async fn send_udp_reply(socket: &UdpSocket, reply: &[u8], client: SocketAddr) {
+    for _ in 0..UDP_SEND_ATTEMPTS {
+        match socket.send_to(reply, client).await {
+            Err(error) if error.kind() == ErrorKind::Interrupted => {}
+            Ok(_) | Err(_) => return,
+        }
+    }
+}
+
+/// Serves RFC 1035 length-prefixed DNS queries on one TCP connection until
+/// EOF, a malformed frame, or `stop`.
+async fn serve_tcp(
+    mut stream: TcpStream,
+    client: SocketAddr,
+    zone: Arc<Zone>,
+    observations: Arc<Observations>,
+    stop: CancellationToken,
+) {
+    let mut length_bytes = [0_u8; 2];
+    let mut buffer = Vec::new();
+    loop {
+        let read_length = tokio::select! {
+            () = stop.cancelled() => return,
+            result = stream.read_exact(&mut length_bytes) => result,
+        };
+        if read_length.is_err() {
+            return;
+        }
+        let length = usize::from(u16::from_be_bytes(length_bytes));
+        if length == 0 || length > MESSAGE_LIMIT {
+            return;
+        }
+        buffer.resize(length, 0);
+        let read_body = tokio::select! {
+            () = stop.cancelled() => return,
+            result = stream.read_exact(&mut buffer) => result,
+        };
+        if read_body.is_err() {
+            return;
+        }
+        if let Some(reply) = answer_query(&zone, &observations, client, &buffer) {
+            let Ok(reply_length) = u16::try_from(reply.len()) else {
+                return;
+            };
+            let mut framed = Vec::with_capacity(2 + reply.len());
+            framed.extend_from_slice(&reply_length.to_be_bytes());
+            framed.extend_from_slice(&reply);
+            let wrote = tokio::select! {
+                () = stop.cancelled() => return,
+                result = stream.write_all(&framed) => result,
+            };
+            if wrote.is_err() {
+                return;
             }
         }
     }

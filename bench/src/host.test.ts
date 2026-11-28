@@ -1,11 +1,17 @@
 // Host preflight, carried over from the lab's `host` tests: a class is granted
 // only when every gate of it passes, a gate it cannot measure fails, and the
 // agent app driving the run is not counted as foreign load.
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   assessHost,
   blockNoisy,
+  calibrateNetworkProfile,
+  classifyForPublication,
   classifyProcesses,
+  linuxOnAc,
   loadHostClasses,
   type HostSnapshot,
 } from "./host.ts";
@@ -26,6 +32,28 @@ const quietMac: HostSnapshot = {
   foreign_top: [],
   cpu_governor: null,
   virtualized: false,
+  turbo_enabled: null,
+  smt_enabled: null,
+};
+
+const quietReferenceLinux: HostSnapshot = {
+  os: "linux",
+  arch: "x64",
+  cpu: "AMD EPYC 9454P",
+  logical_cpus: 32,
+  memory_bytes: 128e9,
+  load_average_1m: 0.8,
+  memory_free_percent: 80,
+  thermal_warning: false,
+  on_ac: true,
+  low_power_mode: false,
+  foreign_cpu_percent: 2,
+  controller_cpu_percent: 0,
+  foreign_top: [],
+  cpu_governor: "performance",
+  virtualized: false,
+  turbo_enabled: false,
+  smt_enabled: true,
 };
 // The host the lab recorded during its runtime-http-backends campaign: load
 // average 25 on 14 CPUs, with ffmpeg running.
@@ -156,4 +184,172 @@ test("judges a measured block on foreign CPU, not on the load average its own ru
   expect(blockNoisy({ gates, foreignCpuPercent: 160 })).toBe(true);
   // An unmeasured block is not assumed quiet.
   expect(blockNoisy({ gates, foreignCpuPercent: null })).toBe(true);
+});
+
+describe("reference host class gates and publication classification", () => {
+  test("grants reference to a clean bare-metal Linux host with turbo off and SMT on", () => {
+    const assessment = assessHost({
+      snapshot: quietReferenceLinux,
+      requested: "reference",
+      allowDowngrade: false,
+      gitClean: true,
+      classes,
+    });
+    expect(assessment.refused).toBe(false);
+    expect(assessment.class_granted).toBe("reference");
+
+    const pub = classifyForPublication({
+      assessment,
+      machineLabel: "reference-bare-metal (Ubuntu 24.04)",
+    });
+    expect(pub).toEqual({
+      publishable: true,
+      publish_as: "reference",
+      class_granted: "reference",
+      machine_label: "reference-bare-metal (Ubuntu 24.04)",
+      compare_scope: "reference-series",
+    });
+  });
+
+  test.each([
+    { name: "dirty git", patch: {}, gitClean: false, gate: "git_clean" },
+    { name: "non-linux os", patch: { os: "darwin" }, gitClean: true, gate: "os" },
+    { name: "virtualized", patch: { virtualized: true }, gitClean: true, gate: "virtualized" },
+    {
+      name: "wrong cpu governor",
+      patch: { cpu_governor: "powersave" },
+      gitClean: true,
+      gate: "cpu_governor",
+    },
+    {
+      name: "turbo enabled",
+      patch: { turbo_enabled: true },
+      gitClean: true,
+      gate: "turbo_enabled",
+    },
+    { name: "smt disabled", patch: { smt_enabled: false }, gitClean: true, gate: "smt_enabled" },
+    { name: "not on ac", patch: { on_ac: false }, gitClean: true, gate: "on_ac" },
+    {
+      name: "high load per cpu",
+      patch: { load_average_1m: 10 },
+      gitClean: true,
+      gate: "load_per_cpu_1m",
+    },
+    {
+      name: "low free memory",
+      patch: { memory_free_percent: 15 },
+      gitClean: true,
+      gate: "memory_free_percent",
+    },
+    {
+      name: "thermal warning",
+      patch: { thermal_warning: true },
+      gitClean: true,
+      gate: "thermal_warning",
+    },
+    {
+      name: "foreign cpu too high",
+      patch: { foreign_cpu_percent: 25 },
+      gitClean: true,
+      gate: "foreign_cpu_percent",
+    },
+  ])("refuses reference host when $name fails $gate", ({ patch, gitClean, gate }) => {
+    const assessment = assessHost({
+      snapshot: { ...quietReferenceLinux, ...patch },
+      requested: "reference",
+      allowDowngrade: false,
+      gitClean,
+      classes,
+    });
+    expect(assessment.refused).toBe(true);
+    expect(assessment.class_granted).toBeNull();
+    expect(
+      assessment.gates.some((one) => one.class === "reference" && one.id === gate && !one.ok),
+    ).toBe(true);
+    expect(classifyForPublication({ assessment, machineLabel: "ref-test" }).publishable).toBe(
+      false,
+    );
+  });
+
+  test("downgraded host carries its own class and is never published as reference", () => {
+    const assessment = assessHost({
+      snapshot: { ...quietReferenceLinux, turbo_enabled: true },
+      requested: "reference",
+      allowDowngrade: true,
+      gitClean: true,
+      classes,
+    });
+    expect(assessment.refused).toBe(false);
+    expect(assessment.class_granted).toBe("local-controlled");
+
+    const pub = classifyForPublication({
+      assessment,
+      machineLabel: "hetzner-ccx53",
+    });
+    expect(pub).toEqual({
+      publishable: true,
+      publish_as: "non-reference-labelled",
+      class_granted: "local-controlled",
+      machine_label: "hetzner-ccx53",
+      compare_scope: "within-report-only",
+      downgraded_from_reference: true,
+    });
+  });
+
+  test("calibrates tc netem profiles and invalidates time metrics when outside tolerance", () => {
+    const ok = calibrateNetworkProfile({
+      mechanism: "tc_netem",
+      declaredRttMs: 100,
+      declaredLossPercent: 0,
+      measuredRttMs: 103,
+      toleranceMs: 5,
+    });
+    expect(ok.within_tolerance).toBe(true);
+    expect(ok.time_metrics_valid).toBe(true);
+    expect(ok.correctness_metrics_valid).toBe(true);
+
+    const drifted = calibrateNetworkProfile({
+      mechanism: "tc_netem",
+      declaredRttMs: 100,
+      declaredLossPercent: 1,
+      measuredRttMs: 125,
+      toleranceMs: 5,
+    });
+    expect(drifted.within_tolerance).toBe(false);
+    expect(drifted.time_metrics_valid).toBe(false);
+    expect(drifted.correctness_metrics_valid).toBe(true);
+  });
+
+  test("linuxOnAc reads /sys/class/power_supply AC online and Battery status", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "goodfetch-power-"));
+    try {
+      // Empty dir (mains-only server/VM) -> true
+      expect(await linuxOnAc(dir)).toBe(true);
+      expect(await linuxOnAc(join(dir, "missing"))).toBe(true);
+
+      // Mains offline -> false
+      const acDir = join(dir, "AC");
+      await mkdir(acDir);
+      await writeFile(join(acDir, "type"), "Mains\n");
+      await writeFile(join(acDir, "online"), "0\n");
+      expect(await linuxOnAc(dir)).toBe(false);
+
+      // Mains online -> true
+      await writeFile(join(acDir, "online"), "1\n");
+      expect(await linuxOnAc(dir)).toBe(true);
+
+      // Battery discharging -> false
+      const batDir = join(dir, "BAT0");
+      await mkdir(batDir);
+      await writeFile(join(batDir, "type"), "Battery\n");
+      await writeFile(join(batDir, "status"), "Discharging\n");
+      expect(await linuxOnAc(dir)).toBe(false);
+
+      // Battery charging -> true
+      await writeFile(join(batDir, "status"), "Charging\n");
+      expect(await linuxOnAc(dir)).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

@@ -1,0 +1,91 @@
+{
+  "id": "run-state-and-admission",
+  "host_class": { "requested": "local-controlled", "allow_downgrade": true },
+  "order_seed": 18804,
+  "blocks": 5,
+  "warmup": 1,
+  "iterations": 3,
+  "concurrency": 1,
+  "plan_amortization_runs": [1, 10, 100, 1000],
+  "timeout_ms": 30000,
+  "max_duration_ms": 180000,
+  "max_restarts": 2,
+  "tasks": ["catalog/1"],
+  "registry": {
+    "folder": "registry",
+    "decisions": ["D-run-state-and-admission"]
+  },
+  "reopen_checks": [
+    {
+      "family": "run-state",
+      "product": "foxhound",
+      "candidate_adapter": "foxhound-batch",
+      "baseline_adapter": "foxhound-off",
+      "threshold_percent": 15
+    },
+    {
+      "family": "fair-per-domain-admission",
+      "product": "foxhound",
+      "candidate_adapter": "foxhound-fewest-in-flight",
+      "baseline_adapter": "foxhound-round-robin",
+      "threshold_percent": 5
+    }
+  ],
+  "adapters": [
+    {
+      "id": "foxhound-batch",
+      "command": [
+        "node",
+        "../adapters/goodfetch/src/adapter.ts",
+        "--product",
+        "foxhound",
+        "--setting",
+        "run_state.durability=batch"
+      ]
+    },
+    {
+      "id": "foxhound-full",
+      "command": [
+        "node",
+        "../adapters/goodfetch/src/adapter.ts",
+        "--product",
+        "foxhound",
+        "--setting",
+        "run_state.durability=full"
+      ]
+    },
+    {
+      "id": "foxhound-off",
+      "command": [
+        "node",
+        "../adapters/goodfetch/src/adapter.ts",
+        "--product",
+        "foxhound",
+        "--setting",
+        "run_state.durability=off"
+      ]
+    },
+    {
+      "id": "foxhound-fewest-in-flight",
+      "command": [
+        "node",
+        "../adapters/goodfetch/src/adapter.ts",
+        "--product",
+        "foxhound",
+        "--setting",
+        "crawl.domain_order=fewest_in_flight"
+      ]
+    },
+    {
+      "id": "foxhound-round-robin",
+      "command": [
+        "node",
+        "../adapters/goodfetch/src/adapter.ts",
+        "--product",
+        "foxhound",
+        "--setting",
+        "crawl.domain_order=round_robin"
+      ]
+    }
+  ]
+}

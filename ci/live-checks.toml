@@ -72,3 +72,9 @@ id = "clean-up-rules-daily"
 area = 1
 job = "clean-up-rules-daily.yml#build-and-gate"
 run = "ci/release/gate-clean-up-set.sh"
+
+# Benchmark release-gate Live check (ADRs 0025, 0064 and 0076; issue 176).
+# Exit 75 marks inconclusive (e.g. host-gate refusal), never a pass.
+[[live-check]]
+id = "release-gate"
+area = 2

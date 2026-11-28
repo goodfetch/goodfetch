@@ -140,10 +140,40 @@ const runParams = parserOf<RunParams>({
   },
 });
 
-const { values } = parseArgs({ options: { product: { type: "string" } } });
+const { values } = parseArgs({
+  options: {
+    product: { type: "string" },
+    setting: { type: "string", multiple: true },
+  },
+});
 const product = values.product;
 if (product !== "collie" && product !== "foxhound") {
   throw new Error(`--product must be collie or foxhound, not ${String(product)}`);
+}
+
+function parseSettingValue(raw: string): unknown {
+  if (raw === "true") {
+    return true;
+  }
+  if (raw === "false") {
+    return false;
+  }
+  if (raw === "null") {
+    return null;
+  }
+  if (/^-?\d+(\.\d+)?$/.test(raw)) {
+    return Number(raw);
+  }
+  return raw;
+}
+
+const cliSettings: Record<string, unknown> = {};
+for (const entry of values.setting ?? []) {
+  const eq = entry.indexOf("=");
+  if (eq <= 0) {
+    throw new Error(`--setting must be key=value, got ${entry}`);
+  }
+  cliSettings[entry.slice(0, eq)] = parseSettingValue(entry.slice(eq + 1));
 }
 
 let driver: Driver | undefined;
@@ -162,7 +192,7 @@ function refuse(id: number, error: unknown): void {
 async function prepare(params: unknown): Promise<unknown> {
   const { proving_ground, row } = prepareParams.parse(params, "prepare params");
   address = proving_ground.address;
-  applied = rowSettings(row);
+  applied = { ...cliSettings, ...rowSettings(row) };
   driver = product === "collie" ? await collieDriver() : await foxhoundDriver();
   return { settings: applied };
 }

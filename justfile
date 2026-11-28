@@ -2585,6 +2585,12 @@ duplicate-runs hosted="":
 _os-services:
     ci/os-services.sh setup
 
+# Runs the benchmark release-gate decision in patch correctness-only mode
+# (ADRs 0025, 0030, 0032, 0094; issue 176). Exits 0 on pass, 1 on block,
+# 75 on inconclusive (e.g. host-gate refusal).
+bench-release-gate-patch input:
+    node bench/src/cli.ts release-gate "{{ input }}" --mode patch-correctness-only
+
 _skips-report:
     #!/usr/bin/env bash
     if [[ -s target/skipped.txt ]]; then

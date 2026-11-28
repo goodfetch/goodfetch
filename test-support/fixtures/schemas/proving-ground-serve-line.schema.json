@@ -1,5 +1,51 @@
 {
   "$defs": {
+    "ChainAccounts": {
+      "additionalProperties": false,
+      "description": "Seeded payment accounts and contract addresses on the local chain (#1537).",
+      "properties": {
+        "chain_id": {
+          "description": "EVM chain ID of the local chain (`31337`).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "network": {
+          "description": "CAIP-2 network identifier (`eip155:31337`).",
+          "type": "string"
+        },
+        "payee_address": {
+          "description": "Payee address receiving settled payments, derived from the seed.",
+          "type": "string"
+        },
+        "payer_address": {
+          "description": "Funded test payer address, derived from the seed.",
+          "type": "string"
+        },
+        "payer_key": {
+          "description": "Deterministic signing key (hex) for `payer_address`, derived from the seed.",
+          "type": "string"
+        },
+        "permit2": {
+          "description": "Mock Permit2 contract address.",
+          "type": "string"
+        },
+        "token": {
+          "description": "Mock USDC / EIP-3009 token contract address.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chain_id",
+        "network",
+        "token",
+        "permit2",
+        "payer_address",
+        "payer_key",
+        "payee_address"
+      ],
+      "type": "object"
+    },
     "ProxyCredentials": {
       "additionalProperties": false,
       "description": "A forward proxy's Basic credentials, derived from the seed.",
@@ -32,8 +78,20 @@
       "description": "The certificate authority its TLS leaves chain to, as PEM.",
       "type": "string"
     },
+    "chain": {
+      "description": "The local chain's JSON-RPC HTTP address, started with `serve` (#1537).",
+      "type": "string"
+    },
+    "chain_accounts": {
+      "$ref": "#/$defs/ChainAccounts",
+      "description": "Deterministic seeded accounts and contract addresses on the local chain."
+    },
     "dns": {
       "description": "The DNS fixture's UDP address.",
+      "type": "string"
+    },
+    "facilitator": {
+      "description": "The x402 facilitator stand-in's HTTP address, started with `serve` (#1537).",
       "type": "string"
     },
     "hosts": {
@@ -88,6 +146,9 @@
     "dns",
     "target",
     "udp",
+    "chain",
+    "facilitator",
+    "chain_accounts",
     "network"
   ],
   "title": "ServeLine",

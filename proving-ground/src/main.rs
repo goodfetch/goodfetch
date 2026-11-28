@@ -27,6 +27,7 @@ mod consent;
 mod consistency;
 mod crawl;
 mod digest;
+mod directory;
 mod dns;
 mod encodings;
 mod exchange;
@@ -59,6 +60,7 @@ mod online;
 mod oracle;
 mod output;
 mod page_load;
+mod payments;
 mod portal;
 mod protection;
 mod push;
@@ -221,14 +223,20 @@ async fn serve(
 ) -> Result<()> {
     let upstream = server.address();
     let reached = network.proxy_address().unwrap_or(upstream);
+    let (chain, facilitator) = server.site().payment_fixtures();
     let fixtures = NetworkFixtures::bind(
         reached.ip(),
         seed,
         server.observations(),
         server.proxy_tls(),
+        chain,
+        facilitator,
     )
     .await?;
     let addresses = fixtures.report()?;
+    server
+        .site()
+        .set_facilitator_url(addresses.facilitator.clone());
     server.observations().set_network_fixtures(
         serde_json::to_value(&addresses).context("reporting the network fixtures")?,
     );

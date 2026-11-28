@@ -9,6 +9,7 @@
 
 mod cloud_stores;
 mod conformance;
+mod containers;
 mod dead_letters;
 mod faults;
 mod files;

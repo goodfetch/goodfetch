@@ -2151,6 +2151,12 @@ impl FetchTiers {
     /// `attempt_ended` (escalated) or `browser_required` on a non-browser tier,
     /// `invalid_params` for an invalid CSS selector, `closed` when the page is
     /// closed, or the browser's error.
+    ///
+    /// # Cancel safety
+    ///
+    /// Not cancel-safe once a click has been dispatched: dropping the future
+    /// disarms discovery interception via RAII drop guard, though already-sent
+    /// click inputs on the page remain applied.
     pub async fn discover_links_by_clicking(
         &self,
         locator: &goodfetch_protocol::page::Locator,
@@ -2182,6 +2188,11 @@ impl FetchTiers {
     /// # Errors
     ///
     /// As [`FetchTiers::browser`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`FetchTiers::browser`]: dropping the future cancels the navigation
+    /// and closes any newly opened page.
     pub async fn browser_raced(
         &self,
         hand_over: &Arc<HandOver>,

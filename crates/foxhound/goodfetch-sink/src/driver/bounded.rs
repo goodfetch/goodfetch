@@ -32,6 +32,13 @@ impl<S: Primitives> Driver<S> {
     /// # Errors
     ///
     /// The run file's, when its Records cannot be read.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the returned future stops polling `write`; any batch already
+    /// accepted by the destination is deduplicated on the next pass by its
+    /// delivery ID and run epoch, and `self.delivered` is left unadvanced so
+    /// the next pass re-probes before sending again.
     pub async fn deliver_with<F, Fut>(
         &mut self,
         run_file: &Connection,
@@ -57,6 +64,7 @@ impl<S: Primitives> Driver<S> {
             while let Some((batch, last)) =
                 self.next_chunk(run_file, &dataset, fields.as_deref(), &mut delivered)?
             {
+                let delivered_before = self.delivered_count;
                 if let Some(early) = self
                     .write_bounded_or_split(
                         &run,
@@ -71,7 +79,8 @@ impl<S: Primitives> Driver<S> {
                         &early,
                         Status::Behind { failure, .. }
                             if failure.kind() == FailureKind::QuotaExhausted
-                    ) {
+                    ) && self.delivered_count == delivered_before
+                    {
                         self.delivered = Some(delivered);
                     }
                     return Ok(early);

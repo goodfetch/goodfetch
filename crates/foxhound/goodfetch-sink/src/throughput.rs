@@ -447,6 +447,12 @@ pub fn record_wire_bytes(record: &Delivered) -> usize {
 ///
 /// Returns `work`'s [`Failure`], or [`Failure::deadline_exceeded`] when
 /// `timeout` elapses first.
+///
+/// # Cancel safety
+///
+/// Dropping the returned future drops `work` and the timer; any side effect
+/// `work` already sent over the wire is governed by the Sink's delivery ID and
+/// run epoch.
 pub async fn write_bounded<F, T>(clock: Clock, timeout: Duration, work: F) -> Result<T, Failure>
 where
     F: Future<Output = Result<T, Failure>>,

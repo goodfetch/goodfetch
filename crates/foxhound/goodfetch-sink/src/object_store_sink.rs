@@ -68,6 +68,16 @@ pub struct ObjectStoreDestination {
     fence_version: Option<UpdateVersion>,
 }
 
+impl std::fmt::Debug for ObjectStoreDestination {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ObjectStoreDestination")
+            .field("sink_name", &self.sink_name)
+            .field("prefix", &self.prefix)
+            .field("fence_supported", &self.fence_supported)
+            .finish_non_exhaustive()
+    }
+}
+
 impl ObjectStoreDestination {
     /// Builds an [`ObjectStoreDestination`] from a configured URL and backend.
     ///
@@ -136,8 +146,15 @@ impl ObjectStoreDestination {
         })
     }
 
+    /// Returns the combined prefix (URL path + target) used for part keys and
+    /// fence probes.
+    #[must_use]
+    pub fn prefix(&self) -> &str {
+        &self.prefix
+    }
+
     /// Creates an [`ObjectStoreDestination`] directly from an existing
-    /// [`ObjectStore`] instance (useful in tests).
+    /// [`ObjectStore`] instance.
     #[must_use]
     pub fn from_store(
         store: Arc<dyn ObjectStore>,
@@ -220,6 +237,7 @@ impl ObjectStoreDestination {
             let existing = self.read_fence(&path).await?;
             if let Some((epoch, version)) = existing {
                 if epoch > run.run_epoch {
+                    self.fence_supported = Some(true);
                     return Ok((GuaranteeClass::Fenced, Some(epoch)));
                 }
                 if epoch == run.run_epoch && self.fence_supported.is_some() {
@@ -303,6 +321,7 @@ impl ObjectStoreDestination {
         if let Some((epoch, _)) = self.read_fence(&path).await?
             && epoch > run.run_epoch
         {
+            self.fence_supported = Some(true);
             return Ok((GuaranteeClass::Fenced, Some(epoch)));
         }
         Err(ObjectStoreError::FenceJson(

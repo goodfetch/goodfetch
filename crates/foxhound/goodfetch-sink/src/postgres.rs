@@ -6,14 +6,17 @@
 //! via [`TableSchema`], and `SqlState` failure translation.
 
 use std::collections::BTreeMap;
-use std::fmt::Write as _;
+use std::fmt::{self, Write as _};
+use std::sync::Arc;
 
-use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner, TaskStarter};
 use goodfetch_protocol::foxhound::sink::{SchemaContract, WriteMode};
+use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::Value;
 use tokio_postgres::error::SqlState;
 use tokio_postgres::types::ToSql;
-use tokio_postgres::{Client, NoTls, Transaction};
+use tokio_postgres::{Client, Transaction};
+use tokio_postgres_rustls::MakeRustlsConnect;
 
 use crate::contract::{
     Batch, Delivered, Failure, FailureKind, GuaranteeClass, Primitives, Probe, RunCopy, Written,
@@ -69,33 +72,47 @@ fn quote_ident(name: &str) -> String {
 
 /// Built-in PostgreSQL / Supabase Sink implementing [`Primitives`].
 pub struct PostgresSink {
-    dsn: String,
+    dsn: SecretString,
     target: String,
     mode: WriteMode,
     contract: SchemaContract,
     flatten: bool,
     client: Option<Client>,
-    tasks: TaskOwner,
+    owned_tasks: Option<TaskOwner>,
+    starter: TaskStarter,
     schema: Option<TableSchema>,
     schema_applied_for: BTreeMap<String, bool>,
 }
 
+impl fmt::Debug for PostgresSink {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PostgresSink")
+            .field("dsn", &"<redacted>")
+            .field("target", &self.target)
+            .field("mode", &self.mode)
+            .field("contract", &self.contract)
+            .field("flatten", &self.flatten)
+            .finish_non_exhaustive()
+    }
+}
+
 impl PostgresSink {
-    /// Creates a new PostgreSQL (or Supabase direct) Sink targeting `table`.
+    /// Creates a new PostgreSQL (or Supabase direct) Sink targeting `table`,
+    /// spawning its connection task on `starter`.
     ///
     /// # Errors
     ///
     /// [`PostgresError::Config`] if `dsn` or `table` is empty.
-    pub fn new(
-        dsn: impl Into<String>,
+    pub fn with_starter(
+        dsn: SecretString,
         table: impl Into<String>,
         mode: WriteMode,
         contract: SchemaContract,
         flatten: bool,
+        starter: TaskStarter,
     ) -> Result<Self, PostgresError> {
-        let dsn = dsn.into();
         let table = table.into();
-        if dsn.trim().is_empty() {
+        if dsn.expose_secret().trim().is_empty() {
             return Err(PostgresError::Config(
                 "destination DSN must not be empty".to_owned(),
             ));
@@ -112,10 +129,64 @@ impl PostgresSink {
             contract,
             flatten,
             client: None,
-            tasks: TaskOwner::root(BlockingPolicy::Threads),
+            owned_tasks: None,
+            starter,
             schema: None,
             schema_applied_for: BTreeMap::new(),
         })
+    }
+
+    /// Creates a new PostgreSQL (or Supabase direct) Sink targeting `table`
+    /// with its own task owner (for standalone callers and tests).
+    ///
+    /// # Errors
+    ///
+    /// [`PostgresError::Config`] if `dsn` or `table` is empty.
+    pub fn new(
+        dsn: impl Into<String>,
+        table: impl Into<String>,
+        mode: WriteMode,
+        contract: SchemaContract,
+        flatten: bool,
+    ) -> Result<Self, PostgresError> {
+        let owner = TaskOwner::root(BlockingPolicy::Threads);
+        let starter = (*owner).clone();
+        let mut sink = Self::with_starter(
+            SecretString::from(dsn.into()),
+            table,
+            mode,
+            contract,
+            flatten,
+            starter,
+        )?;
+        sink.owned_tasks = Some(owner);
+        Ok(sink)
+    }
+
+    /// Returns the highest recorded `run_epoch` for `(self.target, run_id)` if
+    /// present, used by post-Run `sink.deliver` to preserve the destination's
+    /// epoch.
+    ///
+    /// # Errors
+    ///
+    /// Connection or query errors from PostgreSQL.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future cancels the in-flight query without modifying state.
+    pub async fn current_epoch(&mut self, run_id: &str) -> Result<Option<u64>, PostgresError> {
+        self.ensure_tables().await?;
+        let client = self
+            .client
+            .as_ref()
+            .expect("invariant: connected in ensure_tables");
+        let row = client
+            .query_opt(
+                "SELECT run_epoch FROM _goodfetch_deliveries WHERE target = $1 AND run_id = $2",
+                &[&self.target, &run_id],
+            )
+            .await?;
+        Ok(row.and_then(|r| u64::try_from(r.get::<_, i64>(0)).ok()))
     }
 
     fn staging_table(&self) -> String {
@@ -134,8 +205,18 @@ impl PostgresSink {
         if self.client.is_some() {
             return Ok(());
         }
-        let (client, connection) = tokio_postgres::connect(&self.dsn, NoTls).await?;
-        self.tasks.spawn(async move {
+        let roots =
+            rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        let tls_config = rustls::ClientConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .map_err(|err| PostgresError::Config(format!("TLS config error: {err}")))?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+        let tls = MakeRustlsConnect::new(tls_config);
+        let (client, connection) = tokio_postgres::connect(self.dsn.expose_secret(), tls).await?;
+        self.starter.spawn(async move {
             if let Err(err) = connection.await {
                 tracing::warn!(error = %err, "PostgreSQL Sink connection task ended with error");
             }
@@ -157,28 +238,34 @@ impl PostgresSink {
         client
             .batch_execute(
                 "CREATE TABLE IF NOT EXISTS _goodfetch_deliveries (
-                    run_id TEXT PRIMARY KEY,
-                    run_epoch BIGINT NOT NULL
+                    target TEXT NOT NULL,
+                    run_id TEXT NOT NULL,
+                    run_epoch BIGINT NOT NULL,
+                    PRIMARY KEY (target, run_id)
                 );
                 CREATE TABLE IF NOT EXISTS _goodfetch_delivery_log (
-                    delivery_id TEXT PRIMARY KEY,
+                    target TEXT NOT NULL,
+                    delivery_id TEXT NOT NULL,
                     run_id TEXT NOT NULL,
                     run_epoch BIGINT NOT NULL,
                     dataset TEXT NOT NULL,
-                    record_number BIGINT NOT NULL
+                    record_number BIGINT NOT NULL,
+                    PRIMARY KEY (target, delivery_id)
                 );
                 CREATE INDEX IF NOT EXISTS idx_gf_delivery_log_run
-                    ON _goodfetch_delivery_log (run_id, run_epoch, dataset, record_number);
+                    ON _goodfetch_delivery_log (target, run_id, run_epoch, dataset, record_number);
                 CREATE TABLE IF NOT EXISTS _goodfetch_swaps (
-                    run_id TEXT PRIMARY KEY,
-                    run_epoch BIGINT NOT NULL
+                    target TEXT NOT NULL,
+                    run_id TEXT NOT NULL,
+                    run_epoch BIGINT NOT NULL,
+                    PRIMARY KEY (target, run_id)
                 );",
             )
             .await?;
 
         create_data_table(client, &self.target, &target_q, mode).await?;
         if mode == WriteMode::Replace {
-            create_data_table(client, &self.staging_table(), &staging_q, WriteMode::Append).await?;
+            create_data_table(client, &self.staging_table(), &staging_q, WriteMode::Upsert).await?;
         }
         Ok(())
     }
@@ -219,44 +306,24 @@ impl PostgresSink {
     async fn probe_async(&mut self, run: &RunCopy) -> Result<Probe, PostgresError> {
         self.ensure_tables().await?;
         self.load_schema().await?;
+        let target = self.target.clone();
+        let write_table = self.write_table();
+        let mode = self.mode;
         let client = self
             .client
             .as_mut()
             .expect("invariant: connected in ensure_tables");
         let tx = client.transaction().await?;
         let epoch_i64 = i64::try_from(run.run_epoch).unwrap_or(i64::MAX);
-        let row = tx
-            .query_opt(
-                "SELECT run_epoch FROM _goodfetch_deliveries WHERE run_id = $1 FOR UPDATE",
-                &[&run.run_id],
-            )
-            .await?;
-        match row {
-            None => {
-                tx.execute(
-                    "INSERT INTO _goodfetch_deliveries (run_id, run_epoch) VALUES ($1, $2)",
-                    &[&run.run_id, &epoch_i64],
-                )
-                .await?;
-            }
-            Some(r) => {
-                let current: i64 = r.get(0);
-                if epoch_i64 > current {
-                    tx.execute(
-                        "UPDATE _goodfetch_deliveries SET run_epoch = $2 WHERE run_id = $1",
-                        &[&run.run_id, &epoch_i64],
-                    )
-                    .await?;
-                }
-            }
-        }
+        let _ =
+            check_and_bump_fence(&tx, &target, &write_table, mode, &run.run_id, epoch_i64).await?;
         let delivered_rows = tx
             .query(
                 "SELECT dataset, MAX(record_number)
                  FROM _goodfetch_delivery_log
-                 WHERE run_id = $1 AND run_epoch = $2
+                 WHERE target = $1 AND run_id = $2 AND run_epoch = $3
                  GROUP BY dataset",
-                &[&run.run_id, &epoch_i64],
+                &[&target, &run.run_id, &epoch_i64],
             )
             .await?;
         tx.commit().await?;
@@ -279,10 +346,15 @@ impl PostgresSink {
         self.ensure_tables().await?;
         self.load_schema().await?;
 
-        let schema = self.schema.as_mut().expect("invariant: schema loaded");
-        let (prepared_records, pending_changes) = schema
+        let mut working_schema = self
+            .schema
+            .as_ref()
+            .expect("invariant: schema loaded")
+            .clone();
+        let mut working_applied = self.schema_applied_for.clone();
+        let (prepared_records, pending_changes) = working_schema
             .prepare_batch(
-                &mut self.schema_applied_for,
+                &mut working_applied,
                 batch,
                 self.mode,
                 self.contract,
@@ -300,7 +372,16 @@ impl PostgresSink {
         let tx = client.transaction().await?;
 
         let epoch_i64 = i64::try_from(batch.run.run_epoch).unwrap_or(i64::MAX);
-        if let Some(superseded) = check_and_bump_fence(&tx, &batch.run.run_id, epoch_i64).await? {
+        if let Some(superseded) = check_and_bump_fence(
+            &tx,
+            &target_table,
+            &write_table,
+            mode,
+            &batch.run.run_id,
+            epoch_i64,
+        )
+        .await?
+        {
             tx.rollback().await?;
             return Ok(Written::Superseded {
                 run_epoch: superseded,
@@ -316,10 +397,11 @@ impl PostgresSink {
             let num_i64 = i64::try_from(record.number).unwrap_or(i64::MAX);
             let inserted = tx
                 .execute(
-                    "INSERT INTO _goodfetch_delivery_log (delivery_id, run_id, run_epoch, dataset, record_number)
-                     VALUES ($1, $2, $3, $4, $5)
-                     ON CONFLICT (delivery_id) DO NOTHING",
+                    "INSERT INTO _goodfetch_delivery_log (target, delivery_id, run_id, run_epoch, dataset, record_number)
+                     VALUES ($1, $2, $3, $4, $5, $6)
+                     ON CONFLICT (target, delivery_id) DO NOTHING",
                     &[
+                        &target_table,
                         &record.delivery_id.as_str(),
                         &batch.run.run_id,
                         &epoch_i64,
@@ -332,7 +414,6 @@ impl PostgresSink {
                 continue;
             }
             if let Some(row) = row_opt {
-                let schema = self.schema.as_ref().expect("invariant: schema loaded");
                 insert_row(
                     &tx,
                     &write_table,
@@ -341,13 +422,15 @@ impl PostgresSink {
                     &batch.dataset,
                     record,
                     &row,
-                    schema,
+                    &working_schema,
                 )
                 .await?;
             }
         }
 
         tx.commit().await?;
+        self.schema = Some(working_schema);
+        self.schema_applied_for = working_applied;
         Ok(Written::Delivered)
     }
 
@@ -356,8 +439,10 @@ impl PostgresSink {
             return Ok(Written::Delivered);
         }
         self.ensure_tables().await?;
-        let target_q = quote_ident(&self.target);
-        let staging_q = quote_ident(&self.staging_table());
+        let target = self.target.clone();
+        let staging = self.staging_table();
+        let target_q = quote_ident(&target);
+        let staging_q = quote_ident(&staging);
         let client = self
             .client
             .as_mut()
@@ -365,7 +450,16 @@ impl PostgresSink {
         let tx = client.transaction().await?;
         let epoch_i64 = i64::try_from(run.run_epoch).unwrap_or(i64::MAX);
 
-        if let Some(superseded) = check_and_bump_fence(&tx, &run.run_id, epoch_i64).await? {
+        if let Some(superseded) = check_and_bump_fence(
+            &tx,
+            &target,
+            &staging,
+            WriteMode::Replace,
+            &run.run_id,
+            epoch_i64,
+        )
+        .await?
+        {
             tx.rollback().await?;
             return Ok(Written::Superseded {
                 run_epoch: superseded,
@@ -373,8 +467,8 @@ impl PostgresSink {
         }
         let swapped = tx
             .query_opt(
-                "SELECT run_epoch FROM _goodfetch_swaps WHERE run_id = $1 FOR UPDATE",
-                &[&run.run_id],
+                "SELECT run_epoch FROM _goodfetch_swaps WHERE target = $1 AND run_id = $2 FOR UPDATE",
+                &[&target, &run.run_id],
             )
             .await?;
         if let Some(row) = swapped {
@@ -385,12 +479,38 @@ impl PostgresSink {
             }
         }
 
+        let staging_cols = tx
+            .query(
+                "SELECT column_name, data_type
+                 FROM information_schema.columns
+                 WHERE table_schema = current_schema() AND table_name = $1
+                 ORDER BY ordinal_position",
+                &[&staging],
+            )
+            .await?;
+        let mut col_names = Vec::with_capacity(staging_cols.len());
+        for row in &staging_cols {
+            let name: String = row.get(0);
+            let data_type: String = row.get(1);
+            if !name.starts_with("_goodfetch_") {
+                let col_q = quote_ident(&name);
+                let sql_ty = ColumnType::from_postgres_type(&data_type).postgres_type();
+                tx.execute(
+                    &format!("ALTER TABLE {target_q} ADD COLUMN IF NOT EXISTS {col_q} {sql_ty}"),
+                    &[],
+                )
+                .await?;
+            }
+            col_names.push(quote_ident(&name));
+        }
+        let col_list = col_names.join(", ");
+
         tx.execute(&format!("DELETE FROM {target_q}"), &[]).await?;
         tx.execute(
             &format!(
-                "INSERT INTO {target_q} SELECT * FROM {staging_q} WHERE _goodfetch_run_id = $1"
+                "INSERT INTO {target_q} ({col_list}) SELECT {col_list} FROM {staging_q} WHERE _goodfetch_run_id = $1 AND _goodfetch_run_epoch = $2"
             ),
-            &[&run.run_id],
+            &[&run.run_id, &epoch_i64],
         )
         .await?;
         tx.execute(
@@ -399,9 +519,9 @@ impl PostgresSink {
         )
         .await?;
         tx.execute(
-            "INSERT INTO _goodfetch_swaps (run_id, run_epoch) VALUES ($1, $2)
-             ON CONFLICT (run_id) DO UPDATE SET run_epoch = EXCLUDED.run_epoch",
-            &[&run.run_id, &epoch_i64],
+            "INSERT INTO _goodfetch_swaps (target, run_id, run_epoch) VALUES ($1, $2, $3)
+             ON CONFLICT (target, run_id) DO UPDATE SET run_epoch = EXCLUDED.run_epoch",
+            &[&target, &run.run_id, &epoch_i64],
         )
         .await?;
         tx.commit().await?;
@@ -476,20 +596,23 @@ async fn create_data_table(
 
 async fn check_and_bump_fence(
     tx: &Transaction<'_>,
+    target: &str,
+    write_table: &str,
+    mode: WriteMode,
     run_id: &str,
     epoch_i64: i64,
 ) -> Result<Option<u64>, PostgresError> {
     let row = tx
         .query_opt(
-            "SELECT run_epoch FROM _goodfetch_deliveries WHERE run_id = $1 FOR UPDATE",
-            &[&run_id],
+            "SELECT run_epoch FROM _goodfetch_deliveries WHERE target = $1 AND run_id = $2 FOR UPDATE",
+            &[&target, &run_id],
         )
         .await?;
     match row {
         None => {
             tx.execute(
-                "INSERT INTO _goodfetch_deliveries (run_id, run_epoch) VALUES ($1, $2)",
-                &[&run_id, &epoch_i64],
+                "INSERT INTO _goodfetch_deliveries (target, run_id, run_epoch) VALUES ($1, $2, $3)",
+                &[&target, &run_id, &epoch_i64],
             )
             .await?;
             Ok(None)
@@ -501,10 +624,33 @@ async fn check_and_bump_fence(
             } else {
                 if epoch_i64 > current {
                     tx.execute(
-                        "UPDATE _goodfetch_deliveries SET run_epoch = $2 WHERE run_id = $1",
+                        "UPDATE _goodfetch_deliveries SET run_epoch = $3 WHERE target = $1 AND run_id = $2",
+                        &[&target, &run_id, &epoch_i64],
+                    )
+                    .await?;
+                    let write_q = quote_ident(write_table);
+                    tx.execute(
+                        &format!(
+                            "DELETE FROM {write_q} WHERE _goodfetch_run_id = $1 AND _goodfetch_run_epoch < $2"
+                        ),
                         &[&run_id, &epoch_i64],
                     )
                     .await?;
+                    tx.execute(
+                        "DELETE FROM _goodfetch_delivery_log WHERE target = $1 AND run_id = $2 AND run_epoch < $3",
+                        &[&target, &run_id, &epoch_i64],
+                    )
+                    .await?;
+                    if mode == WriteMode::History {
+                        tx.execute(
+                            &format!(
+                                "UPDATE {write_q} SET _goodfetch_valid_to = NULL
+                                 WHERE _goodfetch_run_id = $1 AND _goodfetch_valid_to IS NOT NULL"
+                            ),
+                            &[&run_id],
+                        )
+                        .await?;
+                    }
                 }
                 Ok(None)
             }
@@ -659,7 +805,7 @@ fn build_insert_sql(
         placeholders.join(", ")
     );
     match mode {
-        WriteMode::Append | WriteMode::Replace | WriteMode::History => {
+        WriteMode::Append | WriteMode::History => {
             sql.push_str(" ON CONFLICT (_goodfetch_delivery_id) DO NOTHING");
         }
         WriteMode::InsertOnly => {
@@ -667,7 +813,7 @@ fn build_insert_sql(
                 " ON CONFLICT (_goodfetch_dataset, _goodfetch_key) WHERE _goodfetch_key IS NOT NULL DO NOTHING",
             );
         }
-        WriteMode::Upsert => {
+        WriteMode::Upsert | WriteMode::Replace => {
             let mut updates = vec![
                 "_goodfetch_delivery_id = EXCLUDED._goodfetch_delivery_id".to_owned(),
                 "_goodfetch_record_number = EXCLUDED._goodfetch_record_number".to_owned(),
@@ -739,5 +885,38 @@ pub fn map_postgres_error(error: PostgresError) -> Failure {
             tracing::warn!(error = %text, "unrecognized PostgreSQL failure; treating as transient");
             Failure::new(FailureKind::Unrecognized, text)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    #[case::config(PostgresError::Config("bad dsn".into()), FailureKind::Permanent)]
+    #[case::no_runtime(PostgresError::NoRuntime, FailureKind::Permanent)]
+    #[case::rejected(PostgresError::RejectedRecord("missing key".into()), FailureKind::RejectedRecords)]
+    fn map_postgres_error_classifies_local_errors(
+        #[case] err: PostgresError,
+        #[case] expected: FailureKind,
+    ) {
+        assert_eq!(map_postgres_error(err).kind(), expected);
+    }
+
+    #[test]
+    fn debug_redacts_postgres_dsn() {
+        let sink = PostgresSink::new(
+            "postgres://alice:super-secret-pg-pass@localhost:5432/db",
+            "records",
+            WriteMode::Append,
+            SchemaContract::Evolve,
+            false,
+        )
+        .unwrap();
+        let rendered = format!("{sink:?}");
+        assert!(!rendered.contains("super-secret-pg-pass"));
+        assert!(rendered.contains("<redacted>"));
     }
 }

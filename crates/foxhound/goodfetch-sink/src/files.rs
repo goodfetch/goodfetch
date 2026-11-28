@@ -308,6 +308,13 @@ impl<D: FileDestination> Primitives for FilesSink<D> {
             .destination
             .probe(run)
             .map_err(FilesError::Destination)?;
+        // Clear any unflushed in-memory buffers on re-probe so a retry after a
+        // mid-batch failure never duplicates records that were not uploaded.
+        for buffer in self.buffers.values_mut() {
+            buffer.records.clear();
+            buffer.opened_at = None;
+            buffer.estimated_bytes = 0;
+        }
         for (dataset, next_part) in probed.next_parts {
             let buffer = self
                 .buffers
@@ -355,6 +362,13 @@ impl<D: FileDestination> Primitives for FilesSink<D> {
                     .buffers
                     .get_mut(&batch.dataset)
                     .expect("invariant: buffer inserted above");
+                if buf
+                    .records
+                    .last()
+                    .is_some_and(|last| record.number <= last.number)
+                {
+                    continue;
+                }
                 if buf.opened_at.is_none() {
                     buf.opened_at = Some(now);
                 }
@@ -381,6 +395,38 @@ impl<D: FileDestination> Primitives for FilesSink<D> {
         }
 
         Ok(Written::Delivered)
+    }
+
+    fn flush_expired(&mut self, run: &RunCopy) -> Result<Written, Self::Error> {
+        let now = self.clock.now();
+        let expired: Vec<String> = self
+            .buffers
+            .iter()
+            .filter(|(_, buf)| !buf.records.is_empty() && buf.is_expired(now, self.config.max_age))
+            .map(|(ds, _)| ds.clone())
+            .collect();
+        for dataset in expired {
+            if let Some(superseded) = self.flush_dataset(&dataset, run)? {
+                return Ok(Written::Superseded {
+                    run_epoch: superseded,
+                });
+            }
+        }
+        Ok(Written::Delivered)
+    }
+
+    fn next_flush_after(&self) -> Option<Duration> {
+        let now = self.clock.now();
+        self.buffers
+            .values()
+            .filter(|buf| !buf.records.is_empty())
+            .filter_map(|buf| buf.opened_at)
+            .map(|opened| {
+                self.config
+                    .max_age
+                    .saturating_sub(now.saturating_duration_since(opened))
+            })
+            .min()
     }
 
     fn finish(&mut self, run: &RunCopy) -> Result<Written, Self::Error> {

@@ -119,7 +119,7 @@ fn decode_jsonl(bytes: &[u8], compression: ExportCompression) -> Vec<Value> {
 /// `finish`, every part key carries the delivery ID and run epoch, and every
 /// part is a valid compressed Export with Records in number order.
 ///
-/// Covers: story:6-287
+/// Covers: story:6-287, sink:s3
 #[tokio::test(start_paused = true)]
 async fn files_mode_rolls_by_count_and_writes_final_part_with_valid_exports() {
     let dest = MemoryFiles::new();
@@ -168,7 +168,7 @@ async fn files_mode_rolls_by_count_and_writes_final_part_with_valid_exports() {
 /// (`files.part.max_age`) on a paused `Clock`, and an interrupted part upload
 /// is never visible as a part.
 ///
-/// Covers: story:6-287
+/// Covers: story:6-287, sink:s3
 #[tokio::test(start_paused = true)]
 async fn files_mode_rolls_by_size_and_age_and_hides_interrupted_parts() {
     // 1. Roll by size (gzip JSONL).
@@ -219,11 +219,17 @@ async fn files_mode_rolls_by_size_and_age_and_hides_interrupted_parts() {
     assert_eq!(driver_age.deliver(&records_age).unwrap(), Status::Complete);
     assert_eq!(dest_age.snapshot().len(), 0, "not yet expired");
 
-    // Advance clock past max_age and commit one more record -> previous part rolls.
+    // Advance clock past max_age WITHOUT committing another record -> expired part rolls.
+    assert!(driver_age.next_flush_after().is_some());
     tokio::time::advance(Duration::from_secs(61)).await;
+    assert_eq!(driver_age.deliver(&records_age).unwrap(), Status::Complete);
+    assert_eq!(
+        dest_age.snapshot().len(),
+        1,
+        "expired part rolled on age without another record arriving"
+    );
     commit(&records_age, "products", 3, &[json!({ "item": "a3" })]);
     assert_eq!(driver_age.deliver(&records_age).unwrap(), Status::Complete);
-    assert_eq!(dest_age.snapshot().len(), 1, "expired part rolled on age");
     assert_eq!(driver_age.finish(), Status::Complete);
     assert_eq!(dest_age.snapshot().len(), 2, "final part written on finish");
 
@@ -321,8 +327,14 @@ impl RustFs {
             String::from_utf8_lossy(&out.stderr).trim()
         );
         let container = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        let mut guard = Self {
+            engine,
+            container,
+            endpoint: String::new(),
+            _data_dir: data_dir,
+        };
         let port_out = Command::new(engine)
-            .args(["port", &container, "9000/tcp"])
+            .args(["port", &guard.container, "9000/tcp"])
             .output()
             .unwrap();
         let host_port = String::from_utf8_lossy(&port_out.stdout)
@@ -333,19 +345,22 @@ impl RustFs {
             .to_owned();
 
         let deadline = Instant::now() + Duration::from_secs(20);
+        let mut ready = false;
         while Instant::now() < deadline {
             if TcpStream::connect(&host_port).is_ok() {
+                ready = true;
                 break;
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-
-        Self {
-            engine,
-            container,
-            endpoint: format!("http://{host_port}"),
-            _data_dir: data_dir,
-        }
+        assert!(
+            ready,
+            "RustFS container did not listen on {host_port} within 20s"
+        );
+        // Allow RustFS to finish bucket initialization after opening its listener.
+        std::thread::sleep(Duration::from_millis(500));
+        guard.endpoint = format!("http://{host_port}");
+        guard
     }
 
     fn s3_url(&self, bucket: &str) -> String {
@@ -396,7 +411,7 @@ async fn deliver_s3_run(url: String, recs: Vec<Value>, epoch: u64) -> Option<Gua
 /// byte for byte, and a zombie copy with an older epoch is fenced out when
 /// conditional writes are supported.
 ///
-/// Covers: story:6-287
+/// Covers: story:6-287, sink:s3
 #[cfg(target_os = "linux")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn s3_files_mode_conformance_against_rustfs() {
@@ -457,7 +472,7 @@ async fn s3_files_mode_conformance_against_rustfs() {
 
     // If RustFS proved Fenced (conditional writes), a copy at epoch 2 fences out epoch 1.
     if class == Some(GuaranteeClass::Fenced) {
-        let class2 = deliver_s3_run(url.clone(), recs, 2).await;
+        let class2 = deliver_s3_run(url.clone(), recs.clone(), 2).await;
         assert_eq!(class2, Some(GuaranteeClass::Fenced));
 
         let url_clone = url;
@@ -465,9 +480,10 @@ async fn s3_files_mode_conformance_against_rustfs() {
             let dest_zombie =
                 ObjectStoreDestination::from_url(ObjectStoreBackend::S3, SINK, &url_clone, None)
                     .unwrap();
-            let mut sink_zombie = FilesSink::new(
+            let prefix = dest_zombie.prefix().to_owned();
+            let sink_zombie = FilesSink::new(
                 SINK,
-                "crawl",
+                prefix,
                 FilesConfig {
                     max_records: 1,
                     ..FilesConfig::default()
@@ -475,9 +491,14 @@ async fn s3_files_mode_conformance_against_rustfs() {
                 Clock::system(),
                 dest_zombie,
             );
-            let probe_zombie =
-                goodfetch_sink::Primitives::probe(&mut sink_zombie, &copy(1)).unwrap();
-            assert_eq!(probe_zombie.class, GuaranteeClass::Fenced);
+            let records = run_file(&[("items", recs)]);
+            let mut driver_zombie =
+                Driver::new(SINK, sink_zombie, copy(1), vec!["items".to_owned()])
+                    .with_clock(Clock::system());
+            assert_eq!(
+                driver_zombie.deliver(&records).unwrap(),
+                Status::Superseded { run_epoch: 2 }
+            );
         })
         .await
         .unwrap();

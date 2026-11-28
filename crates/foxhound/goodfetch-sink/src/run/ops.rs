@@ -3,7 +3,6 @@
 
 use std::collections::BTreeMap;
 
-use goodfetch_engine::clock::Clock;
 use goodfetch_engine::notification_endpoint::NotificationEndpoint;
 use goodfetch_engine::run::{run_error, run_layer, settings_error};
 use goodfetch_engine::runs::{RunError, Runs};
@@ -58,7 +57,8 @@ async fn probe_configured(
 ) -> SinkProbeOutcome {
     let (_, secrets) = context.runs().outside_a_run();
     let owner = context.engine().owner();
-    let endpoint = NotificationEndpoint::of(resolved, Clock::system(), owner.blocking_threads());
+    let clock = context.engine().clock();
+    let endpoint = NotificationEndpoint::of(resolved, clock, owner.blocking_threads());
     let destination = Destination {
         name: sink,
         settings: entry,
@@ -71,10 +71,7 @@ async fn probe_configured(
         run_id: String::new(),
         run_epoch: 0,
     };
-    match destination
-        .open(&secrets, owner, Clock::system(), run)
-        .await
-    {
+    match destination.open(&secrets, owner, clock, run).await {
         Ok(mut driver) => match owner.blocking(move || driver.probe()).await {
             Ok(class) => SinkProbeOutcome::Proved { class },
             Err(failure) => SinkProbeOutcome::Failed {

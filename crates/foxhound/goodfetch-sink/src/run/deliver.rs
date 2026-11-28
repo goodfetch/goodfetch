@@ -85,6 +85,43 @@ pub(super) fn spawn_backlog(
 
 /// Retries `sink`'s backlog against the ended Run's file until every Record
 /// lands, the Sink pauses/fails/is superseded, or the Daemon shuts down.
+fn apply_finish_status(
+    sink_name: &str,
+    finish_status: Status,
+    state_row: &mut SinkStateRow,
+) -> Option<Status> {
+    match finish_status {
+        Status::Complete | Status::CompleteWithRejections => None,
+        Status::Behind {
+            retry_in,
+            next_at,
+            failure,
+        } => {
+            tracing::warn!(sink = %sink_name, ?retry_in, ?failure, "Sink finish behind; retrying");
+            state_row.status = goodfetch_protocol::foxhound::report::SinkStatus::Behind;
+            Some(Status::Behind {
+                retry_in,
+                next_at,
+                failure,
+            })
+        }
+        Status::Paused { reason, failure } => {
+            tracing::warn!(sink = %sink_name, ?reason, ?failure, "Sink finish paused");
+            state_row.status = goodfetch_protocol::foxhound::report::SinkStatus::Behind;
+            Some(Status::Paused { reason, failure })
+        }
+        Status::Failed(failure) => {
+            tracing::warn!(sink = %sink_name, ?failure, "Sink finish failed");
+            state_row.status = goodfetch_protocol::foxhound::report::SinkStatus::Failed;
+            Some(Status::Failed(failure))
+        }
+        Status::Superseded { run_epoch } => {
+            tracing::warn!(sink = %sink_name, run_epoch, "Sink finish superseded");
+            Some(Status::Superseded { run_epoch })
+        }
+    }
+}
+
 async fn deliver_backlog(
     sink: Arc<Sink>,
     engine_owner: Arc<TaskOwner>,
@@ -113,17 +150,17 @@ async fn deliver_backlog(
             .await;
         drop(reader);
         let Ok(PassOutput {
-            status,
+            mut status,
             rejected,
             notifications,
-            state_row,
+            mut state_row,
         }) = delivered
         else {
             return;
         };
         if finished && matches!(status, Status::Complete | Status::CompleteWithRejections) {
             let driver_for_finish = Arc::clone(&driver);
-            let _ = engine_owner
+            let finish_status = engine_owner
                 .blocking(move || {
                     driver_for_finish
                         .lock()
@@ -131,6 +168,9 @@ async fn deliver_backlog(
                         .finish()
                 })
                 .await;
+            if let Some(updated) = apply_finish_status(&sink.name, finish_status, &mut state_row) {
+                status = updated;
+            }
         }
         let sink_name = sink.name.clone();
         let masks_for_write = masks.clone();
@@ -331,6 +371,7 @@ pub(super) async fn deliver_op(
         .map_err(failed)?;
     drop(reader);
 
+    let mut output = output;
     if should_finish
         && matches!(
             output.status,
@@ -338,7 +379,7 @@ pub(super) async fn deliver_op(
         )
     {
         let driver_for_finish = Arc::clone(&driver);
-        let _ = context
+        let finish_status = context
             .engine()
             .owner()
             .blocking(move || {
@@ -348,6 +389,7 @@ pub(super) async fn deliver_op(
                     .finish()
             })
             .await;
+        let _ = apply_finish_status(&sink_name, finish_status, &mut output.state_row);
     }
 
     let delivered = output.delivered;

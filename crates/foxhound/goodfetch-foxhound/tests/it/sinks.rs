@@ -265,7 +265,7 @@ fn a_sink_of_a_type_not_built_refuses_the_crawl_at_its_start() {
             "fetch": { "tier": "http" },
             "sinks": {
                 "warehouse": {
-                    "type": "postgres",
+                    "type": "snowflake",
                     "datasets": ["pages"],
                     "destination": "env:WAREHOUSE_DSN",
                 },
@@ -279,7 +279,7 @@ fn a_sink_of_a_type_not_built_refuses_the_crawl_at_its_start() {
         (
             &json!("capability_unavailable"),
             &json!("sinks.warehouse.type"),
-            &json!("postgres"),
+            &json!("snowflake"),
         ),
         "{started}"
     );

@@ -4,14 +4,16 @@
 //! reader never observes a half-written part.
 
 use std::collections::BTreeMap;
+use std::fmt;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
 use russh::client::{self, Config, Handle, Handler};
-use russh::keys::PublicKeyOrCertificate;
+use russh::keys::{HashAlg, PublicKeyOrCertificate};
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::StatusCode;
+use secrecy::{ExposeSecret as _, SecretString};
 use url::Url;
 
 use crate::contract::{Failure, FailureKind, RunCopy};
@@ -41,6 +43,7 @@ pub enum SftpError {
 }
 
 struct SftpHandler {
+    expected_fingerprint: Option<String>,
     accept_unknown_host: bool,
 }
 
@@ -49,29 +52,55 @@ impl Handler for SftpHandler {
 
     fn check_server_key(
         &mut self,
-        _server_public_key: &PublicKeyOrCertificate,
+        server_public_key: &PublicKeyOrCertificate,
     ) -> impl Future<Output = Result<bool, Self::Error>> + Send {
-        std::future::ready(Ok(self.accept_unknown_host))
+        let accepted = if let Some(expected) = &self.expected_fingerprint {
+            let actual = server_public_key
+                .public_key()
+                .fingerprint(HashAlg::Sha256)
+                .to_string();
+            actual == *expected || actual.strip_prefix("SHA256:") == Some(expected.as_str())
+        } else {
+            self.accept_unknown_host
+        };
+        std::future::ready(Ok(accepted))
     }
 }
 
 /// Files-mode [`FileDestination`] writing Export parts over SFTP.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct SftpDestination {
     sink_name: String,
     host: String,
     port: u16,
     username: String,
-    password: String,
+    password: SecretString,
     base_dir: String,
     prefix: String,
+    expected_fingerprint: Option<String>,
     accept_unknown_host: bool,
     next_tmp: u64,
 }
 
+impl fmt::Debug for SftpDestination {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SftpDestination")
+            .field("sink_name", &self.sink_name)
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("username", &self.username)
+            .field("password", &"<redacted>")
+            .field("base_dir", &self.base_dir)
+            .field("prefix", &self.prefix)
+            .field("expected_fingerprint", &self.expected_fingerprint)
+            .field("accept_unknown_host", &self.accept_unknown_host)
+            .finish_non_exhaustive()
+    }
+}
+
 impl SftpDestination {
     /// Parses an SFTP destination URL:
-    /// `sftp://user:pass@host[:port][/base_dir][?accept_unknown_host=true]`.
+    /// `sftp://user:pass@host[:port][/base_dir][?host_key_sha256=SHA256:...&accept_unknown_host=true]`.
     ///
     /// # Errors
     ///
@@ -95,16 +124,24 @@ impl SftpDestination {
             .ok_or_else(|| SftpError::Config("missing SFTP host".into()))?
             .to_owned();
         let port = url.port().unwrap_or(22);
-        let username = url.username().to_owned();
+        let username = crate::contract::percent_decode(url.username());
         if username.is_empty() {
             return Err(SftpError::Config("missing SFTP username".into()));
         }
-        let password = url.password().unwrap_or_default().to_owned();
+        let password = SecretString::from(
+            url.password()
+                .map(crate::contract::percent_decode)
+                .unwrap_or_default(),
+        );
         let base_dir = url.path().trim_matches('/').to_owned();
         let params: BTreeMap<String, String> = url
             .query_pairs()
             .map(|(k, v)| (k.into_owned(), v.into_owned()))
             .collect();
+        let expected_fingerprint = params
+            .get("host_key_sha256")
+            .filter(|v| !v.is_empty())
+            .cloned();
         let accept_unknown_host = params
             .get("accept_unknown_host")
             .is_some_and(|v| v == "true" || v == "1");
@@ -120,6 +157,7 @@ impl SftpDestination {
             password,
             base_dir,
             prefix,
+            expected_fingerprint,
             accept_unknown_host,
             next_tmp: 1,
         })
@@ -140,11 +178,12 @@ impl SftpDestination {
             ..Config::default()
         });
         let handler = SftpHandler {
+            expected_fingerprint: self.expected_fingerprint.clone(),
             accept_unknown_host: self.accept_unknown_host,
         };
         let mut handle = client::connect(config, (self.host.as_str(), self.port), handler).await?;
         let auth = handle
-            .authenticate_password(self.username.as_str(), self.password.as_str())
+            .authenticate_password(self.username.as_str(), self.password.expose_secret())
             .await?;
         if !auth.success() {
             return Err(SftpError::Auth("password authentication rejected".into()));
@@ -338,5 +377,60 @@ pub fn map_sftp_error(error: SftpError) -> Failure {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use russh_sftp::protocol::Status;
+
+    use super::*;
+
+    fn status_err(code: StatusCode) -> SftpError {
+        SftpError::Sftp(russh_sftp::client::error::Error::Status(Status {
+            id: 1,
+            status_code: code,
+            error_message: format!("{code:?}"),
+            language_tag: String::new(),
+        }))
+    }
+
+    #[rstest]
+    #[case::config(SftpError::Config("bad url".into()), FailureKind::Permanent)]
+    #[case::no_runtime(SftpError::NoRuntime, FailureKind::Permanent)]
+    #[case::auth(SftpError::Auth("denied".into()), FailureKind::Auth)]
+    #[case::ssh_unknown_key(SftpError::Ssh(russh::Error::UnknownKey), FailureKind::Auth)]
+    #[case::ssh_disconnect(SftpError::Ssh(russh::Error::Disconnect), FailureKind::Transient)]
+    #[case::sftp_permission_denied(status_err(StatusCode::PermissionDenied), FailureKind::Auth)]
+    #[case::sftp_no_such_file(status_err(StatusCode::NoSuchFile), FailureKind::Permanent)]
+    #[case::sftp_connection_lost(status_err(StatusCode::ConnectionLost), FailureKind::Transient)]
+    #[case::sftp_unrecognized_status(status_err(StatusCode::Failure), FailureKind::Unrecognized)]
+    #[case::sftp_timeout(
+        SftpError::Sftp(russh_sftp::client::error::Error::Timeout),
+        FailureKind::Transient
+    )]
+    #[case::sftp_unexpected_packet(
+        SftpError::Sftp(russh_sftp::client::error::Error::UnexpectedPacket),
+        FailureKind::Unrecognized
+    )]
+    fn map_sftp_error_classifies_known_and_unrecognized(
+        #[case] err: SftpError,
+        #[case] expected: FailureKind,
+    ) {
+        assert_eq!(map_sftp_error(err).kind(), expected);
+    }
+
+    #[test]
+    fn debug_redacts_sftp_password() {
+        let dest = SftpDestination::from_url(
+            "s",
+            "sftp://alice:super-secret-sftp-pass@example.test:22/upload",
+            None,
+        )
+        .unwrap();
+        let rendered = format!("{dest:?}");
+        assert!(!rendered.contains("super-secret-sftp-pass"));
+        assert!(rendered.contains("<redacted>"));
     }
 }

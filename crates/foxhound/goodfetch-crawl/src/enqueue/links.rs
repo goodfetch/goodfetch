@@ -232,6 +232,10 @@ pub(crate) async fn enqueue_links(
 /// matches on the attempt's browser page in document order through the guard,
 /// aborting navigations, popups and unsafe requests at interception, then
 /// admits each discovered URL as an enqueue (issue 1087).
+#[expect(
+    clippy::too_many_lines,
+    reason = "click-discovery enqueue handler validates attempt, patterns, payload, clicks, and stages enqueued URLs"
+)]
 async fn enqueue_links_by_clicking_elements(
     params: CrawlRequestEnqueueLinksByClickingElementsParams,
     context: CallContext,
@@ -248,7 +252,10 @@ async fn enqueue_links_by_clicking_elements(
         invariants,
         asking,
         ..
-    }) = crawls.live(&params.run_id).await
+    }) = crawls.live(&params.run_id).await.filter(|live| {
+        live.staging
+            .holds(&params.crawl_request_id, params.lease_epoch)
+    })
     else {
         return Err(attempt.ended());
     };
@@ -261,7 +268,7 @@ async fn enqueue_links_by_clicking_elements(
     let every = params
         .payload
         .as_ref()
-        .map(|payload| Arc::new(Payload::of(payload.clone(), &work)));
+        .map(|p| Arc::new(Payload::of(p.clone(), &work)));
     invariants
         .payloads()
         .check(&params.label, every.as_deref(), &work)?;

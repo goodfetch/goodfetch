@@ -5,6 +5,7 @@
 //! can deduplicate, proving [`GuaranteeClass::AtLeastOnce`].
 
 use std::collections::BTreeMap;
+use std::fmt;
 use std::time::Duration;
 
 use goodfetch_engine::http_client::WholeFailure;
@@ -13,6 +14,7 @@ use mail_builder::MessageBuilder;
 use mail_builder::headers::text::Text;
 use mail_send::SmtpClient;
 use mail_send::smtp::message::Parameters;
+use secrecy::{ExposeSecret as _, SecretString};
 use smtp_proto::{EXT_START_TLS, Response};
 use url::Url;
 
@@ -63,10 +65,26 @@ pub struct SmtpSink {
     implicit_tls: bool,
     allow_insecure: bool,
     username: Option<String>,
-    password: Option<String>,
+    password: Option<SecretString>,
     from: String,
     to: String,
     endpoint: NotificationEndpoint,
+}
+
+impl fmt::Debug for SmtpSink {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SmtpSink")
+            .field("sink_name", &self.sink_name)
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("implicit_tls", &self.implicit_tls)
+            .field("allow_insecure", &self.allow_insecure)
+            .field("username", &self.username)
+            .field("password", &self.password.as_ref().map(|_| "<redacted>"))
+            .field("from", &self.from)
+            .field("to", &self.to)
+            .finish_non_exhaustive()
+    }
 }
 
 impl SmtpSink {
@@ -120,8 +138,11 @@ impl SmtpSink {
             .ok_or_else(|| {
                 SmtpError::Config("missing recipient (`to` query param or `target`)".into())
             })?;
-        let username = (!url.username().is_empty()).then(|| url.username().to_owned());
-        let password = url.password().map(str::to_owned);
+        let username =
+            (!url.username().is_empty()).then(|| crate::contract::percent_decode(url.username()));
+        let password = url
+            .password()
+            .map(|p| SecretString::from(crate::contract::percent_decode(p)));
         Ok(Self {
             sink_name: sink_name.into(),
             host,
@@ -160,7 +181,7 @@ impl SmtpSink {
             capabilities = client.ehlo(&local).await?;
         }
         if let (Some(u), Some(p)) = (&self.username, &self.password) {
-            let credentials = mail_send::Credentials::new(u.as_str(), p.as_str());
+            let credentials = mail_send::Credentials::new(u.as_str(), p.expose_secret());
             client.authenticate(&credentials, &capabilities).await?;
         }
         Ok(client)
@@ -317,5 +338,38 @@ fn map_reply_code(code: u16, text: String) -> Failure {
             tracing::warn!(error = %text, "unrecognized SMTP reply; treating as transient");
             Failure::new(FailureKind::Unrecognized, text)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    #[case::config(SmtpError::Config("bad".into()), FailureKind::Permanent)]
+    #[case::serialize(SmtpError::Serialize("bad".into()), FailureKind::Permanent)]
+    #[case::no_starttls(SmtpError::NoStartTls, FailureKind::Permanent)]
+    #[case::no_runtime(SmtpError::NoRuntime, FailureKind::Permanent)]
+    #[case::endpoint_network(SmtpError::Endpoint(WholeFailure::Network), FailureKind::Transient)]
+    #[case::reply_421(SmtpError::Reply { code: 421, message: "busy".into() }, FailureKind::Transient)]
+    #[case::reply_535(SmtpError::Reply { code: 535, message: "auth".into() }, FailureKind::Auth)]
+    #[case::reply_550(SmtpError::Reply { code: 550, message: "no mailbox".into() }, FailureKind::Permanent)]
+    #[case::reply_unrecognized(SmtpError::Reply { code: 999, message: "weird".into() }, FailureKind::Unrecognized)]
+    #[case::client_timeout(SmtpError::Client(mail_send::Error::Timeout), FailureKind::Transient)]
+    #[case::client_unsupported_auth(
+        SmtpError::Client(mail_send::Error::UnsupportedAuthMechanism),
+        FailureKind::Auth
+    )]
+    #[case::client_unrecognized(
+        SmtpError::Client(mail_send::Error::UnparseableReply),
+        FailureKind::Unrecognized
+    )]
+    fn map_smtp_error_classifies_known_and_unrecognized(
+        #[case] err: SmtpError,
+        #[case] expected: FailureKind,
+    ) {
+        assert_eq!(map_smtp_error(err).kind(), expected);
     }
 }

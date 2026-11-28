@@ -623,8 +623,8 @@ fn a_rolling_upgrade_preserves_every_record_within_the_sinks_guarantee_class() {
     assert!(expected_count >= 1, "{report}");
 
     // 2. Older Foxhound reads the crawl's report and (when run-file compatible)
-    //    re-probes the same SQLite Sink; current Foxhound re-runs `sink.deliver`
-    //    replay to prove idempotency across the upgrade boundary.
+    //    re-probes the same SQLite Sink to prove Fenced guarantee compatibility
+    //    across the upgrade boundary.
     let older_report = cli(&env, &older.executable)
         .env(ROLLING_DB_ENV, &sink_db)
         .args(["run", "report", "rolling-sink", "--json"])

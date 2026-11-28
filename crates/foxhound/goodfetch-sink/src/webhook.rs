@@ -313,6 +313,12 @@ impl WebhookSink {
     ///
     /// Classified [`Failure`] on HTTP error, timeout, network/TLS error, or
     /// when a single Record exceeds `webhook.max_batch_bytes`.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the returned future cancels the in-flight HTTP request; any
+    /// sub-batch already accepted by the receiver carries its deterministic
+    /// `webhook-id` so retries deduplicate cleanly.
     pub async fn send_batch(&self, batch: &Batch, timeout: Duration) -> Result<Written, Failure> {
         if batch.records.is_empty() {
             return Ok(Written::Delivered);
@@ -426,7 +432,7 @@ fn classify_response(response: &hyper::Response<Bytes>, clock: Clock) -> Result<
 
 fn classify_endpoint_failure(failure: &WholeFailure) -> Failure {
     match failure {
-        WholeFailure::Refused(_) => Failure::new(FailureKind::Auth, format!("{failure:?}")),
+        WholeFailure::Refused(_) => Failure::new(FailureKind::Permanent, format!("{failure:?}")),
         WholeFailure::CertificateInvalid(_)
         | WholeFailure::ClientCertificate(_)
         | WholeFailure::Network => Failure::new(FailureKind::Transient, format!("{failure:?}")),

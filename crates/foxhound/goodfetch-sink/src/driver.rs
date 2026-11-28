@@ -393,6 +393,13 @@ impl<S: Primitives> Driver<S> {
         self.outside_dedup_window
     }
 
+    /// Duration until the earliest buffered part expires (Files mode
+    /// `max_age`), if any.
+    #[must_use]
+    pub fn next_flush_after(&self) -> Option<Duration> {
+        self.sink.next_flush_after()
+    }
+
     /// Remaining wait before the next scheduled retry, when this driver is
     /// already `Behind` and its retry backoff has not yet elapsed.
     #[must_use]
@@ -529,6 +536,7 @@ impl<S: Primitives> Driver<S> {
                 None => None,
             };
             let declared_schema = self.declared_schema(run_file, &dataset)?;
+            let delivered_before = self.delivered_count;
             if let Some(early) = self.deliver_dataset(
                 run_file,
                 &dataset,
@@ -541,9 +549,24 @@ impl<S: Primitives> Driver<S> {
                     Status::Behind { failure, .. }
                         if failure.kind() == FailureKind::QuotaExhausted
                 ) {
-                    self.delivered = Some(delivered);
+                    // Leave `self.delivered = None` if a split partially
+                    // succeeded so the next pass re-probes rather than
+                    // re-delivering the already-written prefix.
+                    if self.delivered_count == delivered_before {
+                        self.delivered = Some(delivered);
+                    }
                 }
                 return Ok(early);
+            }
+        }
+        match self.sink.flush_expired(&self.run) {
+            Ok(Written::Delivered) => {}
+            Ok(Written::Superseded { run_epoch }) => {
+                return Ok(Status::Superseded { run_epoch });
+            }
+            Err(err) => {
+                let failure = self.sink.map_failure(err);
+                return Ok(self.handle_failure(failure));
             }
         }
         Ok(self.complete_delivery_pass(delivered, rejected_before))

@@ -1,5 +1,6 @@
 //! Built-in Sink destinations opened by a Run or on-demand Sink operation
-//! (`sqlite` and `webhook`, ADRs 0026 and 0103).
+//! (`sqlite`, `webhook`, `s3`, `gcs`, `azure_blob`, `postgres`, `supabase`,
+//! `mysql`, `duckdb`, `smtp`, `sftp` and `ftp`, ADRs 0026 and 0103).
 
 use std::time::Duration;
 
@@ -140,6 +141,24 @@ impl Primitives for BuiltInSink {
         }
     }
 
+    fn flush_expired(&mut self, run: &RunCopy) -> Result<Written, BuiltInError> {
+        match self {
+            Self::ObjectStore(sink) => sink.flush_expired(run).map_err(BuiltInError::ObjectStore),
+            Self::Sftp(sink) => sink.flush_expired(run).map_err(BuiltInError::Sftp),
+            Self::Ftp(sink) => sink.flush_expired(run).map_err(BuiltInError::Ftp),
+            _ => Ok(Written::Delivered),
+        }
+    }
+
+    fn next_flush_after(&self) -> Option<Duration> {
+        match self {
+            Self::ObjectStore(sink) => sink.next_flush_after(),
+            Self::Sftp(sink) => sink.next_flush_after(),
+            Self::Ftp(sink) => sink.next_flush_after(),
+            _ => None,
+        }
+    }
+
     fn dedup_window(&self) -> Option<Duration> {
         match self {
             Self::Sqlite(sink) => sink.dedup_window(),
@@ -198,14 +217,12 @@ impl Destination<'_> {
         let resolved_dest = self
             .resolve_secret(
                 self.settings.destination.as_deref().expect(
-                    "invariant: `SinkSettings::read` refuses a typed Sink with no `destination`",
+                    "invariant: `read_sink_settings` refuses a typed Sink with no `destination`",
                 ),
                 "destination",
                 secrets,
             )
-            .await?
-            .expose_secret()
-            .to_owned();
+            .await?;
         let mode = self.settings.mode.unwrap_or_default();
         let mut throughput = Throughput::from_settings(
             self.settings.sink_type,
@@ -242,7 +259,7 @@ impl Destination<'_> {
     )]
     async fn open_built_in(
         &self,
-        resolved_dest: String,
+        resolved_dest: SecretString,
         mode: WriteMode,
         secrets: &RunSecrets,
         owner: &TaskStarter,
@@ -258,7 +275,7 @@ impl Destination<'_> {
             Some(SinkType::Sqlite) => {
                 let (sqlite, existing_epoch) = self
                     .open_sqlite(
-                        resolved_dest,
+                        resolved_dest.expose_secret().to_owned(),
                         mode,
                         &run.run_id,
                         keep_destination_epoch,
@@ -271,8 +288,9 @@ impl Destination<'_> {
                 Ok(BuiltInSink::Sqlite(sqlite))
             }
             Some(SinkType::Webhook) => {
-                let (webhook, max_bytes) =
-                    self.open_webhook(&resolved_dest, secrets, clock).await?;
+                let (webhook, max_bytes) = self
+                    .open_webhook(resolved_dest.expose_secret(), secrets, clock)
+                    .await?;
                 throughput.batch.max_bytes = throughput.batch.max_bytes.min(max_bytes);
                 Ok(BuiltInSink::Webhook(webhook))
             }
@@ -283,40 +301,28 @@ impl Destination<'_> {
                 | SinkType::Sftp
                 | SinkType::Ftp),
             ) => self.open_files_sink(sink_type, &resolved_dest, clock),
-            Some(SinkType::Postgres | SinkType::Supabase) => {
-                let table = self
-                    .settings
-                    .target
-                    .as_deref()
-                    .unwrap_or(DEFAULT_POSTGRES_TARGET);
-                let pg = PostgresSink::new(resolved_dest, table, mode, contract, flatten)
-                    .map_err(|err| err.to_string())?;
-                Ok(BuiltInSink::Postgres(pg))
-            }
-            Some(SinkType::Mysql) => {
-                let table = self
-                    .settings
-                    .target
-                    .as_deref()
-                    .unwrap_or(DEFAULT_MYSQL_TARGET);
-                let mysql = MySqlSink::new(resolved_dest, table, mode, contract, flatten)
-                    .map_err(|err| err.to_string())?;
-                Ok(BuiltInSink::MySql(mysql))
-            }
-            Some(SinkType::Duckdb) => {
-                let table = self
-                    .settings
-                    .target
-                    .as_deref()
-                    .unwrap_or(DEFAULT_DUCKDB_TARGET);
-                let duck = DuckDbSink::open(&resolved_dest, table, mode, contract, flatten)
-                    .map_err(|err| err.to_string())?;
-                Ok(BuiltInSink::DuckDb(duck))
+            Some(
+                sink_type @ (SinkType::Postgres
+                | SinkType::Supabase
+                | SinkType::Mysql
+                | SinkType::Duckdb),
+            ) => {
+                self.open_sql_sink(
+                    sink_type,
+                    resolved_dest,
+                    mode,
+                    contract,
+                    flatten,
+                    owner,
+                    run,
+                    keep_destination_epoch,
+                )
+                .await
             }
             Some(SinkType::Smtp) => {
                 let smtp = SmtpSink::from_url(
                     self.name,
-                    &resolved_dest,
+                    resolved_dest.expose_secret(),
                     self.settings.target.as_deref(),
                     self.endpoint.clone(),
                 )
@@ -329,12 +335,132 @@ impl Destination<'_> {
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "SQL Sink opener threads settings, schema options, task starter and epoch flag"
+    )]
+    async fn open_sql_sink(
+        &self,
+        sink_type: SinkType,
+        resolved_dest: SecretString,
+        mode: WriteMode,
+        contract: goodfetch_protocol::foxhound::sink::SchemaContract,
+        flatten: bool,
+        owner: &TaskStarter,
+        run: &mut RunCopy,
+        keep_destination_epoch: bool,
+    ) -> Result<BuiltInSink, String> {
+        match sink_type {
+            SinkType::Postgres | SinkType::Supabase => {
+                self.judge_destination_endpoint(resolved_dest.expose_secret())?;
+                let table = self
+                    .settings
+                    .target
+                    .as_deref()
+                    .unwrap_or(DEFAULT_POSTGRES_TARGET);
+                let mut pg = PostgresSink::with_starter(
+                    resolved_dest,
+                    table,
+                    mode,
+                    contract,
+                    flatten,
+                    owner.clone(),
+                )
+                .map_err(|_| "could not configure PostgreSQL Sink destination".to_owned())?;
+                if keep_destination_epoch
+                    && let Ok(Some(existing)) = pg.current_epoch(&run.run_id).await
+                {
+                    run.run_epoch = existing;
+                }
+                Ok(BuiltInSink::Postgres(pg))
+            }
+            SinkType::Mysql => {
+                self.judge_destination_endpoint(resolved_dest.expose_secret())?;
+                let table = self
+                    .settings
+                    .target
+                    .as_deref()
+                    .unwrap_or(DEFAULT_MYSQL_TARGET);
+                let mut mysql =
+                    MySqlSink::from_secret(resolved_dest, table, mode, contract, flatten)
+                        .map_err(|_| "could not configure MySQL Sink destination".to_owned())?;
+                if keep_destination_epoch
+                    && let Ok(Some(existing)) = mysql.current_epoch(&run.run_id).await
+                {
+                    run.run_epoch = existing;
+                }
+                Ok(BuiltInSink::MySql(mysql))
+            }
+            SinkType::Duckdb => {
+                let table = self
+                    .settings
+                    .target
+                    .as_deref()
+                    .unwrap_or(DEFAULT_DUCKDB_TARGET)
+                    .to_owned();
+                let path = resolved_dest.expose_secret().to_owned();
+                let run_id = run.run_id.clone();
+                let (duck, existing_epoch) = owner
+                    .blocking(move || {
+                        let duck = DuckDbSink::open(&path, table, mode, contract, flatten)
+                            .map_err(|_| "could not open DuckDB Sink destination".to_owned())?;
+                        let existing = if keep_destination_epoch {
+                            duck.current_epoch(&run_id).ok().flatten()
+                        } else {
+                            None
+                        };
+                        Ok::<_, String>((duck, existing))
+                    })
+                    .await?;
+                if let Some(existing) = existing_epoch {
+                    run.run_epoch = existing;
+                }
+                Ok(BuiltInSink::DuckDb(duck))
+            }
+            other => Err(format!("Sink type `{other:?}` is not a SQL Sink")),
+        }
+    }
+
+    fn judge_destination_endpoint(&self, destination: &str) -> Result<(), String> {
+        let Ok(url) = Url::parse(destination) else {
+            return Ok(());
+        };
+        let endpoint_param = url
+            .query_pairs()
+            .find(|(k, _)| k == "endpoint" || k == "emulator_host")
+            .map(|(_, v)| v.into_owned());
+        if let Some(ep) = endpoint_param
+            && let Ok(ep_url) = Url::parse(&ep)
+            && matches!(ep_url.scheme(), "http" | "https")
+        {
+            self.endpoint
+                .judge(&ep_url)
+                .map_err(|_| "Sink destination endpoint refused by egress policy".to_owned())?;
+            return Ok(());
+        }
+        if matches!(
+            url.scheme(),
+            "postgres" | "postgresql" | "mysql" | "sftp" | "ftp" | "ftps"
+        ) && let Some(host) = url.host_str()
+        {
+            let port = url.port().map_or(String::new(), |p| format!(":{p}"));
+            if let Ok(check_url) = Url::parse(&format!("https://{host}{port}/")) {
+                self.endpoint
+                    .judge(&check_url)
+                    .map_err(|_| "Sink destination endpoint refused by egress policy".to_owned())?;
+            }
+        }
+        Ok(())
+    }
+
     fn open_files_sink(
         &self,
         sink_type: SinkType,
-        resolved_dest: &str,
+        resolved_dest: &SecretString,
         clock: Clock,
     ) -> Result<BuiltInSink, String> {
+        let dest_str = resolved_dest.expose_secret();
+        self.judge_destination_endpoint(dest_str)?;
         let prefix = self.settings.target.as_deref().unwrap_or_default();
         let config = FilesConfig::from_settings(self.settings.files.as_ref());
         match sink_type {
@@ -348,23 +474,28 @@ impl Destination<'_> {
                 let dest = ObjectStoreDestination::from_url(
                     backend,
                     self.name,
-                    resolved_dest,
+                    dest_str,
                     self.settings.target.as_deref(),
                 )
-                .map_err(|err| err.to_string())?;
+                .map_err(|_| "could not configure object-store Sink destination".to_owned())?;
+                let full_prefix = dest.prefix().to_owned();
                 Ok(BuiltInSink::ObjectStore(FilesSink::new(
-                    self.name, prefix, config, clock, dest,
+                    self.name,
+                    full_prefix,
+                    config,
+                    clock,
+                    dest,
                 )))
             }
             SinkType::Sftp => {
-                let dest = SftpDestination::from_url(self.name, resolved_dest, Some(prefix))
+                let dest = SftpDestination::from_url(self.name, dest_str, Some(prefix))
                     .map_err(|err| err.to_string())?;
                 Ok(BuiltInSink::Sftp(FilesSink::new(
                     self.name, prefix, config, clock, dest,
                 )))
             }
             SinkType::Ftp => {
-                let dest = FtpDestination::from_url(self.name, resolved_dest, Some(prefix))
+                let dest = FtpDestination::from_url(self.name, dest_str, Some(prefix))
                     .map_err(|err| err.to_string())?;
                 Ok(BuiltInSink::Ftp(FilesSink::new(
                     self.name, prefix, config, clock, dest,

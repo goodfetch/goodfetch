@@ -337,23 +337,36 @@ fn http_410_pauses_the_sink_and_non_retryable_4xx_fail_immediately() {
             }
         ));
         assert_eq!(driver_410.into_sink().calls, 1);
-
-        // 401, 403, 404, 405 fail immediately (never retried on the schedule).
-        for code in [401u16, 403, 404, 405] {
-            let mut driver = Driver::new(
-                "perm-sink",
-                ScriptedHttpSink::repeating(code, None, None, clock),
-                copy_of("run-perm", 1),
-                vec!["pages".to_owned()],
-            )
-            .with_clock(clock);
-            assert!(
-                matches!(driver.deliver(&run).unwrap(), Status::Failed(_)),
-                "HTTP {code} must fail immediately without retrying"
-            );
-            assert_eq!(driver.report_status(), SinkStatus::Failed);
-        }
     });
+}
+
+/// Non-retryable HTTP 4xx responses (401, 403, 404, 405) fail immediately
+/// without retrying on the delivery schedule.
+///
+/// Covers: story:6-290
+#[rstest::rstest]
+#[case::http_401(401)]
+#[case::http_403(403)]
+#[case::http_404(404)]
+#[case::http_405(405)]
+#[tokio::test(start_paused = true)]
+#[expect(clippy::disallowed_methods, reason = "test uses paused Tokio clock")]
+async fn non_retryable_http_4xx_fails_immediately(#[case] code: u16) {
+    let run = run_file(&[("pages", vec![json!({ "n": 1 })])]);
+    #[expect(clippy::disallowed_methods, reason = "test uses paused Clock")]
+    let clock = Clock::paused(std::time::UNIX_EPOCH + Duration::from_secs(1_700_000_000));
+    let mut driver = Driver::new(
+        "perm-sink",
+        ScriptedHttpSink::repeating(code, None, None, clock),
+        copy_of("run-perm", 1),
+        vec!["pages".to_owned()],
+    )
+    .with_clock(clock);
+    assert!(
+        matches!(driver.deliver(&run).unwrap(), Status::Failed(_)),
+        "HTTP {code} must fail immediately without retrying"
+    );
+    assert_eq!(driver.report_status(), SinkStatus::Failed);
 }
 
 /// The Run report (`SinkReportPart`) carries each Sink's status: `complete`,

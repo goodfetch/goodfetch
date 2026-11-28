@@ -254,11 +254,11 @@ async fn close_popups(sessions: &Sessions, capture: &DiscoveryCapture) {
 }
 
 async fn settle_capture(capture: &DiscoveryCapture, saw_history: bool, clock: &Clock) {
+    let mut changes = capture.subscribe();
     if !saw_history && !capture.has_activity() && capture.pending_popups() == 0 {
-        let notified = capture.notified();
         tokio::select! {
             biased;
-            () = notified => {}
+            _ = changes.changed() => {}
             () = clock.sleep(QUIET_SETTLE) => {}
         }
     }
@@ -269,10 +269,13 @@ async fn settle_capture(capture: &DiscoveryCapture, saw_history: bool, clock: &C
             if remaining.is_zero() {
                 break;
             }
-            let notified = capture.notified();
             tokio::select! {
                 biased;
-                () = notified => {}
+                res = changes.changed() => {
+                    if res.is_err() {
+                        break;
+                    }
+                }
                 () = clock.sleep(remaining) => break,
             }
         }

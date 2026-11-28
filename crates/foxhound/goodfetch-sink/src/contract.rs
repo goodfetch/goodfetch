@@ -371,6 +371,23 @@ pub trait Primitives {
         Ok(Written::Delivered)
     }
 
+    /// Flushes any buffered data whose age limit (e.g. `files.part.max_age`)
+    /// has elapsed without waiting for another Record to arrive.
+    ///
+    /// # Errors
+    ///
+    /// The destination's, when the flush did not land.
+    fn flush_expired(&mut self, run: &RunCopy) -> Result<Written, Self::Error> {
+        let _ = run;
+        Ok(Written::Delivered)
+    }
+
+    /// Duration until the earliest open buffered part expires and needs a
+    /// [`Self::flush_expired`] call, if any.
+    fn next_flush_after(&self) -> Option<Duration> {
+        None
+    }
+
     /// The destination's deduplication window, when its guarantee is keyed
     /// only within a finite window (e.g. a 5-minute FIFO queue); a delivery
     /// arriving later than this window after commit is counted in
@@ -382,4 +399,26 @@ pub trait Primitives {
 
     /// The Sink's translation point (ADR 0127): `error` as a [`Failure`].
     fn map_failure(&self, error: Self::Error) -> Failure;
+}
+
+/// Percent-decodes an RFC 3986 percent-encoded URL component (such as a
+/// username or password in `sftp://`, `ftp://`, or `smtp://` URLs).
+pub(crate) fn percent_decode(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let Ok(hex) = std::str::from_utf8(&bytes[i + 1..i + 3])
+            && let Ok(val) = u8::from_str_radix(hex, 16)
+        {
+            out.push(val);
+            i += 3;
+            continue;
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }

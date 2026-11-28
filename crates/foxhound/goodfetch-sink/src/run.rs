@@ -49,7 +49,8 @@ use built_in::{BuiltInSink, Destination};
 
 /// Goodfetch-sink's composition value (ADR 0087): what the crawl's Run
 /// asks of its Sinks, the catalog's in-binary destinations this engine
-/// delivers to, SQLite so far.
+/// delivers to (`sqlite`, `webhook`, `s3`, `gcs`, `azure_blob`, `postgres`,
+/// `supabase`, `mysql`, `duckdb`, `smtp`, `sftp`, `ftp`).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Sinks;
 
@@ -669,9 +670,24 @@ async fn keep_delivering(sink: Arc<Sink>) {
     let owner = sink.identity.owner().clone();
     while !*stopped.borrow_and_update() {
         let next = sink.deliver().await;
+        let flush_after = sink.driver.get().and_then(|res| {
+            res.as_ref().ok().and_then(|drv| {
+                drv.lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .next_flush_after()
+            })
+        });
         let goes_on = async {
             match next {
-                Next::Wait => commits.changed().await.is_ok(),
+                Next::Wait => match flush_after {
+                    Some(after) => {
+                        tokio::select! {
+                            res = commits.changed() => res.is_ok(),
+                            () = clock.sleep(after) => true,
+                        }
+                    }
+                    None => commits.changed().await.is_ok(),
+                },
                 Next::Retry(after) => {
                     clock.sleep(after).await;
                     true
@@ -724,14 +740,14 @@ fn deliverable(name: &str, sink: &SinkSettings, layer: SettingsLayer) -> Result<
     Err(CallError::new(
         &CAPABILITY_UNAVAILABLE,
         format!(
-            "`{}` asks for a Sink's `{kind}`, which this engine does not deliver yet: deliver to a `type: sqlite` Sink as `records`, or leave the Sink out.",
+            "`{}` asks for a Sink's `{kind}`, which this engine does not deliver yet: use one of the built-in Sink types (`sqlite`, `webhook`, `s3`, `gcs`, `azure_blob`, `postgres`, `supabase`, `mysql`, `duckdb`, `smtp`, `sftp`, `ftp`) with its supported `deliver` mode, or leave the Sink out.",
             named::setting_in(&key, layer),
         ),
         &CapabilityUnavailableDetails {
             key,
             layer,
             kind,
-            fix: "`type: sqlite`, `deliver: records`".to_owned(),
+            fix: "use a built-in Sink type with its supported `deliver` mode".to_owned(),
         },
     ))
 }

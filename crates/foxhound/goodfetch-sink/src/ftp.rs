@@ -3,10 +3,13 @@
 //! (`.tmp-<name>-<nonce>`) and atomically renames it (`RNFR`/`RNTO`) to its
 //! final key so a reader never observes a half-written part.
 
+use std::fmt;
 use std::io::Cursor;
+use std::sync::Arc;
 
+use secrecy::{ExposeSecret as _, SecretString};
 use suppaftp::types::FileType;
-use suppaftp::{FtpError, FtpStream, Mode};
+use suppaftp::{FtpError, FtpStream, Mode, RustlsConnector, RustlsFtpStream};
 use url::Url;
 
 use crate::contract::{Failure, FailureKind, RunCopy};
@@ -24,22 +27,100 @@ pub enum FtpSinkError {
     Ftp(#[from] FtpError),
 }
 
-/// Files-mode [`FileDestination`] writing Export parts over FTP.
-#[derive(Clone, Debug)]
+enum FtpConn {
+    Plain(FtpStream),
+    Tls(Box<RustlsFtpStream>),
+}
+
+impl FtpConn {
+    fn mkdir(&mut self, path: &str) {
+        match self {
+            Self::Plain(s) => {
+                let _ = s.mkdir(path);
+            }
+            Self::Tls(s) => {
+                let _ = s.mkdir(path);
+            }
+        }
+    }
+
+    fn nlst(&mut self, path: Option<&str>) -> Result<Vec<String>, FtpError> {
+        match self {
+            Self::Plain(s) => s.nlst(path),
+            Self::Tls(s) => s.nlst(path),
+        }
+    }
+
+    fn put_file(&mut self, path: &str, bytes: &[u8]) -> Result<u64, FtpError> {
+        let mut cursor = Cursor::new(bytes);
+        match self {
+            Self::Plain(s) => s.put_file(path, &mut cursor),
+            Self::Tls(s) => s.put_file(path, &mut cursor),
+        }
+    }
+
+    fn rename(&mut self, src: &str, dst: &str) -> Result<(), FtpError> {
+        match self {
+            Self::Plain(s) => s.rename(src, dst),
+            Self::Tls(s) => s.rename(src, dst),
+        }
+    }
+
+    fn rm(&mut self, path: &str) {
+        match self {
+            Self::Plain(s) => {
+                let _ = s.rm(path);
+            }
+            Self::Tls(s) => {
+                let _ = s.rm(path);
+            }
+        }
+    }
+
+    fn quit(&mut self) {
+        match self {
+            Self::Plain(s) => {
+                let _ = s.quit();
+            }
+            Self::Tls(s) => {
+                let _ = s.quit();
+            }
+        }
+    }
+}
+
+/// Files-mode [`FileDestination`] writing Export parts over FTP or FTPS.
+#[derive(Clone)]
 pub struct FtpDestination {
     sink_name: String,
     host: String,
     port: u16,
+    secure: bool,
     username: String,
-    password: String,
+    password: SecretString,
     base_dir: String,
     prefix: String,
     next_tmp: u64,
 }
 
+impl fmt::Debug for FtpDestination {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FtpDestination")
+            .field("sink_name", &self.sink_name)
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("secure", &self.secure)
+            .field("username", &self.username)
+            .field("password", &"<redacted>")
+            .field("base_dir", &self.base_dir)
+            .field("prefix", &self.prefix)
+            .finish_non_exhaustive()
+    }
+}
+
 impl FtpDestination {
-    /// Parses an FTP destination URL:
-    /// `ftp://[user:pass@]host[:port][/base_dir]`.
+    /// Parses an FTP/FTPS destination URL:
+    /// `ftp://[user:pass@]host[:port][/base_dir]` or `ftps://...` (explicit TLS).
     ///
     /// # Errors
     ///
@@ -51,12 +132,15 @@ impl FtpDestination {
     ) -> Result<Self, FtpSinkError> {
         let url = Url::parse(destination)
             .map_err(|err| FtpSinkError::Config(format!("invalid URL: {err}")))?;
-        if url.scheme() != "ftp" {
-            return Err(FtpSinkError::Config(format!(
-                "unsupported scheme `{}` (expected `ftp`)",
-                url.scheme()
-            )));
-        }
+        let secure = match url.scheme() {
+            "ftp" => false,
+            "ftps" => true,
+            other => {
+                return Err(FtpSinkError::Config(format!(
+                    "unsupported scheme `{other}` (expected `ftp` or `ftps`)"
+                )));
+            }
+        };
         let host = url
             .host_str()
             .filter(|h| !h.is_empty())
@@ -66,9 +150,12 @@ impl FtpDestination {
         let username = if url.username().is_empty() {
             "anonymous".to_owned()
         } else {
-            url.username().to_owned()
+            crate::contract::percent_decode(url.username())
         };
-        let password = url.password().unwrap_or("anonymous@").to_owned();
+        let password = SecretString::from(
+            url.password()
+                .map_or_else(|| "anonymous@".to_owned(), crate::contract::percent_decode),
+        );
         let base_dir = url.path().trim_matches('/').to_owned();
         let prefix = target_prefix
             .unwrap_or_default()
@@ -78,6 +165,7 @@ impl FtpDestination {
             sink_name: sink_name.into(),
             host,
             port,
+            secure,
             username,
             password,
             base_dir,
@@ -95,30 +183,47 @@ impl FtpDestination {
         }
     }
 
-    fn connect(&self) -> Result<FtpStream, FtpSinkError> {
-        let mut ftp = FtpStream::connect((self.host.as_str(), self.port))?;
-        ftp.set_mode(Mode::Passive);
-        ftp.login(&self.username, &self.password)?;
-        ftp.transfer_type(FileType::Binary)?;
-        Ok(ftp)
+    fn connect(&self) -> Result<FtpConn, FtpSinkError> {
+        if self.secure {
+            let tls_config = suppaftp::rustls::ClientConfig::builder_with_provider(Arc::new(
+                suppaftp::rustls::crypto::ring::default_provider(),
+            ))
+            .with_safe_default_protocol_versions()
+            .map_err(|err| FtpSinkError::Config(format!("TLS config error: {err}")))?
+            .with_root_certificates(suppaftp::rustls::RootCertStore::from_iter(
+                webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
+            ))
+            .with_no_client_auth();
+            let stream = RustlsFtpStream::connect((self.host.as_str(), self.port))?;
+            let mut secure =
+                stream.into_secure(RustlsConnector::from(Arc::new(tls_config)), &self.host)?;
+            secure.set_mode(Mode::Passive);
+            secure.login(self.username.as_str(), self.password.expose_secret())?;
+            secure.transfer_type(FileType::Binary)?;
+            Ok(FtpConn::Tls(Box::new(secure)))
+        } else {
+            let mut ftp = FtpStream::connect((self.host.as_str(), self.port))?;
+            ftp.set_mode(Mode::Passive);
+            ftp.login(self.username.as_str(), self.password.expose_secret())?;
+            ftp.transfer_type(FileType::Binary)?;
+            Ok(FtpConn::Plain(ftp))
+        }
     }
 }
 
-fn ensure_ftp_dirs(ftp: &mut FtpStream, dir: &str) {
+fn ensure_ftp_dirs(ftp: &mut FtpConn, dir: &str) {
     let mut current = String::new();
     for segment in dir.split('/').filter(|s| !s.is_empty()) {
         if !current.is_empty() {
             current.push('/');
         }
         current.push_str(segment);
-        // FTP servers return 550 if the directory already exists; ignore here
-        // and let the subsequent upload surface any real permission error.
-        let _ = ftp.mkdir(&current);
+        ftp.mkdir(&current);
     }
 }
 
 fn list_ftp_parts(
-    ftp: &mut FtpStream,
+    ftp: &mut FtpConn,
     remote_root: &str,
     rel_root: &str,
     run_epoch: u64,
@@ -164,7 +269,7 @@ impl FileDestination for FtpDestination {
         let remote_root = self.remote_path(&rel_root);
         let mut files = Vec::new();
         list_ftp_parts(&mut ftp, &remote_root, &rel_root, run.run_epoch, &mut files);
-        let _ = ftp.quit();
+        ftp.quit();
         Ok(probe_from_keys(&self.prefix, run, &self.sink_name, files))
     }
 
@@ -189,14 +294,13 @@ impl FileDestination for FtpDestination {
         } else {
             format!("{parent}/.tmp-{filename}-{nonce}")
         };
-        let mut cursor = Cursor::new(bytes);
-        ftp.put_file(&tmp_path, &mut cursor)?;
+        ftp.put_file(&tmp_path, &bytes)?;
         if let Err(err) = ftp.rename(&tmp_path, &final_path) {
-            let _ = ftp.rm(&tmp_path);
-            let _ = ftp.quit();
+            ftp.rm(&tmp_path);
+            ftp.quit();
             return Err(FtpSinkError::Ftp(err));
         }
-        let _ = ftp.quit();
+        ftp.quit();
         Ok(PutOutcome::Written)
     }
 
@@ -228,5 +332,56 @@ pub fn map_ftp_error(error: FtpSinkError) -> Failure {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use suppaftp::Status;
+    use suppaftp::types::Response;
+
+    use super::*;
+
+    fn reply_err(status: Status) -> FtpSinkError {
+        FtpSinkError::Ftp(FtpError::UnexpectedResponse(Response::new(
+            status,
+            b"reply".to_vec(),
+        )))
+    }
+
+    #[rstest]
+    #[case::config(FtpSinkError::Config("bad url".into()), FailureKind::Permanent)]
+    #[case::connection(
+        FtpSinkError::Ftp(FtpError::ConnectionError(std::io::Error::other("reset"))),
+        FailureKind::Transient
+    )]
+    #[case::auth_530(reply_err(Status::NotLoggedIn), FailureKind::Auth)]
+    #[case::transient_421(reply_err(Status::NotAvailable), FailureKind::Transient)]
+    #[case::permanent_550(reply_err(Status::FileUnavailable), FailureKind::Permanent)]
+    #[case::unrecognized_reply(reply_err(Status::CommandOk), FailureKind::Unrecognized)]
+    #[case::unrecognized_bad_response(
+        FtpSinkError::Ftp(FtpError::BadResponse),
+        FailureKind::Unrecognized
+    )]
+    fn map_ftp_error_classifies_known_and_unrecognized(
+        #[case] err: FtpSinkError,
+        #[case] expected: FailureKind,
+    ) {
+        assert_eq!(map_ftp_error(err).kind(), expected);
+    }
+
+    #[test]
+    fn debug_redacts_ftp_password_and_accepts_ftps_scheme() {
+        let dest = FtpDestination::from_url(
+            "f",
+            "ftps://alice:super-secret-ftp-pass@example.test:21/exports",
+            None,
+        )
+        .unwrap();
+        assert!(dest.secure);
+        let rendered = format!("{dest:?}");
+        assert!(!rendered.contains("super-secret-ftp-pass"));
+        assert!(rendered.contains("<redacted>"));
     }
 }

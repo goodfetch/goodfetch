@@ -221,7 +221,7 @@ async fn deliver_to(
 /// delivery keeps the exact same delivery ID, and batches never exceed 256 KB
 /// (ADRs 0008, 0017 and 0026).
 ///
-/// Covers: story:6-296
+/// Covers: story:6-296, sink:webhook
 #[tokio::test]
 async fn signed_batch_verifies_replay_preserves_id_and_256kb_cap_holds() {
     let clock = Clock::system();
@@ -298,7 +298,7 @@ async fn signed_batch_verifies_replay_preserves_id_and_256kb_cap_holds() {
 /// Thin webhook payloads carry the record range (`from`, `through`, `count`)
 /// and a `fetch_url` inside the signed Standard Webhooks envelope (ADR 0026).
 ///
-/// Covers: story:6-296
+/// Covers: story:6-296, sink:webhook
 #[tokio::test]
 async fn thin_payload_carries_record_range_and_fetch_url() {
     let clock = Clock::system();
@@ -354,7 +354,7 @@ async fn thin_payload_carries_record_range_and_fetch_url() {
 /// Webhook retries follow the Standard Webhooks schedule (honouring
 /// `Retry-After`) and HTTP 410 Gone pauses the Sink (ADR 0026).
 ///
-/// Covers: story:6-296
+/// Covers: story:6-296, sink:webhook
 #[tokio::test]
 async fn webhook_retries_follow_schedule_and_410_pauses_the_sink() {
     let clock = Clock::system();
@@ -437,7 +437,7 @@ async fn webhook_retries_follow_schedule_and_410_pauses_the_sink() {
 /// `setting_invalid` naming `sinks.<name>.webhook.signing_secret`, while one
 /// carrying a Secret reference is accepted (ADRs 0008 and 0026).
 ///
-/// Covers: story:6-296
+/// Covers: story:6-296, sink:webhook
 #[test]
 fn webhook_without_signing_secret_is_refused_at_start_with_setting_invalid() {
     let serde_json::Value::Object(missing_secret) = json!({

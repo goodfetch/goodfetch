@@ -6,11 +6,12 @@
 //! ADR 0127 error translation.
 
 use std::collections::BTreeMap;
-use std::fmt::Write as _;
+use std::fmt::{self, Write as _};
 
 use goodfetch_protocol::foxhound::sink::{SchemaContract, WriteMode};
 use mysql_async::prelude::Queryable as _;
 use mysql_async::{Opts, Pool, TxOpts, Value as MySqlValue};
+use secrecy::{ExposeSecret as _, SecretString};
 
 use crate::contract::{
     Batch, Delivered, Failure, FailureKind, GuaranteeClass, Primitives, Probe, RunCopy, Written,
@@ -63,7 +64,7 @@ fn from_mysql_type(ty: &str) -> ColumnType {
 
 /// Built-in MySQL / MariaDB Sink implementing [`Primitives`].
 pub struct MySqlSink {
-    dsn: String,
+    dsn: SecretString,
     target: String,
     mode: WriteMode,
     contract: SchemaContract,
@@ -71,6 +72,18 @@ pub struct MySqlSink {
     pool: Option<Pool>,
     schema: Option<TableSchema>,
     schema_applied_for: BTreeMap<String, bool>,
+}
+
+impl fmt::Debug for MySqlSink {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MySqlSink")
+            .field("dsn", &"<redacted>")
+            .field("target", &self.target)
+            .field("mode", &self.mode)
+            .field("contract", &self.contract)
+            .field("flatten", &self.flatten)
+            .finish_non_exhaustive()
+    }
 }
 
 impl MySqlSink {
@@ -86,9 +99,29 @@ impl MySqlSink {
         contract: SchemaContract,
         flatten: bool,
     ) -> Result<Self, MySqlError> {
-        let dsn = dsn.into();
+        Self::from_secret(
+            SecretString::from(dsn.into()),
+            table,
+            mode,
+            contract,
+            flatten,
+        )
+    }
+
+    /// Creates a MySQL/MariaDB Sink from a [`SecretString`] DSN targeting `table`.
+    ///
+    /// # Errors
+    ///
+    /// [`MySqlError::Config`] if `dsn` or `table` is empty or unparsable.
+    pub fn from_secret(
+        dsn: SecretString,
+        table: impl Into<String>,
+        mode: WriteMode,
+        contract: SchemaContract,
+        flatten: bool,
+    ) -> Result<Self, MySqlError> {
         let table = table.into();
-        if dsn.trim().is_empty() {
+        if dsn.expose_secret().trim().is_empty() {
             return Err(MySqlError::Config(
                 "destination DSN must not be empty".into(),
             ));
@@ -96,7 +129,8 @@ impl MySqlSink {
         if table.trim().is_empty() {
             return Err(MySqlError::Config("target table must not be empty".into()));
         }
-        let _ = Opts::from_url(&dsn).map_err(|err| MySqlError::Config(err.to_string()))?;
+        let _ = Opts::from_url(dsn.expose_secret())
+            .map_err(|_| MySqlError::Config("invalid MySQL destination DSN".into()))?;
         Ok(Self {
             dsn,
             target: table,
@@ -107,6 +141,29 @@ impl MySqlSink {
             schema: None,
             schema_applied_for: BTreeMap::new(),
         })
+    }
+
+    /// Returns the highest recorded `run_epoch` for `(self.target, run_id)` if
+    /// present.
+    ///
+    /// # Errors
+    ///
+    /// Connection or query errors from MySQL/MariaDB.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future cancels the in-flight query without modifying state.
+    pub async fn current_epoch(&mut self, run_id: &str) -> Result<Option<u64>, MySqlError> {
+        self.ensure_tables().await?;
+        let pool = self.pool()?;
+        let mut conn = pool.get_conn().await?;
+        let row: Option<i64> = conn
+            .exec_first(
+                "SELECT `run_epoch` FROM `_goodfetch_deliveries` WHERE `target` = ? AND `run_id` = ?",
+                (&self.target, run_id),
+            )
+            .await?;
+        Ok(row.and_then(|v| u64::try_from(v).ok()))
     }
 
     fn staging_table(&self) -> String {
@@ -125,7 +182,8 @@ impl MySqlSink {
         if let Some(pool) = &self.pool {
             return Ok(pool.clone());
         }
-        let opts = Opts::from_url(&self.dsn).map_err(|err| MySqlError::Config(err.to_string()))?;
+        let opts = Opts::from_url(self.dsn.expose_secret())
+            .map_err(|_| MySqlError::Config("invalid MySQL destination DSN".into()))?;
         let pool = Pool::new(opts);
         self.pool = Some(pool.clone());
         Ok(pool)
@@ -136,32 +194,38 @@ impl MySqlSink {
         let mut conn = pool.get_conn().await?;
         conn.query_drop(
             "CREATE TABLE IF NOT EXISTS `_goodfetch_deliveries` (
-                `run_id` VARCHAR(255) PRIMARY KEY,
-                `run_epoch` BIGINT NOT NULL
+                `target` VARCHAR(191) NOT NULL,
+                `run_id` VARCHAR(191) NOT NULL,
+                `run_epoch` BIGINT NOT NULL,
+                PRIMARY KEY (`target`, `run_id`)
             ) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin",
         )
         .await?;
         conn.query_drop(
             "CREATE TABLE IF NOT EXISTS `_goodfetch_delivery_log` (
-                `delivery_id` VARCHAR(512) PRIMARY KEY,
-                `run_id` VARCHAR(255) NOT NULL,
+                `target` VARCHAR(191) NOT NULL,
+                `delivery_id` VARCHAR(512) NOT NULL,
+                `run_id` VARCHAR(191) NOT NULL,
                 `run_epoch` BIGINT NOT NULL,
-                `dataset` VARCHAR(255) NOT NULL,
+                `dataset` VARCHAR(191) NOT NULL,
                 `record_number` BIGINT NOT NULL,
-                INDEX `idx_gf_log_run` (`run_id`, `run_epoch`, `dataset`, `record_number`)
+                PRIMARY KEY (`target`, `delivery_id`),
+                INDEX `idx_gf_log_run` (`target`, `run_id`, `run_epoch`, `dataset`, `record_number`)
             ) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin",
         )
         .await?;
         conn.query_drop(
             "CREATE TABLE IF NOT EXISTS `_goodfetch_swaps` (
-                `run_id` VARCHAR(255) PRIMARY KEY,
-                `run_epoch` BIGINT NOT NULL
+                `target` VARCHAR(191) NOT NULL,
+                `run_id` VARCHAR(191) NOT NULL,
+                `run_epoch` BIGINT NOT NULL,
+                PRIMARY KEY (`target`, `run_id`)
             ) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin",
         )
         .await?;
         create_mysql_table(&mut conn, &self.target, self.mode).await?;
         if self.mode == WriteMode::Replace {
-            create_mysql_table(&mut conn, &self.staging_table(), WriteMode::Append).await?;
+            create_mysql_table(&mut conn, &self.staging_table(), WriteMode::Upsert).await?;
         }
         Ok(())
     }
@@ -194,40 +258,29 @@ impl MySqlSink {
     async fn probe_async(&mut self, run: &RunCopy) -> Result<Probe, MySqlError> {
         self.ensure_tables().await?;
         self.load_schema().await?;
+        let target = self.target.clone();
+        let write_table = self.write_table();
+        let mode = self.mode;
         let pool = self.pool()?;
         let mut conn = pool.get_conn().await?;
         let mut tx = conn.start_transaction(TxOpts::default()).await?;
         let epoch_i64 = i64::try_from(run.run_epoch).unwrap_or(i64::MAX);
-        let current: Option<i64> = tx
-            .exec_first(
-                "SELECT `run_epoch` FROM `_goodfetch_deliveries` WHERE `run_id` = ? FOR UPDATE",
-                (&run.run_id,),
-            )
-            .await?;
-        match current {
-            None => {
-                tx.exec_drop(
-                    "INSERT INTO `_goodfetch_deliveries` (`run_id`, `run_epoch`) VALUES (?, ?)",
-                    (&run.run_id, epoch_i64),
-                )
-                .await?;
-            }
-            Some(cur) if epoch_i64 > cur => {
-                tx.exec_drop(
-                    "UPDATE `_goodfetch_deliveries` SET `run_epoch` = ? WHERE `run_id` = ?",
-                    (epoch_i64, &run.run_id),
-                )
-                .await?;
-            }
-            Some(_) => {}
-        }
+        let _ = check_and_bump_mysql_fence(
+            &mut tx,
+            &target,
+            &write_table,
+            mode,
+            &run.run_id,
+            epoch_i64,
+        )
+        .await?;
         let delivered_rows: Vec<(String, i64)> = tx
             .exec(
                 "SELECT `dataset`, MAX(`record_number`)
                  FROM `_goodfetch_delivery_log`
-                 WHERE `run_id` = ? AND `run_epoch` = ?
+                 WHERE `target` = ? AND `run_id` = ? AND `run_epoch` = ?
                  GROUP BY `dataset`",
-                (&run.run_id, epoch_i64),
+                (&target, &run.run_id, epoch_i64),
             )
             .await?;
         tx.commit().await?;
@@ -248,10 +301,15 @@ impl MySqlSink {
         self.ensure_tables().await?;
         self.load_schema().await?;
 
-        let schema = self.schema.as_mut().expect("invariant: schema loaded");
-        let (prepared, pending_changes) = schema
+        let mut working_schema = self
+            .schema
+            .as_ref()
+            .expect("invariant: schema loaded")
+            .clone();
+        let mut working_applied = self.schema_applied_for.clone();
+        let (prepared, pending_changes) = working_schema
             .prepare_batch(
-                &mut self.schema_applied_for,
+                &mut working_applied,
                 batch,
                 self.mode,
                 self.contract,
@@ -264,6 +322,23 @@ impl MySqlSink {
         let mode = self.mode;
         let pool = self.pool()?;
         let mut conn = pool.get_conn().await?;
+        let epoch_i64 = i64::try_from(batch.run.run_epoch).unwrap_or(i64::MAX);
+
+        // Pre-check fence before any implicit-commit DDL so a superseded zombie
+        // never alters the live table.
+        let current: Option<i64> = conn
+            .exec_first(
+                "SELECT `run_epoch` FROM `_goodfetch_deliveries` WHERE `target` = ? AND `run_id` = ?",
+                (&target_table, &batch.run.run_id),
+            )
+            .await?;
+        if let Some(cur) = current
+            && cur > epoch_i64
+        {
+            return Ok(Written::Superseded {
+                run_epoch: u64::try_from(cur).unwrap_or(u64::MAX),
+            });
+        }
 
         // DDL in MySQL implicitly commits, so apply schema evolution before starting the batch transaction.
         apply_mysql_changes(&mut conn, &write_table, &pending_changes).await?;
@@ -272,9 +347,15 @@ impl MySqlSink {
         }
 
         let mut tx = conn.start_transaction(TxOpts::default()).await?;
-        let epoch_i64 = i64::try_from(batch.run.run_epoch).unwrap_or(i64::MAX);
-        if let Some(newer) =
-            check_and_bump_mysql_fence(&mut tx, &batch.run.run_id, epoch_i64).await?
+        if let Some(newer) = check_and_bump_mysql_fence(
+            &mut tx,
+            &target_table,
+            &write_table,
+            mode,
+            &batch.run.run_id,
+            epoch_i64,
+        )
+        .await?
         {
             tx.rollback().await?;
             return Ok(Written::Superseded { run_epoch: newer });
@@ -283,9 +364,10 @@ impl MySqlSink {
         for (record, row_opt) in prepared {
             let num_i64 = i64::try_from(record.number).unwrap_or(i64::MAX);
             tx.exec_drop(
-                "INSERT IGNORE INTO `_goodfetch_delivery_log` (`delivery_id`, `run_id`, `run_epoch`, `dataset`, `record_number`)
-                 VALUES (?, ?, ?, ?, ?)",
+                "INSERT IGNORE INTO `_goodfetch_delivery_log` (`target`, `delivery_id`, `run_id`, `run_epoch`, `dataset`, `record_number`)
+                 VALUES (?, ?, ?, ?, ?, ?)",
                 (
+                    &target_table,
                     record.delivery_id.as_str(),
                     &batch.run.run_id,
                     epoch_i64,
@@ -311,6 +393,8 @@ impl MySqlSink {
             }
         }
         tx.commit().await?;
+        self.schema = Some(working_schema);
+        self.schema_applied_for = working_applied;
         Ok(Written::Delivered)
     }
 
@@ -319,21 +403,56 @@ impl MySqlSink {
             return Ok(Written::Delivered);
         }
         self.ensure_tables().await?;
-        let target_q = quote_ident(&self.target);
-        let staging_q = quote_ident(&self.staging_table());
+        let target = self.target.clone();
+        let staging = self.staging_table();
+        let target_q = quote_ident(&target);
+        let staging_q = quote_ident(&staging);
         let pool = self.pool()?;
         let mut conn = pool.get_conn().await?;
-        let mut tx = conn.start_transaction(TxOpts::default()).await?;
         let epoch_i64 = i64::try_from(run.run_epoch).unwrap_or(i64::MAX);
 
-        if let Some(newer) = check_and_bump_mysql_fence(&mut tx, &run.run_id, epoch_i64).await? {
+        let staging_cols: Vec<(String, String)> = conn
+            .exec(
+                "SELECT COLUMN_NAME, DATA_TYPE
+                 FROM INFORMATION_SCHEMA.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
+                 ORDER BY ORDINAL_POSITION",
+                (&staging,),
+            )
+            .await?;
+        let mut col_names = Vec::with_capacity(staging_cols.len());
+        for (name, ty) in &staging_cols {
+            if !name.starts_with("_goodfetch_") {
+                add_mysql_column_if_missing(
+                    &mut conn,
+                    &target_q,
+                    name,
+                    mysql_type(from_mysql_type(ty)),
+                )
+                .await?;
+            }
+            col_names.push(quote_ident(name));
+        }
+        let col_list = col_names.join(", ");
+
+        let mut tx = conn.start_transaction(TxOpts::default()).await?;
+        if let Some(newer) = check_and_bump_mysql_fence(
+            &mut tx,
+            &target,
+            &staging,
+            WriteMode::Replace,
+            &run.run_id,
+            epoch_i64,
+        )
+        .await?
+        {
             tx.rollback().await?;
             return Ok(Written::Superseded { run_epoch: newer });
         }
         let prev: Option<i64> = tx
             .exec_first(
-                "SELECT `run_epoch` FROM `_goodfetch_swaps` WHERE `run_id` = ? FOR UPDATE",
-                (&run.run_id,),
+                "SELECT `run_epoch` FROM `_goodfetch_swaps` WHERE `target` = ? AND `run_id` = ? FOR UPDATE",
+                (&target, &run.run_id),
             )
             .await?;
         if prev.is_some_and(|p| p >= epoch_i64) {
@@ -343,9 +462,9 @@ impl MySqlSink {
         tx.query_drop(format!("DELETE FROM {target_q}")).await?;
         tx.exec_drop(
             format!(
-                "INSERT INTO {target_q} SELECT * FROM {staging_q} WHERE `_goodfetch_run_id` = ?"
+                "INSERT INTO {target_q} ({col_list}) SELECT {col_list} FROM {staging_q} WHERE `_goodfetch_run_id` = ? AND `_goodfetch_run_epoch` = ?"
             ),
-            (&run.run_id,),
+            (&run.run_id, epoch_i64),
         )
         .await?;
         tx.exec_drop(
@@ -354,9 +473,9 @@ impl MySqlSink {
         )
         .await?;
         tx.exec_drop(
-            "INSERT INTO `_goodfetch_swaps` (`run_id`, `run_epoch`) VALUES (?, ?)
+            "INSERT INTO `_goodfetch_swaps` (`target`, `run_id`, `run_epoch`) VALUES (?, ?, ?)
              ON DUPLICATE KEY UPDATE `run_epoch` = VALUES(`run_epoch`)",
-            (&run.run_id, epoch_i64),
+            (&target, &run.run_id, epoch_i64),
         )
         .await?;
         tx.commit().await?;
@@ -419,20 +538,23 @@ async fn create_mysql_table(
 
 async fn check_and_bump_mysql_fence(
     tx: &mut mysql_async::Transaction<'_>,
+    target: &str,
+    write_table: &str,
+    mode: WriteMode,
     run_id: &str,
     epoch_i64: i64,
 ) -> Result<Option<u64>, MySqlError> {
     let current: Option<i64> = tx
         .exec_first(
-            "SELECT `run_epoch` FROM `_goodfetch_deliveries` WHERE `run_id` = ? FOR UPDATE",
-            (run_id,),
+            "SELECT `run_epoch` FROM `_goodfetch_deliveries` WHERE `target` = ? AND `run_id` = ? FOR UPDATE",
+            (target, run_id),
         )
         .await?;
     match current {
         None => {
             tx.exec_drop(
-                "INSERT INTO `_goodfetch_deliveries` (`run_id`, `run_epoch`) VALUES (?, ?)",
-                (run_id, epoch_i64),
+                "INSERT INTO `_goodfetch_deliveries` (`target`, `run_id`, `run_epoch`) VALUES (?, ?, ?)",
+                (target, run_id, epoch_i64),
             )
             .await?;
             Ok(None)
@@ -441,13 +563,54 @@ async fn check_and_bump_mysql_fence(
         Some(cur) => {
             if epoch_i64 > cur {
                 tx.exec_drop(
-                    "UPDATE `_goodfetch_deliveries` SET `run_epoch` = ? WHERE `run_id` = ?",
-                    (epoch_i64, run_id),
+                    "UPDATE `_goodfetch_deliveries` SET `run_epoch` = ? WHERE `target` = ? AND `run_id` = ?",
+                    (epoch_i64, target, run_id),
                 )
                 .await?;
+                let write_q = quote_ident(write_table);
+                tx.exec_drop(
+                    format!(
+                        "DELETE FROM {write_q} WHERE `_goodfetch_run_id` = ? AND `_goodfetch_run_epoch` < ?"
+                    ),
+                    (run_id, epoch_i64),
+                )
+                .await?;
+                tx.exec_drop(
+                    "DELETE FROM `_goodfetch_delivery_log` WHERE `target` = ? AND `run_id` = ? AND `run_epoch` < ?",
+                    (target, run_id, epoch_i64),
+                )
+                .await?;
+                if mode == WriteMode::History {
+                    tx.exec_drop(
+                        format!(
+                            "UPDATE {write_q} SET `_goodfetch_valid_to` = NULL
+                             WHERE `_goodfetch_run_id` = ? AND `_goodfetch_valid_to` IS NOT NULL"
+                        ),
+                        (run_id,),
+                    )
+                    .await?;
+                }
             }
             Ok(None)
         }
+    }
+}
+
+async fn add_mysql_column_if_missing(
+    conn: &mut mysql_async::Conn,
+    table_q: &str,
+    name: &str,
+    ty: &str,
+) -> Result<(), MySqlError> {
+    let col_q = quote_ident(name);
+    match conn
+        .query_drop(format!("ALTER TABLE {table_q} ADD COLUMN {col_q} {ty}"))
+        .await
+    {
+        Ok(()) => Ok(()),
+        // 1060 = ER_DUP_FIELDNAME (portable across Oracle MySQL 8.0/8.4 and MariaDB).
+        Err(mysql_async::Error::Server(ref s)) if s.code == 1060 => Ok(()),
+        Err(err) => Err(MySqlError::Db(err)),
     }
 }
 
@@ -463,12 +626,7 @@ async fn apply_mysql_changes(
             | SchemaChange::AddedVariantColumn {
                 name, column_type, ..
             } => {
-                let col_q = quote_ident(name);
-                let ty = mysql_type(*column_type);
-                conn.query_drop(format!(
-                    "ALTER TABLE {table_q} ADD COLUMN IF NOT EXISTS {col_q} {ty}"
-                ))
-                .await?;
+                add_mysql_column_if_missing(conn, &table_q, name, mysql_type(*column_type)).await?;
             }
             SchemaChange::WidenedColumn { name, to, .. } => {
                 let col_q = quote_ident(name);
@@ -563,7 +721,7 @@ async fn insert_mysql_row(
             col_list.join(", ")
         ),
     };
-    if mode == WriteMode::Upsert {
+    if matches!(mode, WriteMode::Upsert | WriteMode::Replace) {
         let mut updates = vec![
             "`_goodfetch_delivery_id` = VALUES(`_goodfetch_delivery_id`)".to_owned(),
             "`_goodfetch_record_number` = VALUES(`_goodfetch_record_number`)".to_owned(),
@@ -614,5 +772,51 @@ pub fn map_mysql_error(error: MySqlError) -> Failure {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    fn server_err(code: u16) -> MySqlError {
+        MySqlError::Db(mysql_async::Error::Server(mysql_async::ServerError {
+            code,
+            message: format!("code {code}"),
+            state: "HY000".into(),
+        }))
+    }
+
+    #[rstest]
+    #[case::config(MySqlError::Config("bad dsn".into()), FailureKind::Permanent)]
+    #[case::no_runtime(MySqlError::NoRuntime, FailureKind::Permanent)]
+    #[case::rejected(MySqlError::RejectedRecord("missing key".into()), FailureKind::RejectedRecords)]
+    #[case::auth_1045(server_err(1045), FailureKind::Auth)]
+    #[case::rejected_1062(server_err(1062), FailureKind::RejectedRecords)]
+    #[case::transient_1213(server_err(1213), FailureKind::Transient)]
+    #[case::permanent_1146(server_err(1146), FailureKind::Permanent)]
+    #[case::unrecognized_server(server_err(9999), FailureKind::Unrecognized)]
+    fn map_mysql_error_classifies_known_and_unrecognized(
+        #[case] err: MySqlError,
+        #[case] expected: FailureKind,
+    ) {
+        assert_eq!(map_mysql_error(err).kind(), expected);
+    }
+
+    #[test]
+    fn debug_redacts_mysql_dsn() {
+        let sink = MySqlSink::new(
+            "mysql://alice:super-secret-mysql-pass@localhost:3306/db",
+            "records",
+            WriteMode::Append,
+            SchemaContract::Evolve,
+            false,
+        )
+        .unwrap();
+        let rendered = format!("{sink:?}");
+        assert!(!rendered.contains("super-secret-mysql-pass"));
+        assert!(rendered.contains("<redacted>"));
     }
 }

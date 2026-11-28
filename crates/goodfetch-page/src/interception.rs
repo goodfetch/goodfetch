@@ -123,7 +123,7 @@ use goodfetch_protocol::page::{
 use goodfetch_protocol::run::warning::BLOCK_RESOURCES_VISIBLE;
 use goodfetch_protocol::run::{RunId, RunWarning};
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails};
-use tokio::sync::{Notify, watch};
+use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use self::answers::Answers;
@@ -489,11 +489,21 @@ pub(super) struct DiscoverySlot {
 
 /// Recorded state shared between a discovery click on a page and any popup it
 /// opens while armed (issue 1087).
-#[derive(Default)]
 pub(crate) struct DiscoveryCapture {
     recorded: Mutex<DiscoveryRecorded>,
     pending_popups: AtomicUsize,
-    changed: Notify,
+    changed: tokio::sync::watch::Sender<u64>,
+}
+
+impl Default for DiscoveryCapture {
+    fn default() -> Self {
+        let (changed, _) = tokio::sync::watch::channel(0);
+        Self {
+            recorded: Mutex::new(DiscoveryRecorded::default()),
+            pending_popups: AtomicUsize::new(0),
+            changed,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -514,7 +524,7 @@ impl DiscoveryCapture {
     pub(crate) fn popup_opened(&self, popup: PageId) {
         self.pending_popups.fetch_add(1, Ordering::AcqRel);
         lock(&self.recorded).popups.push(popup);
-        self.changed.notify_waiters();
+        self.changed.send_modify(|n| *n = n.wrapping_add(1));
     }
 
     /// Records a discovered navigation or popup URL and wakes any waiter.
@@ -527,7 +537,7 @@ impl DiscoveryCapture {
                     Some(n.saturating_sub(1))
                 });
         }
-        self.changed.notify_waiters();
+        self.changed.send_modify(|n| *n = n.wrapping_add(1));
     }
 
     /// Records an unsafe request aborted unsent and wakes any waiter.
@@ -542,7 +552,7 @@ impl DiscoveryCapture {
                     Some(n.saturating_sub(1))
                 });
         }
-        self.changed.notify_waiters();
+        self.changed.send_modify(|n| *n = n.wrapping_add(1));
     }
 
     /// Whether any navigation URL or aborted unsafe request has been captured.
@@ -557,10 +567,10 @@ impl DiscoveryCapture {
         self.pending_popups.load(Ordering::Acquire)
     }
 
-    /// Waits for the next discovery capture event (URL, aborted request or
-    /// popup attach).
-    pub(crate) async fn notified(&self) {
-        self.changed.notified().await;
+    /// Subscribes to discovery capture changes before checking state so no
+    /// wakeup can be missed between check and await.
+    pub(crate) fn subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.changed.subscribe()
     }
 
     /// Takes the URLs, aborted unsafe requests and opened popup IDs recorded.

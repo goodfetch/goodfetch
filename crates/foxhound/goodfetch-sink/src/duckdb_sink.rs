@@ -67,6 +67,17 @@ pub struct DuckDbSink {
     schema_applied_for: BTreeMap<String, bool>,
 }
 
+impl std::fmt::Debug for DuckDbSink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DuckDbSink")
+            .field("target", &self.target)
+            .field("mode", &self.mode)
+            .field("contract", &self.contract)
+            .field("flatten", &self.flatten)
+            .finish_non_exhaustive()
+    }
+}
+
 impl DuckDbSink {
     /// Opens a DuckDB Sink at `path` (stripping an optional `duckdb://` or
     /// `file://` prefix) targeting `table`.
@@ -125,22 +136,45 @@ impl DuckDbSink {
         }
     }
 
+    /// Returns the highest recorded `run_epoch` for `(self.target, run_id)` if
+    /// present.
+    ///
+    /// # Errors
+    ///
+    /// Query error from DuckDB.
+    pub fn current_epoch(&self, run_id: &str) -> Result<Option<u64>, DuckDbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT run_epoch FROM _goodfetch_deliveries WHERE target = ? AND run_id = ?",
+        )?;
+        let existing: Option<i64> = stmt
+            .query_map(duckdb::params![&self.target, run_id], |r| r.get(0))?
+            .next()
+            .transpose()?;
+        Ok(existing.and_then(|v| u64::try_from(v).ok()))
+    }
+
     fn ensure_tables(&mut self) -> Result<(), DuckDbError> {
         self.conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS _goodfetch_deliveries (
-                run_id VARCHAR PRIMARY KEY,
-                run_epoch BIGINT NOT NULL
+                target VARCHAR NOT NULL,
+                run_id VARCHAR NOT NULL,
+                run_epoch BIGINT NOT NULL,
+                PRIMARY KEY (target, run_id)
             );
             CREATE TABLE IF NOT EXISTS _goodfetch_delivery_log (
-                delivery_id VARCHAR PRIMARY KEY,
+                target VARCHAR NOT NULL,
+                delivery_id VARCHAR NOT NULL,
                 run_id VARCHAR NOT NULL,
                 run_epoch BIGINT NOT NULL,
                 dataset VARCHAR NOT NULL,
-                record_number BIGINT NOT NULL
+                record_number BIGINT NOT NULL,
+                PRIMARY KEY (target, delivery_id)
             );
             CREATE TABLE IF NOT EXISTS _goodfetch_swaps (
-                run_id VARCHAR PRIMARY KEY,
-                run_epoch BIGINT NOT NULL
+                target VARCHAR NOT NULL,
+                run_id VARCHAR NOT NULL,
+                run_epoch BIGINT NOT NULL,
+                PRIMARY KEY (target, run_id)
             );",
         )?;
         create_duckdb_table(&self.conn, &self.target)?;
@@ -177,18 +211,18 @@ impl DuckDbSink {
 
     fn check_and_bump_fence(&self, run: &RunCopy) -> Result<Option<u64>, DuckDbError> {
         let epoch_i64 = i64::try_from(run.run_epoch).unwrap_or(i64::MAX);
-        let mut stmt = self
-            .conn
-            .prepare("SELECT run_epoch FROM _goodfetch_deliveries WHERE run_id = ?")?;
+        let mut stmt = self.conn.prepare(
+            "SELECT run_epoch FROM _goodfetch_deliveries WHERE target = ? AND run_id = ?",
+        )?;
         let existing: Option<i64> = stmt
-            .query_map([&run.run_id], |r| r.get(0))?
+            .query_map(duckdb::params![&self.target, &run.run_id], |r| r.get(0))?
             .next()
             .transpose()?;
         match existing {
             None => {
                 self.conn.execute(
-                    "INSERT INTO _goodfetch_deliveries (run_id, run_epoch) VALUES (?, ?)",
-                    duckdb::params![&run.run_id, epoch_i64],
+                    "INSERT INTO _goodfetch_deliveries (target, run_id, run_epoch) VALUES (?, ?, ?)",
+                    duckdb::params![&self.target, &run.run_id, epoch_i64],
                 )?;
                 Ok(None)
             }
@@ -198,9 +232,29 @@ impl DuckDbSink {
             Some(current) => {
                 if epoch_i64 > current {
                     self.conn.execute(
-                        "UPDATE _goodfetch_deliveries SET run_epoch = ? WHERE run_id = ?",
-                        duckdb::params![epoch_i64, &run.run_id],
+                        "UPDATE _goodfetch_deliveries SET run_epoch = ? WHERE target = ? AND run_id = ?",
+                        duckdb::params![epoch_i64, &self.target, &run.run_id],
                     )?;
+                    let write_q = quote_ident(&self.write_table());
+                    self.conn.execute(
+                        &format!(
+                            "DELETE FROM {write_q} WHERE _goodfetch_run_id = ? AND _goodfetch_run_epoch < ?"
+                        ),
+                        duckdb::params![&run.run_id, epoch_i64],
+                    )?;
+                    self.conn.execute(
+                        "DELETE FROM _goodfetch_delivery_log WHERE target = ? AND run_id = ? AND run_epoch < ?",
+                        duckdb::params![&self.target, &run.run_id, epoch_i64],
+                    )?;
+                    if self.mode == WriteMode::History {
+                        self.conn.execute(
+                            &format!(
+                                "UPDATE {write_q} SET _goodfetch_valid_to = NULL
+                                 WHERE _goodfetch_run_id = ? AND _goodfetch_valid_to IS NOT NULL"
+                            ),
+                            duckdb::params![&run.run_id],
+                        )?;
+                    }
                 }
                 Ok(None)
             }
@@ -268,13 +322,14 @@ impl Primitives for DuckDbSink {
             let mut stmt = self.conn.prepare(
                 "SELECT dataset, MAX(record_number)
                  FROM _goodfetch_delivery_log
-                 WHERE run_id = ? AND run_epoch = ?
+                 WHERE target = ? AND run_id = ? AND run_epoch = ?
                  GROUP BY dataset",
             )?;
             let mut delivered = BTreeMap::new();
-            let rows = stmt.query_map(duckdb::params![&run.run_id, epoch_i64], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
-            })?;
+            let rows = stmt
+                .query_map(duckdb::params![&self.target, &run.run_id, epoch_i64], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+                })?;
             for row in rows {
                 let (ds, max_num) = row?;
                 if let Ok(num) = u64::try_from(max_num) {
@@ -300,10 +355,15 @@ impl Primitives for DuckDbSink {
 
     fn write(&mut self, batch: &Batch) -> Result<Written, Self::Error> {
         self.load_schema()?;
-        let schema = self.schema.as_mut().expect("invariant: schema loaded");
-        let (prepared, pending_changes) = schema
+        let mut working_schema = self
+            .schema
+            .as_ref()
+            .expect("invariant: schema loaded")
+            .clone();
+        let mut working_applied = self.schema_applied_for.clone();
+        let (prepared, pending_changes) = working_schema
             .prepare_batch(
-                &mut self.schema_applied_for,
+                &mut working_applied,
                 batch,
                 self.mode,
                 self.contract,
@@ -327,8 +387,8 @@ impl Primitives for DuckDbSink {
             let epoch_i64 = i64::try_from(batch.run.run_epoch).unwrap_or(i64::MAX);
             for (record, row_opt) in prepared {
                 let already: i64 = self.conn.query_row(
-                    "SELECT COUNT(*) FROM _goodfetch_delivery_log WHERE delivery_id = ?",
-                    [record.delivery_id.as_str()],
+                    "SELECT COUNT(*) FROM _goodfetch_delivery_log WHERE target = ? AND delivery_id = ?",
+                    duckdb::params![&target_table, record.delivery_id.as_str()],
                     |r| r.get(0),
                 )?;
                 if already > 0 {
@@ -336,9 +396,10 @@ impl Primitives for DuckDbSink {
                 }
                 let num_i64 = i64::try_from(record.number).unwrap_or(i64::MAX);
                 self.conn.execute(
-                    "INSERT INTO _goodfetch_delivery_log (delivery_id, run_id, run_epoch, dataset, record_number)
-                     VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO _goodfetch_delivery_log (target, delivery_id, run_id, run_epoch, dataset, record_number)
+                     VALUES (?, ?, ?, ?, ?, ?)",
                     duckdb::params![
+                        &target_table,
                         record.delivery_id.as_str(),
                         &batch.run.run_id,
                         epoch_i64,
@@ -364,6 +425,10 @@ impl Primitives for DuckDbSink {
         match outcome {
             Ok(written) => {
                 self.conn.execute_batch("COMMIT")?;
+                if matches!(written, Written::Delivered) {
+                    self.schema = Some(working_schema);
+                    self.schema_applied_for = working_applied;
+                }
                 Ok(written)
             }
             Err(err) => {
@@ -378,7 +443,8 @@ impl Primitives for DuckDbSink {
             return Ok(Written::Delivered);
         }
         let target_q = quote_ident(&self.target);
-        let staging_q = quote_ident(&self.staging_table());
+        let staging = self.staging_table();
+        let staging_q = quote_ident(&staging);
         let epoch_i64 = i64::try_from(run.run_epoch).unwrap_or(i64::MAX);
         self.conn.execute_batch("BEGIN TRANSACTION")?;
         let outcome = (|| {
@@ -387,28 +453,55 @@ impl Primitives for DuckDbSink {
             }
             let prev: Option<i64> = self
                 .conn
-                .prepare("SELECT run_epoch FROM _goodfetch_swaps WHERE run_id = ?")?
-                .query_map([&run.run_id], |r| r.get(0))?
+                .prepare("SELECT run_epoch FROM _goodfetch_swaps WHERE target = ? AND run_id = ?")?
+                .query_map(duckdb::params![&self.target, &run.run_id], |r| r.get(0))?
                 .next()
                 .transpose()?;
             if prev.is_some_and(|p| p >= epoch_i64) {
                 return Ok(Written::Delivered);
             }
+            let mut stmt = self.conn.prepare(
+                "SELECT column_name, data_type
+                 FROM information_schema.columns
+                 WHERE table_name = ?
+                 ORDER BY ordinal_position",
+            )?;
+            let staging_cols: Vec<(String, String)> = stmt
+                .query_map([&staging], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })?
+                .collect::<Result<_, _>>()?;
+            drop(stmt);
+            let mut col_names = Vec::with_capacity(staging_cols.len());
+            for (name, ty) in &staging_cols {
+                if !name.starts_with("_goodfetch_") {
+                    let col_q = quote_ident(name);
+                    let sql_ty = duckdb_type(from_duckdb_type(ty));
+                    self.conn.execute(
+                        &format!(
+                            "ALTER TABLE {target_q} ADD COLUMN IF NOT EXISTS {col_q} {sql_ty}"
+                        ),
+                        [],
+                    )?;
+                }
+                col_names.push(quote_ident(name));
+            }
+            let col_list = col_names.join(", ");
             self.conn.execute(&format!("DELETE FROM {target_q}"), [])?;
             self.conn.execute(
                 &format!(
-                    "INSERT INTO {target_q} SELECT * FROM {staging_q} WHERE _goodfetch_run_id = ?"
+                    "INSERT INTO {target_q} ({col_list}) SELECT {col_list} FROM {staging_q} WHERE _goodfetch_run_id = ? AND _goodfetch_run_epoch = ?"
                 ),
-                [&run.run_id],
+                duckdb::params![&run.run_id, epoch_i64],
             )?;
             self.conn.execute(
                 &format!("DELETE FROM {staging_q} WHERE _goodfetch_run_id = ?"),
                 [&run.run_id],
             )?;
             self.conn.execute(
-                "INSERT INTO _goodfetch_swaps (run_id, run_epoch) VALUES (?, ?)
-                 ON CONFLICT (run_id) DO UPDATE SET run_epoch = excluded.run_epoch",
-                duckdb::params![&run.run_id, epoch_i64],
+                "INSERT INTO _goodfetch_swaps (target, run_id, run_epoch) VALUES (?, ?, ?)
+                 ON CONFLICT (target, run_id) DO UPDATE SET run_epoch = excluded.run_epoch",
+                duckdb::params![&self.target, &run.run_id, epoch_i64],
             )?;
             Ok::<_, DuckDbError>(Written::Delivered)
         })();
@@ -446,7 +539,7 @@ fn insert_duckdb_row(
 
     if let Some(ref k) = key_text {
         match mode {
-            WriteMode::Upsert => {
+            WriteMode::Upsert | WriteMode::Replace => {
                 conn.execute(
                     &format!(
                         "DELETE FROM {table_q} WHERE _goodfetch_dataset = ? AND _goodfetch_key = ?"
@@ -473,7 +566,7 @@ fn insert_duckdb_row(
                     duckdb::params![&record.committed_at, dataset, k],
                 )?;
             }
-            WriteMode::Append | WriteMode::Replace => {}
+            WriteMode::Append => {}
         }
     }
 
@@ -543,5 +636,26 @@ pub fn map_duckdb_error(error: DuckDbError) -> Failure {
                 Failure::new(FailureKind::Unrecognized, text)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    #[case::config(DuckDbError::Config("empty".into()), FailureKind::Permanent)]
+    #[case::rejected(DuckDbError::RejectedRecord("missing key".into()), FailureKind::RejectedRecords)]
+    #[case::db_unrecognized(
+        DuckDbError::Db(duckdb::Error::InvalidQuery),
+        FailureKind::Unrecognized
+    )]
+    fn map_duckdb_error_classifies_known_and_unrecognized(
+        #[case] err: DuckDbError,
+        #[case] expected: FailureKind,
+    ) {
+        assert_eq!(map_duckdb_error(err).kind(), expected);
     }
 }

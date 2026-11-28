@@ -85,6 +85,9 @@ pub enum Effect {
     TransportRefused,
     /// Its page failed its Page check.
     PageCheckFailed,
+    /// A Wall allowance refetch was refused by the site (ADR 0052): never
+    /// scores down, retires, rotates, or escalates the Session.
+    WallRefetchRefused,
     /// Its ending says nothing of the Session, such as a handler's own
     /// failure or skip.
     Neutral,
@@ -763,7 +766,8 @@ impl SessionPool {
             }
             Effect::Blocked(
                 BlockCause::PaymentRequired | BlockCause::ConsentRequired | BlockCause::Decoy,
-            ) => SettleCause::StoppingCause,
+            )
+            | Effect::WallRefetchRefused => SettleCause::StoppingCause,
             Effect::Blocked(BlockCause::Challenge | BlockCause::Captcha) => SettleCause::Challenge,
             Effect::Neutral
             | Effect::PageCheckFailed
@@ -781,7 +785,7 @@ impl SessionPool {
         self.apply_domain_escalation(domain_key, decision.next);
         let outcome = decision.outcome;
         let retirement = match effect {
-            Effect::Neutral => None,
+            Effect::Neutral | Effect::WallRefetchRefused => None,
             Effect::Success => {
                 if let Some(open) = self.open_mut(&pool, position) {
                     open.stored.error_score = (open.stored.error_score - 0.5).max(0.0);

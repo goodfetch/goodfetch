@@ -578,7 +578,7 @@ async fn deliver(
             .flatten();
         let shown = (resolved, read.policy);
         let room = [halt.is_some(), free, starved];
-        show(run, &mut admission, shown, servers, room);
+        show(run, &mut admission, shown, servers, room, &state);
         let settles = !settling.is_empty();
         tokio::select! {
             biased;
@@ -641,6 +641,7 @@ fn show(
     (resolved, policy): (&Resolved, CrawlPolicy),
     servers: &mut [Serving],
     [stopping, free, starved]: [bool; 3],
+    state: &RunState,
 ) {
     let serving = servers.iter_mut().any(Serving::serves);
     let handlers = servers.iter().map(|server| server.in_flight).sum();
@@ -649,7 +650,15 @@ fn show(
     let room = progress::room(stopping || !serving, free, starved, rate);
     let concurrency = policy.handler_concurrency;
     let queued = admission.queued(now, HELD_DOMAINS);
-    progress::show(run, (&queued, now), resolved, room, (handlers, concurrency));
+    let waiting_for_session = state.undrawn_domains();
+    progress::show(
+        run,
+        (&queued, now),
+        resolved,
+        room,
+        (handlers, concurrency),
+        &waiting_for_session,
+    );
 }
 
 /// Sets `count`, the crawl's `goodfetch.work_item.queued`, to the
@@ -1338,7 +1347,14 @@ async fn drained(
         end(run, admission, ending).await;
         return Waited::Ended;
     }
-    progress::show_waits(run, &[], resolved, run.identity.clock().now(), Room::None);
+    progress::show_waits(
+        run,
+        &[],
+        resolved,
+        run.identity.clock().now(),
+        Room::None,
+        &[],
+    );
     progress::show_idle(run, true);
     waited(run, (admission, state), servers, arrivals, in_flight, true).await
 }
@@ -1437,6 +1453,7 @@ struct Scored {
     changes: Changes,
     chosen: Option<(String, String, Unit)>,
     escalate_retry: bool,
+    resample_release: bool,
 }
 
 /// The settlements whose outcomes the run state's writer has yet to
@@ -1615,6 +1632,12 @@ fn scored(
         let now = run.identity.clock().wall();
         let (changes, escalate_retry) =
             settle_sessions(state, &attempt, &waiting, effect, &read.pool, now);
+        let resample_release = if attempt.refused {
+            state.record_transport_refusal(&waiting.id)
+        } else {
+            state.clear_transport_refusal(&waiting.id);
+            false
+        };
         let held = if replaying {
             None
         } else {
@@ -1636,6 +1659,7 @@ fn scored(
             changes,
             chosen,
             escalate_retry,
+            resample_release,
         });
         attempts.push(attempt);
     }
@@ -2280,9 +2304,9 @@ async fn queue_outcome(
             match why {
                 // A refusal of the transport runs again as a sample of its
                 // Label, whose comparison may move it off the transport
-                // (#2419).
-                Why::Blocked(_) if transport_refused && policy.may_retry(tries) => {
-                    Unsuccessful::Retried(kept)
+                // (#2419), without spending `crawl.retry.max` (ADR 0093; #1145).
+                Why::Blocked(_) if transport_refused && scored.resample_release => {
+                    Unsuccessful::Released
                 }
                 // Proxy-tier escalation or rotation re-admits the request on
                 // the replacement Session without spending `crawl.retry.max`

@@ -916,3 +916,382 @@ fn periodic_trial_steps_down_on_success_stays_up_on_block_and_null_runs_no_trial
         )
     );
 }
+
+/// Starts an attached Foxhound engine configured with a `list` Proxy provider
+/// serving `kinds` (with optional `price` per GB).
+#[cfg(unix)]
+fn list_engine(
+    env: &TestEnv,
+    proving_ground: &ProvingGround,
+    kinds: &[&str],
+    price: Option<&str>,
+) -> Attached {
+    let fixtures = &proving_ground.description().fixtures;
+    let servers = kinds
+        .iter()
+        .map(|kind| {
+            format!(
+                "{{ server = \"http://{}\", kind = \"{kind}\" }}",
+                fixtures.proxies[*kind]
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let price_line = price.map_or_else(String::new, |p| format!("price = \"{p}\"\n"));
+    env.user_configuration(&format!(
+        "[settings.proxy.providers.list]\nusername = \"{}\"\npassword = \"env:{PASSWORD_VARIABLE}\"\n{price_line}servers = [{servers}]\n",
+        fixtures.proxy_credentials.username,
+    ));
+    let password = fixtures.proxy_credentials.password.clone();
+    attached_with(env, Some(Duration::from_secs(60)), |command| {
+        command.env(PASSWORD_VARIABLE, &password);
+    })
+}
+
+/// Common HTTP-tier settings for a `list`-provider escalation test.
+#[cfg(unix)]
+fn list_settings(proving_ground: &ProvingGround, kinds: &[&str], retry: &Value) -> Value {
+    settings(
+        proving_ground,
+        &json!({
+            "fetch": { "tier": "http" },
+            "politeness": { "domain": { "concurrency": 1, "delay": 0 } },
+            "session": { "pool": { "max_size": 1 } },
+            "proxy": { "provider": "list" },
+            "escalation": { "proxy_kinds": kinds },
+            "crawl": { "retry": retry },
+        }),
+    )
+}
+
+/// Stopping causes (`payment_required`, `consent_required`, `decoy`) never
+/// escalate, rotate or retry even with a 2-tier proxy ladder and
+/// `crawl.retry.max = 2`, and the Run report counts requests by Block cause
+/// (`requests.by_block_cause`) (#1145).
+///
+/// Covers: story:8-223, story:8-224
+#[cfg(unix)]
+#[test]
+fn stopping_causes_never_escalate_or_retry_and_report_counts_by_block_cause() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = list_engine(&env, &proving_ground, &["datacenter", "isp"], None);
+    let run_settings = list_settings(
+        &proving_ground,
+        &["datacenter", "isp"],
+        &json!({ "max": 2 }),
+    );
+    let finished = crawl_declaring(
+        &mut engine,
+        "stopping-causes",
+        &[
+            json!({ "url": proving_ground.url("access.test", "/corpus/payment"), "label": "page" }),
+            json!({ "url": proving_ground.url("access.test", "/corpus/article?case=consent"), "label": "page" }),
+            json!({ "url": proving_ground.url("access.test", "/corpus/labyrinth"), "label": "decoy_page" }),
+        ],
+        &json!({
+            "page": {},
+            "decoy_page": {
+                "settings": {
+                    "session": {
+                        "page_check": {
+                            "expected_page": { "kind": "css", "selector": "article.never-present" }
+                        }
+                    }
+                }
+            },
+        }),
+        &run_settings,
+        &mut |_, handle| {
+            let blocked = |cause: &str| {
+                json!({
+                    "error": {
+                        "code": -32003,
+                        "message": cause,
+                        "data": { "code": "blocked", "retryable": false, "cause": cause }
+                    }
+                })
+            };
+            match handle["crawl_request"]["url"].as_str().unwrap_or_default() {
+                url if url.contains("/corpus/payment") => blocked("payment_required"),
+                url if url.contains("case=consent") => blocked("consent_required"),
+                _ => json!({ "result": { "records": [] } }),
+            }
+        },
+    );
+    assert_eq!(finished["result"]["lifecycle"], "finished");
+    let outcomes = engine.call(
+        "outcomes",
+        "run.outcomes",
+        &json!({ "run_id": "stopping-causes" }),
+        &mut |_| None,
+    );
+    let report = engine.call(
+        "report",
+        "run.report",
+        &json!({ "run_id": "stopping-causes" }),
+        &mut |_| None,
+    );
+    assert!(engine.finished());
+
+    let dc = BTreeSet::from(["datacenter".to_owned()]);
+    assert_eq!(proxies_to(&proving_ground, "/corpus/payment"), dc);
+    assert_eq!(proxies_to(&proving_ground, "case=consent"), dc);
+    assert_eq!(proxies_to(&proving_ground, "/corpus/labyrinth"), dc);
+    let attempts: Vec<(Value, Value)> = outcomes["result"]["outcomes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| (o["cause"].clone(), o["attempts"].clone()))
+        .collect();
+    assert_eq!(
+        attempts,
+        vec![
+            (json!("payment_required"), json!(1)),
+            (json!("consent_required"), json!(1)),
+            (json!("decoy"), json!(1)),
+        ],
+        "{outcomes}"
+    );
+    let by_cause: BTreeSet<(String, u64)> = report["result"]["requests"]["by_block_cause"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            (
+                entry["name"].as_str().unwrap().to_owned(),
+                entry["count"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        by_cause,
+        BTreeSet::from([
+            ("consent_required".to_owned(), 1),
+            ("decoy".to_owned(), 1),
+            ("payment_required".to_owned(), 1),
+        ]),
+        "{report}"
+    );
+}
+
+/// A run that escalates twice (`datacenter` -> `isp` -> `residential`) still
+/// has its full `crawl.retry.max` (= 1) left for the request (#1145).
+///
+/// Covers: story:8-217
+#[cfg(unix)]
+#[test]
+fn escalating_twice_keeps_full_crawl_retry_max_for_the_request() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = list_engine(
+        &env,
+        &proving_ground,
+        &["datacenter", "isp", "residential"],
+        None,
+    );
+    let quota_seeds = |prefix: &str| -> Vec<Value> {
+        (1..=10)
+            .map(|n| {
+                json!({
+                    "url": proving_ground.url("2.limits.test", &format!("/items/{prefix}-{n:02}")),
+                    "label": "page"
+                })
+            })
+            .collect()
+    };
+    // Spend `datacenter` and `isp` 10-page quotas on `2.limits.test`.
+    for (run_id, kind, prefix) in [
+        ("spend-dc", "datacenter", "DC"),
+        ("spend-isp", "isp", "ISP"),
+    ] {
+        let mut s = list_settings(&proving_ground, &[kind], &json!({ "max": 0 }));
+        s["proxy"]["kind"] = json!(kind);
+        let fin = crawl_declaring(
+            &mut engine,
+            run_id,
+            &quota_seeds(prefix),
+            &json!({ "page": {} }),
+            &s,
+            &mut |_, _| json!({ "result": { "records": [] } }),
+        );
+        assert_eq!(fin["result"]["lifecycle"], "finished");
+    }
+
+    // Now one request escalates twice (dc -> isp -> residential), then fails
+    // once in the handler and still gets its full `crawl.retry.max = 1`.
+    let run_settings = list_settings(
+        &proving_ground,
+        &["datacenter", "isp", "residential"],
+        &json!({ "max": 1, "handler_failed": true }),
+    );
+    let mut handler_calls = 0usize;
+    let fin = crawl_declaring(
+        &mut engine,
+        "two-escalations-plus-retry",
+        &[json!({
+            "url": proving_ground.url("2.limits.test", "/items/FINAL-01"),
+            "label": "page"
+        })],
+        &json!({ "page": {} }),
+        &run_settings,
+        &mut |_, _| {
+            handler_calls += 1;
+            if handler_calls == 1 {
+                json!({
+                    "error": {
+                        "code": -32001,
+                        "message": "transient failure after two escalations",
+                        "data": {
+                            "code": "handler_failed",
+                            "retryable": true
+                        }
+                    }
+                })
+            } else {
+                json!({ "result": { "records": [] } })
+            }
+        },
+    );
+    assert_eq!(fin["result"]["lifecycle"], "finished");
+    let outcomes = engine.call(
+        "outcomes",
+        "run.outcomes",
+        &json!({ "run_id": "two-escalations-plus-retry" }),
+        &mut |_| None,
+    );
+    assert!(engine.finished());
+
+    assert_eq!(handler_calls, 2);
+    assert_eq!(
+        proxies_to(&proving_ground, "/items/FINAL-01"),
+        BTreeSet::from([
+            "datacenter".to_owned(),
+            "isp".to_owned(),
+            "residential".to_owned(),
+        ])
+    );
+    assert_eq!(
+        (
+            &outcomes["result"]["outcomes"][0]["kind"],
+            &outcomes["result"]["outcomes"][0]["attempts"],
+        ),
+        (&json!("succeeded"), &json!(2)),
+        "{outcomes}"
+    );
+}
+
+/// Usage records `proxy_bytes` per proxy kind (`datacenter`, `isp`) during
+/// escalation, and a money Limit on `proxy_bytes` stops the escalation climb
+/// with `limit_reached` (#1145).
+///
+/// Covers: story:8-224
+#[cfg(unix)]
+#[test]
+fn usage_tracks_proxy_bytes_per_kind_and_money_limit_stops_escalation_with_limit_reached() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let fixtures = &proving_ground.description().fixtures;
+    let server = |name: &str, kind: &str| {
+        format!(
+            "{{ server = \"http://{}\", kind = \"{kind}\" }}",
+            fixtures.proxies[name]
+        )
+    };
+    // High price per GB so a tiny USD limit stops escalation cleanly.
+    env.user_configuration(&format!(
+        "[settings.proxy.providers.list]\nusername = \"{}\"\npassword = \"env:{PASSWORD_VARIABLE}\"\nprice = \"100000 USD\"\nservers = [{}, {}]\n",
+        fixtures.proxy_credentials.username,
+        server("datacenter", "datacenter"),
+        server("isp", "isp"),
+    ));
+    let password = fixtures.proxy_credentials.password.clone();
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(PASSWORD_VARIABLE, &password);
+    });
+    let run_settings = settings(
+        &proving_ground,
+        &json!({
+            "fetch": { "tier": "http" },
+            "politeness": { "domain": { "concurrency": 1, "delay": 0 } },
+            "session": { "pool": { "max_size": 1 } },
+            "proxy": { "provider": "list" },
+            "escalation": { "proxy_kinds": ["datacenter", "isp"] },
+            "crawl": { "retry": { "max": 0 } },
+        }),
+    );
+
+    // 1) Uncapped escalation: Usage shows `proxy_bytes_by_kind` for both kinds.
+    let uncapped = crawl_declaring(
+        &mut engine,
+        "usage-per-kind",
+        &[json!({
+            "url": proving_ground.url("access.test", "/corpus/ip-block"),
+            "label": "page"
+        })],
+        &json!({ "page": {} }),
+        &run_settings,
+        &mut |_, _| json!({ "result": { "records": [] } }),
+    );
+    assert_eq!(uncapped["result"]["lifecycle"], "finished");
+    let usage = engine.call(
+        "usage",
+        "run.usage",
+        &json!({ "run_id": "usage-per-kind" }),
+        &mut |_| None,
+    );
+    let kinds: BTreeSet<String> = usage["result"]["proxy_bytes_by_kind"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| entry["bytes"].as_u64().unwrap_or(0) > 0)
+        .map(|entry| entry["kind"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(
+        kinds,
+        BTreeSet::from(["datacenter".to_owned(), "isp".to_owned()]),
+        "{usage}"
+    );
+
+    // 2) Tight currency limit (1 millionth of a USD = $0.000001): stops the
+    //    escalation climb with `limit_reached`.
+    let started = engine.call(
+        "start-limited",
+        "crawl.start",
+        &json!({
+            "run_id": "money-limited",
+            "seeds": [{
+                "url": proving_ground.url("access.test", "/corpus/ip-block?limited=1"),
+                "label": "page"
+            }],
+            "labels": { "page": {} },
+            "settings": run_settings,
+            "limits": [{ "usage_kind": "proxy_bytes", "currency": "USD", "amount": 1 }],
+        }),
+        &mut |_| None,
+    );
+    assert!(started.get("result").is_some(), "{started}");
+    let report = engine.call(
+        "report-limited",
+        "run.report",
+        &json!({ "run_id": "money-limited" }),
+        &mut |msg| {
+            (msg.get("method").and_then(Value::as_str) == Some("crawl_request.handle"))
+                .then(|| json!({ "result": { "records": [] } }))
+        },
+    );
+    assert!(engine.finished());
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            &report["result"]["stop_reason"]["kind"],
+            &report["result"]["requests"]["by_error_code"],
+        ),
+        (
+            &json!("stopped"),
+            &json!("limit"),
+            &json!([{ "count": 1, "name": "limit_reached" }]),
+        ),
+        "{report}"
+    );
+}

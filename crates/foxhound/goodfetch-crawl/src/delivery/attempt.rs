@@ -1596,7 +1596,14 @@ impl On<'_> {
             let checks_the_browser = block.checks_the_browser();
             let cause = BlockCause::from(block.cause);
             if checks_the_browser
-                || matches!(cause, BlockCause::IpBlock | BlockCause::RateLimit)
+                || matches!(
+                    cause,
+                    BlockCause::IpBlock
+                        | BlockCause::RateLimit
+                        | BlockCause::PaymentRequired
+                        | BlockCause::ConsentRequired
+                        | BlockCause::Decoy
+                )
                 || escalation::on_block(&cause, self.met(choice, how)) == Action::Sample
             {
                 return Found::Blocked(cause, error);

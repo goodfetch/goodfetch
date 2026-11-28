@@ -40,7 +40,7 @@
 //! answers that it changed, so a live crawl's progress is built from this
 //! state and reads no count from the run file (#2167).
 
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -333,6 +333,9 @@ pub(crate) struct RunState {
     /// How many proxy-tier escalations/rotations each work item has used
     /// so far (spec #600), cleared once it succeeds or ends terminally.
     escalations: BTreeMap<String, usize>,
+    /// Work items that already received one free sample-comparison
+    /// re-admission after a transport refusal (#2419; ADR 0093; #1145).
+    transport_refusals: BTreeSet<String>,
 }
 
 /// A claim queued with the run-state writer: answers the IDs it did not
@@ -360,7 +363,21 @@ impl RunState {
             claims: tokio::sync::Mutex::new(FuturesUnordered::new()),
             undrawn: VecDeque::new(),
             escalations: BTreeMap::new(),
+            transport_refusals: BTreeSet::new(),
         }
+    }
+
+    /// Records a transport-refusal sample-comparison re-admission for
+    /// `work_item`, answering `true` the first time so the sample run does
+    /// not spend `crawl.retry.max` (ADR 0093; #1145) and `false` if already
+    /// used.
+    pub(crate) fn record_transport_refusal(&mut self, work_item: &str) -> bool {
+        self.transport_refusals.insert(work_item.to_owned())
+    }
+
+    /// Drops the transport-refusal mark for `work_item` once it ends.
+    pub(crate) fn clear_transport_refusal(&mut self, work_item: &str) {
+        self.transport_refusals.remove(work_item);
     }
 
     /// How many proxy-tier escalations or rotations `work_item` has used
@@ -669,6 +686,16 @@ impl RunState {
     /// ([`redraw`](Self::redraw)).
     pub(crate) fn undrawn(&self) -> usize {
         self.undrawn.len()
+    }
+
+    /// The domain keys of the leased work items waiting for a Session of
+    /// the pool, for `run.progress()`'s `session` waiting reason (ADR 0102;
+    /// #1145).
+    pub(crate) fn undrawn_domains(&self) -> Vec<String> {
+        self.undrawn
+            .iter()
+            .map(|planned| planned.leased.waiting.key.clone())
+            .collect()
     }
 
     /// Whether the work item `id` was leased and waits for its Session to

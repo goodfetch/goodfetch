@@ -21,7 +21,7 @@
 //! serializes the requests in flight once (the Quality register's
 //! `F3.in_flight_serializations`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -36,7 +36,7 @@ use goodfetch_protocol::foxhound::outcomes::OutcomeKind;
 use goodfetch_protocol::foxhound::progress::{
     BACKOFF, CrawlConcurrency, DOMAIN_CONCURRENCY, DOMAIN_DELAY, GOVERNOR, HANDLER_CONCURRENCY,
     HELD_DOMAINS, HeldDomain, InFlightPhase, InFlightRequest, POLITENESS_FILE, RATE_CAP,
-    RequestProgress, WaitGroup,
+    RequestProgress, SESSION, WaitGroup,
 };
 use goodfetch_protocol::foxhound::report::{CountOf, SitemapReport};
 use goodfetch_protocol::foxhound::settings::{
@@ -113,22 +113,25 @@ pub(crate) fn show(
     resolved: &Resolved,
     room: Room,
     (handlers, handler_concurrency): (usize, usize),
+    waiting_for_session: &[String],
 ) {
-    show_waits(run, queued, resolved, now, room);
+    show_waits(run, queued, resolved, now, room, waiting_for_session);
     show_concurrency(run, resolved, handlers, handler_concurrency);
     show_idle(run, false);
 }
 
 /// Sets the crawl's `waiting` from the groups its admission queues at
 /// `now`, each with at most [`HELD_DOMAINS`] domains, under `resolved`,
-/// with `room` for the requests no domain holds: a few groups, whatever
-/// the number of domains.
+/// with `room` for the requests no domain holds, plus any leased requests
+/// waiting for a Session of the pool (`SESSION`, ADR 0102): a few groups,
+/// whatever the number of domains.
 pub(crate) fn show_waits(
     run: &CrawlRun,
     queued: &[QueuedGroup],
     resolved: &Resolved,
     now: Instant,
     room: Room,
+    waiting_for_session: &[String],
 ) {
     let mut groups: BTreeMap<&'static str, WaitGroup> = BTreeMap::new();
     for queued in queued {
@@ -187,8 +190,36 @@ pub(crate) fn show_waits(
             },
         );
     }
+    if let Some(group) = session_wait_group(waiting_for_session) {
+        groups.insert(SESSION, group);
+    }
     let waiting: Vec<WaitGroup> = groups.into_values().collect();
     run.progress.set_part(WAITING, encoded!(&waiting));
+}
+
+/// Builds the `session` [`WaitGroup`] for leased requests waiting for a
+/// Session of the pool to open or have room (ADR 0102; #1145).
+fn session_wait_group(waiting_for_session: &[String]) -> Option<WaitGroup> {
+    if waiting_for_session.is_empty() {
+        return None;
+    }
+    let distinct: BTreeSet<&str> = waiting_for_session.iter().map(String::as_str).collect();
+    let domains: Vec<HeldDomain> = distinct
+        .iter()
+        .take(HELD_DOMAINS)
+        .map(|domain| HeldDomain {
+            domain: (*domain).to_owned(),
+            next_admitted_at: None,
+        })
+        .collect();
+    let more = distinct.len().saturating_sub(domains.len());
+    Some(WaitGroup {
+        reason: SESSION.to_owned(),
+        count: u64::try_from(waiting_for_session.len()).unwrap_or(u64::MAX),
+        domains,
+        more_domains: u64::try_from(more).unwrap_or(u64::MAX),
+        setting: None,
+    })
 }
 
 /// The setting `key` as `resolved` gives it, with the layer that set it.
@@ -538,5 +569,60 @@ impl ProgressPart for CrawlProgress {
         let sitemaps = goodfetch_frontier::sitemap::reports(connection)?;
         put(progress, (&in_flight, listed), requests, &sitemaps);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Leased requests waiting for a Session of the pool report the `session`
+    /// waiting reason in `run.progress()`, counting every waiting request and
+    /// capping listed domains at [`HELD_DOMAINS`] (ADR 0102; #1145).
+    ///
+    /// Covers: story:8-225
+    #[test]
+    fn session_wait_group_reports_session_reason_and_bounds_domains() {
+        assert_eq!(session_wait_group(&[]), None);
+
+        let waiting = vec![
+            "b.test".to_owned(),
+            "a.test".to_owned(),
+            "b.test".to_owned(),
+        ];
+        let group = session_wait_group(&waiting).expect("non-empty waits emit a session group");
+        assert_eq!(
+            group,
+            WaitGroup {
+                reason: SESSION.to_owned(),
+                count: 3,
+                domains: vec![
+                    HeldDomain {
+                        domain: "a.test".to_owned(),
+                        next_admitted_at: None,
+                    },
+                    HeldDomain {
+                        domain: "b.test".to_owned(),
+                        next_admitted_at: None,
+                    },
+                ],
+                more_domains: 0,
+                setting: None,
+            }
+        );
+
+        let many: Vec<String> = (0..HELD_DOMAINS + 3)
+            .map(|i| format!("d{i:02}.test"))
+            .collect();
+        let capped = session_wait_group(&many).expect("capped group");
+        assert_eq!(
+            (
+                capped.reason.as_str(),
+                capped.count,
+                capped.domains.len(),
+                capped.more_domains,
+            ),
+            (SESSION, (HELD_DOMAINS + 3) as u64, HELD_DOMAINS, 3)
+        );
     }
 }

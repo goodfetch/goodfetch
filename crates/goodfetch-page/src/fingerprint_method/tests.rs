@@ -22,7 +22,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::{FingerprintPlan, Method, children, init_script};
+use super::{FingerprintPlan, Method, WPT_IDENTITY_SEED, children, init_script, wpt_launch_args};
 use crate::access_mode::{
     AccessMode, ChromiumBuild, FingerprintMethod, MethodSource, RuntimeDomain, SessionIdentityPlan,
     StealthProfile,
@@ -527,4 +527,107 @@ fn the_script_writes_each_value_as_a_literal() {
     assert!(script.contains("\"availHeight\", 1040)"), "{script}");
     assert!(!script.contains("timeZone"), "{script}");
     assert!(!script.contains("geolocation"), "{script}");
+}
+
+#[test]
+fn wpt_launch_args_for_the_same_seed_are_byte_identical() {
+    let first = serde_json::to_vec_pretty(&wpt_launch_args(WPT_IDENTITY_SEED)).unwrap();
+    let second = serde_json::to_vec_pretty(&wpt_launch_args(WPT_IDENTITY_SEED)).unwrap();
+    assert_eq!(first, second);
+}
+
+#[rstest]
+#[case::none("none")]
+#[case::js_injection("js_injection")]
+fn wpt_launch_args_carry_engine_flags_without_per_process_arguments(#[case] method: &str) {
+    let doc = serde_json::to_value(wpt_launch_args(WPT_IDENTITY_SEED)).unwrap();
+    assert_eq!(doc["identity_seed"], json!(WPT_IDENTITY_SEED.0));
+    assert!(
+        doc["methods"].get("engine").is_none(),
+        "engine method waits on Goodfetch Chromium (#969): {doc}"
+    );
+    let args: Vec<&str> = doc["methods"][method]["args"]
+        .as_array()
+        .expect("args array")
+        .iter()
+        .map(|v| v.as_str().expect("string arg"))
+        .collect();
+    assert!(
+        args.contains(&"--disable-blink-features=AutomationControlled"),
+        "{method} missing engine launch flag: {args:?}"
+    );
+    assert!(
+        args.contains(&"--disable-back-forward-cache"),
+        "{method} missing engine launch flag: {args:?}"
+    );
+    assert!(
+        args.contains(&"--webrtc-ip-handling-policy=disable_non_proxied_udp"),
+        "{method} missing engine launch flag: {args:?}"
+    );
+    assert!(
+        args.contains(&"--host-resolver-rules=MAP *.invalid ~NOTFOUND"),
+        "{method} missing engine launch flag: {args:?}"
+    );
+    assert!(
+        !args.contains(&"--remote-debugging-pipe"),
+        "{method} must not carry engine pipe flag for WPT: {args:?}"
+    );
+    assert!(
+        !args.iter().any(|arg| arg.starts_with("--user-data-dir=")),
+        "{method} must not carry per-run user-data-dir for WPT: {args:?}"
+    );
+    assert!(
+        !args.contains(&"about:blank"),
+        "{method} must not carry initial about:blank URL for WPT: {args:?}"
+    );
+}
+
+#[test]
+fn wpt_launch_args_include_init_script_only_for_js_injection() {
+    let doc = serde_json::to_value(wpt_launch_args(WPT_IDENTITY_SEED)).unwrap();
+    assert!(
+        doc["methods"]["none"].get("init_script").is_none(),
+        "none method has no init_script: {doc}"
+    );
+    let script = doc["methods"]["js_injection"]["init_script"]
+        .as_str()
+        .expect("js_injection init_script");
+    let user_agent = doc["identity_profile"]["user_agent"]
+        .as_str()
+        .expect("drawn user_agent");
+    assert!(
+        script.contains(user_agent),
+        "js_injection init_script must embed the drawn Identity profile's user agent"
+    );
+}
+
+/// The committed `chromium/launch-args.json` matches what the engine emits at
+/// [`WPT_IDENTITY_SEED`]. `xtask codegen --check` checks digests without
+/// building `goodfetch-page` (ADR 0072); this test catches any transitive
+/// drift in the engine's launch arguments or identity profile population.
+#[test]
+fn the_committed_wpt_launch_args_match_the_engine() {
+    const COMMITTED: &str = include_str!("../../../../chromium/launch-args.json");
+    let value = serde_json::to_value(wpt_launch_args(WPT_IDENTITY_SEED)).unwrap();
+    let mut expected = serde_json::to_string_pretty(&value).unwrap();
+    expected.push('\n');
+    assert_eq!(
+        COMMITTED, expected,
+        "run `just codegen` and commit what it writes"
+    );
+}
+
+#[test]
+fn changing_the_wpt_identity_seed_changes_the_generated_launch_args() {
+    let first = serde_json::to_vec_pretty(&wpt_launch_args(IdentitySeed(1))).unwrap();
+    let second = serde_json::to_vec_pretty(&wpt_launch_args(IdentitySeed(2))).unwrap();
+    assert_ne!(first, second);
+
+    let first_doc: Value = serde_json::from_slice(&first).unwrap();
+    let second_doc: Value = serde_json::from_slice(&second).unwrap();
+    assert_ne!(first_doc["identity_seed"], second_doc["identity_seed"]);
+    assert_ne!(
+        first_doc["methods"]["js_injection"]["init_script"],
+        second_doc["methods"]["js_injection"]["init_script"]
+    );
 }

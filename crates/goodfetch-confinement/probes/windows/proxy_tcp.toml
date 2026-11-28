@@ -1,0 +1,53 @@
+# Windows AppContainer + filter broker probes at the `proxy_tcp` network level
+# (ADR 0067, issue 879): persistent WFP filters allow outbound TCP strictly to
+# the instance's loopback proxy port and block every other outbound destination,
+# inbound connection, and socket bind with `EACCES` (`WSAEACCES`), alongside
+# AppContainer desktop/process isolation and the Windows deny list.
+# Mechanism: app_container (`GetTokenInformation(..., TokenIsAppContainer, ...) != 0`).
+
+operation = [
+    { rule = "network.outbound_proxy", operation = "network_outbound_proxy", unconfined = "ok", confined = "ok" },
+    { rule = "network.outbound_ip", operation = "network_outbound_ip", unconfined = "ok", confined = "EACCES" },
+    { rule = "network.inbound", operation = "network_inbound", unconfined = "ok", confined = "EACCES" },
+    { rule = "network.bind", operation = "network_bind", unconfined = "ok", confined = "EACCES" },
+    { rule = "desktop.default", operation = "desktop_escape", unconfined = "ok", confined = "EACCES" },
+    { rule = "signals.outside", operation = "process_open_parent", unconfined = "ok", confined = "EACCES" },
+]
+
+path = [
+    { rule = "deny.goodfetch_home", access = "read", path = "{goodfetch_home}/engine.db", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.ssh", access = "read", path = "{home}/.ssh/id_ed25519", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.aws", access = "read", path = "{home}/.aws/credentials", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.azure", access = "read", path = "{home}/.azure/accessTokens.json", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.gcloud_windows", access = "read", path = "{app_data}/gcloud/credentials.db", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.kube", access = "read", path = "{home}/.kube/config", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.docker_config", access = "read", path = "{home}/.docker/config.json", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.netrc", access = "read", path = "{home}/.netrc", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.git_credentials", access = "read", path = "{home}/.git-credentials", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.gh_windows", access = "read", path = "{app_data}/GitHub CLI/hosts.yml", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.npmrc", access = "read", path = "{home}/.npmrc", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.pypirc", access = "read", path = "{home}/.pypirc", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.cargo_credentials", access = "read", path = "{home}/.cargo/credentials.toml", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.terraform_credentials", access = "read", path = "{home}/.terraform.d/credentials.tfrc.json", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.vault_token", access = "read", path = "{home}/.vault-token", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.env_file", access = "read", path = "{home}/project/.env", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.credentials_roaming", access = "read", path = "{app_data}/Microsoft/Credentials/vault", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.credentials_local", access = "read", path = "{local_app_data}/Microsoft/Credentials/vault", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.protect", access = "read", path = "{app_data}/Microsoft/Protect/master", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.chrome_windows", access = "read", path = "{local_app_data}/Google/Chrome/User Data/Default/Cookies", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.chromium_windows", access = "read", path = "{local_app_data}/Chromium/User Data/Default/Cookies", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.edge_windows", access = "read", path = "{local_app_data}/Microsoft/Edge/User Data/Default/Cookies", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.brave_windows", access = "read", path = "{local_app_data}/BraveSoftware/Brave-Browser/User Data/Default/Cookies", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.vivaldi_windows", access = "read", path = "{local_app_data}/Vivaldi/User Data/Default/Cookies", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.opera_windows", access = "read", path = "{app_data}/Opera Software/Opera Stable/Cookies", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.firefox_windows", access = "read", path = "{app_data}/Mozilla/Firefox/Profiles/default/cookies.sqlite", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.powershell_windows", access = "read", path = "{home}/Documents/PowerShell/Microsoft.PowerShell_profile.ps1", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.windows_powershell", access = "read", path = "{home}/Documents/WindowsPowerShell/Microsoft.PowerShell_profile.ps1", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "deny.git_hooks", access = "read", path = "{home}/project/.git/hooks/pre-commit", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "files.read_bundle", access = "read", path = "{bundle}/index.js", unconfined = "ok", appcontainer = "ok" },
+    { rule = "files.read_runtime", access = "read", path = "{runtime}/bin", unconfined = "ok", appcontainer = "ok" },
+    { rule = "files.write_instance", access = "write", path = "{instance}/written", unconfined = "ok", appcontainer = "ok" },
+    { rule = "files.read_elsewhere", access = "read", path = "{home}/elsewhere", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "files.write_elsewhere", access = "write", path = "{home}/written", unconfined = "ok", appcontainer = "EACCES" },
+    { rule = "files.write_bundle", access = "write", path = "{bundle}/written", unconfined = "ok", appcontainer = "EACCES" },
+]

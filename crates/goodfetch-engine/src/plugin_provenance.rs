@@ -26,17 +26,14 @@
 //! and `data-encoding` crates, and OCI referrer pulls go through
 //! `plugin_install` on the engine's own `http_client`.
 
-use std::collections::BTreeMap;
-
-use data_encoding::BASE64;
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+pub use goodfetch_confinement::attestation::{
+    AttestationSigner, AttestationTrustRoot, AttestationVerdict, verify_attestations,
+};
 use goodfetch_protocol::plugin::add::{
     AttestationFailureReason, PLUGIN_ATTESTATION_INVALID, PLUGIN_NAME_AMBIGUOUS,
     PluginAttestationInvalidDetails, PluginNameAmbiguousDetails,
 };
-use goodfetch_protocol::plugin::index::{
-    IndexEntry, PluginIndex, ProvenanceAttestation, ProvenanceStatement, SignerIdentity,
-};
+use goodfetch_protocol::plugin::index::{IndexEntry, PluginIndex, SignerIdentity};
 use goodfetch_protocol::plugin::settings::{PLUGINS, PluginEntry};
 use serde_json::Value;
 
@@ -44,196 +41,9 @@ use crate::call_error::CallError;
 use crate::plugin_oci::{MalformedReference, REPOSITORY_PREFIX, Reference};
 use crate::settings::Resolved;
 
-/// Domain separation prefix included in every provenance attestation signing
-/// payload.
-const ATTESTATION_DOMAIN_TAG: &[u8] = b"goodfetch-plugin-provenance-v1\n";
-
 /// Minimum normalized length for a 2-edit look-alike match (1-edit matches
 /// apply to any name of length >= 2).
 const TWO_EDIT_MIN_LEN: usize = 6;
-
-/// A trust root holding the trusted Ed25519 verifying keys for Plugin
-/// provenance attestations (bundled with each release or injected as a value
-/// in tests, ADR 0059).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct AttestationTrustRoot {
-    /// Trusted Ed25519 verifying keys (32-byte raw public keys), by `key_id`.
-    pub keys: BTreeMap<String, [u8; 32]>,
-}
-
-impl AttestationTrustRoot {
-    /// Constructs an attestation trust root from explicit verifying keys.
-    #[must_use]
-    pub fn new(keys: BTreeMap<String, [u8; 32]>) -> Self {
-        Self { keys }
-    }
-
-    /// The attestation trust root bundled with this release. Before the first
-    /// published release signs attestations with production keys, the bundled
-    /// key map is empty so no forged attestation verifies against it.
-    #[must_use]
-    pub fn bundled() -> Self {
-        Self::default()
-    }
-}
-
-/// A deterministic Ed25519 signer producing [`ProvenanceAttestation`] values
-/// under a test or CI [`AttestationTrustRoot`].
-#[derive(Clone)]
-pub struct AttestationSigner {
-    key_id: String,
-    signing_key: SigningKey,
-}
-
-impl AttestationSigner {
-    /// Creates a deterministic signer from `seed` and returns `(signer,
-    /// trust_root)` trusting only this signer's key.
-    #[must_use]
-    pub fn for_root(key_id: impl Into<String>, seed: [u8; 32]) -> (Self, AttestationTrustRoot) {
-        let key_id = key_id.into();
-        let signing_key = SigningKey::from_bytes(&seed);
-        let public_bytes = signing_key.verifying_key().to_bytes();
-        let mut keys = BTreeMap::new();
-        keys.insert(key_id.clone(), public_bytes);
-        (
-            Self {
-                key_id,
-                signing_key,
-            },
-            AttestationTrustRoot::new(keys),
-        )
-    }
-
-    /// Signs `statement`, returning a [`ProvenanceAttestation`] bound to its
-    /// RFC 8785 canonical JSON.
-    ///
-    /// # Errors
-    ///
-    /// Fails if `statement` cannot be serialized to RFC 8785 canonical JSON.
-    pub fn sign(
-        &self,
-        statement: ProvenanceStatement,
-    ) -> Result<ProvenanceAttestation, serde_json::Error> {
-        let message = signing_message(&statement)?;
-        let signature = self.signing_key.sign(&message);
-        Ok(ProvenanceAttestation {
-            statement,
-            key_id: self.key_id.clone(),
-            signature: BASE64.encode(&signature.to_bytes()),
-        })
-    }
-}
-
-/// Outcome of verifying a Plugin artifact's provenance attestation(s).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AttestationVerdict {
-    /// At least one attestation verified under the trust root, matched the
-    /// artifact's image index digest, and matched the index's expected signer.
-    Verified(SignerIdentity),
-    /// No attestation passed verification.
-    Refused {
-        /// Primary failure reason.
-        reason: AttestationFailureReason,
-        /// The signer identity expected by the Plugin index, if listed.
-        expected_signer: Option<SignerIdentity>,
-        /// The signer identity found in the attestation, if any was readable.
-        found_signer: Option<SignerIdentity>,
-    },
-}
-
-/// Verifies `attestations` against `expected_digest`, the Plugin index's
-/// `expected_signer` and `trust`.
-///
-/// If multiple attestations are attached to an artifact (for example alongside
-/// another referrer), any single valid matching attestation succeeds;
-/// otherwise the most informative refusal is returned.
-#[must_use]
-pub fn verify_attestations(
-    attestations: &[ProvenanceAttestation],
-    expected_digest: &str,
-    expected_signer: Option<&SignerIdentity>,
-    trust: &AttestationTrustRoot,
-) -> AttestationVerdict {
-    if attestations.is_empty() {
-        return AttestationVerdict::Refused {
-            reason: AttestationFailureReason::Missing,
-            expected_signer: expected_signer.cloned(),
-            found_signer: None,
-        };
-    }
-    let mut first_refusal: Option<AttestationVerdict> = None;
-    for attestation in attestations {
-        let verdict = verify_one(attestation, expected_digest, expected_signer, trust);
-        if matches!(verdict, AttestationVerdict::Verified(_)) {
-            return verdict;
-        }
-        if first_refusal.is_none() {
-            first_refusal = Some(verdict);
-        }
-    }
-    first_refusal.expect("invariant: attestations is non-empty")
-}
-
-/// Verifies a single [`ProvenanceAttestation`].
-fn verify_one(
-    attestation: &ProvenanceAttestation,
-    expected_digest: &str,
-    expected_signer: Option<&SignerIdentity>,
-    trust: &AttestationTrustRoot,
-) -> AttestationVerdict {
-    if !signature_valid(attestation, trust) {
-        return AttestationVerdict::Refused {
-            reason: AttestationFailureReason::BadSignature,
-            expected_signer: expected_signer.cloned(),
-            found_signer: Some(attestation.statement.signer.clone()),
-        };
-    }
-    if attestation.statement.subject_digest != expected_digest {
-        return AttestationVerdict::Refused {
-            reason: AttestationFailureReason::DigestMismatch,
-            expected_signer: expected_signer.cloned(),
-            found_signer: Some(attestation.statement.signer.clone()),
-        };
-    }
-    match expected_signer {
-        Some(expected) if &attestation.statement.signer == expected => {
-            AttestationVerdict::Verified(attestation.statement.signer.clone())
-        }
-        expected => AttestationVerdict::Refused {
-            reason: AttestationFailureReason::SignerMismatch,
-            expected_signer: expected.cloned(),
-            found_signer: Some(attestation.statement.signer.clone()),
-        },
-    }
-}
-
-fn signature_valid(attestation: &ProvenanceAttestation, trust: &AttestationTrustRoot) -> bool {
-    let Some(raw_key) = trust.keys.get(&attestation.key_id) else {
-        return false;
-    };
-    let Ok(verifying_key) = VerifyingKey::from_bytes(raw_key) else {
-        return false;
-    };
-    let Ok(sig_bytes) = BASE64.decode(attestation.signature.as_bytes()) else {
-        return false;
-    };
-    let Ok(sig_array): Result<[u8; 64], _> = sig_bytes.try_into() else {
-        return false;
-    };
-    let signature = Signature::from_bytes(&sig_array);
-    let Ok(message) = signing_message(&attestation.statement) else {
-        return false;
-    };
-    verifying_key.verify(&message, &signature).is_ok()
-}
-
-fn signing_message(statement: &ProvenanceStatement) -> Result<Vec<u8>, serde_json::Error> {
-    let canonical = serde_json_canonicalizer::to_vec(statement)?;
-    let mut message = Vec::with_capacity(ATTESTATION_DOMAIN_TAG.len() + canonical.len());
-    message.extend_from_slice(ATTESTATION_DOMAIN_TAG);
-    message.extend_from_slice(&canonical);
-    Ok(message)
-}
 
 /// Whether Operator policy in `resolved` explicitly allows the exact
 /// `(name, digest)` pair (`plugins.<name>.allow = true` and
@@ -540,8 +350,10 @@ pub fn name_ambiguous_error(name: &str, similar: Vec<String>) -> CallError {
 
 #[cfg(test)]
 mod tests {
+    use data_encoding::BASE64;
     use goodfetch_protocol::plugin::PluginKindName;
     use goodfetch_protocol::plugin::approvals::Origin;
+    use goodfetch_protocol::plugin::index::ProvenanceStatement;
 
     use super::*;
 

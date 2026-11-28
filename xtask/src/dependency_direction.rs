@@ -74,6 +74,7 @@ const TEST_ADAPTERS: [&str; 5] = [
 const CONFORMANCE: &str = "goodfetch-conformance";
 const CONFINEMENT: &str = "goodfetch-confinement";
 const SANDBOX_HELPER: &str = "goodfetch-sandbox";
+const FILTER_BROKER: &str = "goodfetch-filter-broker";
 const PROTOCOL: &str = "goodfetch-protocol";
 const WORKSPACE_HACK: &str = "goodfetch-workspace-hack";
 const DEV_WORKSPACE_HACK: &str = "goodfetch-dev-workspace-hack";
@@ -180,24 +181,30 @@ pub(crate) fn check(cargo: &OsStr, root: &Path) -> Result<Vec<Finding>> {
     Ok(findings)
 }
 
-/// Enforces ADR 0033's rule that `goodfetch-sandbox` links only
-/// `goodfetch-confinement` (and `goodfetch-protocol`) and never the engine.
+/// Enforces ADR 0033's rule that `goodfetch-sandbox` and
+/// `goodfetch-filter-broker` link only `goodfetch-confinement` (and
+/// `goodfetch-protocol`) and never the engine.
 fn check_sandbox_helper<'a>(
     package: &Package,
     members: &mut impl Iterator<Item = &'a Dependency>,
     findings: &mut Vec<Finding>,
 ) {
-    if package.name == SANDBOX_HELPER
+    if (package.name == SANDBOX_HELPER || package.name == FILTER_BROKER)
         && let Some(dependency) = members.find(|d| {
             d.name != CONFINEMENT && d.name != PROTOCOL && d.kind.as_deref() != Some("dev")
         })
     {
+        let code = if package.name == FILTER_BROKER {
+            "filter-broker-depends-on-engine"
+        } else {
+            "sandbox-helper-depends-on-engine"
+        };
         findings.push(Finding::new(
-            "sandbox-helper-depends-on-engine",
+            code,
             &package.name,
             format!(
-                "it depends on `{}`; the sandbox helper links `{CONFINEMENT}` (and `{PROTOCOL}`) and never the engine (ADR 0033)",
-                dependency.name
+                "it depends on `{}`; `{}` links `{CONFINEMENT}` (and `{PROTOCOL}`) and never the engine (ADR 0033)",
+                dependency.name, package.name
             ),
         ));
     }

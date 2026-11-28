@@ -1,0 +1,5 @@
+# Which of goodfetch-filter-broker's top-level modules may import which (ADR 0126).
+[modules]
+broker = ["events"]
+events = []
+win32 = ["broker", "events"]

@@ -5018,7 +5018,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Verifies the Sigstore provenance attestation of the Linux `goodfetch-sandbox` helper (and optional AppArmor profile) against the bundled trust root, then installs a non-setuid copy of the helper and its AppArmor profile granting `userns` on Ubuntu 23.10 and later. Refuses with `plugin_attestation_invalid` and writes nothing when verification fails. Offered to a person only, never to an agent or a program (ADR 0099): any other surface is refused with `person_required`.",
+      "description": "Verifies the Sigstore provenance attestation of the platform confinement helper (`goodfetch-sandbox` and optional AppArmor profile on Linux, or `goodfetch-filter-broker` Windows service on Windows) against the bundled trust root, then installs it. Refuses with `plugin_attestation_invalid` and writes nothing when verification fails. Offered to a person only, never to an agent or a program (ADR 0099): any other surface is refused with `person_required`.",
       "events": [],
       "kind": "round_trip",
       "name": "plugin.setup",

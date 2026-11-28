@@ -27,7 +27,9 @@ use goodfetch_protocol::plugin::index::{
 use goodfetch_protocol::plugin::manage::{
     PLUGIN_REMOVE, PluginApprovalsRemoval, PluginRemoveParams, PluginRemoved,
 };
-use goodfetch_protocol::plugin::setup::{PLUGIN_SETUP, PluginSetupParams, PluginSetupResult};
+use goodfetch_protocol::plugin::setup::{
+    PLUGIN_SETUP, PluginSetupComponent, PluginSetupParams, PluginSetupResult,
+};
 use goodfetch_protocol::plugin::update::{PLUGIN_UPDATE, PluginUpdateParams, PluginUpdated};
 use goodfetch_protocol::settings::ProjectSettings;
 
@@ -247,6 +249,7 @@ pub(super) fn run(
                 dependencies,
                 &reach,
                 &PluginSetupParams {
+                    component: None,
                     helper: helper.display().to_string(),
                     attestation: attestation.display().to_string(),
                     profile: profile.map(|path| path.display().to_string()),
@@ -306,15 +309,34 @@ fn setup(
             return ExitCode::FAILURE;
         }
     };
-    let loaded = if installed.profile_loaded {
-        " and loaded"
-    } else {
-        ""
-    };
-    output::line(&format!(
-        "Installed `goodfetch-sandbox` ({}) at {} and AppArmor profile{loaded} at {}.",
-        installed.helper_digest, installed.helper_path, installed.profile_path
-    ));
+    match installed.component {
+        PluginSetupComponent::SandboxHelper => {
+            let loaded = if installed.profile_loaded {
+                " and loaded"
+            } else {
+                ""
+            };
+            output::line(&format!(
+                "Installed `goodfetch-sandbox` ({}) at {} and AppArmor profile{loaded} at {}.",
+                installed.helper_digest, installed.helper_path, installed.profile_path
+            ));
+        }
+        PluginSetupComponent::FilterBroker => {
+            let service = installed
+                .service_name
+                .as_deref()
+                .unwrap_or("GoodfetchFilterBroker");
+            let state = if installed.service_installed {
+                "registered and started"
+            } else {
+                "installed"
+            };
+            output::line(&format!(
+                "Installed `goodfetch-filter-broker` ({}) at {} (Windows service `{service}` {state}).",
+                installed.helper_digest, installed.helper_path
+            ));
+        }
+    }
     ExitCode::from(exit_codes::SUCCESS)
 }
 

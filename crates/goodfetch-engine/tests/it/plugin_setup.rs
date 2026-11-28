@@ -16,7 +16,7 @@ use data_encoding::HEXLOWER;
 use goodfetch_engine::plugin_provenance::{AttestationSigner, AttestationTrustRoot};
 use goodfetch_engine::plugin_setup::{SetupTarget, install_verified, release_signer};
 use goodfetch_protocol::plugin::index::{ProvenanceStatement, SignerIdentity};
-use goodfetch_protocol::plugin::setup::PluginSetupParams;
+use goodfetch_protocol::plugin::setup::{PluginSetupComponent, PluginSetupParams};
 use sha2::{Digest as _, Sha256};
 
 const TEST_KEY_ID: &str = "sigstore-sandbox-test-key-1";
@@ -61,8 +61,10 @@ fn plugin_setup_installs_helper_and_profile_after_attestation_verifies() {
         profile_dest: dst_dir.join("apparmor.d/goodfetch-sandbox"),
         expected_signer: expected_signer.clone(),
         load_profile: false,
+        register_service: false,
     };
     let params = PluginSetupParams {
+        component: Some(PluginSetupComponent::SandboxHelper),
         helper: helper_src.display().to_string(),
         attestation: att_src.display().to_string(),
         profile: None,
@@ -139,8 +141,10 @@ fn plugin_setup_refuses_unverified_helper_or_profile_and_writes_nothing() {
         profile_dest: dst_dir.join("apparmor.d/goodfetch-sandbox"),
         expected_signer: expected_signer.clone(),
         load_profile: false,
+        register_service: false,
     };
     let params_for = |att: &Path, profile: Option<&Path>| PluginSetupParams {
+        component: Some(PluginSetupComponent::SandboxHelper),
         helper: helper_src.display().to_string(),
         attestation: att.display().to_string(),
         profile: profile.map(|p| p.display().to_string()),
@@ -215,4 +219,82 @@ fn plugin_setup_refuses_unverified_helper_or_profile_and_writes_nothing() {
         &target,
         "missing",
     );
+}
+
+/// `plugin setup` installs the Windows `goodfetch-filter-broker` only after
+/// verifying its Sigstore provenance attestation under a test trust root
+/// (ADR 0059) and refuses any unattested, tampered, or rogue-signed binary
+/// with `plugin_attestation_invalid`, writing nothing to disk (ADRs 0033,
+/// 0039 and 0099; issue 879).
+///
+/// Covers: story:7-24, operation:plugin.setup
+#[test]
+fn plugin_setup_installs_windows_filter_broker_only_after_attestation_verifies() {
+    let root = tempfile::tempdir().unwrap();
+    let src_dir = root.path().join("release");
+    let dst_dir = root.path().join("installed");
+    fs::create_dir_all(&src_dir).unwrap();
+
+    let broker_bytes = b"MZ-verified-goodfetch-filter-broker-test-binary";
+    let broker_src = src_dir.join("goodfetch-filter-broker.exe");
+    let good_att = src_dir.join("goodfetch-filter-broker.att.json");
+    let bad_att = src_dir.join("rogue.att.json");
+    let wrong_digest_att = src_dir.join("wrong-digest.att.json");
+    fs::write(&broker_src, broker_bytes).unwrap();
+
+    let (signer, trust) = AttestationSigner::for_root("broker-setup-key", [0x24; 32]);
+    let (rogue, _) = AttestationSigner::for_root("broker-setup-key", [0x88; 32]);
+    let expected_signer = release_signer();
+    sign_bytes(&signer, expected_signer.clone(), broker_bytes, &good_att);
+    sign_bytes(&rogue, expected_signer.clone(), broker_bytes, &bad_att);
+    sign_bytes(
+        &signer,
+        expected_signer.clone(),
+        b"other-bytes",
+        &wrong_digest_att,
+    );
+
+    let target = SetupTarget {
+        helper_dest: dst_dir.join("Goodfetch/goodfetch-filter-broker.exe"),
+        profile_dest: dst_dir.join("unused"),
+        expected_signer: expected_signer.clone(),
+        load_profile: false,
+        register_service: false,
+    };
+
+    // Unverified (rogue key) and tampered (digest mismatch) attestations are refused and write nothing.
+    for (att_path, expected_reason) in [
+        (&bad_att, "bad_signature"),
+        (&wrong_digest_att, "digest_mismatch"),
+    ] {
+        let params = PluginSetupParams {
+            component: Some(PluginSetupComponent::FilterBroker),
+            helper: broker_src.display().to_string(),
+            attestation: att_path.display().to_string(),
+            profile: None,
+            profile_attestation: None,
+        };
+        let err = install_verified(&params, &trust, &target).unwrap_err();
+        assert_eq!(err.code(), "plugin_attestation_invalid");
+        assert_eq!(err.details().unwrap()["reason"], expected_reason);
+        assert!(!target.helper_dest.exists());
+    }
+
+    // Valid attestation installs the verified broker binary.
+    let valid_params = PluginSetupParams {
+        component: Some(PluginSetupComponent::FilterBroker),
+        helper: broker_src.display().to_string(),
+        attestation: good_att.display().to_string(),
+        profile: None,
+        profile_attestation: None,
+    };
+    let installed = install_verified(&valid_params, &trust, &target).unwrap();
+    assert_eq!(installed.component, PluginSetupComponent::FilterBroker);
+    assert_eq!(installed.helper_digest, sha256_of(broker_bytes));
+    assert_eq!(
+        installed.service_name.as_deref(),
+        Some("GoodfetchFilterBroker")
+    );
+    assert_eq!(installed.signer, expected_signer);
+    assert_eq!(fs::read(&target.helper_dest).unwrap(), broker_bytes);
 }

@@ -1457,6 +1457,7 @@ fn set_up(
             folder,
             proxy_relay: None,
             proxy_loopback: None,
+            windows_broker: None,
             reduced_confinement,
         },
         manifest: installed.manifest,

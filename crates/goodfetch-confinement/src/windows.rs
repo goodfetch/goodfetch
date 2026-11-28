@@ -25,6 +25,7 @@
 //! which the probe runner (`Probe::Mechanism`) asserts as
 //! [`Mechanism::AppContainer`] before checking refusals (ADR 0067).
 
+pub mod broker;
 #[cfg(windows)]
 pub mod host;
 #[cfg(windows)]
@@ -35,6 +36,7 @@ mod win32;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use goodfetch_protocol::plugin::index::ProvenanceAttestation;
 use goodfetch_protocol::plugin::{NetworkLevel, PluginResourceLimit};
 use serde::{Deserialize, Serialize};
 
@@ -44,6 +46,7 @@ use crate::probes::{
     Access, Errno, Mismatch, OsOpCase, OsOpRule, OsPathCase, Outcome, Placed, check_os_table,
 };
 use crate::seccomp::Verdict;
+use broker::AllowedDestination;
 
 /// What confines a process on Windows, asserted by every probe runner so a
 /// silent fallback fails (ADR 0067).
@@ -57,8 +60,8 @@ pub enum Mechanism {
 }
 
 /// Filter broker grant supplied for `proxy_tcp` or `direct` instances on
-/// Windows once `goodfetch-filter-broker` (#879) has created the instance's
-/// persistent WFP filters scoped to `app_container_name`.
+/// Windows so `goodfetch-filter-broker` (#879) holds persistent WFP filters
+/// scoped to `app_container_name` before the instance starts.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FilterBrokerGrant {
     /// Pre-registered `AppContainer` profile name whose SID the broker's
@@ -67,6 +70,19 @@ pub struct FilterBrokerGrant {
     /// Optional loopback proxy port permitted by the broker at `proxy_tcp`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proxy_port: Option<u16>,
+    /// Operator-configured private or loopback destinations permitted by the
+    /// broker at `direct` (link-local and cloud-metadata are always refused).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_destinations: Vec<AllowedDestination>,
+    /// Optional named pipe path to coordinate `PrepareInstance`/`ReleaseInstance`
+    /// directly from the launcher; when `None`, the caller already prepared
+    /// the broker filters for `app_container_name`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pipe_name: Option<String>,
+    /// Optional Goodfetch release provenance attestation presented by the
+    /// launcher when opening `pipe_name`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attestation: Option<ProvenanceAttestation>,
 }
 
 /// Parameters for launching one confined process Plugin on Windows.
@@ -85,6 +101,15 @@ pub struct ProcessSpec<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WindowsOperation {
+    /// Outgoing IPv4 TCP connection to the instance's permitted loopback proxy
+    /// port at `proxy_tcp`.
+    NetworkOutboundProxy,
+    /// Outgoing IPv4 TCP connection to an operator-configured destination at
+    /// `direct`.
+    NetworkOutboundConfigured,
+    /// Outgoing IPv4 TCP connection to an unconfigured private/loopback
+    /// address at `direct` (refused by the filter broker).
+    NetworkOutboundPrivate,
     /// Outgoing IPv4 TCP connection (`connect`).
     NetworkOutboundIp,
     /// Incoming TCP connection acceptance / listening socket (`listen`).
@@ -116,7 +141,7 @@ const fn rule(name: &'static str, operation: WindowsOperation, verdict: Verdict)
 }
 
 /// The declarative Windows confinement operation rules enforced at `level`
-/// (ADR 0033). `proxy_tcp` and `direct` wait for the filter broker (#879).
+/// (ADR 0033, issues 873 and 879).
 #[must_use]
 pub fn rules(level: NetworkLevel) -> Option<Vec<WindowsRule>> {
     match level {
@@ -142,7 +167,60 @@ pub fn rules(level: NetworkLevel) -> Option<Vec<WindowsRule>> {
                 Verdict::Refuse,
             ),
         ]),
-        NetworkLevel::ProxyTcp | NetworkLevel::Direct => None,
+        NetworkLevel::ProxyTcp => Some(vec![
+            rule(
+                "network.outbound_proxy",
+                WindowsOperation::NetworkOutboundProxy,
+                Verdict::Allow,
+            ),
+            rule(
+                "network.outbound_ip",
+                WindowsOperation::NetworkOutboundIp,
+                Verdict::Refuse,
+            ),
+            rule(
+                "network.inbound",
+                WindowsOperation::NetworkInbound,
+                Verdict::Refuse,
+            ),
+            rule(
+                "network.bind",
+                WindowsOperation::NetworkBind,
+                Verdict::Refuse,
+            ),
+            rule(
+                "desktop.default",
+                WindowsOperation::DesktopEscape,
+                Verdict::Refuse,
+            ),
+        ]),
+        NetworkLevel::Direct => Some(vec![
+            rule(
+                "network.outbound_configured",
+                WindowsOperation::NetworkOutboundConfigured,
+                Verdict::Allow,
+            ),
+            rule(
+                "network.outbound_private",
+                WindowsOperation::NetworkOutboundPrivate,
+                Verdict::Refuse,
+            ),
+            rule(
+                "network.inbound",
+                WindowsOperation::NetworkInbound,
+                Verdict::Refuse,
+            ),
+            rule(
+                "network.bind",
+                WindowsOperation::NetworkBind,
+                Verdict::Refuse,
+            ),
+            rule(
+                "desktop.default",
+                WindowsOperation::DesktopEscape,
+                Verdict::Refuse,
+            ),
+        ]),
     }
 }
 
@@ -270,13 +348,14 @@ pub fn is_appcontainer() -> bool {
     win32::is_current_process_appcontainer()
 }
 
-/// The committed Windows confinement probe table for `level` (ADR 0067);
-/// `None` for levels that wait for the filter broker (#879).
+/// The committed Windows confinement probe table for `level` (ADR 0067,
+/// issues 873 and 879).
 #[must_use]
 pub fn committed_probes(level: NetworkLevel) -> Option<&'static str> {
     match level {
         NetworkLevel::None => Some(include_str!("../probes/windows/none.toml")),
-        NetworkLevel::ProxyTcp | NetworkLevel::Direct => None,
+        NetworkLevel::ProxyTcp => Some(include_str!("../probes/windows/proxy_tcp.toml")),
+        NetworkLevel::Direct => Some(include_str!("../probes/windows/direct.toml")),
     }
 }
 

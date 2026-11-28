@@ -1840,6 +1840,14 @@ export type PluginForm = "process" | "sdk_handler" | "rust_trait" | "script_hook
  */
 export type PluginResourceLimit = "memory" | "cpu_time" | "processes" | "open_files";
 /**
+ * Which platform confinement helper `plugin.setup` verifies and installs
+ * (ADRs 0033 and 0039; issues 884 and 879).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginSetupComponent".
+ */
+export type PluginSetupComponent = "sandbox_helper" | "filter_broker";
+/**
  * Whether the state a Run index row points at is there (ADRs 0031 and
  * 0036).
  *
@@ -8895,7 +8903,7 @@ export interface PluginSettingsSchema {
   version: string;
 }
 /**
- * What `plugin.setup` takes (ADRs 0033 and 0039; issue 884).
+ * What `plugin.setup` takes (ADRs 0033 and 0039; issues 884 and 879).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "PluginSetupParams".
@@ -8906,13 +8914,19 @@ export interface PluginSetupParams {
    */
   attestation: string;
   /**
-   * Path to the `goodfetch-sandbox` helper executable to verify and install.
+   * Which confinement helper to verify and install; defaults to
+   * `filter_broker` on Windows and `sandbox_helper` on Linux.
+   */
+  component?: PluginSetupComponent | null;
+  /**
+   * Path to the `goodfetch-sandbox` helper or `goodfetch-filter-broker.exe`
+   * executable to verify and install.
    */
   helper: string;
   /**
-   * Optional path to an AppArmor profile file to verify and install. When
-   * omitted, `plugin.setup` writes the standard AppArmor profile granting
-   * `userns` exclusively to the installed helper path.
+   * Optional path to a Linux AppArmor profile file to verify and install.
+   * When omitted on Linux, `plugin.setup` writes the standard AppArmor
+   * profile granting `userns` exclusively to the installed helper path.
    */
   profile?: string | null;
   /**
@@ -8922,31 +8936,47 @@ export interface PluginSetupParams {
   profileAttestation?: string | null;
 }
 /**
- * What `plugin.setup` answers once the helper and its AppArmor profile are
- * verified and installed (ADRs 0033 and 0039; issue 884).
+ * What `plugin.setup` answers once the helper or Windows filter broker is
+ * verified and installed (ADRs 0033 and 0039; issues 884 and 879).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "PluginSetupResult".
  */
 export interface PluginSetupResult {
   /**
-   * The SHA-256 digest (`sha256:<hex>`) of the verified helper bytes.
+   * Which component was verified and installed.
+   */
+  component: PluginSetupComponent;
+  /**
+   * The SHA-256 digest (`sha256:<hex>`) of the verified binary bytes.
    */
   helperDigest: string;
   /**
-   * Where the verified `goodfetch-sandbox` helper was installed.
+   * Where the verified `goodfetch-sandbox` helper or
+   * `goodfetch-filter-broker.exe` binary was installed.
    */
   helperPath: string;
   /**
-   * Whether `apparmor_parser --replace` loaded the profile into the kernel.
+   * Whether `apparmor_parser --replace` loaded the Linux profile into the
+   * kernel.
    */
   profileLoaded: boolean;
   /**
-   * Where the AppArmor profile was installed.
+   * Where the Linux AppArmor profile was installed (empty for Windows
+   * `filter_broker`).
    */
   profilePath: string;
   /**
-   * The verified signer identity carried by the helper's attestation.
+   * Whether the Windows filter broker service was registered and started.
+   */
+  serviceInstalled?: boolean;
+  /**
+   * Windows Service Control Manager name registered for `filter_broker`, if
+   * applicable.
+   */
+  serviceName?: string | null;
+  /**
+   * The verified signer identity carried by the attestation.
    */
   signer: SignerIdentity;
 }

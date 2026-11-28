@@ -242,6 +242,11 @@ pub struct InstanceHooks {
     pub governor: Option<Governor>,
     /// Active `proxy_tcp` open stream counter for abandoned-call restart checks.
     pub proxied_streams: Option<OpenStreams>,
+    /// Cancelled when the Windows filter broker service (`goodfetch-filter-broker`)
+    /// is stopping: every dependent (`proxy_tcp` / `direct`) instance stops at
+    /// once under the crash rules, while `none` instances keep running (ADR 0033,
+    /// issue 879).
+    pub broker_stopping: Option<CancellationToken>,
 }
 
 /// Executes a `page.*` or `locator.*` call back made by a process-Plugin Hook
@@ -1123,7 +1128,7 @@ enum Exit {
 
 /// Active per-generation runtime handles dropped when a generation ends.
 struct GenerationGuards {
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
     _proxy: Option<crate::plugin_gate::PluginProxy>,
     proxied_streams: Option<OpenStreams>,
     monitor: Option<Arc<dyn ResourceMonitor>>,
@@ -1339,7 +1344,7 @@ impl Running {
         stream_rx: mpsc::Receiver<StreamEvent>,
     ) -> Exit {
         let guards = GenerationGuards {
-            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            #[cfg(any(target_os = "linux", target_os = "macos", windows))]
             _proxy: None,
             proxied_streams: self.hooks.proxied_streams.clone(),
             monitor: self.hooks.resource_monitor.clone(),
@@ -1430,7 +1435,7 @@ impl Running {
         }
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     async fn start_generation_process(
         &self,
         start: &ProcessStart,
@@ -1467,6 +1472,24 @@ impl Running {
                         username: creds.username.clone(),
                         password: creds.password.clone(),
                     });
+                    #[cfg(windows)]
+                    if launch.windows_broker.is_none() {
+                        launch.windows_broker =
+                            Some(goodfetch_confinement::windows::FilterBrokerGrant {
+                                app_container_name: format!(
+                                    "goodfetch.plugin.{}.{}",
+                                    self.config.manifest.name,
+                                    std::process::id()
+                                ),
+                                proxy_port: Some(addr.port()),
+                                allowed_destinations: Vec::new(),
+                                pipe_name: Some(
+                                    goodfetch_confinement::windows::broker::DEFAULT_PIPE_NAME
+                                        .to_owned(),
+                                ),
+                                attestation: None,
+                            });
+                    }
                     let started =
                         PluginProcess::start_with_env(&start.launcher, launch, &start.launcher_env);
                     (Some(proxy), Some(counter), started)
@@ -1474,6 +1497,25 @@ impl Running {
                 Err(error) => (None, None, Err(error)),
             }
         } else {
+            #[cfg(windows)]
+            if self.config.manifest.network_level
+                == goodfetch_protocol::plugin::NetworkLevel::Direct
+                && launch.windows_broker.is_none()
+            {
+                launch.windows_broker = Some(goodfetch_confinement::windows::FilterBrokerGrant {
+                    app_container_name: format!(
+                        "goodfetch.plugin.{}.{}",
+                        self.config.manifest.name,
+                        std::process::id()
+                    ),
+                    proxy_port: None,
+                    allowed_destinations: Vec::new(),
+                    pipe_name: Some(
+                        goodfetch_confinement::windows::broker::DEFAULT_PIPE_NAME.to_owned(),
+                    ),
+                    attestation: None,
+                });
+            }
             (
                 None,
                 self.hooks.proxied_streams.clone(),
@@ -1506,10 +1548,10 @@ impl Running {
         #[cfg(target_os = "linux")]
         let (proxy_guard, proxied_streams, started) =
             self.start_generation_process(start, &mut launch);
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", windows))]
         let (proxy_guard, proxied_streams, started) =
             self.start_generation_process(start, &mut launch).await;
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
         let (proxied_streams, started) = (
             self.hooks.proxied_streams.clone(),
             PluginProcess::start_with_env(&start.launcher, &launch, &start.launcher_env),
@@ -1537,7 +1579,7 @@ impl Running {
             .and_then(|governor| process.pid().map(|pid| governor.register_plugin(pid)));
 
         let guards = GenerationGuards {
-            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            #[cfg(any(target_os = "linux", target_os = "macos", windows))]
             _proxy: proxy_guard,
             proxied_streams,
             monitor,
@@ -1725,6 +1767,14 @@ impl Running {
         }
     }
 
+    /// Returns the broker stop token for instances that depend on the Windows
+    /// filter broker (`proxy_tcp` and `direct`), or `None` for `none`.
+    fn broker_stop_token(&self) -> Option<CancellationToken> {
+        (self.config.manifest.network_level != goodfetch_protocol::plugin::NetworkLevel::None)
+            .then(|| self.hooks.broker_stopping.clone())
+            .flatten()
+    }
+
     /// The line of its `hello`.
     fn hello_line(&self) -> Result<Vec<u8>, CallError> {
         let params = PluginHelloParams {
@@ -1770,6 +1820,7 @@ impl Running {
             }
             let ping_at = next_ping.unwrap_or_else(|| clock.now() + PING_INTERVAL);
             let sample_at = next_sample.unwrap_or_else(|| clock.now() + RESOURCE_POLL_INTERVAL);
+            let broker_stop = self.broker_stop_token();
             tokio::select! {
                 biased;
                 () = self.stopping.cancelled() => {
@@ -1779,6 +1830,15 @@ impl Running {
                         InstanceEvent::Stop
                     };
                     return Exit::Stopped(event);
+                }
+                () = wait_cancelled(broker_stop.as_ref()), if broker_stop.is_some() => {
+                    return Exit::Crashed {
+                        ping_missed: false,
+                        reason: code(
+                            &PLUGIN_CRASHED,
+                            "the Windows filter broker service is stopping",
+                        ),
+                    };
                 }
                 // Cancellations run ahead of unread stdout frames so a
                 // timed-out call is marked abandoned before any late result
@@ -2781,6 +2841,14 @@ fn cancelled() -> CallError {
         &CALL_CANCELLED,
         "the Plugin's instance stopped with its run or its task",
     )
+}
+
+async fn wait_cancelled(token: Option<&CancellationToken>) {
+    if let Some(token) = token {
+        token.cancelled().await;
+    } else {
+        std::future::pending::<()>().await;
+    }
 }
 
 #[cfg(test)]

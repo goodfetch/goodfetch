@@ -77,7 +77,7 @@ const FAULTS: &[(Fault, u8)] = &[
     (Fault::ErrorOutOfRange, 245),
 ];
 
-/// Win32 / WinSock error codes mapped to the canonical probe `Errno` values.
+/// Win32 / `WinSock` error codes mapped to the canonical probe `Errno` values.
 const WIN32_ERROR_FILE_NOT_FOUND: i32 = 2;
 const WIN32_ERROR_PATH_NOT_FOUND: i32 = 3;
 const WIN32_ERROR_ACCESS_DENIED: i32 = 5;
@@ -88,7 +88,7 @@ const WSAEACCES: i32 = 10013;
 const WSAEOPNOTSUPP: i32 = 10045;
 
 impl Report {
-    /// Maps a Win32 or WinSock OS error code into a [`Report`].
+    /// Maps a Win32 or `WinSock` OS error code into a [`Report`].
     #[must_use]
     pub fn win32_error(code: i32) -> Self {
         match code {

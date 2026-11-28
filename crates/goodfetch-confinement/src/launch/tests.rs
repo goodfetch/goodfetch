@@ -26,6 +26,7 @@ fn launch(env: &[(&str, &str)]) -> Launch {
         folder: PathBuf::from("/instance/tmp"),
         proxy_relay: None,
         proxy_loopback: None,
+        windows_broker: None,
         reduced_confinement: false,
     }
 }

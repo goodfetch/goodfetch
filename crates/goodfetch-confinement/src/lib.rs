@@ -9,6 +9,7 @@
 //! `goodfetch-sandbox` helper and the filter broker link it too, so it
 //! depends on nothing of the engine (spec #596).
 
+pub mod attestation;
 pub mod deny_list;
 pub mod host;
 pub mod launch;

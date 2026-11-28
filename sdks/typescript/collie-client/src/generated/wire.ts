@@ -426,7 +426,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "PluginRun": { fields: { "confinement_missing": "confinementMissing", "network_level": "networkLevel" } },
     "PluginSearchResult": { fields: { "expires_at": "expiresAt", "index_version": "indexVersion", "plugins": ["plugins", { items: { type: "IndexEntry" } }] } },
     "PluginSetupParams": { fields: { "profile_attestation": "profileAttestation" } },
-    "PluginSetupResult": { fields: { "helper_digest": "helperDigest", "helper_path": "helperPath", "profile_loaded": "profileLoaded", "profile_path": "profilePath" } },
+    "PluginSetupResult": { fields: { "helper_digest": "helperDigest", "helper_path": "helperPath", "profile_loaded": "profileLoaded", "profile_path": "profilePath", "service_installed": "serviceInstalled", "service_name": "serviceName" } },
     "PluginSignerChangedDetails": { fields: { "found_signer": "foundSigner", "previous_signer": "previousSigner" } },
     "PluginUnitUsage": { fields: { "from_plugin": "fromPlugin" } },
     "PluginUpdateParams": { fields: { "approve_signer_change": "approveSignerChange" } },

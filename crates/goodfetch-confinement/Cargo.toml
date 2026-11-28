@@ -11,10 +11,14 @@ publish.workspace = true
 # Nothing of the engine: the `goodfetch-sandbox` helper and the filter broker
 # link this crate and must never link the engine (spec #596, crate reason 2).
 [dependencies]
+data-encoding.workspace = true
+ed25519-dalek.workspace = true
 goodfetch-protocol.workspace = true
 serde.workspace = true
 # The probe executable's request, its one argument.
 serde_json.workspace = true
+serde_json_canonicalizer.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 toml.workspace = true
 goodfetch-workspace-hack.workspace = true
@@ -29,10 +33,12 @@ seccompiler.workspace = true
 libc.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-# Windows confinement (ADR 0033, issue 873): AppContainer, restricted token,
-# Job Object, alternate desktop, ACL grants, and I/O completion port monitoring.
+# Windows confinement (ADR 0033, issues 873 and 879): AppContainer, restricted
+# token, Job Object, alternate desktop, ACL grants, I/O completion port
+# monitoring, and filter broker named-pipe client.
 windows-sys = { workspace = true, features = [
     "Win32_Foundation",
+    "Win32_Graphics_Gdi",
     "Win32_Security",
     "Win32_Security_Authorization",
     "Win32_Security_Isolation",
@@ -40,6 +46,7 @@ windows-sys = { workspace = true, features = [
     "Win32_System_Console",
     "Win32_System_IO",
     "Win32_System_JobObjects",
+    "Win32_System_Pipes",
     "Win32_System_StationsAndDesktops",
     "Win32_System_SystemServices",
     "Win32_System_Threading",

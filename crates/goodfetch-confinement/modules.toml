@@ -1,5 +1,6 @@
 # Which of goodfetch-confinement's top-level modules may import which (ADR 0126).
 [modules]
+attestation = []
 deny_list = []
 host = []
 launch = ["linux", "macos", "policy", "windows"]

@@ -521,6 +521,14 @@ mod macos {
     unsafe_code,
     reason = "Windows confinement probe invokes Win32 OpenProcess and OpenDesktopW to verify exact AppContainer/desktop access-denied outcomes"
 )]
+#[expect(
+    clippy::disallowed_types,
+    reason = "standalone probe executable tests real OS TCP bind/connect enforcement inside confinement"
+)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "standalone probe executable performs direct synchronous file, process and sleep syscalls inside confinement"
+)]
 mod windows {
     use std::ffi::OsStr;
     use std::fs::OpenOptions;
@@ -597,16 +605,21 @@ mod windows {
                     .status()
                 {
                     Ok(_) => Report::Outcome(Outcome::Ok),
-                    Err(error) => io_report(error),
+                    Err(error) => io_report(&error),
                 }
             }
             Probe::HoldHandles { dir, count } => {
                 let mut files = Vec::new();
                 for i in 0..count {
                     let path = dir.join(format!("h-{i}.tmp"));
-                    match OpenOptions::new().create(true).write(true).open(&path) {
+                    match OpenOptions::new()
+                        .create(true)
+                        .write(true)
+                        .truncate(true)
+                        .open(&path)
+                    {
                         Ok(file) => files.push(file),
-                        Err(error) => return io_report(error),
+                        Err(error) => return io_report(&error),
                     }
                 }
                 // Hold briefly so the launcher's Job Object handle monitor
@@ -624,13 +637,16 @@ mod windows {
         parent_pid: Option<u32>,
     ) -> Report {
         match operation {
-            WindowsOperation::NetworkOutboundIp => {
+            WindowsOperation::NetworkOutboundIp
+            | WindowsOperation::NetworkOutboundProxy
+            | WindowsOperation::NetworkOutboundConfigured
+            | WindowsOperation::NetworkOutboundPrivate => {
                 let Some(port) = port else {
                     return Report::Fault(Fault::Request);
                 };
                 match TcpStream::connect(("127.0.0.1", port)) {
                     Ok(_) => Report::Outcome(Outcome::Ok),
-                    Err(error) => io_report(error),
+                    Err(error) => io_report(&error),
                 }
             }
             WindowsOperation::NetworkInbound => match TcpListener::bind(("127.0.0.1", 0)) {
@@ -638,11 +654,11 @@ mod windows {
                     let _ = listener.set_nonblocking(true);
                     Report::Outcome(Outcome::Ok)
                 }
-                Err(error) => io_report(error),
+                Err(error) => io_report(&error),
             },
             WindowsOperation::NetworkBind => match TcpListener::bind(("127.0.0.1", 0)) {
                 Ok(_) => Report::Outcome(Outcome::Ok),
-                Err(error) => io_report(error),
+                Err(error) => io_report(&error),
             },
             WindowsOperation::DesktopEscape => {
                 let wide: Vec<u16> = OsStr::new("Default")
@@ -652,7 +668,7 @@ mod windows {
                 // SAFETY: `wide` is a NUL-terminated UTF-16 string.
                 let desk = unsafe { OpenDesktopW(wide.as_ptr(), 0, FALSE, DESKTOP_READOBJECTS) };
                 if desk.is_null() {
-                    io_report(std::io::Error::last_os_error())
+                    io_report(&std::io::Error::last_os_error())
                 } else {
                     // SAFETY: closes the desktop handle just opened.
                     unsafe {
@@ -669,7 +685,7 @@ mod windows {
                 // termination (Windows equivalent of `kill(parent, 0)`).
                 let handle = unsafe { OpenProcess(PROCESS_TERMINATE, FALSE, pid) };
                 if handle.is_null() {
-                    io_report(std::io::Error::last_os_error())
+                    io_report(&std::io::Error::last_os_error())
                 } else {
                     // SAFETY: closes the process handle just opened.
                     unsafe {
@@ -692,11 +708,11 @@ mod windows {
         };
         match result {
             Ok(_) => Report::Outcome(Outcome::Ok),
-            Err(error) => io_report(error),
+            Err(error) => io_report(&error),
         }
     }
 
-    fn io_report(error: std::io::Error) -> Report {
+    fn io_report(error: &std::io::Error) -> Report {
         error
             .raw_os_error()
             .map_or(Report::Fault(Fault::ErrorOutOfRange), Report::win32_error)

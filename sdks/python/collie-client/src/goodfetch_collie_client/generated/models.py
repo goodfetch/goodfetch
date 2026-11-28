@@ -3577,21 +3577,47 @@ class PluginSettingsSchema(BaseModel):
     """The version installed."""
 
 
+class PluginSetupComponent(StrEnum):
+    """
+    Which platform confinement helper `plugin.setup` verifies and installs
+    (ADRs 0033 and 0039; issues 884 and 879).
+    """
+
+    sandbox_helper = "sandbox_helper"
+    """
+    Root-owned, non-setuid Linux `goodfetch-sandbox` helper and its
+    AppArmor profile granting `userns` on Ubuntu 23.10 and later.
+    """
+    filter_broker = "filter_broker"
+    """
+    Elevated Windows `goodfetch-filter-broker` service managing persistent
+    Windows Filtering Platform filters for `proxy_tcp` and `direct`.
+    """
+
+
 class PluginSetupParams(BaseModel):
-    """What `plugin.setup` takes (ADRs 0033 and 0039; issue 884)."""
+    """What `plugin.setup` takes (ADRs 0033 and 0039; issues 884 and 879)."""
 
     model_config = ConfigDict(
         extra="forbid",
     )
     attestation: str
     """Path to the Sigstore provenance attestation JSON for `helper`."""
+    component: PluginSetupComponent | None = None
+    """
+    Which confinement helper to verify and install; defaults to
+    `filter_broker` on Windows and `sandbox_helper` on Linux.
+    """
     helper: str
-    """Path to the `goodfetch-sandbox` helper executable to verify and install."""
+    """
+    Path to the `goodfetch-sandbox` helper or `goodfetch-filter-broker.exe`
+    executable to verify and install.
+    """
     profile: str | None = None
     """
-    Optional path to an AppArmor profile file to verify and install. When
-    omitted, `plugin.setup` writes the standard AppArmor profile granting
-    `userns` exclusively to the installed helper path.
+    Optional path to a Linux AppArmor profile file to verify and install.
+    When omitted on Linux, `plugin.setup` writes the standard AppArmor
+    profile granting `userns` exclusively to the installed helper path.
     """
     profile_attestation: str | None = None
     """
@@ -9209,23 +9235,41 @@ class PluginSearchResult(BaseModel):
 
 class PluginSetupResult(BaseModel):
     """
-    What `plugin.setup` answers once the helper and its AppArmor profile are
-    verified and installed (ADRs 0033 and 0039; issue 884).
+    What `plugin.setup` answers once the helper or Windows filter broker is
+    verified and installed (ADRs 0033 and 0039; issues 884 and 879).
     """
 
     model_config = ConfigDict(
         extra="allow",
     )
+    component: PluginSetupComponent
+    """Which component was verified and installed."""
     helper_digest: str
-    """The SHA-256 digest (`sha256:<hex>`) of the verified helper bytes."""
+    """The SHA-256 digest (`sha256:<hex>`) of the verified binary bytes."""
     helper_path: str
-    """Where the verified `goodfetch-sandbox` helper was installed."""
+    """
+    Where the verified `goodfetch-sandbox` helper or
+    `goodfetch-filter-broker.exe` binary was installed.
+    """
     profile_loaded: bool
-    """Whether `apparmor_parser --replace` loaded the profile into the kernel."""
+    """
+    Whether `apparmor_parser --replace` loaded the Linux profile into the
+    kernel.
+    """
     profile_path: str
-    """Where the AppArmor profile was installed."""
+    """
+    Where the Linux AppArmor profile was installed (empty for Windows
+    `filter_broker`).
+    """
+    service_installed: bool | None = False
+    """Whether the Windows filter broker service was registered and started."""
+    service_name: str | None = None
+    """
+    Windows Service Control Manager name registered for `filter_broker`, if
+    applicable.
+    """
     signer: SignerIdentity
-    """The verified signer identity carried by the helper's attestation."""
+    """The verified signer identity carried by the attestation."""
 
 
 class PluginSignerChangedDetails(BaseModel):

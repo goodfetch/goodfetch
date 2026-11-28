@@ -14821,9 +14821,24 @@
       ],
       "type": "object"
     },
+    "PluginSetupComponent": {
+      "description": "Which platform confinement helper `plugin.setup` verifies and installs\n(ADRs 0033 and 0039; issues 884 and 879).",
+      "oneOf": [
+        {
+          "const": "sandbox_helper",
+          "description": "Root-owned, non-setuid Linux `goodfetch-sandbox` helper and its\nAppArmor profile granting `userns` on Ubuntu 23.10 and later.",
+          "type": "string"
+        },
+        {
+          "const": "filter_broker",
+          "description": "Elevated Windows `goodfetch-filter-broker` service managing persistent\nWindows Filtering Platform filters for `proxy_tcp` and `direct`.",
+          "type": "string"
+        }
+      ]
+    },
     "PluginSetupParams": {
       "additionalProperties": false,
-      "description": "What `plugin.setup` takes (ADRs 0033 and 0039; issue 884).",
+      "description": "What `plugin.setup` takes (ADRs 0033 and 0039; issues 884 and 879).",
       "properties": {
         "_meta": {
           "$ref": "#/$defs/RequestMeta",
@@ -14834,14 +14849,26 @@
           "description": "Path to the Sigstore provenance attestation JSON for `helper`.",
           "type": "string"
         },
+        "component": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PluginSetupComponent"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Which confinement helper to verify and install; defaults to\n`filter_broker` on Windows and `sandbox_helper` on Linux."
+        },
         "helper": {
           "arrived_in": "0.1",
-          "description": "Path to the `goodfetch-sandbox` helper executable to verify and install.",
+          "description": "Path to the `goodfetch-sandbox` helper or `goodfetch-filter-broker.exe`\nexecutable to verify and install.",
           "type": "string"
         },
         "profile": {
           "arrived_in": "0.1",
-          "description": "Optional path to an AppArmor profile file to verify and install. When\nomitted, `plugin.setup` writes the standard AppArmor profile granting\n`userns` exclusively to the installed helper path.",
+          "description": "Optional path to a Linux AppArmor profile file to verify and install.\nWhen omitted on Linux, `plugin.setup` writes the standard AppArmor\nprofile granting `userns` exclusively to the installed helper path.",
           "type": [
             "string",
             "null"
@@ -14863,35 +14890,55 @@
       "type": "object"
     },
     "PluginSetupResult": {
-      "description": "What `plugin.setup` answers once the helper and its AppArmor profile are\nverified and installed (ADRs 0033 and 0039; issue 884).",
+      "description": "What `plugin.setup` answers once the helper or Windows filter broker is\nverified and installed (ADRs 0033 and 0039; issues 884 and 879).",
       "properties": {
+        "component": {
+          "$ref": "#/$defs/PluginSetupComponent",
+          "arrived_in": "0.1",
+          "description": "Which component was verified and installed."
+        },
         "helper_digest": {
           "arrived_in": "0.1",
-          "description": "The SHA-256 digest (`sha256:<hex>`) of the verified helper bytes.",
+          "description": "The SHA-256 digest (`sha256:<hex>`) of the verified binary bytes.",
           "type": "string"
         },
         "helper_path": {
           "arrived_in": "0.1",
-          "description": "Where the verified `goodfetch-sandbox` helper was installed.",
+          "description": "Where the verified `goodfetch-sandbox` helper or\n`goodfetch-filter-broker.exe` binary was installed.",
           "type": "string"
         },
         "profile_loaded": {
           "arrived_in": "0.1",
-          "description": "Whether `apparmor_parser --replace` loaded the profile into the kernel.",
+          "description": "Whether `apparmor_parser --replace` loaded the Linux profile into the\nkernel.",
           "type": "boolean"
         },
         "profile_path": {
           "arrived_in": "0.1",
-          "description": "Where the AppArmor profile was installed.",
+          "description": "Where the Linux AppArmor profile was installed (empty for Windows\n`filter_broker`).",
           "type": "string"
+        },
+        "service_installed": {
+          "arrived_in": "0.1",
+          "default": false,
+          "description": "Whether the Windows filter broker service was registered and started.",
+          "type": "boolean"
+        },
+        "service_name": {
+          "arrived_in": "0.1",
+          "description": "Windows Service Control Manager name registered for `filter_broker`, if\napplicable.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "signer": {
           "$ref": "#/$defs/SignerIdentity",
           "arrived_in": "0.1",
-          "description": "The verified signer identity carried by the helper's attestation."
+          "description": "The verified signer identity carried by the attestation."
         }
       },
       "required": [
+        "component",
         "helper_path",
         "helper_digest",
         "profile_path",
@@ -30117,7 +30164,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Verifies the Sigstore provenance attestation of the Linux `goodfetch-sandbox` helper (and optional AppArmor profile) against the bundled trust root, then installs a non-setuid copy of the helper and its AppArmor profile granting `userns` on Ubuntu 23.10 and later. Refuses with `plugin_attestation_invalid` and writes nothing when verification fails. Offered to a person only, never to an agent or a program (ADR 0099): any other surface is refused with `person_required`.",
+      "description": "Verifies the Sigstore provenance attestation of the platform confinement helper (`goodfetch-sandbox` and optional AppArmor profile on Linux, or `goodfetch-filter-broker` Windows service on Windows) against the bundled trust root, then installs it. Refuses with `plugin_attestation_invalid` and writes nothing when verification fails. Offered to a person only, never to an agent or a program (ADR 0099): any other surface is refused with `person_required`.",
       "events": [],
       "kind": "round_trip",
       "name": "plugin.setup",

@@ -80,6 +80,7 @@ impl Plugin {
             folder: self.layout.instance.clone(),
             proxy_relay: None,
             proxy_loopback: None,
+            windows_broker: None,
             reduced_confinement: false,
         };
         let status = Command::new(PROBE)

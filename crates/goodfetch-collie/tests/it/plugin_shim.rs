@@ -430,6 +430,7 @@ fn build_proxy_tcp_launch() -> (tempfile::TempDir, PluginManifest, Launch) {
         folder: layout.instance.clone(),
         proxy_relay: None,
         proxy_loopback: None,
+        windows_broker: None,
         reduced_confinement: false,
     };
     (plugin_root, manifest, launch)

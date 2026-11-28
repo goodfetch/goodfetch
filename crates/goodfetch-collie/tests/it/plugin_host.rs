@@ -136,6 +136,7 @@ impl Plugin {
             folder: layout.instance.clone(),
             proxy_relay: None,
             proxy_loopback: None,
+            windows_broker: None,
             reduced_confinement: false,
         };
         Self {
@@ -805,6 +806,7 @@ fn proxy_tcp_plugin() -> Plugin {
         folder: layout.instance.clone(),
         proxy_relay: None,
         proxy_loopback: None,
+        windows_broker: None,
         reduced_confinement: false,
     };
     Plugin {
@@ -981,6 +983,7 @@ fn plugin_with_limits(limits: &Value, script: &Value) -> Plugin {
         folder: layout.instance.clone(),
         proxy_relay: None,
         proxy_loopback: None,
+        windows_broker: None,
         reduced_confinement: false,
     };
     Plugin {

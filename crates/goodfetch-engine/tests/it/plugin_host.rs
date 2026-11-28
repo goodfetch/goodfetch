@@ -1106,3 +1106,112 @@ async fn each_resource_limit_kills_with_plugin_limit_exceeded_under_crash_rules(
     instance.stop().await;
     root.stop().await;
 }
+
+async fn accept_hello_with_level(peer: &mut Peer, name: &str, level: &str) {
+    let hello = peer.read().await;
+    peer.send(&json!({
+        "jsonrpc": "2.0",
+        "id": hello["id"],
+        "result": {
+            "protocol_version": "0.1",
+            "name": name,
+            "version": "1.0.0",
+            "kinds": [{ "kind": "proxy", "capabilities": [] }],
+            "network_level": level,
+        }
+    }))
+    .await;
+}
+
+/// Before the Windows filter broker service stops, the engine stops every
+/// dependent (`proxy_tcp` / `direct`) Plugin instance under the crash rules
+/// (`plugin_crashed`), while a `none` instance that does not depend on the
+/// broker keeps running (ADR 0033, issue 879).
+///
+/// Covers: story:7-112
+#[tokio::test(start_paused = true)]
+async fn filter_broker_stop_ends_dependent_instances_under_crash_rules_while_none_keeps_running() {
+    use tokio_util::sync::CancellationToken;
+
+    let clock = Clock::paused(SystemTime::UNIX_EPOCH);
+    let root = TaskOwner::root(BlockingPolicy::Threads);
+    let broker_stopping = CancellationToken::new();
+
+    let start_level = |level: &str| {
+        let manifest_json = json!({
+            "manifest_version": "0.1",
+            "name": format!("plugin-{level}"),
+            "version": "1.0.0",
+            "kinds": ["proxy"],
+            "protocol": { "min": "0.1", "max": "0.1" },
+            "entrypoint": "plugin",
+            "network_level": level,
+        });
+        let manifest = PluginManifest::read(manifest_json.to_string().as_bytes()).unwrap();
+        let settings = resolve(&Layers::default(), Product::Collie, Product::Collie).unwrap();
+        let fetch =
+            PluginFetch::of(&settings, &manifest.name, clock, root.blocking_threads()).unwrap();
+        PluginInstance::start_in_memory_restarting(
+            &root,
+            InMemoryPlugin {
+                manifest,
+                product: Product::Collie,
+                fetch: Arc::new(fetch),
+                clock,
+                spend: None,
+            },
+            Scope::Task(None),
+            InstanceHooks {
+                broker_stopping: Some(broker_stopping.clone()),
+                ..InstanceHooks::default()
+            },
+        )
+    };
+
+    let (proxy_instance, mut proxy_peers) = start_level("proxy_tcp");
+    let (none_instance, mut none_peers) = start_level("none");
+    let mut proxy_peer = next_peer(&mut proxy_peers).await;
+    let mut none_peer = next_peer(&mut none_peers).await;
+
+    accept_hello_with_level(&mut proxy_peer, "plugin-proxy_tcp", "proxy_tcp").await;
+    accept_hello_with_level(&mut none_peer, "plugin-none", "none").await;
+
+    let spawn_work = |inst: PluginInstance| {
+        tokio::spawn(async move {
+            inst.call_under(
+                "work.run",
+                &json!({}),
+                CallOptions::read(Deadline::declared(&TIMEOUT_PLUGIN)),
+            )
+            .await
+        })
+    };
+    let proxy_call = spawn_work(proxy_instance.clone());
+    let none_call = spawn_work(none_instance.clone());
+
+    let _proxy_req = proxy_peer.read().await;
+    let none_req = none_peer.read().await;
+
+    broker_stopping.cancel();
+
+    // `proxy_tcp` instance immediately ends under crash rules (`plugin_crashed`).
+    let Err(CallFailure::Unavailable(err)) = proxy_call.await.unwrap() else {
+        panic!("expected proxy_tcp call to fail with plugin_crashed when broker stops");
+    };
+    assert_eq!(err.code(), "plugin_crashed");
+    assert!(err.retryable());
+
+    // `none` instance is NOT dependent on the filter broker and answers normally.
+    none_peer
+        .send(&json!({
+            "jsonrpc": "2.0",
+            "id": none_req["id"],
+            "result": { "ok": true }
+        }))
+        .await;
+    assert!(none_call.await.unwrap().is_ok());
+
+    proxy_instance.stop().await;
+    none_instance.stop().await;
+    root.stop().await;
+}

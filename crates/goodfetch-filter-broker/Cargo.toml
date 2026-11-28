@@ -1,0 +1,47 @@
+[package]
+name = "goodfetch-filter-broker"
+description = "Windows Filtering Platform filter broker service for Goodfetch Plugins (ADRs 0033 and 0039): installs and removes persistent WFP filters scoped to one live AppContainer behind an installing-user-only named pipe, verifies callers against a Goodfetch release attestation, terminates exiting engines' job objects, and logs every filter change to the Windows Event Log."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# Links goodfetch-confinement and never goodfetch-engine (ADR 0033, issue 879).
+[dependencies]
+goodfetch-confinement.workspace = true
+goodfetch-protocol.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+goodfetch-workspace-hack.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_NetworkManagement_WindowsFilteringPlatform",
+    "Win32_NetworkManagement_WindowsFirewall",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Security_Isolation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_EventLog",
+    "Win32_System_IO",
+    "Win32_System_JobObjects",
+    "Win32_System_Pipes",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Rpc",
+    "Win32_System_Services",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+goodfetch-dev-workspace-hack.workspace = true
+rstest.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

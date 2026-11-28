@@ -2629,6 +2629,8 @@ dependencies = [
 name = "goodfetch-confinement"
 version = "0.0.0"
 dependencies = [
+ "data-encoding",
+ "ed25519-dalek",
  "goodfetch-dev-workspace-hack",
  "goodfetch-protocol",
  "goodfetch-workspace-hack",
@@ -2638,6 +2640,8 @@ dependencies = [
  "seccompiler",
  "serde",
  "serde_json",
+ "serde_json_canonicalizer",
+ "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.21",
  "toml 1.1.8+spec-1.1.0",
@@ -3087,6 +3091,23 @@ dependencies = [
  "wreq-proto",
  "wreq-util",
  "zstd",
+]
+
+[[package]]
+name = "goodfetch-filter-broker"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-confinement",
+ "goodfetch-dev-workspace-hack",
+ "goodfetch-protocol",
+ "goodfetch-workspace-hack",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tracing",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

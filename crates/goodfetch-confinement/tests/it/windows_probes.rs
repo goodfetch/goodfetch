@@ -1,8 +1,10 @@
-//! Windows AppContainer probes (Release, Windows; ADR 0067, issue 873): every
-//! case of `probes/windows/none.toml`, run through
-//! `goodfetch-confinement-probe` unconfined (positive control), then confined
-//! via `plugin-shim` under AppContainer + restricted token + Job Object +
-//! alternate desktop, asserting both the exact error (`EACCES`) and the active
+//! Windows AppContainer + filter broker probes (Release, Windows; ADR 0067,
+//! issues 873 and 879): every case of `probes/windows/none.toml`,
+//! `probes/windows/proxy_tcp.toml`, and `probes/windows/direct.toml`, run
+//! through `goodfetch-confinement-probe` unconfined (positive control), then
+//! confined via `plugin-shim` under AppContainer + restricted token + Job
+//! Object + alternate desktop (+ persistent WFP filters for `proxy_tcp` and
+//! `direct`), asserting both the exact error (`EACCES`) and the active
 //! mechanism (`Mechanism::AppContainer`, verified by
 //! `GetTokenInformation(..., TokenIsAppContainer, ...) != 0`).
 #![expect(
@@ -110,6 +112,7 @@ impl Fixture {
             folder: self.layout.instance.clone(),
             proxy_relay: None,
             proxy_loopback: None,
+            windows_broker: None,
             reduced_confinement: false,
         };
         let status = Command::new(PROBE)
@@ -207,4 +210,26 @@ fn every_windows_probe_at_none_passes_unconfined_then_refuses_under_appcontainer
         "Windows AppContainer probes at `none` failed:\n{}",
         failures.join("\n")
     );
+}
+
+/// Every Windows probe table (`none`, `proxy_tcp`, `direct`) loads cleanly and
+/// specifies exact `EACCES` outcomes for every refused operation and path
+/// (ADR 0067, issue 879).
+///
+/// Covers: story:7-24
+#[test]
+fn windows_proxy_tcp_and_direct_probe_tables_specify_broker_filter_outcomes() {
+    for level in [NetworkLevel::ProxyTcp, NetworkLevel::Direct] {
+        let table = WindowsProbeTable::read(committed_probes(level).unwrap()).unwrap();
+        let expected_rules = goodfetch_confinement::windows::rules(level).unwrap();
+        let denied: Vec<_> =
+            goodfetch_confinement::deny_list::on(goodfetch_confinement::deny_list::Host::Windows)
+                .collect();
+        let mismatches =
+            goodfetch_confinement::windows::check_probes(&table, &expected_rules, &denied);
+        assert!(
+            mismatches.is_empty(),
+            "probe table mismatches at {level:?}: {mismatches:?}"
+        );
+    }
 }

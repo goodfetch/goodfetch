@@ -69,10 +69,15 @@ pub struct Launch {
     /// an isolated network namespace to the engine's per-instance proxy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proxy_relay: Option<ProxyRelay>,
-    /// Present for `proxy_tcp` on macOS where Seatbelt allows outgoing TCP to
-    /// the engine's loopback proxy port alone.
+    /// Present for `proxy_tcp` on macOS and Windows where confinement allows
+    /// outgoing TCP to the engine's loopback proxy port alone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proxy_loopback: Option<ProxyLoopback>,
+    /// Present for `proxy_tcp` and `direct` on Windows to bind the instance to
+    /// its `goodfetch-filter-broker` persistent WFP filters (ADR 0033,
+    /// issue 879).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub windows_broker: Option<crate::windows::FilterBrokerGrant>,
     /// When `true`, apply every confinement layer the host offers instead of
     /// failing with `Unavailable` when a layer is missing: set only for a
     /// first-party Plugin whose Operator policy sets
@@ -405,7 +410,7 @@ fn start(launch: &Launch) -> LaunchError {
     LaunchError::Start(error)
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
 fn push_proxy_env(env: &mut Vec<(String, String)>, username: &str, password: &str, port: u16) {
     let http_url = format!("http://{username}:{password}@127.0.0.1:{port}");
     let socks_url = format!("socks5h://{username}:{password}@127.0.0.1:{port}");
@@ -434,16 +439,30 @@ impl From<crate::windows::ConfineError> for LaunchError {
 
 #[cfg(windows)]
 fn start(launch: &Launch) -> LaunchError {
-    let env: Vec<(&str, &str)> = launch.env().collect();
+    let mut env_owned: Vec<(String, String)> = launch
+        .env()
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect();
+    if let Some(proxy) = &launch.proxy_loopback {
+        push_proxy_env(&mut env_owned, &proxy.username, &proxy.password, proxy.port);
+    }
+    let env: Vec<(&str, &str)> = env_owned
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
     let spec = crate::windows::ProcessSpec {
         policy: &launch.policy,
         program: &launch.program,
         args: &launch.args,
         folder: &launch.folder,
         env: &env,
-        broker_grant: None,
+        broker_grant: launch.windows_broker.as_ref(),
     };
     match crate::windows::run_confined(&spec) {
+        #[expect(
+            clippy::exit,
+            reason = "Windows confinement wrapper exits with the confined child's status (ADR 0033)"
+        )]
         Ok(exit_code) => std::process::exit(exit_code),
         Err(error) => error.into(),
     }

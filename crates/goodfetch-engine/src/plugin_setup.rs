@@ -17,14 +17,17 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use data_encoding::HEXLOWER;
+pub use goodfetch_confinement::attestation::release_signer;
+use goodfetch_confinement::attestation::sha256_digest;
+use goodfetch_confinement::windows::broker::{BROKER_SERVICE_NAME, DEFAULT_BROKER_DEST};
 use goodfetch_protocol::checkpoint::{FILE_WRITE_FAILED, FileWriteFailedDetails, WriteSide};
 use goodfetch_protocol::plugin::add::{
     AttestationFailureReason, PLUGIN_ATTESTATION_INVALID, PluginAttestationInvalidDetails,
 };
 use goodfetch_protocol::plugin::index::{ProvenanceAttestation, SignerIdentity};
-use goodfetch_protocol::plugin::setup::{PLUGIN_SETUP, PluginSetupParams, PluginSetupResult};
-use sha2::{Digest as _, Sha256};
+use goodfetch_protocol::plugin::setup::{
+    PLUGIN_SETUP, PluginSetupComponent, PluginSetupParams, PluginSetupResult,
+};
 
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
@@ -38,17 +41,6 @@ pub const DEFAULT_HELPER_DEST: &str = "/usr/local/libexec/goodfetch/goodfetch-sa
 /// Default installation path of `goodfetch-sandbox`'s AppArmor profile on
 /// Ubuntu 23.10 and later.
 pub const DEFAULT_PROFILE_DEST: &str = "/etc/apparmor.d/goodfetch-sandbox";
-
-/// Expected Sigstore signer identity for official Goodfetch release artifacts
-/// (ADR 0039).
-#[must_use]
-pub fn release_signer() -> SignerIdentity {
-    SignerIdentity {
-        repository: "goodfetch/goodfetch".to_owned(),
-        workflow: ".github/workflows/release.yml".to_owned(),
-        issuer: "https://token.actions.githubusercontent.com".to_owned(),
-    }
-}
 
 /// Generates the standard AppArmor profile granting `userns` exclusively to
 /// the installed `goodfetch-sandbox` helper at `helper_path` (ADRs 0033 and
@@ -75,26 +67,58 @@ pub fn apparmor_profile_for(helper_path: &Path) -> String {
 /// temporary paths and a test signer (ADR 0059).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SetupTarget {
-    /// Destination path for the installed `goodfetch-sandbox` helper.
+    /// Destination path for the installed `goodfetch-sandbox` helper (Linux)
+    /// or `goodfetch-filter-broker.exe` binary (Windows).
     pub helper_dest: PathBuf,
-    /// Destination path for the AppArmor profile.
+    /// Destination path for the Linux AppArmor profile.
     pub profile_dest: PathBuf,
     /// Expected release signer identity carried by the attestation.
     pub expected_signer: SignerIdentity,
-    /// Whether to invoke `apparmor_parser --replace` after writing the profile.
+    /// Whether to invoke `apparmor_parser --replace` after writing the Linux
+    /// profile.
     pub load_profile: bool,
+    /// Whether to register and start the `GoodfetchFilterBroker` Windows
+    /// service after writing `goodfetch-filter-broker.exe`.
+    pub register_service: bool,
 }
 
 impl SetupTarget {
-    /// The production system installation target on Linux.
+    /// The production system installation target for `component`.
     #[must_use]
     pub fn system() -> Self {
-        Self {
-            helper_dest: PathBuf::from(DEFAULT_HELPER_DEST),
-            profile_dest: PathBuf::from(DEFAULT_PROFILE_DEST),
-            expected_signer: release_signer(),
-            load_profile: cfg!(target_os = "linux"),
+        Self::system_for(default_component())
+    }
+
+    /// The production system installation target for an explicit `component`.
+    #[must_use]
+    pub fn system_for(component: PluginSetupComponent) -> Self {
+        match component {
+            PluginSetupComponent::SandboxHelper => Self {
+                helper_dest: PathBuf::from(DEFAULT_HELPER_DEST),
+                profile_dest: PathBuf::from(DEFAULT_PROFILE_DEST),
+                expected_signer: release_signer(),
+                load_profile: cfg!(target_os = "linux"),
+                register_service: false,
+            },
+            PluginSetupComponent::FilterBroker => Self {
+                helper_dest: PathBuf::from(DEFAULT_BROKER_DEST),
+                profile_dest: PathBuf::new(),
+                expected_signer: release_signer(),
+                load_profile: false,
+                register_service: cfg!(windows),
+            },
         }
+    }
+}
+
+/// Platform default component for `plugin setup` (`FilterBroker` on Windows,
+/// `SandboxHelper` on Linux/other Unix).
+#[must_use]
+pub const fn default_component() -> PluginSetupComponent {
+    if cfg!(windows) {
+        PluginSetupComponent::FilterBroker
+    } else {
+        PluginSetupComponent::SandboxHelper
     }
 }
 
@@ -108,7 +132,8 @@ async fn setup_operation(
     context: CallContext,
 ) -> Result<PluginSetupResult, CallError> {
     let trust = context.engine().plugin_attestation_trust_root().clone();
-    let target = SetupTarget::system();
+    let component = params.component.unwrap_or_else(default_component);
+    let target = SetupTarget::system_for(component);
     context
         .engine()
         .owner()
@@ -117,77 +142,139 @@ async fn setup_operation(
         .await
 }
 
-/// Verifies the Sigstore provenance attestation of the helper (and optional
-/// AppArmor profile) in memory under `trust` and `target.expected_signer`,
-/// then atomically installs the non-setuid helper and profile to `target`.
+/// Verifies the Sigstore provenance attestation of the helper/broker (and
+/// optional Linux AppArmor profile) in memory under `trust` and
+/// `target.expected_signer`, then atomically installs it to `target`.
 ///
 /// # Errors
 ///
-/// - `plugin_attestation_invalid` when the helper or profile attestation is
-///   missing, malformed, has an invalid signature, mismatches the digest, or
-///   mismatches `target.expected_signer`. Nothing is written to disk.
-/// - `file_write_failed` when writing the helper or profile or running
-///   `apparmor_parser` fails.
+/// - `plugin_attestation_invalid` when the attestation is missing, malformed,
+///   has an invalid signature, mismatches the digest, or mismatches
+///   `target.expected_signer`. Nothing is written to disk.
+/// - `file_write_failed` when writing the binary/profile or registering the
+///   platform helper/service fails.
 pub fn install_verified(
     params: &PluginSetupParams,
     trust: &AttestationTrustRoot,
     target: &SetupTarget,
 ) -> Result<PluginSetupResult, CallError> {
+    let component = params.component.unwrap_or_else(default_component);
+    let artifact_name = match component {
+        PluginSetupComponent::SandboxHelper => "goodfetch-sandbox",
+        PluginSetupComponent::FilterBroker => "goodfetch-filter-broker",
+    };
     let helper_source = Path::new(&params.helper);
     let helper_bytes = std::fs::read(helper_source).map_err(|error| {
-        write_error(
-            helper_source,
-            &error,
-            "reading the `goodfetch-sandbox` helper",
-        )
+        write_error(helper_source, &error, &format!("reading `{artifact_name}`"))
     })?;
     let helper_digest = sha256_digest(&helper_bytes);
     let helper_signer = verify_file_attestation(
-        "goodfetch-sandbox",
+        artifact_name,
         &helper_digest,
         Some(Path::new(&params.attestation)),
         &target.expected_signer,
         trust,
     )?;
 
-    let profile_bytes = if let Some(profile_path) = &params.profile {
-        let source = Path::new(profile_path);
-        let bytes = std::fs::read(source)
-            .map_err(|error| write_error(source, &error, "reading the AppArmor profile"))?;
-        let digest = sha256_digest(&bytes);
-        verify_file_attestation(
-            "goodfetch-sandbox-profile",
-            &digest,
-            params.profile_attestation.as_deref().map(Path::new),
-            &target.expected_signer,
-            trust,
-        )?;
-        bytes
-    } else {
-        apparmor_profile_for(&target.helper_dest).into_bytes()
-    };
+    match component {
+        PluginSetupComponent::SandboxHelper => {
+            let profile_bytes = if let Some(profile_path) = &params.profile {
+                let source = Path::new(profile_path);
+                let bytes = std::fs::read(source)
+                    .map_err(|error| write_error(source, &error, "reading the AppArmor profile"))?;
+                let digest = sha256_digest(&bytes);
+                verify_file_attestation(
+                    "goodfetch-sandbox-profile",
+                    &digest,
+                    params.profile_attestation.as_deref().map(Path::new),
+                    &target.expected_signer,
+                    trust,
+                )?;
+                bytes
+            } else {
+                apparmor_profile_for(&target.helper_dest).into_bytes()
+            };
 
-    write_atomic(&target.helper_dest, &helper_bytes, 0o755)?;
-    write_atomic(&target.profile_dest, &profile_bytes, 0o644)?;
+            write_atomic(&target.helper_dest, &helper_bytes, 0o755)?;
+            write_atomic(&target.profile_dest, &profile_bytes, 0o644)?;
 
-    let profile_loaded = if target.load_profile {
-        load_apparmor_profile(&target.profile_dest)?
-    } else {
-        false
-    };
+            let profile_loaded = if target.load_profile {
+                load_apparmor_profile(&target.profile_dest)?
+            } else {
+                false
+            };
 
-    Ok(PluginSetupResult {
-        helper_path: target.helper_dest.display().to_string(),
-        helper_digest,
-        profile_path: target.profile_dest.display().to_string(),
-        profile_loaded,
-        signer: helper_signer,
-    })
+            Ok(PluginSetupResult {
+                component,
+                helper_path: target.helper_dest.display().to_string(),
+                helper_digest,
+                profile_path: target.profile_dest.display().to_string(),
+                profile_loaded,
+                service_name: None,
+                service_installed: false,
+                signer: helper_signer,
+            })
+        }
+        PluginSetupComponent::FilterBroker => {
+            write_atomic(&target.helper_dest, &helper_bytes, 0o755)?;
+            let service_installed = if target.register_service {
+                register_filter_broker_service(&target.helper_dest)?
+            } else {
+                false
+            };
+            Ok(PluginSetupResult {
+                component,
+                helper_path: target.helper_dest.display().to_string(),
+                helper_digest,
+                profile_path: String::new(),
+                profile_loaded: false,
+                service_name: Some(BROKER_SERVICE_NAME.to_owned()),
+                service_installed,
+                signer: helper_signer,
+            })
+        }
+    }
 }
 
-fn sha256_digest(bytes: &[u8]) -> String {
-    let hash = Sha256::digest(bytes);
-    format!("sha256:{}", HEXLOWER.encode(&hash))
+#[cfg_attr(
+    not(windows),
+    expect(
+        clippy::unnecessary_wraps,
+        reason = "returns Result on Windows when registering the GoodfetchFilterBroker service"
+    )
+)]
+fn register_filter_broker_service(broker_dest: &Path) -> Result<bool, CallError> {
+    #[cfg(windows)]
+    {
+        let output = std::process::Command::new(broker_dest)
+            .arg("--install-service")
+            .arg("--binary")
+            .arg(broker_dest)
+            .output()
+            .map_err(|error| {
+                write_error(
+                    broker_dest,
+                    &error,
+                    "registering `GoodfetchFilterBroker` Windows service",
+                )
+            })?;
+        if !output.status.success() {
+            return Err(write_error(
+                broker_dest,
+                &io::Error::other(format!(
+                    "`goodfetch-filter-broker --install-service` exited with {}",
+                    output.status
+                )),
+                "registering `GoodfetchFilterBroker` Windows service",
+            ));
+        }
+        Ok(true)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = broker_dest;
+        Ok(false)
+    }
 }
 
 fn verify_file_attestation(

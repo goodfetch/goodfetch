@@ -12,23 +12,20 @@
     unsafe_code,
     reason = "Windows confinement calls Win32 AppContainer, restricted token, Job Object, desktop and ACL APIs via windows-sys (ADR 0033)"
 )]
-#![expect(
-    clippy::disallowed_methods,
-    reason = "the launcher runs single-threaded outside any async worker (ADR 0033)"
-)]
 
 use std::ffi::OsStr;
 use std::io;
 use std::os::windows::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
 use std::ptr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 
 use goodfetch_protocol::executables::is_smart_app_control_os_error;
-use goodfetch_protocol::plugin::{Limits, PluginResourceLimit};
+use goodfetch_protocol::plugin::{Limits, NetworkLevel, PluginResourceLimit};
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_ALREADY_EXISTS, FALSE, HANDLE, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE,
-    LocalFree, SetHandleInformation, TRUE, WAIT_OBJECT_0,
+    CloseHandle, ERROR_ALREADY_EXISTS, FALSE, GENERIC_READ, GENERIC_WRITE, HANDLE,
+    HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, LocalFree, SetHandleInformation, TRUE,
+    WAIT_OBJECT_0,
 };
 use windows_sys::Win32::Security::Authorization::{
     EXPLICIT_ACCESS_W, GRANT_ACCESS, GetNamedSecurityInfoW, GetSecurityInfo, REVOKE_ACCESS,
@@ -39,12 +36,13 @@ use windows_sys::Win32::Security::Isolation::{
     CreateAppContainerProfile, DeleteAppContainerProfile, DeriveAppContainerSidFromAppContainerName,
 };
 use windows_sys::Win32::Security::{
-    ACL, CreateRestrictedToken, DACL_SECURITY_INFORMATION, DISABLE_MAX_PRIVILEGE, FreeSid,
-    GetTokenInformation, PSECURITY_DESCRIPTOR, PSID, SECURITY_CAPABILITIES,
-    SUB_CONTAINERS_AND_OBJECTS_INHERIT, TOKEN_ALL_ACCESS, TOKEN_QUERY, TokenIsAppContainer,
+    ACL, CreateRestrictedToken, CreateWellKnownSid, DACL_SECURITY_INFORMATION,
+    DISABLE_MAX_PRIVILEGE, FreeSid, GetTokenInformation, PSECURITY_DESCRIPTOR, PSID,
+    SECURITY_CAPABILITIES, SID_AND_ATTRIBUTES, SUB_CONTAINERS_AND_OBJECTS_INHERIT,
+    TOKEN_ALL_ACCESS, TOKEN_QUERY, TokenIsAppContainer, WinCapabilityInternetClientSid,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    DELETE, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
+    CreateFileW, DELETE, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ, FILE_GENERIC_WRITE, OPEN_EXISTING,
 };
 use windows_sys::Win32::System::Console::{
     GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
@@ -63,11 +61,14 @@ use windows_sys::Win32::System::JobObjects::{
     JobObjectBasicUIRestrictions, JobObjectExtendedLimitInformation, QueryInformationJobObject,
     SetInformationJobObject, TerminateJobObject,
 };
+use windows_sys::Win32::System::Pipes::WaitNamedPipeW;
 use windows_sys::Win32::System::StationsAndDesktops::{
     CloseDesktop, CreateDesktopW, DESKTOP_CREATEMENU, DESKTOP_CREATEWINDOW, DESKTOP_READOBJECTS,
     DESKTOP_WRITEOBJECTS, HDESK,
 };
-use windows_sys::Win32::System::SystemServices::JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO;
+use windows_sys::Win32::System::SystemServices::{
+    JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO, SE_GROUP_ENABLED,
+};
 use windows_sys::Win32::System::Threading::{
     CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessAsUserW,
     DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess,
@@ -78,9 +79,16 @@ use windows_sys::Win32::System::Threading::{
     UpdateProcThreadAttribute, WaitForSingleObject,
 };
 
-use super::{ConfineError, ProcessSpec, classify_job_notification, cpu_time_to_100ns};
+use super::broker::{BrokerRequest, BrokerResponse, DEFAULT_PIPE_NAME};
+use super::{
+    ConfineError, FilterBrokerGrant, ProcessSpec, classify_job_notification, cpu_time_to_100ns,
+};
 
-static INSTANCE_COUNTER: AtomicU64 = AtomicU64::new(1);
+#[expect(
+    clippy::disallowed_types,
+    reason = "monotonic AppContainer profile name suffix outside loom-tested concurrency (ADR 0060)"
+)]
+static INSTANCE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 const COMPLETION_KEY: usize = 0x6766_4a4f; // "gfJO"
 const POLL_TIMEOUT_MS: u32 = 50;
@@ -155,7 +163,7 @@ impl AppContainerProfile {
         };
         if hr < 0 {
             // `HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS)` = 0x8007_00B7.
-            let already_exists = (hr as u32) == (0x8007_0000 | ERROR_ALREADY_EXISTS);
+            let already_exists = hr.cast_unsigned() == (0x8007_0000 | ERROR_ALREADY_EXISTS);
             if already_exists {
                 // SAFETY: derives SID for existing profile name.
                 let hr2 = unsafe {
@@ -164,13 +172,13 @@ impl AppContainerProfile {
                 if hr2 < 0 || sid.is_null() {
                     return Err(ConfineError::Unavailable(format!(
                         "DeriveAppContainerSidFromAppContainerName failed: HRESULT 0x{:08x}",
-                        hr2 as u32
+                        hr2.cast_unsigned()
                     )));
                 }
             } else {
                 return Err(ConfineError::Unavailable(format!(
                     "CreateAppContainerProfile failed: HRESULT 0x{:08x}",
-                    hr as u32
+                    hr.cast_unsigned()
                 )));
             }
         }
@@ -195,7 +203,7 @@ impl AppContainerProfile {
         if hr < 0 || sid.is_null() {
             return Err(ConfineError::Unavailable(format!(
                 "DeriveAppContainerSidFromAppContainerName failed: HRESULT 0x{:08x}",
-                hr as u32
+                hr.cast_unsigned()
             )));
         }
         Ok(Self {
@@ -362,7 +370,7 @@ fn grant_handle_access(
     Ok(())
 }
 
-/// Tracks every path granted an AppContainer ACE and revokes it on drop.
+/// Tracks every path granted an `AppContainer` ACE and revokes it on drop.
 struct AclGrants {
     sid: PSID,
     paths: Vec<PathBuf>,
@@ -714,7 +722,7 @@ fn push_windows_arg(out: &mut String, arg: &str) {
         match ch {
             '\\' => backslashes += 1,
             '"' => {
-                for _ in 0..(backslashes * 2 + 1) {
+                for _ in 0..=(backslashes * 2) {
                     out.push('\\');
                 }
                 out.push('"');
@@ -737,7 +745,7 @@ fn push_windows_arg(out: &mut String, arg: &str) {
 
 fn build_env_block(env: &[(&str, &str)]) -> Vec<u16> {
     let mut entries: Vec<(&str, &str)> = env.to_vec();
-    entries.sort_by(|(a, _), (b, _)| a.to_ascii_uppercase().cmp(&b.to_ascii_uppercase()));
+    entries.sort_by_key(|(a, _)| a.to_ascii_uppercase());
     let mut block = Vec::new();
     for (k, v) in entries {
         block.extend(OsStr::new(k).encode_wide());
@@ -754,9 +762,13 @@ fn build_env_block(env: &[(&str, &str)]) -> Vec<u16> {
 
 fn inheritable_stdio() -> (HANDLE, HANDLE, HANDLE, Vec<HANDLE>) {
     // SAFETY: reads this process's standard handles.
-    let stdin = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
-    let stdout = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
-    let stderr = unsafe { GetStdHandle(STD_ERROR_HANDLE) };
+    let (stdin, stdout, stderr) = unsafe {
+        (
+            GetStdHandle(STD_INPUT_HANDLE),
+            GetStdHandle(STD_OUTPUT_HANDLE),
+            GetStdHandle(STD_ERROR_HANDLE),
+        )
+    };
     let mut list = Vec::with_capacity(3);
     for handle in [stdin, stdout, stderr] {
         if !handle.is_null() && handle != INVALID_HANDLE_VALUE && !list.contains(&handle) {
@@ -771,105 +783,143 @@ fn inheritable_stdio() -> (HANDLE, HANDLE, HANDLE, Vec<HANDLE>) {
     (stdin, stdout, stderr, list)
 }
 
-/// Confines and runs `spec` under a Windows AppContainer, restricted token,
-/// alternate desktop, minimal NTFS ACLs, and Job Object.
-pub(super) fn run_confined(spec: &ProcessSpec<'_>) -> Result<i32, ConfineError> {
-    let folder = std::fs::canonicalize(spec.folder).map_err(ConfineError::Folder)?;
+struct ProcThreadAttrs {
+    _buf: Vec<u8>,
+    list: LPPROC_THREAD_ATTRIBUTE_LIST,
+}
 
-    let profile = match spec.broker_grant {
-        Some(grant) => AppContainerProfile::open_existing(&grant.app_container_name)?,
-        None => AppContainerProfile::create_unique()?,
-    };
-    let mut grants = AclGrants::new(profile.sid());
-    for path in &spec.policy.reads {
-        grants.grant(path, FILE_GENERIC_READ)?;
-    }
-    for path in &spec.policy.executables {
-        grants.grant(path, FILE_GENERIC_READ | FILE_GENERIC_EXECUTE)?;
-    }
-    for path in &spec.policy.writes {
-        grants.grant(path, FILE_GENERIC_READ | FILE_GENERIC_WRITE | DELETE)?;
-    }
-    grants.grant(spec.program, FILE_GENERIC_READ | FILE_GENERIC_EXECUTE)?;
-    grants.grant(&folder, FILE_GENERIC_READ | FILE_GENERIC_WRITE | DELETE)?;
-
-    let mut desktop = AlternateDesktop::create_unique(profile.sid())?;
-    let restricted_token = create_restricted_token()?;
-    let job = ConfinedJob::new(&spec.policy.limits)?;
-
-    let (stdin, stdout, stderr, mut handle_list) = inheritable_stdio();
-    let attr_count = if handle_list.is_empty() { 1 } else { 2 };
-    let mut attr_size = 0_usize;
-    // SAFETY: queries required byte length for `attr_count` attributes.
-    unsafe {
-        InitializeProcThreadAttributeList(ptr::null_mut(), attr_count, 0, &raw mut attr_size);
-    }
-    let mut attr_buf = vec![0_u8; attr_size.max(64)];
-    let attr_list = attr_buf.as_mut_ptr() as LPPROC_THREAD_ATTRIBUTE_LIST;
-    // SAFETY: initializes attribute list inside owned `attr_buf`.
-    if unsafe { InitializeProcThreadAttributeList(attr_list, attr_count, 0, &raw mut attr_size) }
-        == FALSE
-    {
-        return Err(ConfineError::Confine(format!(
-            "InitializeProcThreadAttributeList failed: {}",
-            io::Error::last_os_error()
-        )));
-    }
-    struct AttrListGuard(LPPROC_THREAD_ATTRIBUTE_LIST);
-    impl Drop for AttrListGuard {
-        fn drop(&mut self) {
-            // SAFETY: paired with `InitializeProcThreadAttributeList`.
-            unsafe {
-                DeleteProcThreadAttributeList(self.0);
-            }
+impl ProcThreadAttrs {
+    fn new(
+        caps: &mut SECURITY_CAPABILITIES,
+        handle_list: &mut [HANDLE],
+    ) -> Result<Self, ConfineError> {
+        let attr_count = if handle_list.is_empty() { 1 } else { 2 };
+        let mut attr_size = 0_usize;
+        // SAFETY: queries required byte length for `attr_count` attributes.
+        unsafe {
+            InitializeProcThreadAttributeList(ptr::null_mut(), attr_count, 0, &raw mut attr_size);
         }
-    }
-    let _attr_guard = AttrListGuard(attr_list);
-
-    let mut caps = SECURITY_CAPABILITIES {
-        AppContainerSid: profile.sid(),
-        Capabilities: ptr::null_mut(),
-        CapabilityCount: 0,
-        Reserved: 0,
-    };
-    // SAFETY: `caps` lives until `CreateProcessAsUserW` completes.
-    if unsafe {
-        UpdateProcThreadAttribute(
-            attr_list,
-            0,
-            PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES as usize,
-            (&raw mut caps).cast(),
-            size_of::<SECURITY_CAPABILITIES>(),
-            ptr::null_mut(),
-            ptr::null(),
-        )
-    } == FALSE
-    {
-        return Err(ConfineError::Confine(format!(
-            "UpdateProcThreadAttribute(SECURITY_CAPABILITIES) failed: {}",
-            io::Error::last_os_error()
-        )));
-    }
-    if !handle_list.is_empty() {
-        // SAFETY: `handle_list` lives until `CreateProcessAsUserW` completes.
+        let mut buf = vec![0_u8; attr_size.max(64)];
+        let list = buf.as_mut_ptr() as LPPROC_THREAD_ATTRIBUTE_LIST;
+        // SAFETY: initializes attribute list inside owned `buf`.
+        if unsafe { InitializeProcThreadAttributeList(list, attr_count, 0, &raw mut attr_size) }
+            == FALSE
+        {
+            return Err(ConfineError::Confine(format!(
+                "InitializeProcThreadAttributeList failed: {}",
+                io::Error::last_os_error()
+            )));
+        }
+        let attrs = Self { _buf: buf, list };
+        // SAFETY: `caps` outlives `CreateProcessAsUserW` in the caller.
         if unsafe {
             UpdateProcThreadAttribute(
-                attr_list,
+                attrs.list,
                 0,
-                PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
-                handle_list.as_mut_ptr().cast(),
-                handle_list.len() * size_of::<HANDLE>(),
+                PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES as usize,
+                ptr::from_mut(caps).cast(),
+                size_of::<SECURITY_CAPABILITIES>(),
                 ptr::null_mut(),
                 ptr::null(),
             )
         } == FALSE
         {
             return Err(ConfineError::Confine(format!(
-                "UpdateProcThreadAttribute(HANDLE_LIST) failed: {}",
+                "UpdateProcThreadAttribute(SECURITY_CAPABILITIES) failed: {}",
                 io::Error::last_os_error()
             )));
         }
+        if !handle_list.is_empty() {
+            // SAFETY: `handle_list` outlives `CreateProcessAsUserW` in the caller.
+            if unsafe {
+                UpdateProcThreadAttribute(
+                    attrs.list,
+                    0,
+                    PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
+                    handle_list.as_mut_ptr().cast(),
+                    std::mem::size_of_val(handle_list),
+                    ptr::null_mut(),
+                    ptr::null(),
+                )
+            } == FALSE
+            {
+                return Err(ConfineError::Confine(format!(
+                    "UpdateProcThreadAttribute(HANDLE_LIST) failed: {}",
+                    io::Error::last_os_error()
+                )));
+            }
+        }
+        Ok(attrs)
     }
+}
+
+impl Drop for ProcThreadAttrs {
+    fn drop(&mut self) {
+        // SAFETY: paired with `InitializeProcThreadAttributeList`.
+        unsafe {
+            DeleteProcThreadAttributeList(self.list);
+        }
+    }
+}
+
+fn internet_client_capability(sid_buf: &mut [u8; 68]) -> Result<SID_AND_ATTRIBUTES, ConfineError> {
+    let mut sid_len =
+        u32::try_from(sid_buf.len()).expect("invariant: SID buffer length fits in u32");
+    // SAFETY: fills `sid_buf` with the well-known `internetClient` AppContainer
+    // capability SID (`S-1-15-3-1`).
+    let ok = unsafe {
+        CreateWellKnownSid(
+            WinCapabilityInternetClientSid,
+            ptr::null_mut(),
+            sid_buf.as_mut_ptr().cast(),
+            &raw mut sid_len,
+        )
+    };
+    if ok == FALSE {
+        return Err(ConfineError::Confine(format!(
+            "CreateWellKnownSid(WinCapabilityInternetClientSid) failed: {}",
+            io::Error::last_os_error()
+        )));
+    }
+    Ok(SID_AND_ATTRIBUTES {
+        Sid: sid_buf.as_mut_ptr().cast(),
+        Attributes: SE_GROUP_ENABLED.cast_unsigned(),
+    })
+}
+
+fn spawn_suspended_child(
+    spec: &ProcessSpec<'_>,
+    folder: &Path,
+    profile: &AppContainerProfile,
+    desktop: &mut AlternateDesktop,
+    restricted_token: &OwnedHandle,
+) -> Result<(OwnedHandle, OwnedHandle), ConfineError> {
+    let use_internet_cap = matches!(
+        spec.policy.network_level,
+        NetworkLevel::ProxyTcp | NetworkLevel::Direct
+    );
+    let mut internet_client_sid_buf = [0_u8; 68];
+    let mut cap_attr = if use_internet_cap {
+        internet_client_capability(&mut internet_client_sid_buf)?
+    } else {
+        SID_AND_ATTRIBUTES {
+            Sid: ptr::null_mut(),
+            Attributes: 0,
+        }
+    };
+    let mut caps = SECURITY_CAPABILITIES {
+        AppContainerSid: profile.sid(),
+        Capabilities: if use_internet_cap {
+            &raw mut cap_attr
+        } else {
+            ptr::null_mut()
+        },
+        CapabilityCount: u32::from(use_internet_cap),
+        Reserved: 0,
+    };
+
+    let (stdin, stdout, stderr, mut handle_list) = inheritable_stdio();
+    let attrs = ProcThreadAttrs::new(&mut caps, &mut handle_list)?;
 
     // SAFETY: zero-initialized `STARTUPINFOEXW` populated below.
     let mut startup: STARTUPINFOEXW = unsafe { std::mem::zeroed() };
@@ -880,11 +930,11 @@ pub(super) fn run_confined(spec: &ProcessSpec<'_>) -> Result<i32, ConfineError> 
     startup.StartupInfo.hStdOutput = stdout;
     startup.StartupInfo.hStdError = stderr;
     startup.StartupInfo.lpDesktop = desktop.lp_desktop();
-    startup.lpAttributeList = attr_list;
+    startup.lpAttributeList = attrs.list;
 
     let app_wide = path_to_wide_nul(spec.program);
     let mut cmd_wide = build_command_line(spec.program, spec.args);
-    let dir_wide = path_to_wide_nul(&folder);
+    let dir_wide = path_to_wide_nul(folder);
     let env_block = build_env_block(spec.env);
 
     // SAFETY: zero-initialized `PROCESS_INFORMATION` populated by OS.
@@ -923,9 +973,83 @@ pub(super) fn run_confined(spec: &ProcessSpec<'_>) -> Result<i32, ConfineError> 
         }
         return Err(ConfineError::Start(error));
     }
-
     let child_process = OwnedHandle::new(proc_info.hProcess).map_err(ConfineError::Start)?;
     let child_thread = OwnedHandle::new(proc_info.hThread).map_err(ConfineError::Start)?;
+    Ok((child_process, child_thread))
+}
+
+fn wait_for_confined_child(
+    job: &ConfinedJob,
+    child_process: &OwnedHandle,
+    open_files_limit: u32,
+) -> Option<PluginResourceLimit> {
+    loop {
+        if let Some(msg) = job.poll_notification(POLL_TIMEOUT_MS) {
+            if let Some(limit) = classify_job_notification(msg) {
+                job.terminate();
+                return Some(limit);
+            }
+            if msg == JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO {
+                return None;
+            }
+        }
+        if open_files_limit > 0 && job.total_handle_count() >= open_files_limit {
+            job.terminate();
+            return Some(PluginResourceLimit::OpenFiles);
+        }
+        // SAFETY: non-blocking check whether the primary child exited.
+        if unsafe { WaitForSingleObject(child_process.raw(), 0) } == WAIT_OBJECT_0 {
+            while let Some(msg) = job.poll_notification(0) {
+                if let Some(limit) = classify_job_notification(msg) {
+                    return Some(limit);
+                }
+            }
+            return None;
+        }
+    }
+}
+
+/// Confines and runs `spec` under a Windows `AppContainer`, restricted token,
+/// alternate desktop, minimal NTFS ACLs, and Job Object.
+pub(super) fn run_confined(spec: &ProcessSpec<'_>) -> Result<i32, ConfineError> {
+    let folder = std::fs::canonicalize(spec.folder).map_err(ConfineError::Folder)?;
+
+    let profile = match spec.broker_grant {
+        Some(grant) => AppContainerProfile::open_existing(&grant.app_container_name)?,
+        None => AppContainerProfile::create_unique()?,
+    };
+    let mut grants = AclGrants::new(profile.sid());
+    for path in &spec.policy.reads {
+        grants.grant(path, FILE_GENERIC_READ)?;
+    }
+    for path in &spec.policy.executables {
+        grants.grant(path, FILE_GENERIC_READ | FILE_GENERIC_EXECUTE)?;
+    }
+    for path in &spec.policy.writes {
+        grants.grant(path, FILE_GENERIC_READ | FILE_GENERIC_WRITE | DELETE)?;
+    }
+    grants.grant(spec.program, FILE_GENERIC_READ | FILE_GENERIC_EXECUTE)?;
+    grants.grant(&folder, FILE_GENERIC_READ | FILE_GENERIC_WRITE | DELETE)?;
+
+    let mut desktop = AlternateDesktop::create_unique(profile.sid())?;
+    let restricted_token = create_restricted_token()?;
+    let job = ConfinedJob::new(&spec.policy.limits)?;
+
+    // When `broker_grant` names a live broker pipe, register the refusing
+    // persistent WFP filters BEFORE creating or starting the confined child
+    // (ADR 0033, issue 879). The guard releases the filters on drop once the
+    // Job Object has terminated and drained.
+    let broker_session = match spec.broker_grant {
+        Some(grant) if grant.pipe_name.is_some() => Some(BrokerLease::prepare(
+            grant,
+            spec.policy.network_level,
+            job.job.raw() as usize as u64,
+        )?),
+        _ => None,
+    };
+
+    let (child_process, child_thread) =
+        spawn_suspended_child(spec, &folder, &profile, &mut desktop, &restricted_token)?;
 
     if let Err(error) = job.assign(child_process.raw()) {
         // SAFETY: terminates the suspended process if Job assignment failed.
@@ -942,46 +1066,23 @@ pub(super) fn run_confined(spec: &ProcessSpec<'_>) -> Result<i32, ConfineError> 
     }
     drop(child_thread);
 
-    let open_files_limit = spec.policy.limits.open_files;
-    let mut limit_hit: Option<PluginResourceLimit> = None;
-    loop {
-        if let Some(msg) = job.poll_notification(POLL_TIMEOUT_MS) {
-            if let Some(limit) = classify_job_notification(msg) {
-                limit_hit = Some(limit);
-                job.terminate();
-                break;
-            }
-            if msg == JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO {
-                break;
-            }
-        }
-        if open_files_limit > 0 && job.total_handle_count() >= open_files_limit {
-            limit_hit = Some(PluginResourceLimit::OpenFiles);
-            job.terminate();
-            break;
-        }
-        // SAFETY: non-blocking check whether the primary child exited.
-        if unsafe { WaitForSingleObject(child_process.raw(), 0) } == WAIT_OBJECT_0 {
-            while let Some(msg) = job.poll_notification(0) {
-                if let Some(limit) = classify_job_notification(msg) {
-                    limit_hit = Some(limit);
-                    break;
-                }
-            }
-            break;
-        }
-    }
-
-    if let Some(limit) = limit_hit {
+    if let Some(limit) =
+        wait_for_confined_child(&job, &child_process, spec.policy.limits.open_files)
+    {
         job.terminate();
+        drop(broker_session);
         return Err(ConfineError::LimitExceeded(limit));
     }
 
     let mut exit_code = 0_u32;
     // SAFETY: reads exit code of the exited child process.
     if unsafe { GetExitCodeProcess(child_process.raw(), &raw mut exit_code) } == FALSE {
+        job.terminate();
+        drop(broker_session);
         return Err(ConfineError::Start(io::Error::last_os_error()));
     }
+    job.terminate();
+    drop(broker_session);
     #[expect(
         clippy::cast_possible_wrap,
         reason = "Windows process exit codes are 32-bit values carried as i32 in std::process::exit"
@@ -989,7 +1090,121 @@ pub(super) fn run_confined(spec: &ProcessSpec<'_>) -> Result<i32, ConfineError> 
     Ok(exit_code as i32)
 }
 
-/// Checks whether the current process is executing inside an AppContainer
+/// Active named-pipe session with `goodfetch-filter-broker` that prepares
+/// persistent WFP filters before child start and releases them on drop once
+/// the Job Object is empty.
+struct BrokerLease {
+    file: std::fs::File,
+    instance_id: String,
+}
+
+impl BrokerLease {
+    fn prepare(
+        grant: &FilterBrokerGrant,
+        network_level: NetworkLevel,
+        job_handle: u64,
+    ) -> Result<Self, ConfineError> {
+        use std::io::{BufRead as _, BufReader, Write as _};
+        use std::os::windows::io::FromRawHandle as _;
+
+        let pipe_name = grant.pipe_name.as_deref().unwrap_or(DEFAULT_PIPE_NAME);
+        let wide = to_wide_nul(OsStr::new(pipe_name));
+        // SAFETY: opens the broker's named pipe for read/write IPC.
+        let handle = unsafe {
+            CreateFileW(
+                wide.as_ptr(),
+                GENERIC_READ | GENERIC_WRITE,
+                0,
+                ptr::null(),
+                OPEN_EXISTING,
+                0,
+                ptr::null_mut(),
+            )
+        };
+        if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+            return Err(ConfineError::Unavailable(format!(
+                "cannot connect to filter broker pipe `{pipe_name}`: {}",
+                io::Error::last_os_error()
+            )));
+        }
+        // SAFETY: `handle` is an exclusive valid Win32 file handle.
+        let mut file = unsafe { std::fs::File::from_raw_handle(handle.cast()) };
+        let instance_id = format!(
+            "inst-{}-{}",
+            std::process::id(),
+            INSTANCE_COUNTER.fetch_add(1, Ordering::Relaxed)
+        );
+        if let Some(attestation) = &grant.attestation {
+            let auth = BrokerRequest::Authenticate {
+                engine_id: format!("shim-{}", std::process::id()),
+                attestation: attestation.clone(),
+            };
+            let line = serde_json::to_string(&auth)
+                .map_err(|error| ConfineError::Confine(error.to_string()))?;
+            writeln!(file, "{line}")
+                .map_err(|error| ConfineError::Unavailable(error.to_string()))?;
+            let mut reply_line = String::new();
+            BufReader::new(&file)
+                .read_line(&mut reply_line)
+                .map_err(|error| ConfineError::Unavailable(error.to_string()))?;
+            match serde_json::from_str::<BrokerResponse>(&reply_line) {
+                Ok(BrokerResponse::Authenticated { .. }) => {}
+                Ok(BrokerResponse::Error { code, message }) => {
+                    return Err(ConfineError::Unavailable(format!(
+                        "filter broker refused authentication ({code}): {message}"
+                    )));
+                }
+                _ => {
+                    return Err(ConfineError::Unavailable(
+                        "filter broker returned unexpected authentication reply".to_owned(),
+                    ));
+                }
+            }
+        }
+        let prep = BrokerRequest::PrepareInstance {
+            instance_id: instance_id.clone(),
+            app_container_name: grant.app_container_name.clone(),
+            job_handle,
+            network_level,
+            proxy_port: grant.proxy_port,
+            allowed_destinations: grant.allowed_destinations.clone(),
+        };
+        let line = serde_json::to_string(&prep)
+            .map_err(|error| ConfineError::Confine(error.to_string()))?;
+        writeln!(file, "{line}").map_err(|error| ConfineError::Unavailable(error.to_string()))?;
+        let mut reply_line = String::new();
+        BufReader::new(&file)
+            .read_line(&mut reply_line)
+            .map_err(|error| ConfineError::Unavailable(error.to_string()))?;
+        match serde_json::from_str::<BrokerResponse>(&reply_line) {
+            Ok(BrokerResponse::Prepared { .. }) => Ok(Self { file, instance_id }),
+            Ok(BrokerResponse::Error { code, message }) => Err(ConfineError::Unavailable(format!(
+                "filter broker refused instance filters ({code}): {message}"
+            ))),
+            _ => Err(ConfineError::Unavailable(
+                "filter broker returned unexpected prepare reply".to_owned(),
+            )),
+        }
+    }
+}
+
+impl Drop for BrokerLease {
+    fn drop(&mut self) {
+        use std::io::{BufRead as _, BufReader, Write as _};
+
+        let req = BrokerRequest::ReleaseInstance {
+            instance_id: self.instance_id.clone(),
+        };
+        if let Ok(line) = serde_json::to_string(&req)
+            && writeln!(self.file, "{line}").is_ok()
+        {
+            let mut reply = String::new();
+            let _ = BufReader::new(&self.file).read_line(&mut reply);
+        }
+    }
+}
+
+/// Checks whether the current process is executing inside an `AppContainer`
 /// (`TokenIsAppContainer != 0`).
 pub(super) fn is_current_process_appcontainer() -> bool {
     let mut token: HANDLE = ptr::null_mut();
@@ -1015,8 +1230,16 @@ pub(super) fn is_current_process_appcontainer() -> bool {
     ok != FALSE && is_appcontainer != 0
 }
 
-/// Probes whether this Windows host can create and delete an AppContainer
+/// Probes whether this Windows host can create and delete an `AppContainer`
 /// profile (called once at startup by `windows::host::read`).
 pub(super) fn probe_appcontainer() -> bool {
     AppContainerProfile::create_unique().is_ok()
+}
+
+/// Probes whether `goodfetch-filter-broker`'s named pipe is currently serving
+/// (called once at startup by `windows::host::read`, issue 879).
+pub(super) fn probe_filter_broker() -> bool {
+    let wide = to_wide_nul(OsStr::new(DEFAULT_PIPE_NAME));
+    // SAFETY: non-destructive existence/availability probe of the broker pipe.
+    unsafe { WaitNamedPipeW(wide.as_ptr(), 100) != FALSE }
 }

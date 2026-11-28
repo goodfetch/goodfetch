@@ -230,6 +230,63 @@ fn on_a_platform_that_allows_no_sandbox_the_run_proceeds_with_it_off_and_reporte
     );
 }
 
+/// Writes an Operator policy that locks the sandbox on.
+fn locking_the_sandbox_on(env: &TestEnv) {
+    let layout = HomeLayout::of(env.home());
+    std::fs::create_dir_all(layout.per_major()).unwrap();
+    std::fs::write(
+        layout.operator_policy(),
+        "version = \"0.1\"\n\n[lock.security]\nbrowser_sandbox = true\n",
+    )
+    .unwrap();
+}
+
+/// On a platform that allows no sandbox, locking `security.browser_sandbox` on
+/// in Operator policy overrides the host default and refuses browser launches
+/// with `browser_sandbox_unavailable`, starting no browser; without that lock,
+/// the same platform keeps its default-off behaviour (verified by
+/// [`on_a_platform_that_allows_no_sandbox_the_run_proceeds_with_it_off_and_reported`]).
+/// Covers: story:4-86, error:browser_sandbox_unavailable, setting:security.browser_sandbox, operation:run.new_page
+#[test]
+fn a_browser_sandbox_locked_on_in_operator_policy_refuses_launches_on_a_no_sandbox_platform() {
+    let env = TestEnv::new();
+    locking_the_sandbox_on(&env);
+
+    let seen = open_a_page(&env, "lambda-locked", |command| {
+        under_default_seccomp(command);
+        command.env("AWS_LAMBDA_FUNCTION_NAME", "shop");
+    });
+
+    let error = &seen.opened["error"]["data"];
+    assert_eq!(
+        (
+            &error["code"],
+            &error["retryable"],
+            &error["environment"],
+            error["fix"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("AWS Lambda"),
+            error["fix"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("`security.browser_sandbox`"),
+            seen.command_lines.len(),
+        ),
+        (
+            &json!("browser_sandbox_unavailable"),
+            &json!(false),
+            &json!("unknown"),
+            true,
+            true,
+            0,
+        ),
+        "{}\n{}",
+        seen.opened,
+        seen.stderr
+    );
+}
+
 /// Writes an Operator policy that switches the sandbox off.
 fn switching_the_sandbox_off(env: &TestEnv) {
     let layout = HomeLayout::of(env.home());

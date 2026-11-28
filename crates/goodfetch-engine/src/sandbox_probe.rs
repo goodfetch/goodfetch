@@ -18,7 +18,9 @@
 //!   Fargate under ECS or EKS, Azure Container Apps), even in a pod under
 //!   Kubernetes' `RuntimeDefault`: `security.browser_sandbox` is off by
 //!   default on this host, which every Run then reports as a switched-off
-//!   control (one Audit log entry, `weakened`, one warning);
+//!   control (one Audit log entry, `weakened`, one warning); if Operator
+//!   policy or configuration keeps `security.browser_sandbox` on, browser
+//!   runs are refused with `browser_sandbox_unavailable`;
 //! - any other refusal: browser runs are refused with
 //!   `browser_sandbox_unavailable`, environment `unknown`, whose message
 //!   names what the probe met.
@@ -301,17 +303,38 @@ pub fn host_defaults(defaults: HostDefaults, probed: &Probed) -> HostDefaults {
 
 impl Probed {
     /// The refusal of a browser launch with the sandbox on, where the probe
-    /// refused it, whether or not it recognised why.
+    /// found the sandbox cannot start, whether or not a fix exists or the
+    /// probe recognised why.
     pub fn refusal(&self) -> Option<CallError> {
         match self {
             Self::Refused {
                 environment,
                 failure,
             } => Some(refused(*environment, failure, None)),
+            Self::NoSandbox(platform) => Some(no_sandbox_refusal(*platform)),
             Self::Unknown { failure } => Some(refused(SandboxEnvironment::Unknown, failure, None)),
-            Self::Starts | Self::Restricted | Self::NoSandbox(_) => None,
+            Self::Starts | Self::Restricted => None,
         }
     }
+}
+
+/// The refusal of a browser launch on `platform`, which allows no user-namespace
+/// sandbox, when `security.browser_sandbox` resolved to `true` (for example,
+/// locked on in Operator policy).
+fn no_sandbox_refusal(platform: NoSandboxPlatform) -> CallError {
+    let name = platform.as_str();
+    CallError::new(
+        &BROWSER_SANDBOX_UNAVAILABLE,
+        format!(
+            "Chromium's sandbox cannot start on {name}: {name} allows no browser sandbox, while `security.browser_sandbox` is on"
+        ),
+        &BrowserSandboxUnavailableDetails {
+            environment: SandboxEnvironment::Unknown,
+            fix: format!(
+                "{name} allows no user-namespace sandbox for Chromium: run browser workloads on a host that allows user namespaces, or allow `security.browser_sandbox` to stay off in Operator policy (which every run then reports)."
+            ),
+        },
+    )
 }
 
 /// Whether a browser running under the AppArmor `label`, as

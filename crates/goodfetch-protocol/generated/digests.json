@@ -1,4 +1,9 @@
 {
+  "chromium/launch-args.json": {
+    "input": "26cd874e42e6e1401f2be1bbda76feaa09e857c52fe44ad375b211333162e28f",
+    "output": "9a98a4ea3ef0d3d73ab2c8ff4a27e77c11e080249b4fef472b8ca4388aceefbb",
+    "tools": {}
+  },
   "sdks/python/collie-client/src/goodfetch_collie_client/generated/models.py": {
     "input": "1428d0c0825e6862d9099cdf151842e422ad0827ff50298834792ce58756c8b5",
     "output": "944aa96eb8a9577afd8402ba003693e64b0a2a387800e9ceee682993489a7ae3",

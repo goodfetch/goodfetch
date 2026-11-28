@@ -186,7 +186,7 @@ threads-required = "num-test-threads"
 slow-timeout = { period = "60s", terminate-after = 60 }
 
 [[profile.default.overrides]]
-filter = "binary_id(xtask::it) & (test(/^codegen::/) | test(/^compat::/) | test(/^feature_generators::/) | test(/^perf_build::/) | test(/^stress::/) | test(/^test_tools::/))"
+filter = "binary_id(xtask::it) & (test(/^chromium_launch_args::/) | test(/^codegen::/) | test(/^compat::/) | test(/^feature_generators::/) | test(/^perf_build::/) | test(/^stress::/) | test(/^test_tools::/))"
 test-group = "fixture-builds"
 
 [[profile.default.overrides]]

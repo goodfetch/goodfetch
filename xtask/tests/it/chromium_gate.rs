@@ -54,7 +54,7 @@ fn fixture_chromium_workspace() -> Workspace {
     workspace
 }
 
-fn parse_hashes(stdout: &str) -> (String, String) {
+pub(crate) fn parse_hashes(stdout: &str) -> (String, String) {
     let mut build = None;
     let mut test = None;
     for line in stdout.lines() {

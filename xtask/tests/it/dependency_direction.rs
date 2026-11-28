@@ -556,3 +556,67 @@ fn protocol_taking_dev_workspace_hack_fails() {
     );
     assert_eq!(outcome.code, 1);
 }
+
+#[test]
+fn shipped_crate_depending_on_mcp_fixture_server_fails() {
+    let workspace = Workspace::from_fixture("dependency-direction");
+    workspace.write(
+        "Cargo.toml",
+        b"[workspace]\nresolver = \"3\"\nmembers = [\n  \"crates/goodfetch-*\",\n  \"conformance/mcp/fixture-server\",\n  \"proving-ground\",\n  \"xtask\",\n]\n",
+    );
+    workspace.write(
+        "conformance/mcp/fixture-server/Cargo.toml",
+        b"[package]\nname = \"goodfetch-mcp-fixture-server\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n",
+    );
+    workspace.write(
+        "conformance/mcp/fixture-server/src/lib.rs",
+        b"//! Fixture MCP conformance server.\n",
+    );
+    workspace.write(
+        "crates/goodfetch-engine/Cargo.toml",
+        b"[package]\nname = \"goodfetch-engine\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\ngoodfetch-workspace-hack = { path = \"../goodfetch-workspace-hack\" }\ngoodfetch-protocol = { path = \"../goodfetch-protocol\" }\ngoodfetch-mcp-fixture-server = { path = \"../../conformance/mcp/fixture-server\" }\n",
+    );
+
+    let outcome = workspace.xtask(&["dependency-direction"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "mcp-fixture-server-not-dev-only",
+            "goodfetch-engine"
+        )],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn published_mcp_fixture_server_fails() {
+    let workspace = Workspace::from_fixture("dependency-direction");
+    workspace.write(
+        "Cargo.toml",
+        b"[workspace]\nresolver = \"3\"\nmembers = [\n  \"crates/goodfetch-*\",\n  \"conformance/mcp/fixture-server\",\n  \"proving-ground\",\n  \"xtask\",\n]\n",
+    );
+    workspace.write(
+        "conformance/mcp/fixture-server/Cargo.toml",
+        b"[package]\nname = \"goodfetch-mcp-fixture-server\"\nversion = \"0.0.0\"\nedition = \"2024\"\n",
+    );
+    workspace.write(
+        "conformance/mcp/fixture-server/src/lib.rs",
+        b"//! Fixture MCP conformance server.\n",
+    );
+
+    let outcome = workspace.xtask(&["dependency-direction"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "mcp-fixture-server-published",
+            "goodfetch-mcp-fixture-server"
+        )],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}

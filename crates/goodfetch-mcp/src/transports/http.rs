@@ -371,7 +371,7 @@ pub struct HttpServerConfig {
 
 /// A bound Streamable HTTP MCP listener ready to announce its startup record
 /// and begin serving requests.
-pub struct BoundHttpServer {
+pub struct BoundHttpServer<H: rmcp::ServerHandler + Send + Sync + 'static = McpServer> {
     #[expect(
         clippy::disallowed_types,
         reason = "the MCP transports module is the one place that opens the Streamable HTTP listener (ADR 0060)"
@@ -379,19 +379,19 @@ pub struct BoundHttpServer {
     listener: tokio::net::TcpListener,
     local_addr: SocketAddr,
     url: String,
-    state: Arc<HttpServingState>,
+    state: Arc<HttpServingState<H>>,
 }
 
-struct HttpServingState {
+struct HttpServingState<H: rmcp::ServerHandler + Send + Sync + 'static = McpServer> {
     authorities: HttpAuthorities,
     auth: HttpAuth,
     tls: HttpTls,
     refusals: Option<SharedRefusalRecorder>,
     cancellation: CancellationToken,
-    mcp_service: StreamableHttpService<McpServer, LocalSessionManager>,
+    mcp_service: StreamableHttpService<H, LocalSessionManager>,
 }
 
-impl BoundHttpServer {
+impl BoundHttpServer<McpServer> {
     /// Binds a TCP socket at `config.bind` and prepares the Streamable HTTP
     /// MCP server without starting the accept loop yet.
     ///
@@ -402,6 +402,29 @@ impl BoundHttpServer {
         config: HttpServerConfig,
         options: ServerOptions,
         connector: SharedEngineConnector,
+    ) -> Result<Self, TransportError> {
+        Self::bind_service(config, move || {
+            Ok(McpServer::with_connector(
+                options.clone(),
+                connector.clone(),
+            ))
+        })
+        .await
+    }
+}
+
+impl<H: rmcp::ServerHandler + Send + Sync + 'static> BoundHttpServer<H> {
+    /// Binds a TCP socket at `config.bind` for any `rmcp` [`ServerHandler`]
+    /// factory (used by `bind` for [`McpServer`] and by the test-only MCP
+    /// conformance fixture server so both share the exact same HTTP listener,
+    /// auth and `Host`/`Origin` enforcement, ADR 0070).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TransportError::Serve`] if binding the socket fails.
+    pub async fn bind_service(
+        config: HttpServerConfig,
+        factory: impl Fn() -> Result<H, std::io::Error> + Send + Sync + 'static,
     ) -> Result<Self, TransportError> {
         #[expect(
             clippy::disallowed_types,
@@ -430,16 +453,7 @@ impl BoundHttpServer {
             .disable_allowed_hosts()
             .disable_allowed_origins()
             .with_cancellation_token(config.cancellation.child_token());
-        let mcp_service = StreamableHttpService::new(
-            move || {
-                Ok(McpServer::with_connector(
-                    options.clone(),
-                    connector.clone(),
-                ))
-            },
-            session_manager,
-            rmcp_config,
-        );
+        let mcp_service = StreamableHttpService::new(factory, session_manager, rmcp_config);
         let state = Arc::new(HttpServingState {
             authorities,
             auth: config.auth,
@@ -526,11 +540,11 @@ impl BoundHttpServer {
     clippy::disallowed_types,
     reason = "the MCP transports module accepts TCP streams from its own listener (ADR 0060)"
 )]
-async fn handle_accepted_stream(
+async fn handle_accepted_stream<H: rmcp::ServerHandler + Send + Sync + 'static>(
     stream: tokio::net::TcpStream,
     peer: SocketAddr,
     local_port: u16,
-    state: Arc<HttpServingState>,
+    state: Arc<HttpServingState<H>>,
     stopping: CancellationToken,
 ) {
     match &state.tls {
@@ -580,14 +594,15 @@ async fn handle_accepted_stream(
     }
 }
 
-async fn serve_http_connection<S>(
+async fn serve_http_connection<S, H>(
     stream: S,
-    state: Arc<HttpServingState>,
+    state: Arc<HttpServingState<H>>,
     authorities: Arc<HttpAuthorities>,
     peer: Option<SocketAddr>,
     stopping: CancellationToken,
 ) where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    H: rmcp::ServerHandler + Send + Sync + 'static,
 {
     let connection = hyper::server::conn::http1::Builder::new()
         .timer(TokioTimer::new())
@@ -621,7 +636,7 @@ async fn serve_http_connection<S>(
     }
 }
 
-impl HttpServingState {
+impl<H: rmcp::ServerHandler + Send + Sync + 'static> HttpServingState<H> {
     async fn answer(
         &self,
         mut request: Request<Incoming>,

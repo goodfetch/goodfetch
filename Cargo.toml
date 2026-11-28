@@ -14,6 +14,7 @@ resolver = "3"
 members = [
   "crates/goodfetch-*",
   "crates/foxhound/goodfetch-*",
+  "conformance/mcp/fixture-server",
   "proving-ground",
   "xtask",
 ]

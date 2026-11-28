@@ -1,0 +1,4 @@
+# Expected failures for the test-only MCP conformance fixture server.
+# Always empty: the fixture server must pass every scenario of every supported
+# revision and every implemented extension (ADR 0070, ticket #414).
+server: []

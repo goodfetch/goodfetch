@@ -3615,6 +3615,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "goodfetch-mcp-fixture-server"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "goodfetch-dev-workspace-hack",
+ "goodfetch-mcp",
+ "goodfetch-protocol",
+ "goodfetch-runtime",
+ "goodfetch-workspace-hack",
+ "rmcp",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "goodfetch-memory-site"
 version = "0.0.0"
 dependencies = [

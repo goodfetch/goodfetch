@@ -1,0 +1,123 @@
+# MCP client matrix cells (ADR 0070, tickets #414 and #416).
+# Every supported revision in `crates/goodfetch-mcp/src/revisions.rs` must have
+# matrix cells here (`xtask mcp check`).
+
+[[cell]]
+revision = "2025-03-26"
+client = "typescript-v1"
+transport = "stdio"
+
+[[cell]]
+revision = "2025-03-26"
+client = "typescript-v1"
+transport = "http"
+
+[[cell]]
+revision = "2025-03-26"
+client = "python"
+transport = "stdio"
+
+[[cell]]
+revision = "2025-03-26"
+client = "python"
+transport = "http"
+
+[[cell]]
+revision = "2025-03-26"
+client = "rmcp"
+transport = "stdio"
+
+[[cell]]
+revision = "2025-03-26"
+client = "rmcp"
+transport = "http"
+
+[[cell]]
+revision = "2025-06-18"
+client = "typescript-v1"
+transport = "stdio"
+
+[[cell]]
+revision = "2025-06-18"
+client = "typescript-v1"
+transport = "http"
+
+[[cell]]
+revision = "2025-06-18"
+client = "python"
+transport = "stdio"
+
+[[cell]]
+revision = "2025-06-18"
+client = "python"
+transport = "http"
+
+[[cell]]
+revision = "2025-06-18"
+client = "rmcp"
+transport = "stdio"
+
+[[cell]]
+revision = "2025-06-18"
+client = "rmcp"
+transport = "http"
+
+[[cell]]
+revision = "2025-11-25"
+client = "typescript-v1"
+transport = "stdio"
+
+[[cell]]
+revision = "2025-11-25"
+client = "typescript-v1"
+transport = "http"
+
+[[cell]]
+revision = "2025-11-25"
+client = "typescript-v2"
+transport = "stdio"
+
+[[cell]]
+revision = "2025-11-25"
+client = "typescript-v2"
+transport = "http"
+
+[[cell]]
+revision = "2025-11-25"
+client = "python"
+transport = "stdio"
+
+[[cell]]
+revision = "2025-11-25"
+client = "python"
+transport = "http"
+
+[[cell]]
+revision = "2025-11-25"
+client = "rmcp"
+transport = "stdio"
+
+[[cell]]
+revision = "2025-11-25"
+client = "rmcp"
+transport = "http"
+
+[[cell]]
+revision = "2026-07-28"
+client = "typescript-v2"
+transport = "stdio"
+
+[[cell]]
+revision = "2026-07-28"
+client = "typescript-v2"
+transport = "http"
+
+[[cell]]
+revision = "2026-07-28"
+client = "rmcp"
+transport = "stdio"
+
+[[cell]]
+revision = "2026-07-28"
+client = "rmcp"
+transport = "http"

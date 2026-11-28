@@ -1,6 +1,11 @@
 //! Scale-down drain handoff, startup assigned-run resume, and `runs adopt`
 //! across a Daemon group (ADRs 0055, 0056 and 0060, issue 245).
 //!
+//! Size: one concern, the Group member Run handoff and `runs adopt` pipeline
+//! (drain, checkpoint transfer, receiver install/resume, hook delegation, and
+//! offline volume adoption) kept together because every path shares the same
+//! mTLS peer-link envelope, epoch check, and Run index ownership update.
+//!
 //! On removal (`group leave` on VMs or `StatefulSet` scale-down where
 //! `pod_ordinal >= desired_replicas`), a Group member drains its live Runs
 //! within `daemon.drain_grace` and sends each non-machine-bound Run's
@@ -16,7 +21,9 @@
 //! only the Runs the group Run index still assigns to it, so no Run runs twice.
 
 use std::collections::BTreeSet;
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -26,12 +33,12 @@ use goodfetch_protocol::checkpoint::{
     RunBinding, SESSION_BOUND_TO_MACHINE, SessionBoundToMachineDetails,
 };
 use goodfetch_protocol::group::{
-    GROUP_RUN_HANDOFF, GROUP_RUN_INDEX_LIST_ASSIGNED, GROUP_RUN_INDEX_LOOKUP, GROUP_RUN_PLACE,
-    LeadEpoch, MemberRoute, NOT_IN_A_GROUP, PEER_PROTOCOL_VERSION, PeerRunHandoffParams,
-    PeerRunHandoffResult, PeerRunIndexListAssignedParams, PeerRunIndexListAssignedResult,
-    PeerRunIndexLookupParams, PeerRunIndexLookupResult, PeerRunIndexReportParams,
-    PeerRunIndexReportResult, PeerRunPlaceParams, PeerRunPlaceResult, PlacementRequest,
-    RUN_INDEX_REPORT,
+    GROUP_PEER_EXTENSION, GROUP_RUN_HANDOFF, GROUP_RUN_INDEX_LIST_ASSIGNED, GROUP_RUN_INDEX_LOOKUP,
+    GROUP_RUN_PLACE, LeadEpoch, MemberRoute, NOT_IN_A_GROUP, PEER_PROTOCOL_VERSION,
+    PeerExtensionParams, PeerExtensionResult, PeerRunHandoffParams, PeerRunHandoffResult,
+    PeerRunIndexListAssignedParams, PeerRunIndexListAssignedResult, PeerRunIndexLookupParams,
+    PeerRunIndexLookupResult, PeerRunIndexReportParams, PeerRunIndexReportResult,
+    PeerRunPlaceParams, PeerRunPlaceResult, PlacementRequest, RUN_INDEX_REPORT,
 };
 use goodfetch_protocol::home::RUN_FILE;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
@@ -89,6 +96,9 @@ impl Peering {
     /// Drains live Runs for a removal (`group leave` or `StatefulSet` scale-down)
     /// and hands every non-machine-bound Run's Checkpoint over the peer link to
     /// the Group member the Lead Daemon places it on within `grace` (ADR 0055).
+    /// Contributions (such as Partitioned crawls, ADR 0054) run their removal
+    /// drain hooks first so their Partitions hand off by domain rather than by
+    /// Checkpoint transfer.
     pub(in crate::group) async fn drain_and_handoff_for_removal(
         &self,
         runs: &Runs,
@@ -96,7 +106,19 @@ impl Peering {
     ) -> RemovalSummary {
         let now = self.clock.now();
         let deadline = now + grace;
-        let effects_by = now + (grace / 2);
+        let mut skip_checkpoint_handoff = BTreeSet::new();
+        if !self.services.group_membership_hooks.is_empty()
+            && let Some(ctx) = self.membership_context()
+        {
+            for hook in self.services.group_membership_hooks.iter() {
+                let handled = hook
+                    .on_removal_drain(self.name.clone(), deadline, ctx.clone())
+                    .await;
+                skip_checkpoint_handoff.extend(handled);
+            }
+        }
+        let remaining_now = self.clock.now();
+        let effects_by = remaining_now + (deadline.saturating_duration_since(remaining_now) / 2);
         let draining = runs.drain(effects_by).await;
         tokio::select! {
             () = draining.ended() => {}
@@ -108,13 +130,23 @@ impl Peering {
                 );
             }
         }
-        self.handoff_local_runs(deadline).await
+        self.handoff_local_runs_excluding(deadline, &skip_checkpoint_handoff)
+            .await
     }
 
     /// Hands off local non-ended Runs assigned to this Group member before
     /// `deadline`, leaving machine-bound Runs and any Run not covered before
     /// `deadline` checkpointed and assigned to this member (ADR 0055).
     pub(super) async fn handoff_local_runs(&self, deadline: Instant) -> RemovalSummary {
+        self.handoff_local_runs_excluding(deadline, &BTreeSet::new())
+            .await
+    }
+
+    async fn handoff_local_runs_excluding(
+        &self,
+        deadline: Instant,
+        skip_runs: &BTreeSet<RunId>,
+    ) -> RemovalSummary {
         let mut summary = RemovalSummary::default();
         let Some((kept, _)) = store::identity(&self.store).await.ok().flatten() else {
             return summary;
@@ -129,6 +161,9 @@ impl Peering {
                     continue;
                 }
             };
+            if skip_runs.contains(&prepared.run_id) {
+                continue;
+            }
             if matches!(
                 prepared.held.lifecycle,
                 Lifecycle::Finished | Lifecycle::Failed
@@ -589,12 +624,92 @@ impl Peering {
 /// `not_in_a_group` when `home` is not in a Daemon group,
 /// `session_bound_to_machine` when any Run in `paths` is machine-bound, or
 /// peer/placement failures from the Lead Daemon or destination Group member.
+/// Peer client backed by `KeptIdentity` for offline `runs adopt` hooks.
+struct KeptAdoptPeerClient {
+    kept: KeptIdentity,
+    identity: Identity,
+    clock: Clock,
+    lead_epoch: LeadEpoch,
+}
+
+impl crate::engine_context::AdoptPeerClient for KeptAdoptPeerClient {
+    fn member_name(&self) -> &str {
+        &self.kept.name
+    }
+
+    fn call_lead_extension(
+        &self,
+        extension_method: String,
+        payload: serde_json::Value,
+    ) -> Pin<Box<dyn Future<Output = Result<serde_json::Value, CallError>> + Send>> {
+        self.call_member_extension(
+            self.kept.lead_name.clone(),
+            self.kept.lead_address.clone(),
+            extension_method,
+            payload,
+        )
+    }
+
+    fn call_member_extension(
+        &self,
+        member: String,
+        peer_address: String,
+        extension_method: String,
+        payload: serde_json::Value,
+    ) -> Pin<Box<dyn Future<Output = Result<serde_json::Value, CallError>> + Send>> {
+        let kept = self.kept.clone();
+        let identity = self.identity.clone();
+        let clock = self.clock;
+        let lead_epoch = self.lead_epoch;
+        Box::pin(async move {
+            let params = PeerExtensionParams {
+                protocol_version: PEER_PROTOCOL_VERSION,
+                product: identity.product,
+                product_version: identity.product_version,
+                lead_epoch,
+                member: kept.name.clone(),
+                extension_method,
+                payload,
+            };
+            let answered: PeerExtensionResult = ask_peer(
+                &kept,
+                &member,
+                &peer_address,
+                clock,
+                GROUP_PEER_EXTENSION,
+                &params,
+            )
+            .await?;
+            Ok(answered.result)
+        })
+    }
+}
+
 pub async fn adopt_runs(
     home: &Home,
     identity: &Identity,
     clock: Clock,
     paths: &[PathBuf],
     from_member: Option<&str>,
+) -> Result<AdoptedSummary, CallError> {
+    adopt_runs_with_hooks(home, identity, clock, paths, from_member, &[]).await
+}
+
+/// Brings checkpointed Runs from `paths` on a removed Group member's kept
+/// volume into another Group member, letting contribution `hooks` intercept
+/// their own Run folders (such as Partitioned crawl Partitions, ADR 0054)
+/// before generic Checkpoint handoff.
+///
+/// # Errors
+///
+/// As [`adopt_runs`].
+pub async fn adopt_runs_with_hooks(
+    home: &Home,
+    identity: &Identity,
+    clock: Clock,
+    paths: &[PathBuf],
+    from_member: Option<&str>,
+    hooks: &[Arc<dyn crate::engine_context::RunAdoptHook>],
 ) -> Result<AdoptedSummary, CallError> {
     let group_path = home
         .per_major(&identity.product_version)
@@ -619,11 +734,22 @@ pub async fn adopt_runs(
         ));
     };
 
+    let peer_client: Arc<dyn crate::engine_context::AdoptPeerClient> =
+        Arc::new(KeptAdoptPeerClient {
+            kept: kept.clone(),
+            identity: identity.clone(),
+            clock,
+            lead_epoch,
+        });
+
     let folders = scan_run_folders(paths);
     let mut summary = AdoptedSummary::default();
     let nonce_base = clock.wall_nonce();
 
     for (idx, folder) in folders.into_iter().enumerate() {
+        if try_adopt_with_hooks(hooks, &folder, from_member, &peer_client, &mut summary).await? {
+            continue;
+        }
         let Some(prepared) = prepare_checkpoint(&folder, nonce_base.wrapping_add(idx as u64))?
         else {
             continue;
@@ -686,6 +812,33 @@ pub async fn adopt_runs(
         });
     }
     Ok(summary)
+}
+
+async fn try_adopt_with_hooks(
+    hooks: &[Arc<dyn crate::engine_context::RunAdoptHook>],
+    folder: &Path,
+    from_member: Option<&str>,
+    peer_client: &Arc<dyn crate::engine_context::AdoptPeerClient>,
+    summary: &mut AdoptedSummary,
+) -> Result<bool, CallError> {
+    for hook in hooks {
+        match hook
+            .try_adopt_folder(
+                folder.to_path_buf(),
+                from_member.map(str::to_owned),
+                Arc::clone(peer_client),
+            )
+            .await?
+        {
+            crate::engine_context::AdoptHookOutcome::NotMine => {}
+            crate::engine_context::AdoptHookOutcome::Handled { adopted, skipped } => {
+                summary.adopted.extend(adopted);
+                summary.skipped.extend(skipped);
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
 }
 
 async fn lookup_owner_for_adopt(

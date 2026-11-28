@@ -656,7 +656,10 @@ impl Handler {
     }
 }
 
-pub use crate::engine_context::{PeerExtensionAnswer, PeerExtensionHandler};
+pub use crate::engine_context::{
+    AdoptHookOutcome, AdoptPeerClient, GroupMembershipContext, GroupMembershipHook,
+    PeerExtensionAnswer, PeerExtensionHandler, RunAdoptHook,
+};
 pub use crate::run_state::LimitScopeReader;
 
 /// What one domain crate adds to the engine.
@@ -666,6 +669,8 @@ pub struct Contribution {
     handlers: Vec<Handler>,
     operation_guards: Vec<(&'static [&'static str], Guard)>,
     peer_extensions: Vec<(&'static str, Arc<dyn PeerExtensionHandler>)>,
+    group_membership_hooks: Vec<Arc<dyn GroupMembershipHook>>,
+    run_adopt_hooks: Vec<Arc<dyn RunAdoptHook>>,
     limit_scope_readers: Vec<LimitScopeReader>,
     run_state_tables: Vec<RunStateTables>,
     politeness_tables: Vec<PolitenessTables>,
@@ -699,6 +704,8 @@ impl Contribution {
             handlers: Vec::new(),
             operation_guards: Vec::new(),
             peer_extensions: Vec::new(),
+            group_membership_hooks: Vec::new(),
+            run_adopt_hooks: Vec::new(),
             limit_scope_readers: Vec::new(),
             run_state_tables: Vec::new(),
             politeness_tables: Vec::new(),
@@ -735,6 +742,21 @@ impl Contribution {
         handler: Arc<dyn PeerExtensionHandler>,
     ) -> Self {
         self.peer_extensions.push((method, handler));
+        self
+    }
+
+    /// Registers a Daemon group membership / removal-drain hook (ADRs 0054,
+    /// 0055 and 0087).
+    #[must_use]
+    pub fn with_group_membership_hook(mut self, hook: Arc<dyn GroupMembershipHook>) -> Self {
+        self.group_membership_hooks.push(hook);
+        self
+    }
+
+    /// Registers a `runs adopt` folder hook (ADRs 0054, 0055 and 0087).
+    #[must_use]
+    pub fn with_run_adopt_hook(mut self, hook: Arc<dyn RunAdoptHook>) -> Self {
+        self.run_adopt_hooks.push(hook);
         self
     }
 
@@ -1205,6 +1227,22 @@ impl Composition {
             .iter()
             .flat_map(|contribution| &contribution.peer_extensions)
             .map(|(method, handler)| (*method, Arc::clone(handler)))
+            .collect()
+    }
+
+    /// All Daemon group membership hooks registered across contributions.
+    pub(crate) fn group_membership_hooks(&self) -> Arc<[Arc<dyn GroupMembershipHook>]> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.group_membership_hooks.iter().cloned())
+            .collect()
+    }
+
+    /// All `runs adopt` hooks registered across contributions.
+    pub(crate) fn run_adopt_hooks(&self) -> Arc<[Arc<dyn RunAdoptHook>]> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.run_adopt_hooks.iter().cloned())
             .collect()
     }
 

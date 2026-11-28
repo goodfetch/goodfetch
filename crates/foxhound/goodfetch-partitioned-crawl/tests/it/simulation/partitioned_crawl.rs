@@ -265,6 +265,56 @@ fn all_expected_urls() -> BTreeSet<String> {
     (0..3).flat_map(discovered_by).map(|(_, url)| url).collect()
 }
 
+async fn serve_partition_stream(
+    partition: u32,
+    host_name: &'static str,
+    clock: &goodfetch_engine::clock::Clock,
+    w: &World,
+    stream: turmoil::net::TcpStream,
+) {
+    let (r, mut wr) = stream.into_split();
+    let mut reader = BufReader::new(r);
+    let mut line = String::new();
+    if reader.read_line(&mut line).await.unwrap_or(0) == 0 {
+        return;
+    }
+    let Ok(req) = serde_json::from_str::<ForwardLinksRequest>(&line) else {
+        return;
+    };
+    if req.sender_run_epoch == 0 || req.partition_map_epoch == 0 {
+        w.state.borrow_mut().invalid_epoch_seen = true;
+        return;
+    }
+    let (local_links, reroute) = classify_incoming(&w.map, partition, req.links);
+    let accepted = local_links.len();
+    for link in local_links {
+        w.admit_into_frontier(
+            clock,
+            partition,
+            host_name,
+            &link.domain_key,
+            &link.url,
+            Some((
+                req.sender_partition,
+                req.sender_run_epoch,
+                req.partition_map_epoch,
+            )),
+        );
+    }
+    w.state.borrow_mut().forwarded_batches += 1;
+    let resp = ForwardLinksResponse {
+        accepted,
+        rerouted: reroute.values().map(Vec::len).sum(),
+        credits_granted: req.credits_requested.max(4),
+        current_map_epoch: w.map.map_epoch,
+    };
+    if let Ok(mut out) = serde_json::to_vec(&resp) {
+        out.push(b'\n');
+        let _ = wr.write_all(&out).await;
+        let _ = wr.flush().await;
+    }
+}
+
 async fn partition_host(
     partition: u32,
     host_name: &'static str,
@@ -279,47 +329,7 @@ async fn partition_host(
         while let Ok((stream, _)) = listener.accept().await {
             let w = w.clone();
             tokio::task::spawn_local(async move {
-                let (r, mut wr) = stream.into_split();
-                let mut reader = BufReader::new(r);
-                let mut line = String::new();
-                if reader.read_line(&mut line).await.unwrap_or(0) == 0 {
-                    return;
-                }
-                let Ok(req) = serde_json::from_str::<ForwardLinksRequest>(&line) else {
-                    return;
-                };
-                if req.sender_run_epoch == 0 || req.partition_map_epoch == 0 {
-                    w.state.borrow_mut().invalid_epoch_seen = true;
-                    return;
-                }
-                let (local_links, reroute) = classify_incoming(&w.map, partition, req.links);
-                let accepted = local_links.len();
-                for link in local_links {
-                    w.admit_into_frontier(
-                        &clock,
-                        partition,
-                        host_name,
-                        &link.domain_key,
-                        &link.url,
-                        Some((
-                            req.sender_partition,
-                            req.sender_run_epoch,
-                            req.partition_map_epoch,
-                        )),
-                    );
-                }
-                w.state.borrow_mut().forwarded_batches += 1;
-                let resp = ForwardLinksResponse {
-                    accepted,
-                    rerouted: reroute.values().map(Vec::len).sum(),
-                    credits_granted: req.credits_requested.max(4),
-                    current_map_epoch: w.map.map_epoch,
-                };
-                if let Ok(mut out) = serde_json::to_vec(&resp) {
-                    out.push(b'\n');
-                    let _ = wr.write_all(&out).await;
-                    let _ = wr.flush().await;
-                }
+                serve_partition_stream(partition, host_name, &clock, &w, stream).await;
             });
         }
     });
@@ -380,22 +390,19 @@ async fn partition_host(
                 credits_requested: u32::try_from(links.len()).unwrap_or(4),
                 links,
             };
-            match send_forward(&slot.member, &req).await {
-                Ok(resp) => {
-                    window.acknowledge(resp.credits_granted);
-                }
-                Err(_) => {
-                    window.fail_in_flight();
-                    world.state.borrow_mut().forward_retries += 1;
-                    world.record(
-                        host.clock(),
-                        host_name,
-                        Seen::ForwardRetried {
-                            from: partition,
-                            to: target,
-                        },
-                    );
-                }
+            if let Ok(resp) = send_forward(&slot.member, &req).await {
+                window.acknowledge(resp.credits_granted);
+            } else {
+                window.fail_in_flight();
+                world.state.borrow_mut().forward_retries += 1;
+                world.record(
+                    host.clock(),
+                    host_name,
+                    Seen::ForwardRetried {
+                        from: partition,
+                        to: target,
+                    },
+                );
             }
         }
         if !any_pending {

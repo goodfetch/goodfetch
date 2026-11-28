@@ -821,8 +821,9 @@ async fn bind(_: Value, context: CallContext) -> Result<Value, CallError> {
     Ok(json!({ "run_id": "paused" }))
 }
 
-/// Records a `partitioned_crawl_membership` row so the run-state and
-/// checkpoint compatibility corpora cover it (ADRs 0054 and 0066).
+/// Records a `partitioned_crawl_membership` row and a `partition_domain_state`
+/// row so the run-state and checkpoint compatibility corpora cover both
+/// (ADRs 0054 and 0066).
 async fn write_partitioned_crawl_membership(state: &RunState) {
     state
         .write(|connection| {
@@ -838,10 +839,16 @@ async fn write_partitioned_crawl_membership(state: &RunState) {
             );
             goodfetch_partitioned_crawl::store::write_partition_membership(
                 connection, &crawl_id, 0, &map,
+            )?;
+            goodfetch_partitioned_crawl::handoff::attach_domain_state(
+                connection,
+                "shop.test",
+                "wall_allowance",
+                &json!({ "refetch_stopped": true }),
             )
         })
         .await
-        .expect("partitioned_crawl_membership is recorded");
+        .expect("partitioned_crawl_membership and partition_domain_state are recorded");
 }
 
 /// Records two origins' robots.txt copies in the paused Run (ADR 0098):

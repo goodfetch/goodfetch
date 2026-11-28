@@ -18,6 +18,7 @@
 pub mod aggregation;
 pub mod coordinator;
 pub mod forwarding;
+pub mod handoff;
 pub mod rendezvous;
 pub mod store;
 pub mod validation;

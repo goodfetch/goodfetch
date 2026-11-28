@@ -1,0 +1,12 @@
+# Partition handoff when Group members change (ADRs 0054, 0055 and 0060):
+# moving domains are fenced on the old owner, drained of in-flight fetches,
+# transferred with pending URLs, seen fingerprints and per-domain state, and
+# admitted on the new owner only after acknowledgement; stale forwards are
+# re-routed under the current partition-map epoch. `goodfetch-partitioned-crawl`
+# traces these transitions under `goodfetch::partition`.
+spec = "PartitionHandoff.tla"
+traces = [
+  "crates/foxhound/goodfetch-partitioned-crawl/src/",
+]
+trace_spec = "TracePartitionHandoff.tla"
+trace_files = ["crates/foxhound/goodfetch-partitioned-crawl/tests/trace/partition-handoff.ndjson"]

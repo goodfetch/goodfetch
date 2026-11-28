@@ -715,6 +715,23 @@ impl UnwrittenVisits {
             .widened
             .is_some_and(|widened| widened >= committed)
     }
+
+    /// Notes transferred `identities` (from a Partition handoff or `runs adopt`,
+    /// ADR 0054) in memory alongside the run file's `visited` table so in-memory
+    /// duplicate checks never miss a handed-off seen fingerprint.
+    pub fn note_transferred_visits(&self, identities: &[String]) {
+        if identities.is_empty() {
+            return;
+        }
+        let mut holding = self.lock();
+        let tag = holding.committed;
+        for identity in identities {
+            holding
+                .held
+                .write(Space::Visited, (identity.as_str(), 0), "handoff", tag);
+        }
+        holding.held.report();
+    }
 }
 
 impl WriteWatch for UnwrittenVisits {

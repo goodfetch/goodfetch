@@ -214,6 +214,139 @@ impl CrawlRuntime {
             .await
             .map(|live| live.run.identity.folder().to_path_buf())
     }
+
+    /// Returns whether Partition `run_id` is currently live on this engine.
+    pub async fn is_live(&self, run_id: &RunId) -> bool {
+        self.crawls.live(run_id).await.is_some()
+    }
+
+    /// Fences `domains` on live Partition `run_id`, waits for their in-flight
+    /// requests to end, seals the current Run-state batch, extracts their
+    /// pending URLs, seen fingerprints and per-domain state, and removes them
+    /// from `run_id` (ADR 0054 and ADR 0142).
+    ///
+    /// # Errors
+    ///
+    /// `run_not_found` when `run_id` is not live, or any Run-state error.
+    pub async fn fence_and_drain_domains(
+        &self,
+        run_id: &RunId,
+        domains: Vec<String>,
+    ) -> Result<Vec<crate::partition::DomainHandoffSnapshot>, CallError> {
+        let Some(live) = self.crawls.live(run_id).await else {
+            return Err(CallError::new(
+                &RUN_NOT_FOUND,
+                format!("Partition Run `{run_id}` is not live on this Group member."),
+                &RunDetails {
+                    run_id: run_id.clone(),
+                    path: None,
+                },
+            ));
+        };
+        live.asking
+            .fence_and_drain_domains(domains)
+            .await
+            .map_err(|error| {
+                CallError::protocol(
+                    goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
+                    format!("failed to drain domains on `{run_id}`: {error}"),
+                )
+            })
+    }
+
+    /// Fences incoming `domains` on live Partition `run_id` until their
+    /// handoff is acknowledged (ADR 0054).
+    ///
+    /// # Errors
+    ///
+    /// `run_not_found` when `run_id` is not live, or any Run-state error.
+    pub async fn hold_incoming_domains(
+        &self,
+        run_id: &RunId,
+        domains: Vec<String>,
+    ) -> Result<(), CallError> {
+        let Some(live) = self.crawls.live(run_id).await else {
+            return Err(CallError::new(
+                &RUN_NOT_FOUND,
+                format!("Partition Run `{run_id}` is not live on this Group member."),
+                &RunDetails {
+                    run_id: run_id.clone(),
+                    path: None,
+                },
+            ));
+        };
+        live.asking
+            .hold_incoming_domains(domains)
+            .await
+            .map_err(|error| {
+                CallError::protocol(
+                    goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
+                    format!("failed to hold incoming domains on `{run_id}`: {error}"),
+                )
+            })
+    }
+
+    /// Installs one moving domain's pending URLs, seen fingerprints and
+    /// per-domain state on live Partition `run_id` while keeping the domain
+    /// fenced until unfenced after acknowledgement (ADR 0054).
+    ///
+    /// # Errors
+    ///
+    /// `run_not_found` when `run_id` is not live, or any Run-state error.
+    pub async fn install_domain_handoff(
+        &self,
+        run_id: &RunId,
+        snapshot: crate::partition::DomainHandoffSnapshot,
+    ) -> Result<usize, CallError> {
+        let Some(live) = self.crawls.live(run_id).await else {
+            return Err(CallError::new(
+                &RUN_NOT_FOUND,
+                format!("Partition Run `{run_id}` is not live on this Group member."),
+                &RunDetails {
+                    run_id: run_id.clone(),
+                    path: None,
+                },
+            ));
+        };
+        live.asking
+            .install_domain_handoff(snapshot)
+            .await
+            .map_err(|error| {
+                CallError::protocol(
+                    goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
+                    format!("failed to install domain handoff on `{run_id}`: {error}"),
+                )
+            })
+    }
+
+    /// Lifts the handoff fence on `domains` on live Partition `run_id` once
+    /// the handoff has been acknowledged (ADR 0054).
+    ///
+    /// # Errors
+    ///
+    /// `run_not_found` when `run_id` is not live, or any Run-state error.
+    pub async fn unfence_domains(
+        &self,
+        run_id: &RunId,
+        domains: Vec<String>,
+    ) -> Result<(), CallError> {
+        let Some(live) = self.crawls.live(run_id).await else {
+            return Err(CallError::new(
+                &RUN_NOT_FOUND,
+                format!("Partition Run `{run_id}` is not live on this Group member."),
+                &RunDetails {
+                    run_id: run_id.clone(),
+                    path: None,
+                },
+            ));
+        };
+        live.asking.unfence_domains(domains).await.map_err(|error| {
+            CallError::protocol(
+                goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
+                format!("failed to unfence domains on `{run_id}`: {error}"),
+            )
+        })
+    }
 }
 
 /// What Foxhound's crawl adds to the engine: `crawl.start`, `crawl.serve`,
@@ -419,14 +552,16 @@ async fn start_with_options(
     labels.sends_from_login_pools(settings.resolved())?;
     let datasets = pages.map_or_else(|| Datasets::declare(&params.datasets), Ok)?;
     FetchTiers::check(settings.resolved(), &labels.settings)?;
-    let (extra_limit_scopes, partition_router, membership_writer) = match partition_options {
-        Some(opts) => (
-            opts.extra_limit_scopes,
-            Some(opts.router),
-            opts.membership_writer,
-        ),
-        None => (Vec::new(), None, None),
-    };
+    let (extra_limit_scopes, partition_router, membership_writer, initial_held_domains) =
+        match partition_options {
+            Some(opts) => (
+                opts.extra_limit_scopes,
+                Some(opts.router),
+                opts.membership_writer,
+                opts.initial_held_domains,
+            ),
+            None => (Vec::new(), None, None, Vec::new()),
+        };
     let invariants = Invariants::of_settings(settings.resolved(), &params.labels, fragments)?
         .with_partition_router(partition_router.clone());
     let egress = domain_policy(settings.resolved())?;
@@ -482,6 +617,7 @@ async fn start_with_options(
     finish_start(
         started,
         partition_router,
+        initial_held_domains,
         (limits, settings, egress, serving, opening),
         (declared, crawl, hooks, labels),
         (crawls, tiers, redeclared, context),
@@ -492,6 +628,7 @@ async fn start_with_options(
 async fn finish_start(
     started: Started,
     partition_router: Option<Arc<dyn PartitionRouter>>,
+    initial_held_domains: Vec<String>,
     (limits, settings, egress, serving, opening): (
         StartLimits,
         RunSettings,
@@ -530,7 +667,9 @@ async fn finish_start(
             run.identity.spawn(delivery::drive(
                 Arc::clone(&run),
                 context.clone(),
-                crawls.open(&run, egress, serving, opening).await,
+                crawls
+                    .open_with_held(&run, egress, serving, opening, initial_held_domains)
+                    .await,
                 crawls,
                 settings,
                 (tiers, labels, TierChoices::default(), (code_free, hooks)),

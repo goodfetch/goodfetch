@@ -137,11 +137,12 @@ use crate::hooks::Hooks;
 use crate::invariants::Invariants;
 use crate::labels;
 use crate::lease::{CommitError, Leases, WorkItemLease};
+use crate::partition::DomainHandoffSnapshot;
 use crate::policy::{CrawlPolicy, resumed_domain_policy};
 use crate::progress::{self, InFlight, Room, SharedInFlight};
 use crate::run_state::{
-    Asking, Chosen, Drawing, Drawn, DrawnSession, Local, Message, Opening, PermitAsk, QueuedEnd,
-    Ran, RunState, StateError, Stored, Unkeyed, Within,
+    Asking, Chosen, Drawing, Drawn, DrawnSession, Local, Message, Opening, PartitionCommand,
+    PermitAsk, QueuedEnd, Ran, RunState, StateError, Stored, Unkeyed, Within,
 };
 use crate::serving::{Crawls, Opened, Server};
 use crate::tier_choice::{self, AttemptPlan, Sampling, TierChoices, Unit};
@@ -444,15 +445,115 @@ enum Idled {
     Waits,
 }
 
+/// Pending fenced domain drain waiting until in-flight requests for every
+/// moving domain have ended and settled (ADR 0054).
+struct PendingDomainDrain {
+    domains: Vec<String>,
+    answer: oneshot::Sender<Result<Vec<DomainHandoffSnapshot>, StateError>>,
+}
+
+/// Partition handoff state owned by the delivery loop: domains held fenced
+/// while waiting for incoming handoffs, and pending outbound domain drains.
+#[derive(Default)]
+struct PartitionHandoffs {
+    held_incoming: BTreeSet<String>,
+    pending_drains: Vec<PendingDomainDrain>,
+}
+
+impl PartitionHandoffs {
+    fn open(admission: &mut Admission, initial_held: Vec<String>) -> Self {
+        let mut handoffs = Self::default();
+        for domain in initial_held {
+            admission.fence_key(&domain);
+            handoffs.held_incoming.insert(domain);
+        }
+        handoffs
+    }
+
+    fn is_busy(&self) -> bool {
+        !self.held_incoming.is_empty() || !self.pending_drains.is_empty()
+    }
+
+    async fn resolve_ready_drains(
+        &mut self,
+        run: &CrawlRun,
+        admission: &mut Admission,
+        state: &mut RunState,
+        in_flight: &SharedInFlight,
+    ) {
+        let mut remaining = Vec::new();
+        for drain in std::mem::take(&mut self.pending_drains) {
+            let ready = drain
+                .domains
+                .iter()
+                .all(|d| admission.in_flight(d) == 0 && !state.has_undrawn_for(d));
+            if !ready {
+                remaining.push(drain);
+                continue;
+            }
+            // Write the current Run-state batch first before reading/removing
+            // moving domain state (2026-11-07 Foxhound refactor amendment,
+            // story 45, ADR 0142).
+            let result = match state.seal().await {
+                Ok(()) => match state
+                    .stored()
+                    .export_and_remove_domains(drain.domains.clone())
+                    .await
+                {
+                    Ok((snapshots, tally)) => {
+                        for d in &drain.domains {
+                            admission.remove_key(d);
+                            state.remove_domain_pending(d);
+                            self.held_incoming.remove(d);
+                        }
+                        state.replace_tally(tally);
+                        show_counted(run, state, in_flight, []).await;
+                        Ok(snapshots)
+                    }
+                    Err(error) => {
+                        tracing::error!(
+                            %error,
+                            run_id = %run.identity.id(),
+                            domains = ?drain.domains,
+                            "exporting moving domains during Partition handoff failed"
+                        );
+                        for d in &drain.domains {
+                            admission.unfence_key(d);
+                        }
+                        Err(error)
+                    }
+                },
+                Err(error) => {
+                    tracing::error!(
+                        %error,
+                        run_id = %run.identity.id(),
+                        domains = ?drain.domains,
+                        "sealing Run state before Partition handoff failed"
+                    );
+                    for d in &drain.domains {
+                        admission.unfence_key(d);
+                    }
+                    Err(error)
+                }
+            };
+            let _ = drain.answer.send(result);
+        }
+        self.pending_drains = remaining;
+    }
+}
+
 /// The delivery loop's turn once nothing is in flight: it ends a stopped
 /// Run, waits for a Connection while none serves, and otherwise asks the
 /// work items whether to admit more, wait, or drain the Run.
 async fn idled(
     (run, resolved): (&CrawlRun, &Resolved),
-    (admission, state): (&mut Admission, &mut RunState),
+    (admission, state, handoffs): (&mut Admission, &mut RunState, &mut PartitionHandoffs),
     (servers, arrivals, in_flight): (&mut Vec<Serving>, &mut Opened, &SharedInFlight),
     (stop, starved): (Option<StopReason>, bool),
 ) -> Idled {
+    handoffs
+        .resolve_ready_drains(run, admission, state, in_flight)
+        .await;
     if let Some(reason) = stop {
         end(run, admission, Ending::Stopped(reason)).await;
         return Idled::Ended;
@@ -463,14 +564,17 @@ async fn idled(
         Waited::Again => Idled::Again(None),
     };
     if !servers.iter_mut().any(Serving::serves) {
-        let state = (admission, state);
+        let state = (admission, state, handoffs);
         return again(waited(run, state, servers, arrivals, in_flight, false).await);
+    }
+    if handoffs.is_busy() {
+        return Idled::Waits;
     }
     match when_idle(run, admission, state).await {
         Ok(Idle::Admit) if !starved => Idled::Again(None),
         Ok(Idle::Admit | Idle::Wait) => Idled::Waits,
         Ok(Idle::Done) => {
-            let state = (admission, state);
+            let state = (admission, state, handoffs);
             again(drained(run, resolved, state, servers, arrivals, in_flight).await)
         }
         Err(error) => {
@@ -496,6 +600,10 @@ async fn deliver(
     let Some((mut admission, mut state)) = opened(run, settings, choices, arrivals).await else {
         return;
     };
+    let mut handoffs = PartitionHandoffs::open(
+        &mut admission,
+        std::mem::take(&mut arrivals.initial_held_domains),
+    );
     // Its before-request Hooks run before each request's Permit is taken
     // (#2905, the owner's decision of 2026-11-07 on #1546).
     if fetching.hooks.before_request() {
@@ -540,7 +648,7 @@ async fn deliver(
             if undrawn {
                 release(run, state.stored()).await;
             }
-            let state = (&mut admission, &mut state);
+            let state = (&mut admission, &mut state, &mut handoffs);
             let serving = (&mut *servers, &mut *arrivals, in_flight);
             match idled((run, resolved), state, serving, (stop.take(), starved)).await {
                 Idled::Ended => return,
@@ -555,9 +663,13 @@ async fn deliver(
         let wake = (free && !starved)
             .then(|| admission.ready_at(run.identity.clock().now()))
             .flatten();
-        let shown = (resolved, read.policy);
-        let room = [stop.is_some(), free, starved];
-        show(run, &mut admission, shown, servers, room);
+        show(
+            run,
+            &mut admission,
+            (resolved, read.policy),
+            servers,
+            [stop.is_some(), free, starved],
+        );
         let settles = !settling.is_empty();
         tokio::select! {
             biased;
@@ -568,26 +680,19 @@ async fn deliver(
                 release(run, state.stored()).await;
                 return;
             }
-            reason = run.identity.stopping(), if stop.is_none() => {
-                stop = Some(reason);
-            }
-            Some(server) = arrivals.joined.recv() => {
-                servers.push(Serving::joined(server));
-            }
+            reason = run.identity.stopping(), if stop.is_none() => stop = Some(reason),
+            Some(server) = arrivals.joined.recv() => servers.push(Serving::joined(server)),
             Some(ask) = arrivals.asked.next() => {
-                answered(run, (&mut admission, &mut state), in_flight, ask).await;
+                answered(run, (&mut admission, &mut state, &mut handoffs), in_flight, ask).await;
             }
             () = admission.serve_politeness() => {}
             Some(written) = settling.next(), if settles => {
-                let on = (&mut admission, servers.as_mut_slice());
-                completed(run, on, (&mut state, fetching), written).await;
+                completed(run, (&mut admission, servers.as_mut_slice()), (&mut state, fetching), written).await;
+                handoffs.resolve_ready_drains(run, &mut admission, &mut state, in_flight).await;
             }
-            moved = taught.taken() => {
-                merged(run, (&mut admission, &mut state), in_flight, moved).await;
-            }
+            moved = taught.taken() => merged(run, (&mut admission, &mut state), in_flight, moved).await,
             ended = pages.ended() => {
-                let state = (&mut state, fetching);
-                let settlement = settled(run, read, state, servers, ended).await;
+                let settlement = settled(run, read, (&mut state, fetching), servers, ended).await;
                 settling.push(settlement);
             }
             () = sleep_until(run.identity.clock(), wake), if wake.is_some() => {}
@@ -662,7 +767,7 @@ async fn show_counted<'a>(
 /// A request's Permit, its admission answers (#2905).
 async fn answered(
     run: &CrawlRun,
-    (admission, state): (&mut Admission, &mut RunState),
+    (admission, state, handoffs): (&mut Admission, &mut RunState, &mut PartitionHandoffs),
     in_flight: &SharedInFlight,
     ask: Message,
 ) -> bool {
@@ -677,6 +782,10 @@ async fn answered(
             let _ = answer.send(permit);
             return false;
         }
+        Message::Partition(command) => {
+            return handle_partition_command(run, (admission, state, handoffs), in_flight, command)
+                .await;
+        }
     };
     let Some(added) = state.answer(question).await else {
         return false;
@@ -686,6 +795,65 @@ async fn answered(
     }
     show_counted(run, state, in_flight, []).await;
     true
+}
+
+async fn handle_partition_command(
+    run: &CrawlRun,
+    (admission, state, handoffs): (&mut Admission, &mut RunState, &mut PartitionHandoffs),
+    in_flight: &SharedInFlight,
+    command: PartitionCommand,
+) -> bool {
+    match command {
+        PartitionCommand::FenceAndDrain { domains, answer } => {
+            for d in &domains {
+                admission.fence_key(d);
+            }
+            handoffs
+                .pending_drains
+                .push(PendingDomainDrain { domains, answer });
+            handoffs
+                .resolve_ready_drains(run, admission, state, in_flight)
+                .await;
+            true
+        }
+        PartitionCommand::HoldIncoming { domains, answer } => {
+            for d in domains {
+                admission.fence_key(&d);
+                handoffs.held_incoming.insert(d);
+            }
+            let _ = answer.send(Ok(()));
+            false
+        }
+        PartitionCommand::InstallHandoff { snapshot, answer } => {
+            admission.fence_key(&snapshot.domain_key);
+            handoffs.held_incoming.insert(snapshot.domain_key.clone());
+            match state.stored().install_domain_handoff(*snapshot).await {
+                Ok((added, changed)) => {
+                    let count = added.len();
+                    state.changed(changed);
+                    let committed = state.stored().commits();
+                    for waiting in state.added(added, committed) {
+                        admission.enqueue(waiting);
+                    }
+                    show_counted(run, state, in_flight, []).await;
+                    let _ = answer.send(Ok(count));
+                    false
+                }
+                Err(error) => {
+                    let _ = answer.send(Err(error));
+                    false
+                }
+            }
+        }
+        PartitionCommand::Unfence { domains, answer } => {
+            for d in &domains {
+                handoffs.held_incoming.remove(d);
+                admission.unfence_key(d);
+            }
+            let _ = answer.send(Ok(()));
+            true
+        }
+    }
 }
 
 /// The ending of a crawl whose state or admission failed with `error`, or
@@ -1262,7 +1430,7 @@ enum Waited {
 async fn drained(
     run: &CrawlRun,
     resolved: &Resolved,
-    (admission, state): (&mut Admission, &mut RunState),
+    (admission, state, handoffs): (&mut Admission, &mut RunState, &mut PartitionHandoffs),
     servers: &mut Vec<Serving>,
     arrivals: &mut Opened,
     in_flight: &SharedInFlight,
@@ -1321,7 +1489,15 @@ async fn drained(
     }
     progress::show_waits(run, &[], resolved, run.identity.clock().now(), Room::None);
     progress::show_idle(run, true);
-    waited(run, (admission, state), servers, arrivals, in_flight, true).await
+    waited(
+        run,
+        (admission, state, handoffs),
+        servers,
+        arrivals,
+        in_flight,
+        true,
+    )
+    .await
 }
 
 /// Waits, with nothing to deliver now, until the Run stops at once, is
@@ -1334,7 +1510,7 @@ async fn drained(
 /// `in_flight`.
 async fn waited(
     run: &CrawlRun,
-    (admission, state): (&mut Admission, &mut RunState),
+    (admission, state, handoffs): (&mut Admission, &mut RunState, &mut PartitionHandoffs),
     servers: &mut Vec<Serving>,
     arrivals: &mut Opened,
     in_flight: &SharedInFlight,
@@ -1355,7 +1531,7 @@ async fn waited(
                 return Waited::Again;
             }
             Some(ask) = arrivals.asked.next() => {
-                if answered(run, (&mut *admission, &mut *state), in_flight, ask).await {
+                if answered(run, (&mut *admission, &mut *state, &mut *handoffs), in_flight, ask).await {
                     return Waited::Again;
                 }
             }

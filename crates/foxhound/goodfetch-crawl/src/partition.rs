@@ -9,12 +9,63 @@
 //! forwarded links enter the receiving Partition through the same Run-state
 //! admission (`admit_forwarded`), never a second enqueue path.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
 use goodfetch_protocol::foxhound::frontier::{HttpBody, HttpMethod};
 use goodfetch_protocol::run::LimitScope;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+/// One pending crawl work item exported from a Partition during a fenced
+/// domain handoff or `runs adopt` (ADR 0054).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DomainHandoffItem {
+    /// Absolute URL to fetch.
+    pub url: String,
+    /// Target Label.
+    pub label: String,
+    /// Optional Payload JSON.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload: Option<Value>,
+    /// HTTP method (`GET` by default).
+    #[serde(default = "HttpMethod::get")]
+    pub method: HttpMethod,
+    /// Optional HTTP request body.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<HttpBody>,
+    /// Optional Frontier key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    /// Queue priority within the domain.
+    #[serde(default)]
+    pub priority: i64,
+    /// Whether queued at the forefront of the domain queue.
+    #[serde(default)]
+    pub forefront: bool,
+    /// Crawl depth of this work item.
+    #[serde(default)]
+    pub depth: u32,
+    /// Pre-computed domain key (ADR 0004).
+    pub domain_key: String,
+}
+
+/// Complete fenced state of one moving domain exported from a Partition's
+/// Run state (after sealing the open Run-state batch, ADR 0054 and ADR 0142).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DomainHandoffSnapshot {
+    /// Moving domain key.
+    pub domain_key: String,
+    /// Pending work items still to be fetched for this domain.
+    pub pending: Vec<DomainHandoffItem>,
+    /// Frontier visited fingerprints of URLs already seen for this domain.
+    pub seen_fingerprints: Vec<String>,
+    /// Arbitrary per-domain state attached by other areas (`area -> JSON`),
+    /// persisted in `partition_domain_state`.
+    #[serde(default)]
+    pub domain_state: BTreeMap<String, Value>,
+}
 
 /// One discovered URL routed to a remote Partition during Run-state admission.
 #[derive(Clone, Debug)]
@@ -75,4 +126,8 @@ pub struct PartitionStartOptions {
     /// Whether an empty initial seed list is allowed (when all initial seeds
     /// hashed to other Partitions).
     pub allow_empty_seeds: bool,
+    /// Domains held fenced on start until their incoming Partition handoff is
+    /// acknowledged (for a Partition started when a Group member is added,
+    /// ADR 0054).
+    pub initial_held_domains: Vec<String>,
 }

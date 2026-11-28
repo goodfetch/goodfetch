@@ -7,9 +7,11 @@
 
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Arc;
 
+use goodfetch_engine::RunAdoptHook;
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::group::{adopt_runs, reindex_to_lead};
+use goodfetch_engine::group::{adopt_runs_with_hooks, reindex_to_lead};
 use goodfetch_engine::runs::reindex as rebuild;
 use goodfetch_protocol::connection::Form;
 use goodfetch_protocol::run::{RUN_STATE_LOCATION, RunsAdoptOutput, RunsReindexOutput};
@@ -78,6 +80,7 @@ pub(super) fn adopt(
     folder: &std::path::Path,
     paths: Vec<PathBuf>,
     from_member: Option<&str>,
+    adopt_hooks: &[Arc<dyn RunAdoptHook>],
     json: bool,
     human: &Human,
 ) -> ExitCode {
@@ -91,12 +94,13 @@ pub(super) fn adopt(
         tracing::error!("the runtime for `runs adopt` could not be started");
         return ExitCode::FAILURE;
     };
-    match runtime.block_on(adopt_runs(
+    match runtime.block_on(adopt_runs_with_hooks(
         home,
         identity,
         Clock::system(),
         &locations,
         from_member,
+        adopt_hooks,
     )) {
         Ok(adopted) => {
             let result = RunsAdoptOutput {

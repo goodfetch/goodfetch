@@ -10,9 +10,11 @@
     reason = "short in-memory coordinator metadata locks held across no await, outside loom"
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::future::Future;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, PoisonError, RwLock};
+use std::pin::Pin;
+use std::sync::{Arc, Mutex, PoisonError, RwLock, Weak};
 use std::time::{Duration, SystemTime};
 
 use goodfetch_crawl::CrawlRuntime;
@@ -22,8 +24,8 @@ use goodfetch_engine::run::{run_id, run_layer, settings_error};
 use goodfetch_engine::settings::Opening;
 use goodfetch_engine::tasks::BlockingThreads;
 use goodfetch_engine::{
-    Answered, CallContext, CallError, Contribution, GroupPeer, Guard, PeerExtensionAnswer,
-    PeerExtensionHandler, give_scoped_limits,
+    Answered, CallContext, CallError, Contribution, GroupMembershipContext, GroupMembershipHook,
+    GroupPeer, Guard, PeerExtensionAnswer, PeerExtensionHandler, RunIndex, give_scoped_limits,
 };
 use goodfetch_frontier::{DomainKeys, host_of};
 use goodfetch_protocol::catalog::{Operation, Product};
@@ -58,6 +60,15 @@ use crate::aggregation::{aggregate_lifecycle, aggregate_reports, running_placeho
 use crate::forwarding::{
     CreditWindow, ForwardLinksRequest, ForwardLinksResponse, ForwardedLink, PEER_FORWARD_LINKS,
     classify_incoming,
+};
+use crate::handoff::{
+    ActivateDomainRequest, DrainDomainsRequest, DrainDomainsResponse, HandoffDomainRequest,
+    HandoffDomainResponse, PEER_ACTIVATE_DOMAIN, PEER_DRAIN_DOMAINS, PEER_HANDOFF_DOMAIN,
+    PEER_PUBLISH_MAP, PEER_REMOVE_MEMBER_MAP, PartitionAdoptHook, PublishMapRequest,
+    RemoveMemberMapRequest, RemoveMemberMapResponse, TransferredRefetchStop, compute_moves,
+    distinct_domains_in_run_file, map_with_added_member, map_without_member, trace_ack_handoff,
+    trace_admit_domain, trace_assign_initial, trace_drain_inflight, trace_fence_domain,
+    trace_publish_map, trace_reroute_forward, trace_send_handoff,
 };
 use crate::rendezvous::{PartitionMap, PartitionSlot};
 use crate::store::{
@@ -105,6 +116,8 @@ struct PreparedPartition {
     run_id: RunId,
     map: PartitionMap,
     initial_seeds: Vec<Seed>,
+    #[serde(default)]
+    initial_held_domains: Vec<String>,
 }
 
 /// Request payload for `partition.read_records`.
@@ -150,6 +163,21 @@ struct State {
     store_path: Mutex<Option<PathBuf>>,
     /// Whether `known` has been hydrated from `partitioned-crawls.sqlite` once.
     hydrated: Mutex<bool>,
+    /// Shared live `PartitionMap` handles per Partitioned crawl ID so
+    /// membership changes atomically update every live router and forwarder.
+    live_maps: RwLock<BTreeMap<RunId, Arc<RwLock<Arc<PartitionMap>>>>>,
+    /// Start parameters cached on the Lead Daemon so a newly added Group
+    /// member can start a new Partition for any running Partitioned crawl.
+    start_params: RwLock<BTreeMap<RunId, CrawlStartParams>>,
+    /// Known domain keys seen/seeded for each Partitioned crawl (used when a
+    /// Group member joins to hold incoming moving domains on the new Partition).
+    known_domains: RwLock<BTreeMap<RunId, BTreeSet<String>>>,
+    /// Weak handle to the engine's `GroupPeer` (never strong, avoiding any
+    /// `EngineContext <-> State` shutdown `Arc` cycle).
+    peer_weak: Mutex<Option<Weak<dyn GroupPeer>>>,
+    /// Local Run index handle for moving Wall allowance refetch stops
+    /// (ADR 0052 and 0054; holds no `EngineContext`).
+    run_index: Mutex<Option<RunIndex>>,
 }
 
 impl State {
@@ -164,10 +192,93 @@ impl State {
             blocking: Mutex::new(None),
             store_path: Mutex::new(None),
             hydrated: Mutex::new(false),
+            live_maps: RwLock::new(BTreeMap::new()),
+            start_params: RwLock::new(BTreeMap::new()),
+            known_domains: RwLock::new(BTreeMap::new()),
+            peer_weak: Mutex::new(None),
+            run_index: Mutex::new(None),
         }
     }
 
+    fn live_map_handle(
+        &self,
+        crawl_id: &RunId,
+        initial: PartitionMap,
+    ) -> Arc<RwLock<Arc<PartitionMap>>> {
+        let mut guard = self
+            .live_maps
+            .write()
+            .unwrap_or_else(PoisonError::into_inner);
+        Arc::clone(
+            guard
+                .entry(crawl_id.clone())
+                .or_insert_with(|| Arc::new(RwLock::new(Arc::new(initial)))),
+        )
+    }
+
+    fn update_live_map(&self, crawl_id: &RunId, new_map: PartitionMap) {
+        if let Some(handle) = self
+            .live_maps
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(crawl_id)
+            .cloned()
+        {
+            let mut slot = handle.write().unwrap_or_else(PoisonError::into_inner);
+            if new_map.map_epoch >= slot.map_epoch {
+                *slot = Arc::new(new_map);
+            }
+        }
+    }
+
+    fn record_domains(&self, crawl_id: &RunId, domains: impl IntoIterator<Item = String>) {
+        let mut guard = self
+            .known_domains
+            .write()
+            .unwrap_or_else(PoisonError::into_inner);
+        guard.entry(crawl_id.clone()).or_default().extend(domains);
+    }
+
+    fn known_domains_of(&self, crawl_id: &RunId) -> Vec<String> {
+        let mut set: BTreeSet<String> = self
+            .known_domains
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(crawl_id)
+            .cloned()
+            .unwrap_or_default();
+        if let Some(record) = self.get_known(crawl_id) {
+            let folders = self
+                .run_folders
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            for slot in &record.map.slots {
+                if let Some(folder) = folders.get(&slot.run_id) {
+                    set.extend(distinct_domains_in_run_file(&folder.join("run.sqlite")));
+                }
+            }
+        }
+        set.into_iter().collect()
+    }
+
+    fn peer(&self) -> Option<Arc<dyn GroupPeer>> {
+        self.peer_weak
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .and_then(Weak::upgrade)
+    }
+
+    fn run_index(&self) -> Option<RunIndex> {
+        self.run_index
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
     fn cache_record(&self, record: PartitionedCrawlRecord) {
+        self.update_live_map(&record.crawl_id, record.map.clone());
         let mut by_part = self
             .by_partition_run
             .write()
@@ -202,6 +313,20 @@ impl State {
         let mut blocking = self.blocking.lock().unwrap_or_else(PoisonError::into_inner);
         if blocking.is_none() {
             *blocking = Some(context.engine().task_starter().blocking_threads());
+        }
+        drop(blocking);
+        if let Some(peer) = context.engine().group_peer() {
+            *self
+                .peer_weak
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = Some(Arc::downgrade(&peer));
+        }
+        let mut ri = self
+            .run_index
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if ri.is_none() {
+            *ri = Some(context.engine().run_index().clone());
         }
     }
 
@@ -296,19 +421,25 @@ impl State {
     }
 }
 
-/// Live [`PartitionRouter`] built once per `partition_map_epoch` and attached
-/// to a Partition's Run-state [`Invariants`] (ADR 0054 and ADR 0140, F3).
+/// Live [`PartitionRouter`] sharing an atomically updatable [`PartitionMap`]
+/// across `partition_map_epoch` changes (ADR 0054 and ADR 0140, F3).
 #[derive(Debug)]
 struct LivePartitionRouter {
     local_partition: u32,
-    map: Arc<PartitionMap>,
+    map: Arc<RwLock<Arc<PartitionMap>>>,
     domain_keys: Arc<DomainKeys>,
     outbound: mpsc::UnboundedSender<Vec<ForwardedItem>>,
 }
 
+impl LivePartitionRouter {
+    fn current_map(&self) -> Arc<PartitionMap> {
+        Arc::clone(&self.map.read().unwrap_or_else(PoisonError::into_inner))
+    }
+}
+
 impl PartitionRouter for LivePartitionRouter {
     fn map_epoch(&self) -> u64 {
-        self.map.map_epoch
+        self.current_map().map_epoch
     }
 
     fn route_url(&self, url: &str) -> Option<(String, u32)> {
@@ -317,7 +448,8 @@ impl PartitionRouter for LivePartitionRouter {
             return None;
         }
         let domain_key = self.domain_keys.key(host);
-        let owner = self.map.owner_of(&domain_key);
+        let map = self.current_map();
+        let owner = map.owner_of(&domain_key);
         if owner.partition == self.local_partition {
             None
         } else {
@@ -336,7 +468,7 @@ struct ForwarderTarget {
     crawl_id: RunId,
     local_partition: u32,
     local_run_id: RunId,
-    map: Arc<PartitionMap>,
+    map: Arc<RwLock<Arc<PartitionMap>>>,
     domain_keys: Arc<DomainKeys>,
 }
 
@@ -367,7 +499,8 @@ fn spawn_forwarder(
                     let Some(items) = batch else {
                         return;
                     };
-                    enqueue_outbound_items(&mut windows, items);
+                    let map = Arc::clone(&target.map.read().unwrap_or_else(PoisonError::into_inner));
+                    enqueue_outbound_items(&mut windows, items, &map);
                     if !drain_outbound_windows(
                         &mut windows,
                         (&target.crawl_id, target.local_partition, &target.local_run_id),
@@ -387,29 +520,31 @@ fn spawn_forwarder(
     router
 }
 
-fn enqueue_outbound_items(windows: &mut BTreeMap<u32, CreditWindow>, items: Vec<ForwardedItem>) {
+fn enqueue_outbound_items(
+    windows: &mut BTreeMap<u32, CreditWindow>,
+    items: Vec<ForwardedItem>,
+    map: &PartitionMap,
+) {
     for item in items {
-        windows
-            .entry(item.target_partition)
-            .or_default()
-            .push(ForwardedLink {
-                url: item.url,
-                label: item.label,
-                payload: item.payload,
-                method: item.method,
-                body: item.body,
-                key: item.key,
-                priority: item.priority,
-                forefront: item.forefront,
-                domain_key: item.domain_key,
-            });
+        let target = map.owner_of(&item.domain_key).partition;
+        windows.entry(target).or_default().push(ForwardedLink {
+            url: item.url,
+            label: item.label,
+            payload: item.payload,
+            method: item.method,
+            body: item.body,
+            key: item.key,
+            priority: item.priority,
+            forefront: item.forefront,
+            domain_key: item.domain_key,
+        });
     }
 }
 
 async fn drain_outbound_windows(
     windows: &mut BTreeMap<u32, CreditWindow>,
     (crawl_id, local_partition, local_run_id): (&RunId, u32, &RunId),
-    map: &PartitionMap,
+    map_handle: &Arc<RwLock<Arc<PartitionMap>>>,
     runtime: &CrawlRuntime,
     peer: &Arc<dyn GroupPeer>,
     (clock, starter): (
@@ -418,10 +553,24 @@ async fn drain_outbound_windows(
     ),
 ) -> bool {
     loop {
+        let map = Arc::clone(&map_handle.read().unwrap_or_else(PoisonError::into_inner));
         let mut any_sent = false;
         let targets: Vec<u32> = windows.keys().copied().collect();
         for target in targets {
             let Some(slot) = map.slot(target) else {
+                // Target Partition was removed from the map: re-classify its
+                // queued links under the current map.
+                if let Some(mut stale) = windows.remove(&target) {
+                    while let Some(batch) = stale.take_batch() {
+                        for link in batch {
+                            let next_owner = map.owner_of(&link.domain_key).partition;
+                            if next_owner != local_partition {
+                                windows.entry(next_owner).or_default().push(link);
+                            }
+                        }
+                        stale.acknowledge(64);
+                    }
+                }
                 continue;
             };
             let Some(window) = windows.get_mut(&target) else {
@@ -503,6 +652,28 @@ pub fn contribution(runtime: CrawlRuntime) -> Contribution {
             PEER_READ_RECORDS,
             Arc::new(ReadRecordsHandler(Arc::clone(&state))),
         )
+        .with_peer_extension(
+            PEER_PUBLISH_MAP,
+            Arc::new(PublishMapHandler(Arc::clone(&state))),
+        )
+        .with_peer_extension(
+            PEER_DRAIN_DOMAINS,
+            Arc::new(DrainDomainsHandler(Arc::clone(&state))),
+        )
+        .with_peer_extension(
+            PEER_HANDOFF_DOMAIN,
+            Arc::new(HandoffDomainHandler(Arc::clone(&state))),
+        )
+        .with_peer_extension(
+            PEER_ACTIVATE_DOMAIN,
+            Arc::new(ActivateDomainHandler(Arc::clone(&state))),
+        )
+        .with_peer_extension(
+            PEER_REMOVE_MEMBER_MAP,
+            Arc::new(RemoveMemberMapHandler(Arc::clone(&state))),
+        )
+        .with_group_membership_hook(Arc::new(PartitionMembershipHook(Arc::clone(&state))))
+        .with_run_adopt_hook(Arc::new(PartitionAdoptHook))
         .with_operation_guard(&[CRAWL_START.name], crawl_start_guard)
         .with_operation_guard(PARTITIONED_RUN_OPS, run_ops_guard)
 }
@@ -592,12 +763,13 @@ fn reattach_partition_router(
         .get(&run_id)
         .cloned()
         .unwrap_or_else(|| Arc::new(domain_keys_from_map(&params.settings)));
+    let map_handle = state.live_map_handle(&record.crawl_id, record.map);
     let router = spawn_forwarder(
         ForwarderTarget {
             crawl_id: record.crawl_id,
             local_partition: partition_idx,
             local_run_id: run_id.clone(),
-            map: Arc::new(record.map),
+            map: map_handle,
             domain_keys,
         },
         state.runtime.clone(),
@@ -821,7 +993,51 @@ impl PeerExtensionHandler for ForwardLinksHandler {
                     .admit_forwarded(&req.target_run_id, seeds)
                     .await?
             };
-            let rerouted: usize = reroute.values().map(Vec::len).sum();
+            // Re-route links whose domain key this Partition no longer owns
+            // under the current `PartitionMap` (ADR 0054).
+            let mut rerouted = 0_usize;
+            if let Some(record) = &current_record
+                && let Some(peer) = state.peer()
+            {
+                let from_member = peer.member_name().to_owned();
+                for (next_partition, links) in reroute {
+                    let Some(target_slot) = record.map.slot(next_partition) else {
+                        continue;
+                    };
+                    for link in &links {
+                        trace_reroute_forward(
+                            &link.domain_key,
+                            &from_member,
+                            &target_slot.member,
+                            req.partition_map_epoch,
+                            record.map.map_epoch,
+                        );
+                    }
+                    let count = links.len();
+                    let reroute_req = ForwardLinksRequest {
+                        partitioned_crawl_id: req.partitioned_crawl_id.clone(),
+                        target_partition: target_slot.partition,
+                        target_run_id: target_slot.run_id.clone(),
+                        sender_partition: req.target_partition,
+                        sender_run_epoch: req.sender_run_epoch,
+                        partition_map_epoch: record.map.map_epoch,
+                        credits_requested: u32::try_from(count).unwrap_or(16),
+                        links,
+                    };
+                    let payload = serde_json::to_value(&reroute_req)
+                        .expect("invariant: ForwardLinksRequest encodes");
+                    peer.call_member_extension(
+                        target_slot.member.clone(),
+                        target_slot.peer_address.clone(),
+                        PEER_FORWARD_LINKS.to_owned(),
+                        payload,
+                    )
+                    .await?;
+                    rerouted += count;
+                }
+            } else {
+                rerouted = reroute.values().map(Vec::len).sum();
+            }
             let resp = ForwardLinksResponse {
                 accepted,
                 rerouted,
@@ -829,6 +1045,727 @@ impl PeerExtensionHandler for ForwardLinksHandler {
                 current_map_epoch,
             };
             Ok(serde_json::to_value(resp).expect("invariant: ForwardLinksResponse encodes"))
+        })
+    }
+}
+
+struct PublishMapHandler(Arc<State>);
+
+impl PeerExtensionHandler for PublishMapHandler {
+    fn handle(
+        &self,
+        _sender_member: String,
+        _lead_epoch: LeadEpoch,
+        payload: Value,
+    ) -> PeerExtensionAnswer {
+        let state = Arc::clone(&self.0);
+        Box::pin(async move {
+            let req: PublishMapRequest = serde_json::from_value(payload).map_err(|error| {
+                CallError::protocol(
+                    ProtocolFailure::InvalidParams,
+                    format!("invalid `partition.publish_map` payload: {error}"),
+                )
+            })?;
+            let created_at = state
+                .get_known(&req.crawl_id)
+                .map_or(0, |existing| existing.created_at);
+            let record = PartitionedCrawlRecord {
+                crawl_id: req.crawl_id.clone(),
+                map: req.map.clone(),
+                created_at,
+            };
+            state.persist_local_sqlite(&record);
+            state.cache_record(record);
+            if !req.hold_incoming_domains.is_empty()
+                && let Some(target_run_id) = req.target_run_id
+                && state.runtime.is_live(&target_run_id).await
+            {
+                let _ = state
+                    .runtime
+                    .hold_incoming_domains(&target_run_id, req.hold_incoming_domains)
+                    .await;
+            }
+            Ok(json!({ "ok": true, "map_epoch": req.map.map_epoch }))
+        })
+    }
+}
+
+struct DrainDomainsHandler(Arc<State>);
+
+impl PeerExtensionHandler for DrainDomainsHandler {
+    fn handle(
+        &self,
+        _sender_member: String,
+        _lead_epoch: LeadEpoch,
+        payload: Value,
+    ) -> PeerExtensionAnswer {
+        let state = Arc::clone(&self.0);
+        Box::pin(async move {
+            let req: DrainDomainsRequest = serde_json::from_value(payload).map_err(|error| {
+                CallError::protocol(
+                    ProtocolFailure::InvalidParams,
+                    format!("invalid `partition.drain_domains` payload: {error}"),
+                )
+            })?;
+            let Some(peer) = state.peer() else {
+                return Err(CallError::protocol(
+                    ProtocolFailure::InternalError,
+                    "drain_domains invoked without an active GroupPeer",
+                ));
+            };
+            let handed_off = execute_domain_handoffs(
+                &state,
+                &peer,
+                state.run_index().as_ref(),
+                &req.crawl_id,
+                &req.source_run_id,
+                req.source_partition,
+                req.map_epoch,
+                req.moves,
+            )
+            .await?;
+            Ok(serde_json::to_value(DrainDomainsResponse { handed_off })
+                .expect("invariant: DrainDomainsResponse encodes"))
+        })
+    }
+}
+
+struct HandoffDomainHandler(Arc<State>);
+
+impl PeerExtensionHandler for HandoffDomainHandler {
+    fn handle(
+        &self,
+        _sender_member: String,
+        _lead_epoch: LeadEpoch,
+        payload: Value,
+    ) -> PeerExtensionAnswer {
+        let state = Arc::clone(&self.0);
+        Box::pin(async move {
+            let req: HandoffDomainRequest = serde_json::from_value(payload).map_err(|error| {
+                CallError::protocol(
+                    ProtocolFailure::InvalidParams,
+                    format!("invalid `partition.handoff_domain` payload: {error}"),
+                )
+            })?;
+            // Install Wall allowance refetch stops in the receiving member's
+            // Run index (ADR 0052 and 0054).
+            if let Some(run_index) = state.run_index() {
+                for stop in req.refetch_stops {
+                    let _ = run_index
+                        .record_transferred_refetch_stop(stop.into_index(req.to_run_id.clone()))
+                        .await;
+                }
+            }
+            let domain_key = req.snapshot.domain_key.clone();
+            state.record_domains(&req.crawl_id, [domain_key.clone()]);
+            let installed = if state.runtime.is_live(&req.to_run_id).await {
+                state
+                    .runtime
+                    .install_domain_handoff(&req.to_run_id, req.snapshot)
+                    .await?
+            } else {
+                0
+            };
+            if !req.adopted {
+                trace_ack_handoff(&domain_key, &req.from_member, &req.to_member, req.map_epoch);
+            }
+            Ok(serde_json::to_value(HandoffDomainResponse {
+                acked: true,
+                map_epoch: req.map_epoch,
+                installed,
+            })
+            .expect("invariant: HandoffDomainResponse encodes"))
+        })
+    }
+}
+
+struct ActivateDomainHandler(Arc<State>);
+
+impl PeerExtensionHandler for ActivateDomainHandler {
+    fn handle(
+        &self,
+        _sender_member: String,
+        _lead_epoch: LeadEpoch,
+        payload: Value,
+    ) -> PeerExtensionAnswer {
+        let state = Arc::clone(&self.0);
+        Box::pin(async move {
+            let req: ActivateDomainRequest = serde_json::from_value(payload).map_err(|error| {
+                CallError::protocol(
+                    ProtocolFailure::InvalidParams,
+                    format!("invalid `partition.activate_domain` payload: {error}"),
+                )
+            })?;
+            if state.runtime.is_live(&req.target_run_id).await {
+                state
+                    .runtime
+                    .unfence_domains(&req.target_run_id, vec![req.domain_key.clone()])
+                    .await?;
+            }
+            trace_admit_domain(&req.domain_key, &req.member, req.map_epoch);
+            Ok(json!({ "ok": true }))
+        })
+    }
+}
+
+struct RemoveMemberMapHandler(Arc<State>);
+
+impl PeerExtensionHandler for RemoveMemberMapHandler {
+    fn handle(
+        &self,
+        _sender_member: String,
+        _lead_epoch: LeadEpoch,
+        payload: Value,
+    ) -> PeerExtensionAnswer {
+        let state = Arc::clone(&self.0);
+        Box::pin(async move {
+            let req: RemoveMemberMapRequest = serde_json::from_value(payload).map_err(|error| {
+                CallError::protocol(
+                    ProtocolFailure::InvalidParams,
+                    format!("invalid `partition.remove_member_map` payload: {error}"),
+                )
+            })?;
+            let Some(mut record) = state.get_known(&req.crawl_id) else {
+                return Err(CallError::protocol(
+                    ProtocolFailure::InvalidParams,
+                    format!("unknown Partitioned crawl `{}`", req.crawl_id),
+                ));
+            };
+            if let Some(new_map) = map_without_member(&record.map, &req.member) {
+                trace_publish_map(new_map.map_epoch);
+                record.map = new_map.clone();
+                state.persist_local_sqlite(&record);
+                state.cache_record(record.clone());
+                if let Some(peer) = state.peer() {
+                    broadcast_publish_map(&peer, &req.crawl_id, &new_map, &BTreeMap::new()).await;
+                }
+            }
+            Ok(
+                serde_json::to_value(RemoveMemberMapResponse { map: record.map })
+                    .expect("invariant: RemoveMemberMapResponse encodes"),
+            )
+        })
+    }
+}
+
+/// Executes fenced domain handoffs from `source_run_id` to their new owners:
+/// 1. Fences moving domains on `source_run_id`, waits for in-flight requests,
+///    seals the current Run-state batch, and exports pending URLs, seen
+///    fingerprints, and attached per-domain state.
+/// 2. Reads Wall allowance refetch stops for each moving domain from `run_index`.
+/// 3. Sends `partition.handoff_domain` to each new owner and waits for ack.
+/// 4. Removes transferred refetch stops from old owner's `run_index` and sends
+///    `partition.activate_domain` so the new owner starts admitting ONLY after
+///    acknowledgement (ADR 0054).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "handoff coordinator helper passing peer, run_index, crawl/run ids, epoch and domain moves"
+)]
+async fn execute_domain_handoffs(
+    state: &State,
+    peer: &Arc<dyn GroupPeer>,
+    run_index: Option<&RunIndex>,
+    crawl_id: &RunId,
+    source_run_id: &RunId,
+    source_partition: u32,
+    map_epoch: u64,
+    moves: Vec<crate::handoff::DomainMove>,
+) -> Result<Vec<String>, CallError> {
+    if moves.is_empty() {
+        return Ok(Vec::new());
+    }
+    if !state.runtime.is_live(source_run_id).await {
+        return Ok(activate_ended_source_moves(peer, crawl_id, map_epoch, moves).await);
+    }
+    let from_member = peer.member_name().to_owned();
+    let domains: Vec<String> = moves.iter().map(|m| m.domain_key.clone()).collect();
+    for mv in &moves {
+        trace_fence_domain(&mv.domain_key, &from_member, &mv.to_member, map_epoch);
+    }
+    let run_epoch = state
+        .runtime
+        .live_run_epoch(source_run_id)
+        .await
+        .unwrap_or(1);
+    let snapshots = state
+        .runtime
+        .fence_and_drain_domains(source_run_id, domains)
+        .await?;
+    let mut by_domain: BTreeMap<String, _> = snapshots
+        .into_iter()
+        .map(|s| (s.domain_key.clone(), s))
+        .collect();
+    let mut handed_off = Vec::new();
+    for mv in moves {
+        trace_drain_inflight(&mv.domain_key, &from_member, map_epoch);
+        let Some(snapshot) = by_domain.remove(&mv.domain_key) else {
+            continue;
+        };
+        let refetch_stops = if let Some(ri) = run_index {
+            ri.refetch_stops_for_run_domain(source_run_id, &mv.domain_key)
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .map(TransferredRefetchStop::from_index)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        trace_send_handoff(&mv.domain_key, &from_member, &mv.to_member, map_epoch);
+        let req = HandoffDomainRequest {
+            crawl_id: crawl_id.clone(),
+            from_partition: source_partition,
+            from_member: from_member.clone(),
+            to_partition: mv.to_partition,
+            to_run_id: mv.to_run_id.clone(),
+            to_member: mv.to_member.clone(),
+            map_epoch,
+            sender_run_epoch: run_epoch,
+            snapshot,
+            refetch_stops,
+            adopted: false,
+        };
+        let raw = peer
+            .call_member_extension(
+                mv.to_member.clone(),
+                mv.to_peer_address.clone(),
+                PEER_HANDOFF_DOMAIN.to_owned(),
+                serde_json::to_value(&req).expect("invariant: HandoffDomainRequest encodes"),
+            )
+            .await?;
+        let ack: HandoffDomainResponse = serde_json::from_value(raw).map_err(|error| {
+            CallError::protocol(
+                ProtocolFailure::InternalError,
+                format!("decoding handoff ack failed: {error}"),
+            )
+        })?;
+        if ack.acked {
+            if let Some(ri) = run_index {
+                let _ = ri.remove_refetch_stop(source_run_id, &mv.domain_key).await;
+            }
+            let activate = ActivateDomainRequest {
+                crawl_id: crawl_id.clone(),
+                target_run_id: mv.to_run_id.clone(),
+                member: mv.to_member.clone(),
+                domain_key: mv.domain_key.clone(),
+                map_epoch,
+            };
+            let _ = peer
+                .call_member_extension(
+                    mv.to_member.clone(),
+                    mv.to_peer_address.clone(),
+                    PEER_ACTIVATE_DOMAIN.to_owned(),
+                    serde_json::to_value(&activate)
+                        .expect("invariant: ActivateDomainRequest encodes"),
+                )
+                .await?;
+            handed_off.push(mv.domain_key);
+        }
+    }
+    Ok(handed_off)
+}
+
+async fn activate_ended_source_moves(
+    peer: &Arc<dyn GroupPeer>,
+    crawl_id: &RunId,
+    map_epoch: u64,
+    moves: Vec<crate::handoff::DomainMove>,
+) -> Vec<String> {
+    let mut activated = Vec::with_capacity(moves.len());
+    for mv in moves {
+        let activate = ActivateDomainRequest {
+            crawl_id: crawl_id.clone(),
+            target_run_id: mv.to_run_id.clone(),
+            member: mv.to_member.clone(),
+            domain_key: mv.domain_key.clone(),
+            map_epoch,
+        };
+        let _ = peer
+            .call_member_extension(
+                mv.to_member.clone(),
+                mv.to_peer_address.clone(),
+                PEER_ACTIVATE_DOMAIN.to_owned(),
+                serde_json::to_value(&activate).expect("invariant: ActivateDomainRequest encodes"),
+            )
+            .await;
+        activated.push(mv.domain_key);
+    }
+    activated
+}
+
+async fn broadcast_publish_map(
+    peer: &Arc<dyn GroupPeer>,
+    crawl_id: &RunId,
+    new_map: &PartitionMap,
+    hold_by_member: &BTreeMap<String, Vec<String>>,
+) {
+    for slot in &new_map.slots {
+        let req = PublishMapRequest {
+            crawl_id: crawl_id.clone(),
+            map: new_map.clone(),
+            hold_incoming_domains: hold_by_member
+                .get(&slot.member)
+                .cloned()
+                .unwrap_or_default(),
+            target_run_id: Some(slot.run_id.clone()),
+        };
+        let _ = peer
+            .call_member_extension(
+                slot.member.clone(),
+                slot.peer_address.clone(),
+                PEER_PUBLISH_MAP.to_owned(),
+                serde_json::to_value(&req).expect("invariant: PublishMapRequest encodes"),
+            )
+            .await;
+    }
+}
+
+/// [`GroupMembershipHook`] handling Group member additions, removals, and
+/// removal drains for live Partitioned crawls (ADRs 0054 and 0055).
+struct PartitionMembershipHook(Arc<State>);
+
+async fn rebalance_crawl_for_added_member(
+    state: &State,
+    mut record: PartitionedCrawlRecord,
+    member: &str,
+    peer_address: &str,
+    ctx: &GroupMembershipContext,
+) {
+    let Some(params) = state
+        .start_params
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(&record.crawl_id)
+        .cloned()
+    else {
+        return;
+    };
+    if !any_partition_running(&ctx.peer, &record.map).await {
+        return;
+    }
+    let old_map = record.map.clone();
+    let Some((new_map, new_slot)) = map_with_added_member(
+        &old_map,
+        &record.crawl_id,
+        member.to_owned(),
+        peer_address.to_owned(),
+    ) else {
+        return;
+    };
+    let domains = state.known_domains_of(&record.crawl_id);
+    let moves = compute_moves(&old_map, &new_map, &domains);
+    let held_for_new: Vec<String> = moves.iter().map(|m| m.domain_key.clone()).collect();
+
+    if !prepare_and_start_added_partition(
+        &record.crawl_id,
+        &new_map,
+        &new_slot,
+        &held_for_new,
+        &params,
+        ctx,
+    )
+    .await
+    {
+        return;
+    }
+
+    trace_publish_map(new_map.map_epoch);
+    record.map = new_map.clone();
+    state.persist_local_sqlite(&record);
+    state.cache_record(record.clone());
+
+    let mut hold_by_member = BTreeMap::new();
+    hold_by_member.insert(new_slot.member.clone(), held_for_new.clone());
+    broadcast_publish_map(&ctx.peer, &record.crawl_id, &new_map, &hold_by_member).await;
+    drain_and_activate_added_domains(
+        &ctx.peer,
+        &record.crawl_id,
+        &old_map,
+        &new_map,
+        &new_slot,
+        moves,
+        held_for_new,
+    )
+    .await;
+}
+
+async fn any_partition_running(peer: &Arc<dyn GroupPeer>, map: &PartitionMap) -> bool {
+    for slot in &map.slots {
+        if let Ok(val) = peer
+            .call_member_rpc(
+                slot.member.clone(),
+                slot.peer_address.clone(),
+                RUN_PROGRESS_READ.name.to_owned(),
+                json!({ "run_id": slot.run_id }),
+            )
+            .await
+            && let Ok(progress) = serde_json::from_value::<RunProgress>(val)
+            && progress.lifecycle == Lifecycle::Running
+        {
+            return true;
+        }
+    }
+    false
+}
+
+async fn prepare_and_start_added_partition(
+    crawl_id: &RunId,
+    new_map: &PartitionMap,
+    new_slot: &PartitionSlot,
+    held_for_new: &[String],
+    params: &CrawlStartParams,
+    ctx: &GroupMembershipContext,
+) -> bool {
+    let prepared = PreparedPartition {
+        crawl_id: crawl_id.clone(),
+        partition: new_slot.partition,
+        run_id: new_slot.run_id.clone(),
+        map: new_map.clone(),
+        initial_seeds: Vec::new(),
+        initial_held_domains: held_for_new.to_vec(),
+    };
+    let prepared_payload =
+        serde_json::to_value(&prepared).expect("invariant: PreparedPartition encodes");
+    let mut prepared_ok = false;
+    for attempt in 0..30_u32 {
+        if ctx
+            .peer
+            .call_member_extension(
+                new_slot.member.clone(),
+                new_slot.peer_address.clone(),
+                PEER_PREPARE_MEMBER.to_owned(),
+                prepared_payload.clone(),
+            )
+            .await
+            .is_ok()
+        {
+            prepared_ok = true;
+            break;
+        }
+        if attempt + 1 < 30 {
+            ctx.clock.sleep(Duration::from_millis(100)).await;
+        }
+    }
+    if !prepared_ok {
+        return false;
+    }
+    let mut member_params = params.clone();
+    member_params.run_id = Some(new_slot.run_id.as_str().to_owned());
+    member_params.partitions = None;
+    member_params.group_member = None;
+    member_params.limits.clear();
+    if params.extraction.is_some() || params.declaration.is_some() {
+        member_params.detached = true;
+    }
+    ctx.peer
+        .call_member_rpc(
+            new_slot.member.clone(),
+            new_slot.peer_address.clone(),
+            CRAWL_START.name.to_owned(),
+            serde_json::to_value(&member_params).expect("invariant: CrawlStartParams encodes"),
+        )
+        .await
+        .is_ok()
+}
+
+async fn drain_and_activate_added_domains(
+    peer: &Arc<dyn GroupPeer>,
+    crawl_id: &RunId,
+    old_map: &PartitionMap,
+    new_map: &PartitionMap,
+    new_slot: &PartitionSlot,
+    moves: Vec<crate::handoff::DomainMove>,
+    held_for_new: Vec<String>,
+) {
+    let mut moves_by_old: BTreeMap<u32, Vec<crate::handoff::DomainMove>> = BTreeMap::new();
+    for mv in moves {
+        moves_by_old.entry(mv.from_partition).or_default().push(mv);
+    }
+    let mut activated = BTreeSet::new();
+    for (old_part, part_moves) in moves_by_old {
+        let Some(old_slot) = old_map.slot(old_part) else {
+            continue;
+        };
+        let drain_req = DrainDomainsRequest {
+            crawl_id: crawl_id.clone(),
+            source_run_id: old_slot.run_id.clone(),
+            source_partition: old_slot.partition,
+            map_epoch: new_map.map_epoch,
+            moves: part_moves,
+        };
+        if let Ok(raw) = peer
+            .call_member_extension(
+                old_slot.member.clone(),
+                old_slot.peer_address.clone(),
+                PEER_DRAIN_DOMAINS.to_owned(),
+                serde_json::to_value(&drain_req).expect("invariant: DrainDomainsRequest encodes"),
+            )
+            .await
+            && let Ok(resp) = serde_json::from_value::<DrainDomainsResponse>(raw)
+        {
+            activated.extend(resp.handed_off);
+        }
+    }
+    for domain_key in held_for_new {
+        if !activated.contains(&domain_key) {
+            let activate = ActivateDomainRequest {
+                crawl_id: crawl_id.clone(),
+                target_run_id: new_slot.run_id.clone(),
+                member: new_slot.member.clone(),
+                domain_key,
+                map_epoch: new_map.map_epoch,
+            };
+            let _ = peer
+                .call_member_extension(
+                    new_slot.member.clone(),
+                    new_slot.peer_address.clone(),
+                    PEER_ACTIVATE_DOMAIN.to_owned(),
+                    serde_json::to_value(&activate)
+                        .expect("invariant: ActivateDomainRequest encodes"),
+                )
+                .await;
+        }
+    }
+}
+
+impl GroupMembershipHook for PartitionMembershipHook {
+    fn on_member_added(
+        &self,
+        member: String,
+        peer_address: String,
+        ctx: GroupMembershipContext,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let state = Arc::clone(&self.0);
+        Box::pin(async move {
+            let crawls: Vec<PartitionedCrawlRecord> = state
+                .known
+                .read()
+                .unwrap_or_else(PoisonError::into_inner)
+                .values()
+                .cloned()
+                .collect();
+            for record in crawls {
+                rebalance_crawl_for_added_member(&state, record, &member, &peer_address, &ctx)
+                    .await;
+            }
+        })
+    }
+
+    fn on_member_removed(
+        &self,
+        member: String,
+        ctx: GroupMembershipContext,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let state = Arc::clone(&self.0);
+        Box::pin(async move {
+            let crawls: Vec<PartitionedCrawlRecord> = state
+                .known
+                .read()
+                .unwrap_or_else(PoisonError::into_inner)
+                .values()
+                .cloned()
+                .collect();
+            for mut record in crawls {
+                if let Some(new_map) = map_without_member(&record.map, &member) {
+                    trace_publish_map(new_map.map_epoch);
+                    record.map = new_map.clone();
+                    state.persist_local_sqlite(&record);
+                    state.cache_record(record.clone());
+                    broadcast_publish_map(&ctx.peer, &record.crawl_id, &new_map, &BTreeMap::new())
+                        .await;
+                }
+            }
+        })
+    }
+
+    fn on_removal_drain(
+        &self,
+        member: String,
+        deadline: tokio::time::Instant,
+        ctx: GroupMembershipContext,
+    ) -> Pin<Box<dyn Future<Output = Vec<RunId>> + Send>> {
+        let state = Arc::clone(&self.0);
+        Box::pin(async move {
+            let local_partitions: Vec<(RunId, RunId, u32)> = state
+                .by_partition_run
+                .read()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+                .filter_map(|(part_run_id, (crawl_id, part_idx))| {
+                    let record = state.get_known(crawl_id)?;
+                    let slot = record.map.slot(*part_idx)?;
+                    (slot.member == member)
+                        .then(|| (crawl_id.clone(), part_run_id.clone(), *part_idx))
+                })
+                .collect();
+
+            let mut handled_runs = Vec::with_capacity(local_partitions.len());
+            for (crawl_id, part_run_id, part_idx) in local_partitions {
+                handled_runs.push(part_run_id.clone());
+                let Some(record) = state.get_known(&crawl_id) else {
+                    continue;
+                };
+                let old_map = record.map.clone();
+                // Ask Lead Daemon to publish a new map without `member`.
+                let Ok(raw) = ctx
+                    .peer
+                    .call_lead_extension(
+                        PEER_REMOVE_MEMBER_MAP.to_owned(),
+                        serde_json::to_value(RemoveMemberMapRequest {
+                            crawl_id: crawl_id.clone(),
+                            member: member.clone(),
+                        })
+                        .expect("invariant: RemoveMemberMapRequest encodes"),
+                    )
+                    .await
+                else {
+                    let _ = state.runtime.flush_run_state(&part_run_id).await;
+                    continue;
+                };
+                let Ok(resp) = serde_json::from_value::<RemoveMemberMapResponse>(raw) else {
+                    let _ = state.runtime.flush_run_state(&part_run_id).await;
+                    continue;
+                };
+                let new_map = resp.map;
+                let mut domains: BTreeSet<String> =
+                    state.known_domains_of(&crawl_id).into_iter().collect();
+                if let Some(folder) = state.runtime.live_folder(&part_run_id).await {
+                    domains.extend(distinct_domains_in_run_file(&folder.join("run.sqlite")));
+                }
+                let domain_list: Vec<String> = domains.into_iter().collect();
+                let moves: Vec<_> = compute_moves(&old_map, &new_map, &domain_list)
+                    .into_iter()
+                    .filter(|mv| mv.from_member == member)
+                    .collect();
+
+                let now = ctx.clock.now();
+                if now >= deadline {
+                    let _ = state.runtime.flush_run_state(&part_run_id).await;
+                    continue;
+                }
+                let remaining = deadline.saturating_duration_since(now);
+                let handoff_fut = execute_domain_handoffs(
+                    &state,
+                    &ctx.peer,
+                    Some(&ctx.run_index),
+                    &crawl_id,
+                    &part_run_id,
+                    part_idx,
+                    new_map.map_epoch,
+                    moves,
+                );
+                let timed = tokio::select! {
+                    res = handoff_fut => Some(res),
+                    () = ctx.clock.sleep(remaining) => None,
+                };
+                if !matches!(timed, Some(Ok(_))) {
+                    // Grace period expired before every domain finished:
+                    // seal Run state so `runs adopt` completes the rest from
+                    // the kept volume (ADR 0054).
+                    let _ = state.runtime.flush_run_state(&part_run_id).await;
+                }
+            }
+            handled_runs
         })
     }
 }
@@ -949,13 +1886,13 @@ async fn start_prepared_partition(
         )
     })?;
 
-    let map = Arc::new(prepared.map.clone());
+    let map_handle = state.live_map_handle(&prepared.crawl_id, prepared.map.clone());
     let router = spawn_forwarder(
         ForwarderTarget {
             crawl_id: prepared.crawl_id.clone(),
             local_partition: prepared.partition,
             local_run_id: prepared.run_id.clone(),
-            map: Arc::clone(&map),
+            map: map_handle,
             domain_keys,
         },
         state.runtime.clone(),
@@ -983,6 +1920,7 @@ async fn start_prepared_partition(
             )
         })),
         allow_empty_seeds: true,
+        initial_held_domains: prepared.initial_held_domains,
     };
 
     let started = state
@@ -1085,23 +2023,19 @@ async fn start_partitioned_crawl(
     }
 
     let map = PartitionMap::new(1, slots.clone());
-    let created_at = i64::try_from(
-        context
-            .engine()
-            .clock()
-            .wall()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis(),
-    )
-    .unwrap_or(0);
     let record = PartitionedCrawlRecord {
         crawl_id: crawl_id.clone(),
         map: map.clone(),
-        created_at,
+        created_at: epoch_millis(now),
     };
     register_partitioned_record(&state, &peer, &record, &context).await?;
+    state
+        .start_params
+        .write()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(crawl_id.clone(), params.clone());
     let domain_keys = DomainKeys::of(resolved.resolved());
+    record_initial_seed_domains(&state, &crawl_id, &params, &map, &domain_keys);
     let seeds_by_partition = distribute_initial_seeds(&params, &map, &domain_keys);
     let started_partitions =
         launch_partitions(&peer, &crawl_id, &map, &params, seeds_by_partition).await?;
@@ -1113,6 +2047,31 @@ async fn start_partitioned_crawl(
         needs: Product::Foxhound,
         partitions: started_partitions,
     })
+}
+
+fn record_initial_seed_domains(
+    state: &State,
+    crawl_id: &RunId,
+    params: &CrawlStartParams,
+    map: &PartitionMap,
+    domain_keys: &DomainKeys,
+) {
+    let mut initial_domains = BTreeSet::new();
+    for seed in params.seeds.iter() {
+        let url = match seed {
+            Seed::Request(req) => &req.url,
+            Seed::Sitemap(sm) => &sm.sitemap,
+        };
+        let host = host_of(url);
+        if !host.is_empty() {
+            let dk = domain_keys.key(host);
+            if initial_domains.insert(dk.clone()) {
+                let owner = map.owner_of(&dk);
+                trace_assign_initial(&dk, &owner.member);
+            }
+        }
+    }
+    state.record_domains(crawl_id, initial_domains);
 }
 
 async fn register_partitioned_record(
@@ -1192,6 +2151,7 @@ async fn launch_partitions(
             run_id: slot.run_id.clone(),
             map: map.clone(),
             initial_seeds,
+            initial_held_domains: Vec::new(),
         };
         peer.call_member_extension(
             slot.member.clone(),
@@ -1230,7 +2190,7 @@ async fn launch_partitions(
 }
 
 async fn handle_report(
-    _state: &State,
+    state: &State,
     record: &PartitionedCrawlRecord,
     context: &CallContext,
 ) -> Result<RunReport, CallError> {
@@ -1240,8 +2200,11 @@ async fn handle_report(
     // timeout while waiting for completion.
     let clock = context.engine().clock();
     loop {
+        let current = state
+            .get_known(&record.crawl_id)
+            .unwrap_or_else(|| record.clone());
         let mut any_running = false;
-        for slot in &record.map.slots {
+        for slot in &current.map.slots {
             if let Ok(val) = peer
                 .call_member_rpc(
                     slot.member.clone(),
@@ -1271,8 +2234,11 @@ async fn handle_report(
         }
     }
 
-    let mut reports = Vec::with_capacity(record.map.slots.len());
-    for slot in &record.map.slots {
+    let current = state
+        .get_known(&record.crawl_id)
+        .unwrap_or_else(|| record.clone());
+    let mut reports = Vec::with_capacity(current.map.slots.len());
+    for slot in &current.map.slots {
         let res = peer
             .call_member_rpc(
                 slot.member.clone(),
@@ -1743,6 +2709,15 @@ async fn open_settings_for_check(
 fn domain_keys_from_map(settings: &Map<String, Value>) -> DomainKeys {
     let _ = settings;
     DomainKeys::default()
+}
+
+fn epoch_millis(now: SystemTime) -> i64 {
+    i64::try_from(
+        now.duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis(),
+    )
+    .unwrap_or(0)
 }
 
 fn generate_crawl_id(now: SystemTime) -> RunId {

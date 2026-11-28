@@ -199,6 +199,26 @@ impl Kept {
         }
     }
 
+    /// Removes all pending work items belonging to `domain_key` from memory
+    /// after `domain_key` has been handed off to another Partition (ADR 0054).
+    pub(super) fn remove_domain(&mut self, domain_key: &str) {
+        self.known.retain(|_, known| match known {
+            Known::Pending(leased, _) => leased.waiting.key != domain_key,
+            Known::InFlight | Known::Gone(_) => true,
+        });
+        if let Some(whole) = &mut self.whole {
+            let ids: Vec<String> = whole
+                .rows
+                .iter()
+                .filter(|(_, leased)| leased.waiting.key == domain_key)
+                .map(|(id, _)| id.clone())
+                .collect();
+            for id in ids {
+                whole.remove(&id);
+            }
+        }
+    }
+
     /// Changes the whole pending work items with `change`, which answers
     /// whether they still fit; spills them when they do not.
     fn keep_whole(&mut self, change: impl FnOnce(&mut Whole) -> bool) {

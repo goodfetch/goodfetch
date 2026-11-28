@@ -99,6 +99,9 @@ pub(crate) struct Opened {
     /// The Datasets it declares, which each committed Record is checked
     /// against.
     pub(crate) datasets: Datasets,
+    /// Domains held fenced on start until their incoming Partition handoff is
+    /// acknowledged (ADR 0054).
+    pub(crate) initial_held_domains: Vec<String>,
 }
 
 /// How many joining Connections wait for a crawl's delivery to take them:
@@ -146,6 +149,18 @@ impl Crawls {
         invariants: Invariants,
         datasets: Datasets,
     ) -> Opened {
+        self.open_with_held(run, egress, invariants, datasets, Vec::new())
+            .await
+    }
+
+    pub(crate) async fn open_with_held(
+        &self,
+        run: &Arc<CrawlRun>,
+        egress: Policy,
+        invariants: Invariants,
+        datasets: Datasets,
+        initial_held_domains: Vec<String>,
+    ) -> Opened {
         let identity = &run.identity;
         let datasets = datasets.keeping_records(keeps_records(identity), indexes_records(identity));
         let (joining, joined) = mpsc::channel(JOINING);
@@ -177,6 +192,7 @@ impl Crawls {
             invariants,
             intake,
             datasets,
+            initial_held_domains,
         }
     }
 

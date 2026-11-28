@@ -151,6 +151,12 @@ INSERT INTO "outcomes" VALUES(15,'16','failed','listed',1,'{"position":15,"reque
 INSERT INTO "outcomes" VALUES(16,'1','succeeded','home',1,'{"position":16,"request":{"id":"1","url":"https://shop.test/","label":"home","depth":0},"attempts":1,"errors":[],"ended_at":"2026-01-05T09:00:02Z","kind":"succeeded","records":[{"dataset":"pages","committed":1,"dropped":0,"rejected":1},{"dataset":"links","committed":1,"dropped":0,"rejected":0}]}');
 INSERT INTO "outcomes" VALUES(17,'23','succeeded','home',1,'{"position":17,"request":{"id":"23","url":"https://outlet.test/sale","label":"home","depth":1},"attempts":1,"errors":[],"ended_at":"2026-01-05T09:00:04Z","kind":"succeeded","records":[{"dataset":"pages","committed":1,"dropped":0,"rejected":0},{"dataset":"links","committed":1,"dropped":0,"rejected":0}]}');
 CREATE TABLE page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL, source BLOB) STRICT;
+CREATE TABLE partition_domain_state (
+            domain_key TEXT NOT NULL,
+            area TEXT NOT NULL,
+            state_json TEXT NOT NULL,
+            PRIMARY KEY (domain_key, area)
+        ) STRICT;
 CREATE TABLE partitioned_crawl_membership (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
             crawl_id TEXT NOT NULL,

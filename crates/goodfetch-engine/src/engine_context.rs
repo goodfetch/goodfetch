@@ -80,6 +80,106 @@ pub trait PeerExtensionHandler: Send + Sync {
     ) -> PeerExtensionAnswer;
 }
 
+/// Engine handles handed to a [`GroupMembershipHook`] without forming an
+/// `EngineContext <-> Peering` `Arc` cycle (ADRs 0054, 0055 and 0087).
+#[derive(Clone)]
+pub struct GroupMembershipContext {
+    /// Peer-communication bridge for the running Daemon group.
+    pub peer: Arc<dyn GroupPeer>,
+    /// Goodfetch home of this engine.
+    pub home: Home,
+    /// Product version of this engine.
+    pub product_version: ProductVersion,
+    /// Engine clock.
+    pub clock: Clock,
+    /// Local Run index (for reading/writing per-domain Wall allowance state).
+    pub run_index: RunIndex,
+    /// Tracked task starter owned by this engine.
+    pub task_starter: crate::tasks::TaskStarter,
+}
+
+/// Contribution callback invoked when Daemon group membership changes or when a
+/// Group member drains for removal (ADRs 0054, 0055 and 0087).
+pub trait GroupMembershipHook: Send + Sync {
+    /// Called on the Lead Daemon after a new Group member joins the group.
+    fn on_member_added(
+        &self,
+        member: String,
+        peer_address: String,
+        context: GroupMembershipContext,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>>;
+
+    /// Called on the Lead Daemon after a Group member is removed or leaves.
+    fn on_member_removed(
+        &self,
+        member: String,
+        context: GroupMembershipContext,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>>;
+
+    /// Called on a leaving/scaling-down Group member before generic Checkpoint
+    /// handoff. Returns Run IDs owned by this contribution (which are skipped
+    /// by generic Checkpoint transfer because this contribution hands off or
+    /// leaves them for `runs adopt` itself).
+    fn on_removal_drain(
+        &self,
+        member: String,
+        deadline: tokio::time::Instant,
+        context: GroupMembershipContext,
+    ) -> Pin<Box<dyn Future<Output = Vec<RunId>> + Send>>;
+}
+
+/// Peer client exposed to [`RunAdoptHook`] during offline `runs adopt`
+/// (ADRs 0054, 0055 and 0087).
+pub trait AdoptPeerClient: Send + Sync {
+    /// Name of the Group member running `runs adopt`.
+    fn member_name(&self) -> &str;
+
+    /// Invokes a peer extension on the Lead Daemon over mTLS.
+    fn call_lead_extension(
+        &self,
+        extension_method: String,
+        payload: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
+
+    /// Invokes a peer extension on a named Group member over mTLS.
+    fn call_member_extension(
+        &self,
+        member: String,
+        peer_address: String,
+        extension_method: String,
+        payload: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
+}
+
+/// Outcome returned by a [`RunAdoptHook`] for one Run folder.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AdoptHookOutcome {
+    /// This folder does not belong to this hook; let standard Checkpoint
+    /// adoption proceed.
+    NotMine,
+    /// Handled by this hook: added these adopted Runs and/or skipped Run IDs.
+    Handled {
+        /// Runs adopted (e.g. Partition domains handed off to their owners).
+        adopted: Vec<goodfetch_protocol::run::AdoptedRun>,
+        /// Run IDs skipped (e.g. already handed off or finished).
+        skipped: Vec<String>,
+    },
+}
+
+/// Contribution hook invoked by `runs adopt` for each kept Run folder before
+/// generic Checkpoint transfer (ADRs 0054, 0055 and 0087).
+pub trait RunAdoptHook: Send + Sync {
+    /// Inspects `folder` on a removed Group member's kept volume and, if it
+    /// belongs to this contribution (such as a Partition of a Partitioned
+    /// crawl), completes its handoff over `peer`.
+    fn try_adopt_folder(
+        &self,
+        folder: PathBuf,
+        from_member: Option<String>,
+        peer: Arc<dyn AdoptPeerClient>,
+    ) -> Pin<Box<dyn Future<Output = Result<AdoptHookOutcome, CallError>> + Send>>;
+}
+
 /// The OS user's name, as the engine's environment map gives it: `USER`
 /// or `LOGNAME` on Unix, `USERNAME` on Windows; [`CALLER`] when none is
 /// set, as for a Daemon started with an empty environment.
@@ -415,6 +515,8 @@ pub(crate) struct Host {
     pub(crate) sigterm_is_removal: bool,
     /// Contribution-registered peer-link extension handlers (ADR 0087).
     pub(crate) peer_extensions: Arc<BTreeMap<&'static str, Arc<dyn PeerExtensionHandler>>>,
+    /// Contribution-registered Daemon group membership hooks (ADR 0087).
+    pub(crate) group_membership_hooks: Arc<[Arc<dyn GroupMembershipHook>]>,
 }
 
 /// The user's known-certificates store, Usage ledger, Run index, Response
@@ -533,6 +635,7 @@ struct Held {
     group_router: Mutex<Option<Arc<dyn GroupRouter>>>,
     group_peer: Mutex<Option<Arc<dyn GroupPeer>>>,
     peer_extensions: Arc<BTreeMap<&'static str, Arc<dyn PeerExtensionHandler>>>,
+    group_membership_hooks: Arc<[Arc<dyn GroupMembershipHook>]>,
     local_dispatcher: Mutex<Option<Arc<dyn LocalDispatcher>>>,
     runs_handle: Mutex<Option<Arc<dyn std::any::Any + Send + Sync>>>,
     live_view_handle: Arc<Mutex<Option<Arc<dyn std::any::Any + Send + Sync>>>>,
@@ -580,6 +683,7 @@ impl EngineContext {
             governor,
             sigterm_is_removal,
             peer_extensions,
+            group_membership_hooks,
         } = host;
         Self {
             stores: Arc::new(stores),
@@ -608,6 +712,7 @@ impl EngineContext {
                 group_router: Mutex::new(None),
                 group_peer: Mutex::new(None),
                 peer_extensions,
+                group_membership_hooks,
                 local_dispatcher: Mutex::new(None),
                 runs_handle: Mutex::new(None),
                 live_view_handle: Arc::new(Mutex::new(None)),
@@ -880,6 +985,11 @@ impl EngineContext {
         &self,
     ) -> &Arc<BTreeMap<&'static str, Arc<dyn PeerExtensionHandler>>> {
         &self.held.peer_extensions
+    }
+
+    /// The contribution-registered Daemon group membership hooks.
+    pub(crate) fn group_membership_hooks(&self) -> &Arc<[Arc<dyn GroupMembershipHook>]> {
+        &self.held.group_membership_hooks
     }
 
     /// Registers the local RPC dispatcher used to execute forwarded unary peer

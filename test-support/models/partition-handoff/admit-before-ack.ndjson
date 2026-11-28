@@ -1,0 +1,6 @@
+{"domain":"alpha.test","map_epoch":1,"member":"lead","transition":"assign_initial"}
+{"map_epoch":2,"transition":"publish_map"}
+{"domain":"alpha.test","from":"lead","map_epoch":2,"to":"worker-a","transition":"fence_domain"}
+{"domain":"alpha.test","map_epoch":2,"member":"lead","transition":"drain_inflight"}
+{"domain":"alpha.test","from":"lead","map_epoch":2,"to":"worker-a","transition":"send_handoff"}
+{"domain":"alpha.test","map_epoch":2,"member":"worker-a","transition":"admit_domain"}

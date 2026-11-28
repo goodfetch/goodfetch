@@ -106,6 +106,13 @@ CREATE TABLE page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default IN
 INSERT INTO "page_sessions" VALUES(1,1,0,'{}',6178731391398722387,NULL);
 INSERT INTO "page_sessions" VALUES(2,0,1,'{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}',-2937466112876520115,NULL);
 INSERT INTO "page_sessions" VALUES(3,0,1,'{}',4417291851073961183,X'0100356A9FD4093E73A8DD12477CB1E61B5085BAEF24598EC3F82D6297CC01366BA0D50A3F74A9DE13487DB2E71C5186BBF0255A8FC4F92E6398CD02376CA1D60B4075AADF14497EB3E81D5287BCF1265B90C5FA2F6499CE03386DA2D70C4176ABE0154A7FB4E91E5388BDF2275C91C6FB30659ACF04396EA3D80D4277ACE1164B80B5');
+CREATE TABLE partition_domain_state (
+            domain_key TEXT NOT NULL,
+            area TEXT NOT NULL,
+            state_json TEXT NOT NULL,
+            PRIMARY KEY (domain_key, area)
+        ) STRICT;
+INSERT INTO "partition_domain_state" VALUES('shop.test','wall_allowance','{"refetch_stopped":true}');
 CREATE TABLE partitioned_crawl_membership (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
             crawl_id TEXT NOT NULL,

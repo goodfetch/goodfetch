@@ -275,6 +275,31 @@ pub trait Gate: Send {
         let _ = (key, id);
     }
 
+    /// Fences `key` so no waiting request of `key` is admitted until
+    /// [`Gate::unfence_key`] is called (used during Partition handoff, ADR 0054).
+    /// Nothing by default.
+    fn fence_key(&mut self, key: &str) {
+        let _ = key;
+    }
+
+    /// Lifts a fence placed by [`Gate::fence_key`] on `key`, making its queued
+    /// requests eligible for admission again. Nothing by default.
+    fn unfence_key(&mut self, key: &str) {
+        let _ = key;
+    }
+
+    /// Removes all queued waiting requests for `key` from the gate (used when
+    /// `key` has been handed off to another Partition, ADR 0054). Nothing by default.
+    fn remove_key(&mut self, key: &str) {
+        let _ = key;
+    }
+
+    /// Number of currently in-flight admitted requests for `key`. Zero by default.
+    fn in_flight(&self, key: &str) -> usize {
+        let _ = key;
+        0
+    }
+
     /// What changed since its last journal, to write into the run file, its
     /// moments as wall time read at `wall` when the monotonic clock read
     /// `now`.
@@ -611,6 +636,30 @@ impl Admission {
     /// admitted (see [`Gate::withdraw`]).
     pub fn withdraw(&mut self, key: &str, id: &str) {
         self.gate.withdraw(key, id);
+    }
+
+    /// Fences `key` so no waiting request of `key` is admitted until
+    /// [`Admission::unfence_key`] is called (ADR 0054).
+    pub fn fence_key(&mut self, key: &str) {
+        self.gate.fence_key(key);
+    }
+
+    /// Lifts the fence on `key` so its queued requests may be admitted again
+    /// (ADR 0054).
+    pub fn unfence_key(&mut self, key: &str) {
+        self.gate.unfence_key(key);
+    }
+
+    /// Removes all waiting requests of `key` from the gate after `key` has been
+    /// handed off to another Partition (ADR 0054).
+    pub fn remove_key(&mut self, key: &str) {
+        self.gate.remove_key(key);
+    }
+
+    /// Number of currently in-flight requests for `key` tracked by the gate.
+    #[must_use]
+    pub fn in_flight(&self, key: &str) -> usize {
+        self.gate.in_flight(key)
     }
 
     /// Whether its rate cap holds at `now` the requests its gate would

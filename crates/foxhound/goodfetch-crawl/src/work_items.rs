@@ -2274,5 +2274,297 @@ pub(crate) fn pending(connection: &Connection, limit: usize) -> rusqlite::Result
         .collect()
 }
 
+/// Checks whether the `partition_domain_state` table exists in `connection`
+/// (added by `goodfetch-partitioned-crawl` for per-domain state attachments).
+fn has_partition_domain_state_table(connection: &Connection) -> rusqlite::Result<bool> {
+    Ok(connection
+        .prepare_cached(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'partition_domain_state'",
+        )?
+        .query_row([], |_| Ok(()))
+        .optional()?
+        .is_some())
+}
+
+/// Exports and removes every pending work item, seen fingerprint (for already
+/// handled URLs), and attached per-domain state for each domain key in
+/// `domains`, and excludes handed-off domains' non-succeeded outcomes from
+/// `request_counts` so this Partition's Completeness counts only the domains it
+/// still owned at its end (ADR 0054).
+///
+/// Must run after the crawl's open Run-state batch has been sealed (ADR 0142).
+pub(crate) fn export_and_remove_domains(
+    connection: &Connection,
+    domains: &[String],
+) -> rusqlite::Result<Vec<crate::partition::DomainHandoffSnapshot>> {
+    let has_state_table = has_partition_domain_state_table(connection)?;
+    let mut snapshots = Vec::with_capacity(domains.len());
+    for domain_key in domains {
+        snapshots.push(export_and_remove_one_domain(
+            connection,
+            domain_key,
+            has_state_table,
+        )?);
+    }
+    Ok(snapshots)
+}
+
+struct PendingHandoffRow {
+    id: String,
+    url: String,
+    method: String,
+    body: Option<Vec<u8>>,
+    label: String,
+    depth: i64,
+    priority: i64,
+    forefront: Option<i64>,
+}
+
+fn export_and_remove_one_domain(
+    connection: &Connection,
+    domain_key: &str,
+    has_state_table: bool,
+) -> rusqlite::Result<crate::partition::DomainHandoffSnapshot> {
+    let pending_rows: Vec<PendingHandoffRow> = connection
+        .prepare_cached(
+            "SELECT id, url, method, body, label, depth, priority, forefront
+             FROM work_items
+             WHERE domain_key = ?1 AND status = 'pending'
+             ORDER BY position",
+        )?
+        .query_map([domain_key], |row| {
+            Ok(PendingHandoffRow {
+                id: row.get(0)?,
+                url: row.get(1)?,
+                method: row.get(2)?,
+                body: row.get(3)?,
+                label: row.get(4)?,
+                depth: row.get(5)?,
+                priority: row.get(6)?,
+                forefront: row.get(7)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let mut pending = Vec::with_capacity(pending_rows.len());
+    for row in pending_rows {
+        let payload_val = payload::of_request(connection, &row.id)?;
+        let method = HttpMethod::parse(&row.method).unwrap_or_else(|_| HttpMethod::get());
+        let body = row.body.map(HttpBody::new);
+        pending.push(crate::partition::DomainHandoffItem {
+            url: row.url,
+            label: row.label,
+            payload: payload_val,
+            method,
+            body,
+            key: None,
+            priority: row.priority,
+            forefront: row.forefront.is_some(),
+            depth: u32::try_from(row.depth).unwrap_or(0),
+            domain_key: domain_key.to_owned(),
+        });
+    }
+
+    let seen = collect_domain_seen_fingerprints(connection, domain_key)?;
+    let domain_state = take_domain_attached_state(connection, domain_key, has_state_table)?;
+    remove_domain_pending_and_counts(connection, domain_key)?;
+
+    Ok(crate::partition::DomainHandoffSnapshot {
+        domain_key: domain_key.to_owned(),
+        pending,
+        seen_fingerprints: seen.into_iter().collect(),
+        domain_state,
+    })
+}
+
+fn collect_domain_seen_fingerprints(
+    connection: &Connection,
+    domain_key: &str,
+) -> rusqlite::Result<BTreeSet<String>> {
+    let mut seen: BTreeSet<String> = connection
+        .prepare_cached(
+            "SELECT v.identity
+             FROM visited AS v
+             INNER JOIN work_items AS w ON w.id = v.crawl_request
+             WHERE w.domain_key = ?1 AND w.status <> 'pending'",
+        )?
+        .query_map([domain_key], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<BTreeSet<_>>>()?;
+    let handoff_visits: Vec<String> = connection
+        .prepare_cached("SELECT identity FROM visited WHERE crawl_request = 'handoff'")?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for identity in handoff_visits {
+        if identity.contains(domain_key) {
+            seen.insert(identity);
+        }
+    }
+    Ok(seen)
+}
+
+fn take_domain_attached_state(
+    connection: &Connection,
+    domain_key: &str,
+    has_state_table: bool,
+) -> rusqlite::Result<BTreeMap<String, Value>> {
+    let mut domain_state = BTreeMap::new();
+    if !has_state_table {
+        return Ok(domain_state);
+    }
+    let rows: Vec<(String, String)> = connection
+        .prepare_cached(
+            "SELECT area, state_json FROM partition_domain_state WHERE domain_key = ?1",
+        )?
+        .query_map([domain_key], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (area, json_str) in rows {
+        if let Ok(value) = serde_json::from_str::<Value>(&json_str) {
+            domain_state.insert(area, value);
+        }
+    }
+    connection
+        .prepare_cached("DELETE FROM partition_domain_state WHERE domain_key = ?1")?
+        .execute([domain_key])?;
+    Ok(domain_state)
+}
+
+fn remove_domain_pending_and_counts(
+    connection: &Connection,
+    domain_key: &str,
+) -> rusqlite::Result<()> {
+    connection
+        .prepare_cached(
+            "DELETE FROM visited WHERE crawl_request IN (
+                SELECT id FROM work_items WHERE domain_key = ?1 AND status = 'pending'
+             )",
+        )?
+        .execute([domain_key])?;
+    connection
+        .prepare_cached(
+            "DELETE FROM payloads WHERE request IN (
+                SELECT id FROM work_items WHERE domain_key = ?1 AND status = 'pending'
+             )",
+        )?
+        .execute([domain_key])?;
+    connection
+        .prepare_cached("DELETE FROM work_items WHERE domain_key = ?1 AND status = 'pending'")?
+        .execute([domain_key])?;
+
+    let decrement_rows: Vec<(String, String, i64)> = connection
+        .prepare_cached(
+            "SELECT o.kind,
+                    COALESCE(w.error_code, ''),
+                    COUNT(*)
+             FROM work_items AS w
+             INNER JOIN outcomes AS o ON o.work_item = w.id
+             WHERE w.domain_key = ?1
+               AND w.status IN ('failed', 'skipped', 'blocked')
+               AND o.position = (
+                   SELECT MAX(o2.position) FROM outcomes AS o2 WHERE o2.work_item = w.id
+               )
+             GROUP BY o.kind, COALESCE(w.error_code, '')",
+        )?
+        .query_map([domain_key], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (kind, name, count) in decrement_rows {
+        connection
+            .prepare_cached(
+                "UPDATE request_counts
+                 SET count = MAX(0, count - ?1)
+                 WHERE kind = ?2 AND (name = ?3 OR ?3 = '')",
+            )?
+            .execute((count, kind.as_str(), name.as_str()))?;
+    }
+    connection
+        .prepare_cached("DELETE FROM request_counts WHERE count <= 0")?
+        .execute([])?;
+    Ok(())
+}
+
+/// Installs one handed-off domain's seen fingerprints, pending work items, and
+/// per-domain state into the receiving Partition's run file (ADR 0054).
+pub(crate) fn install_domain_handoff(
+    connection: &Connection,
+    positions: &mut Positions,
+    invariants: &Invariants,
+    snapshot: &crate::partition::DomainHandoffSnapshot,
+) -> rusqlite::Result<(Vec<Leased>, Changed)> {
+    invariants
+        .frontier()
+        .install_transferred_visits(connection, &snapshot.seen_fingerprints)?;
+
+    if !snapshot.domain_state.is_empty() && has_partition_domain_state_table(connection)? {
+        let mut stmt = connection.prepare_cached(
+            "INSERT INTO partition_domain_state (domain_key, area, state_json)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT (domain_key, area) DO UPDATE SET state_json = excluded.state_json",
+        )?;
+        for (area, val) in &snapshot.domain_state {
+            let encoded =
+                serde_json::to_string(val).expect("invariant: domain state value encodes as JSON");
+            stmt.execute((snapshot.domain_key.as_str(), area.as_str(), encoded))?;
+        }
+    }
+
+    let mut visited_ids = Vec::new();
+    for item in &snapshot.pending {
+        let Ok(parsed_url) = Url::parse(&item.url) else {
+            continue;
+        };
+        let identity_key = format!("{} {}", item.method.as_str(), parsed_url.as_str());
+        let already_visited: bool = connection
+            .prepare_cached("SELECT 1 FROM visited WHERE identity = ?1 LIMIT 1")?
+            .query_row([identity_key.as_str()], |_| Ok(()))
+            .optional()?
+            .is_some();
+        if already_visited {
+            continue;
+        }
+        let already_pending: bool = connection
+            .prepare_cached(
+                "SELECT 1 FROM work_items WHERE url = ?1 AND method = ?2 AND label = ?3 LIMIT 1",
+            )?
+            .query_row(
+                (item.url.as_str(), item.method.as_str(), item.label.as_str()),
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if already_pending {
+            continue;
+        }
+        let payload_checked = item
+            .payload
+            .as_ref()
+            .map(|v| Arc::new(Payload::of(v.clone(), &CountedWork::default())));
+        let adding = Adding {
+            method: &item.method,
+            body: item.body.as_ref(),
+            label: &item.label,
+            payload: payload_checked.as_ref(),
+            priority: item.priority,
+            forefront: item.forefront,
+            depth: item.depth,
+        };
+        let id = add(connection, positions, &parsed_url, adding)?;
+        connection
+            .prepare_cached(
+                "INSERT OR IGNORE INTO visited (identity, crawl_request) VALUES (?1, ?2)",
+            )?
+            .execute((identity_key.as_str(), id.as_str()))?;
+        visited_ids.push(identity_key);
+    }
+    if !visited_ids.is_empty()
+        && let Some(unwritten) = invariants.frontier().unwritten()
+    {
+        unwritten.note_transferred_visits(&visited_ids);
+    }
+    let mut changed = Changed::default();
+    let added = leasable_added(connection, &changed.adds(positions))?;
+    Ok((added, changed.with_sitemaps(connection)?))
+}
+
 #[cfg(test)]
 mod tests;

@@ -112,6 +112,8 @@ pub(super) struct PeerServices {
     pub(super) sigterm_is_removal: bool,
     /// Contribution-registered peer-link extension handlers (ADR 0087).
     pub(super) peer_extensions: Arc<BTreeMap<&'static str, Arc<dyn PeerExtensionHandler>>>,
+    /// Contribution-registered Daemon group membership hooks (ADR 0087).
+    pub(super) group_membership_hooks: Arc<[Arc<dyn crate::engine_context::GroupMembershipHook>]>,
 }
 
 impl Default for PeerServices {
@@ -134,6 +136,7 @@ impl Default for PeerServices {
             local_dispatcher: None,
             sigterm_is_removal: false,
             peer_extensions: Arc::new(BTreeMap::new()),
+            group_membership_hooks: Arc::new([]),
         }
     }
 }
@@ -158,6 +161,7 @@ impl PeerServices {
             local_dispatcher: engine.local_dispatcher(),
             sigterm_is_removal: engine.sigterm_is_removal(),
             peer_extensions: Arc::clone(engine.peer_extensions()),
+            group_membership_hooks: Arc::clone(engine.group_membership_hooks()),
         }
     }
 
@@ -214,6 +218,9 @@ pub(super) struct Peering {
     moved_runs: routing::MovedRuns,
     /// Engine services (settings, Run index, endpoint refusals, ledger, cache).
     services: PeerServices,
+    /// Weak self-handle set once at `peering::start` so membership hooks can
+    /// build a [`GroupPeer`] without forming a strong `Arc` cycle.
+    self_peer: std::sync::OnceLock<std::sync::Weak<Self>>,
 }
 
 /// The TLS side of the listener, and the certificate and revocation list
@@ -275,6 +282,7 @@ pub(super) async fn start(
         engine.clock(),
         PeerServices::from_engine(engine),
     )?);
+    let _ = peering.self_peer.set(Arc::downgrade(&peering));
     peering.hydrate_control_state().await;
     engine.settings().set_group_member(Some(kept.name.clone()));
     engine
@@ -523,6 +531,7 @@ impl Peering {
             live_view_tokens: routing::LiveViewTokens::default(),
             moved_runs: routing::MovedRuns::default(),
             services,
+            self_peer: std::sync::OnceLock::new(),
         })
     }
 
@@ -594,12 +603,49 @@ impl Peering {
             .map_err(lead_refusal)
     }
 
+    /// Builds a [`GroupMembershipContext`] for contribution hooks when this
+    /// `Peering` is running inside a full engine.
+    pub(super) fn membership_context(
+        &self,
+    ) -> Option<crate::engine_context::GroupMembershipContext> {
+        let peering = self.self_peer.get()?.upgrade()?;
+        let home = self.services.home.clone()?;
+        let run_index = self.services.run_index.clone()?;
+        let owner = self.services.owner.clone()?;
+        let task_starter: &crate::tasks::TaskStarter = &owner;
+        Some(crate::engine_context::GroupMembershipContext {
+            peer: Arc::new(routing::GroupPeerImpl::new(peering)),
+            home,
+            product_version: self.identity.product_version.clone(),
+            clock: self.clock,
+            run_index,
+            task_starter: task_starter.clone(),
+        })
+    }
+
     /// Records an admitted Group member once confirmed.
     pub(super) fn on_member_added(&self, member: String) {
         self.leadership
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .on_member_added(member);
+    }
+
+    /// Notifies contribution membership hooks after a Group member is admitted.
+    fn notify_member_added(&self, member: String, peer_address: String) {
+        if self.services.group_membership_hooks.is_empty() {
+            return;
+        }
+        let Some(ctx) = self.membership_context() else {
+            return;
+        };
+        let hooks = Arc::clone(&self.services.group_membership_hooks);
+        ctx.task_starter.clone().spawn(async move {
+            for hook in hooks.iter() {
+                hook.on_member_added(member.clone(), peer_address.clone(), ctx.clone())
+                    .await;
+            }
+        });
     }
 
     /// Records a removed Group member once confirmed.
@@ -609,6 +655,19 @@ impl Peering {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .on_member_removed(member);
+        if self.services.group_membership_hooks.is_empty() {
+            return;
+        }
+        let Some(ctx) = self.membership_context() else {
+            return;
+        };
+        let hooks = Arc::clone(&self.services.group_membership_hooks);
+        let removed = member.to_owned();
+        ctx.task_starter.clone().spawn(async move {
+            for hook in hooks.iter() {
+                hook.on_member_removed(removed.clone(), ctx.clone()).await;
+            }
+        });
     }
 
     /// The highest lead epoch durably recorded.
@@ -929,6 +988,7 @@ impl Peering {
         let signed = authority
             .sign(&name, &public_key, now)
             .map_err(|error| internal(&error))?;
+        let joined_peer_address = params.peer_address.clone();
         let joining = Joining {
             name: params.name,
             peer_address: params.peer_address,
@@ -940,6 +1000,7 @@ impl Peering {
         {
             Admission::Admitted => {
                 self.on_member_added(name.as_str().to_owned());
+                self.notify_member_added(name.as_str().to_owned(), joined_peer_address);
                 self.notify_control_state();
                 Ok(PeerJoinResult {
                     lead_name: self.name.clone(),
@@ -1291,7 +1352,7 @@ mod run_index;
 mod wire;
 
 pub(in crate::group) use handoff::RemovalSummary;
-pub use handoff::{AdoptedSummary, adopt_runs};
+pub use handoff::{AdoptedSummary, adopt_runs, adopt_runs_with_hooks};
 pub(super) use leaving::ask_to_leave;
 pub use limits::{TOKEN_CHECK_CACHE_MAX_TTL, TokenCheckCache};
 pub use run_index::reindex_to_lead;

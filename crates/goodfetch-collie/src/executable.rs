@@ -856,7 +856,9 @@ fn run(
         Command::Daemon { command, .. } => {
             daemon_command(command, engine, dependencies, &machine, human)
         }
-        Command::Runs { command, .. } => runs_command(command, &machine, human),
+        Command::Runs { command, .. } => {
+            runs_command(command, &machine, engine.run_adopt_hooks(), human)
+        }
         Command::Usage { command, .. } => {
             warn_of_a_temporary_ledger(&home, human);
             usage_command(command, engine, dependencies, &machine, human)
@@ -925,7 +927,12 @@ fn usage_command(
     )
 }
 
-fn runs_command(command: RunsCommand, machine: &Machine, human: &Human) -> ExitCode {
+fn runs_command(
+    command: RunsCommand,
+    machine: &Machine,
+    adopt_hooks: &[std::sync::Arc<dyn goodfetch_engine::RunAdoptHook>],
+    human: &Human,
+) -> ExitCode {
     let Ok(folder) = std::env::current_dir() else {
         tracing::error!("the working folder cannot be read");
         return ExitCode::FAILURE;
@@ -936,7 +943,15 @@ fn runs_command(command: RunsCommand, machine: &Machine, human: &Human) -> ExitC
             paths,
             from_member,
             json,
-        } => runs::adopt(machine, &folder, paths, from_member.as_deref(), json, human),
+        } => runs::adopt(
+            machine,
+            &folder,
+            paths,
+            from_member.as_deref(),
+            adopt_hooks,
+            json,
+            human,
+        ),
     }
 }
 

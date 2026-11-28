@@ -48,17 +48,26 @@ pub static STORE: UserStoreKind = UserStoreKind::new(
     "partitioned crawl store",
 );
 
-/// The run-state table added to every Foxhound run file to remember which
+/// The run-state tables added to every Foxhound run file to remember which
 /// Partitioned crawl a Partition Run belongs to (so resume re-attaches the
-/// `partitioned_crawl` Limit scope and partition map).
+/// `partitioned_crawl` Limit scope and partition map) and any per-domain state
+/// other areas attach to a domain key (ADR 0054).
 pub const RUN_STATE_TABLES: RunStateTables = RunStateTables {
     name: "goodfetch-partitioned-crawl",
-    statements: &["CREATE TABLE IF NOT EXISTS partitioned_crawl_membership (
+    statements: &[
+        "CREATE TABLE IF NOT EXISTS partitioned_crawl_membership (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
             crawl_id TEXT NOT NULL,
             partition_index INTEGER NOT NULL,
             map_json TEXT NOT NULL
-        ) STRICT"],
+        ) STRICT",
+        "CREATE TABLE IF NOT EXISTS partition_domain_state (
+            domain_key TEXT NOT NULL,
+            area TEXT NOT NULL,
+            state_json TEXT NOT NULL,
+            PRIMARY KEY (domain_key, area)
+        ) STRICT",
+    ],
 };
 
 /// Durable record of one Partitioned crawl on the Lead Daemon.

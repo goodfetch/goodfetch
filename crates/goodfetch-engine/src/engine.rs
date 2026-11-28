@@ -84,6 +84,8 @@ pub struct Engine {
     progress_parts: Vec<Arc<dyn ProgressPart>>,
     limit_scope_readers: Arc<[crate::composition::LimitScopeReader]>,
     peer_extensions: Arc<BTreeMap<&'static str, Arc<dyn crate::composition::PeerExtensionHandler>>>,
+    group_membership_hooks: Arc<[Arc<dyn crate::composition::GroupMembershipHook>]>,
+    run_adopt_hooks: Arc<[Arc<dyn crate::composition::RunAdoptHook>]>,
     clean_up: Option<Arc<dyn CleanUpVersions>>,
     send_window: Option<Arc<dyn SendWindow>>,
     gates: Option<Arc<dyn Gates>>,
@@ -150,6 +152,8 @@ impl Engine {
             progress_parts: composition.progress_parts(),
             limit_scope_readers: composition.limit_scope_readers(),
             peer_extensions: Arc::new(composition.peer_extensions()),
+            group_membership_hooks: composition.group_membership_hooks(),
+            run_adopt_hooks: composition.run_adopt_hooks(),
             clean_up: composition.clean_up_versions()?,
             send_window: composition.send_window(),
             gates: composition.admission_gates()?,
@@ -174,6 +178,13 @@ impl Engine {
         Arc::make_mut(&mut self.dispatch).metrics = metrics.clone();
         self.metrics = metrics;
         self
+    }
+
+    /// Contribution-registered `runs adopt` hooks for offline Run folder
+    /// adoption (ADRs 0054, 0055 and 0087).
+    #[must_use]
+    pub fn run_adopt_hooks(&self) -> &[Arc<dyn crate::composition::RunAdoptHook>] {
+        &self.run_adopt_hooks
     }
 
     /// The same, its Resource governor sampling `system` (ADR 0040), as
@@ -632,6 +643,7 @@ impl Engine {
                 sigterm_is_removal: crate::group::classify_sigterm_drain(&dependencies.environment)
                     == crate::group::DrainMode::Removal,
                 peer_extensions: Arc::clone(&self.peer_extensions),
+                group_membership_hooks: Arc::clone(&self.group_membership_hooks),
             },
         );
         let secrets = Secrets::new(

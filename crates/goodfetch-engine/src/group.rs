@@ -56,7 +56,8 @@ pub use operations::contribution;
 pub use peer_tls::{PeerIdentity, PeerTlsError, PeerTrust, accepting, connecting, joining};
 pub(crate) use peering::resume;
 pub use peering::{
-    AdoptedSummary, TOKEN_CHECK_CACHE_MAX_TTL, TokenCheckCache, adopt_runs, reindex_to_lead,
+    AdoptedSummary, TOKEN_CHECK_CACHE_MAX_TTL, TokenCheckCache, adopt_runs, adopt_runs_with_hooks,
+    reindex_to_lead,
 };
 
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};

@@ -10,6 +10,7 @@ use serde_json::Value;
 
 use crate::catalog::{Authority, Entries, ProtocolVersion, Setting, ValueKind};
 use crate::page::SessionId;
+use crate::page::proxy::{PROXY_KINDS, ProxyKind};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -66,6 +67,29 @@ impl ProxyTier {
             Self::Datacenter => Self::Isp,
             Self::Isp => Self::Residential,
             Self::Residential | Self::Mobile => Self::Mobile,
+        }
+    }
+
+    /// The tier corresponding to `kind`.
+    #[must_use]
+    pub const fn of_kind(kind: ProxyKind) -> Self {
+        match kind {
+            ProxyKind::Datacenter => Self::Datacenter,
+            ProxyKind::Isp => Self::Isp,
+            ProxyKind::Residential => Self::Residential,
+            ProxyKind::Mobile => Self::Mobile,
+        }
+    }
+
+    /// The proxy kind this tier names; `None` for [`Self::None`].
+    #[must_use]
+    pub const fn kind(self) -> Option<ProxyKind> {
+        match self {
+            Self::None => None,
+            Self::Datacenter => Some(ProxyKind::Datacenter),
+            Self::Isp => Some(ProxyKind::Isp),
+            Self::Residential => Some(ProxyKind::Residential),
+            Self::Mobile => Some(ProxyKind::Mobile),
         }
     }
 }
@@ -225,6 +249,25 @@ pub const SESSION_POOL_AFFINITY: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+fn null() -> Value {
+    Value::Null
+}
+
+/// `escalation.proxy_kinds` (ADR 0021; spec #600).
+pub const ESCALATION_PROXY_KINDS: Setting = Setting {
+    name: "escalation.proxy_kinds",
+    description: "The ordered proxy kinds (`datacenter`, `isp`, `residential`, `mobile`) a crawl's Session pool climbs on a 401, 403 or 429 without a challenge page: unset, the kinds the Run's Proxy provider configures, cheapest first, so a run with no paid pool configured spends nothing; set, it narrows that list. A Recipe may set it, as `proxy.kind` is; a Client acting for a model is refused with `setting_locked`.",
+    kind: ValueKind::List(&ValueKind::Choice(PROXY_KINDS)),
+    default: null,
+    clearable: true,
+    authority: Authority::NotByModel,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -242,6 +285,7 @@ pub const ENTRIES: Entries = Entries {
         SESSION_POOL_GROWTH,
         SESSION_POOL_SESSION_CONCURRENCY,
         SESSION_POOL_AFFINITY,
+        ESCALATION_PROXY_KINDS,
     ],
     hook_stages: &[],
     shared_type_values: &[],

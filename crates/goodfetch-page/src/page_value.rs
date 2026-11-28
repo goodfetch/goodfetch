@@ -375,6 +375,10 @@ pub struct PooledSession {
     /// browser requests leave from the address its HTTP requests do (ADR
     /// 0044): `None` without local addresses.
     pub address_ordinal: Option<u64>,
+    /// The proxy kind the crawl's Session pool chose for this Session
+    /// (spec #600; ADR 0021): `None` when no proxy provider is configured
+    /// or the Run's own `proxy.kind` stands.
+    pub proxy_kind: Option<goodfetch_protocol::page::proxy::ProxyKind>,
     /// The browser-page place the pool's draw took for its first page
     /// (#2178), which that page takes instead of waiting for a second one.
     pub place: HeldPlace,

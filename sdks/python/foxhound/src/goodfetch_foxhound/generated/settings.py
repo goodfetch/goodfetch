@@ -548,6 +548,16 @@ class ConnectionEgressSettings(TypedDict):
     rotation_block: NotRequired[ConnectionEgressRotationBlockSettings]
 
 
+class ConnectionEscalationSettings(TypedDict):
+    """The `escalation` settings of `FoxhoundSettings`."""
+
+    proxy_kinds: NotRequired[list[Literal["datacenter", "isp", "residential", "mobile"]] | None]
+    """The ordered proxy kinds (`datacenter`, `isp`, `residential`, `mobile`) a crawl's Session pool climbs on a 401, 403 or 429 without a challenge page: unset, the kinds the Run's Proxy provider configures, cheapest first, so a run with no paid pool configured spends nothing; set, it narrows that list. A Recipe may set it, as `proxy.kind` is; a Client acting for a model is refused with `setting_locked`.
+
+    `escalation.proxy_kinds`.
+    """
+
+
 class ConnectionExportCsvSettings(TypedDict):
     """The `export.csv` settings of `FoxhoundSettings`."""
 
@@ -2093,6 +2103,8 @@ class FoxhoundSettings(TypedDict):
 
     egress: NotRequired[ConnectionEgressSettings]
 
+    escalation: NotRequired[ConnectionEscalationSettings]
+
     export: NotRequired[ConnectionExportSettings]
 
     extraction: NotRequired[ConnectionExtractionSettings]
@@ -2628,6 +2640,16 @@ class RunEgressSettings(TypedDict):
     """
 
     rotation_block: NotRequired[RunEgressRotationBlockSettings]
+
+
+class RunEscalationSettings(TypedDict):
+    """The `escalation` settings of `CrawlSettings`."""
+
+    proxy_kinds: NotRequired[list[Literal["datacenter", "isp", "residential", "mobile"]] | None]
+    """The ordered proxy kinds (`datacenter`, `isp`, `residential`, `mobile`) a crawl's Session pool climbs on a 401, 403 or 429 without a challenge page: unset, the kinds the Run's Proxy provider configures, cheapest first, so a run with no paid pool configured spends nothing; set, it narrows that list. A Recipe may set it, as `proxy.kind` is; a Client acting for a model is refused with `setting_locked`.
+
+    `escalation.proxy_kinds`.
+    """
 
 
 class RunExportCsvSettings(TypedDict):
@@ -3788,6 +3810,8 @@ class CrawlSettings(TypedDict):
     effect: NotRequired[RunEffectSettings]
 
     egress: NotRequired[RunEgressSettings]
+
+    escalation: NotRequired[RunEscalationSettings]
 
     export: NotRequired[RunExportSettings]
 

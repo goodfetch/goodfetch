@@ -527,3 +527,116 @@ fn a_sitemap_seed_added_to_a_live_run_that_sets_a_proxy_is_fetched_through_it() 
         "relayed: {relayed:?}"
     );
 }
+
+/// With `escalation.proxy_kinds: ["datacenter", "isp"]` over a `list`
+/// provider that offers `datacenter`, `isp` and `residential`, a 403 on
+/// `datacenter` retires its Session, opens the replacement on `isp`, never
+/// climbs to `residential`, and keeps `isp` across a `run.resume` (#1137).
+///
+/// Covers: story:8-218, story:8-219, story:8-221, setting:escalation.proxy_kinds, operation:run.resume
+#[cfg(unix)]
+#[test]
+fn a_403_escalates_within_escalation_proxy_kinds_and_survives_resume() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let fixtures = &proving_ground.description().fixtures;
+    let server = |name: &str, kind: &str| {
+        format!(
+            "{{ server = \"http://{}\", kind = \"{kind}\" }}",
+            fixtures.proxies[name]
+        )
+    };
+    env.user_configuration(&format!(
+        "[settings.proxy.providers.list]\nusername = \"{}\"\npassword = \"env:{PASSWORD_VARIABLE}\"\nservers = [{}, {}, {}]\n",
+        fixtures.proxy_credentials.username,
+        server("datacenter", "datacenter"),
+        server("isp", "isp"),
+        server("residential", "residential"),
+    ));
+    let password = fixtures.proxy_credentials.password.clone();
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(PASSWORD_VARIABLE, &password);
+    });
+    let run_settings = settings(
+        &proving_ground,
+        &json!({
+            "fetch": { "tier": "http" },
+            "politeness": { "domain": { "concurrency": 1, "delay": 0 } },
+            "session": { "pool": { "max_size": 1 } },
+            "proxy": { "provider": "list" },
+            "escalation": { "proxy_kinds": ["datacenter", "isp"] },
+            "crawl": { "retry": { "max": 0 } },
+            "run_state": { "durability": "full" },
+        }),
+    );
+
+    engine.send(&json!({
+        "jsonrpc": "2.0",
+        "id": "start",
+        "method": "crawl.start",
+        "params": {
+            "run_id": "escalate-resume",
+            "seeds": [
+                { "url": proving_ground.url("access.test", "/corpus/ip-block"), "label": "page" },
+                { "url": proving_ground.url("access.test", "/corpus/article?n=1"), "label": "page" },
+                { "url": proving_ground.url("access.test", "/corpus/article?n=2"), "label": "page" },
+            ],
+            "labels": { "page": {} },
+            "settings": run_settings,
+        },
+    }));
+    // Wait until `/corpus/article?n=1` is handed over (after `/corpus/ip-block`
+    // escalated the domain from `datacenter` to `isp`), answer it, wait for
+    // `/corpus/article?n=2` to be leased, then kill the engine before answering.
+    let mut handled = 0usize;
+    while handled < 2 {
+        let message = engine.next().unwrap();
+        if message["method"] == "crawl_request.handle" {
+            handled += 1;
+            if handled == 1 {
+                engine.send(&json!({
+                    "jsonrpc": "2.0",
+                    "id": message["id"],
+                    "result": { "records": [] },
+                }));
+            }
+        }
+    }
+    engine.kill();
+
+    // Resume in a fresh engine process: `/corpus/article?n=2` must start on
+    // `isp` without dropping back to `datacenter`.
+    let mut resumed_engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(PASSWORD_VARIABLE, &password);
+    });
+    let mut answer = |_: &Value| Some(json!({ "result": { "records": [] } }));
+    let resumed = resumed_engine.call(
+        "resume",
+        "run.resume",
+        &json!({ "run_id": "escalate-resume", "settings": run_settings }),
+        &mut answer,
+    );
+    assert_eq!(resumed["result"]["run_id"], "escalate-resume", "{resumed}");
+    let finished = resumed_engine.call(
+        "finish",
+        "run.finish",
+        &json!({ "run_id": "escalate-resume" }),
+        &mut answer,
+    );
+    assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
+    assert!(resumed_engine.finished());
+
+    let isp = BTreeSet::from(["isp".to_owned()]);
+    assert_eq!(
+        (
+            proxies_to(&proving_ground, "/corpus/ip-block"),
+            proxies_to(&proving_ground, "/corpus/article?n=1"),
+            proxies_to(&proving_ground, "/corpus/article?n=2"),
+        ),
+        (
+            BTreeSet::from(["datacenter".to_owned(), "isp".to_owned()]),
+            isp.clone(),
+            isp,
+        )
+    );
+}

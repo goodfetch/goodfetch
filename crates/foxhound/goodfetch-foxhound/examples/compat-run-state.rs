@@ -975,8 +975,8 @@ fn handle(request: &Value) -> Value {
             "id": id,
             "error": {
                 "code": -32003,
-                "message": "the site refused the address",
-                "data": { "code": "blocked", "retryable": false, "cause": "ip_block" },
+                "message": "the site asked for a challenge",
+                "data": { "code": "blocked", "retryable": false, "cause": "challenge" },
             },
         })
     } else if request["params"]["crawl_request"]["label"] == "home" {

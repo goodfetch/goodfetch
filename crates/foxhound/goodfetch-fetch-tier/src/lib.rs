@@ -75,6 +75,7 @@ pub use goodfetch_extractor::BuiltIn;
 pub use goodfetch_page::BrowserRun;
 pub use goodfetch_page::page_value::DiscoveredByClicking;
 pub use goodfetch_page::page_value::{HeldPlace, PooledSession};
+pub use goodfetch_page::{OfferedProxyKind, offered_proxy_kinds};
 pub use http_profile::HttpProfile;
 pub use light_browser::{
     LIGHTPANDA, Prepared as LightBrowserBuild, pins as light_browser_pins,

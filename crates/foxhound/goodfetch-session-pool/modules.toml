@@ -2,6 +2,6 @@
 [modules]
 escalation = []
 labels = []
-pool = ["labels", "settings", "store"]
+pool = ["escalation", "labels", "settings", "store"]
 settings = []
-store = ["labels"]
+store = ["escalation", "labels"]

@@ -18,8 +18,9 @@ mod store;
 
 use goodfetch_engine::Contribution;
 
+pub use escalation::{Ladder, LadderRung};
 pub use labels::{LabelPools, PoolKey};
-pub use pool::{Effect, LocalAddressing, Rotated, SessionPool, Wanted};
+pub use pool::{Effect, LocalAddressing, Rotated, SessionPool, SettleOutcome, Wanted};
 pub use settings::{Affinity, Growth, PoolSettings};
 pub use store::{Changes, SendsFrom, TABLES};
 

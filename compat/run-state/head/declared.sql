@@ -140,7 +140,8 @@ CREATE TABLE pool_sessions (
 CREATE TABLE pool_tiers (
             domain_key TEXT NOT NULL PRIMARY KEY,
             proxy_tier TEXT NOT NULL,
-            browser INTEGER NOT NULL
+            browser INTEGER NOT NULL,
+            state TEXT NOT NULL DEFAULT 'base'
         ) STRICT;
 CREATE TABLE record_counts (
             dataset TEXT NOT NULL PRIMARY KEY,

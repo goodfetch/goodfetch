@@ -15,6 +15,9 @@
 //! proxy from the provider's driver ([`crate::proxy_provider`]) instead,
 //! behind a loopback relay that charges every byte to its Run under the
 //! proxy's kind; `proxy.server` and `proxy.provider` together are refused.
+//!
+//! Size: one concern — opening and holding a Session's single proxy (direct
+//! or provider-backed), its relay, its limits and its offered kinds.
 
 mod bypass;
 mod limits;
@@ -149,6 +152,49 @@ pub(crate) struct Opening<'a> {
     /// The currencies of the currency Limits on `proxy_bytes` that hold
     /// the Run, which a provider's price must be in.
     pub(crate) currencies: &'a [String],
+    /// A proxy kind override from a crawl's Session pool (spec #600),
+    /// taking precedence over `proxy.kind` when set.
+    pub(crate) proxy_kind: Option<ProxyKind>,
+}
+
+/// One proxy kind offered by a Run's configured Proxy provider, with
+/// whether the provider has more than one exit for that kind (ADR 0021).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OfferedProxyKind {
+    /// The proxy kind.
+    pub kind: ProxyKind,
+    /// Whether the provider can issue a fresh exit on rotation within this
+    /// kind (always true for hosted providers; true for `list` when more
+    /// than one server is configured for this kind).
+    pub rotatable: bool,
+}
+
+/// The distinct proxy kinds the Run's configured `proxy.provider` offers,
+/// cheapest first (`datacenter`, `isp`, `residential`, `mobile`); empty
+/// when no `proxy.provider` is set (spec #600; ADR 0021).
+///
+/// # Errors
+///
+/// `setting_invalid` when `proxy.provider` names no built-in provider or
+/// its configuration in `proxy.providers` is invalid.
+pub fn offered_proxy_kinds(settings: &Resolved) -> Result<Vec<OfferedProxyKind>, CallError> {
+    let Some(name) = settings.get::<Option<&str>>(&PROXY_PROVIDER) else {
+        return Ok(Vec::new());
+    };
+    let configuration = settings
+        .value(&PROXY_PROVIDERS)
+        .get(name)
+        .map(ProxyProviderConfiguration::read)
+        .transpose()
+        .expect("invariant: `proxy.providers`' entries were checked against their kind")
+        .unwrap_or_default();
+    let (driver, translation) = adapter(settings, name, &configuration)?;
+    let hosted = translation.is_some();
+    Ok(driver
+        .offered_kinds(hosted)
+        .into_iter()
+        .map(|(kind, rotatable)| OfferedProxyKind { kind, rotatable })
+        .collect())
 }
 
 impl std::fmt::Debug for SessionProxy {
@@ -517,8 +563,12 @@ impl SessionProxy {
             .expect("invariant: `proxy.providers`' entries were checked against their kind")
             .unwrap_or_default();
         let (driver, translation) = adapter(settings, name, &configuration)?;
+        let mut ask = wanted(settings);
+        if let Some(kind) = opening.proxy_kind {
+            ask.kind = Some(kind);
+        }
         let chosen = driver
-            .choose(&wanted(settings), &opening.session.0, opening.ordinal)
+            .choose(&ask, &opening.session.0, opening.ordinal)
             .map_err(|refusal| refused(settings, &refusal))?;
         let currencies: Vec<&str> = opening.currencies.iter().map(String::as_str).collect();
         let price = priced(driver.name(), &currencies, configuration.price.as_ref())

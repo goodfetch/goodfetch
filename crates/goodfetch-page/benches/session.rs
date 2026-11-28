@@ -1783,6 +1783,7 @@ fn pooled(name: &str) -> PooledSession {
         id: SessionId(name.to_owned()),
         source: Some(None),
         address_ordinal: None,
+        proxy_kind: None,
         place: HeldPlace::default(),
     }
 }

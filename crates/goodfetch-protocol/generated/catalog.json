@@ -8209,6 +8209,37 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "not_by_model",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "The ordered proxy kinds (`datacenter`, `isp`, `residential`, `mobile`) a crawl's Session pool climbs on a 401, 403 or 429 without a challenge page: unset, the kinds the Run's Proxy provider configures, cheapest first, so a run with no paid pool configured spends nothing; set, it narrows that list. A Recipe may set it, as `proxy.kind` is; a Client acting for a model is refused with `setting_locked`.",
+      "fixed_for_run": false,
+      "name": "escalation.proxy_kinds",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "items": {
+          "enum": [
+            "datacenter",
+            "isp",
+            "residential",
+            "mobile"
+          ]
+        },
+        "type": "array"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
       "default": false,

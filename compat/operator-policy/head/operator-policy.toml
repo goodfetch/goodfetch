@@ -465,6 +465,9 @@ link = "example"
 published = "example"
 summary = "example"
 
+[settings.escalation]
+proxy_kinds = ["datacenter"]
+
 [settings.paid_fetch]
 domains = ["example"]
 max_price_per_page = "0.05 USD"
@@ -951,6 +954,9 @@ title = "example"
 link = "example"
 published = "example"
 summary = "example"
+
+[lock.escalation]
+proxy_kinds = ["datacenter"]
 
 [lock.paid_fetch]
 domains = ["example"]

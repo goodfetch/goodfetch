@@ -15,6 +15,7 @@ use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_protocol::foxhound::session_pool::ProxyTier;
 use rusqlite::Connection;
 
+use crate::escalation::State;
 use crate::labels::PoolKey;
 
 /// The tables of a crawl's Sessions and its domains' tiers.
@@ -38,7 +39,8 @@ pub const TABLES: RunStateTables = RunStateTables {
         "CREATE TABLE IF NOT EXISTS pool_tiers (
             domain_key TEXT NOT NULL PRIMARY KEY,
             proxy_tier TEXT NOT NULL,
-            browser INTEGER NOT NULL
+            browser INTEGER NOT NULL,
+            state TEXT NOT NULL DEFAULT 'base'
         ) STRICT",
         "CREATE TABLE IF NOT EXISTS pool_blocked_address_blocks (
             domain_key TEXT NOT NULL,
@@ -105,6 +107,8 @@ pub(crate) struct StoredTier {
     pub(crate) proxy_tier: ProxyTier,
     /// Whether a Challenge moved it to the browser tier.
     pub(crate) browser: bool,
+    /// Its escalation lifecycle state (spec #600; ADR 0128).
+    pub(crate) state: State,
 }
 
 impl Default for StoredTier {
@@ -112,6 +116,7 @@ impl Default for StoredTier {
         Self {
             proxy_tier: ProxyTier::None,
             browser: false,
+            state: State::Base,
         }
     }
 }
@@ -177,18 +182,48 @@ pub(crate) fn read(connection: &Connection) -> rusqlite::Result<Stored> {
             ))
         })?
         .collect::<rusqlite::Result<_>>()?;
-    let tiers = connection
-        .prepare_cached("SELECT domain_key, proxy_tier, browser FROM pool_tiers")?
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                StoredTier {
-                    proxy_tier: tier(&row.get::<_, String>(1)?)?,
-                    browser: row.get(2)?,
-                },
-            ))
-        })?
-        .collect::<rusqlite::Result<_>>()?;
+    let keeps_state = connection
+        .prepare_cached(
+            "SELECT count(*) FROM pragma_table_info('pool_tiers') WHERE name = 'state'",
+        )?
+        .query_row([], |row| row.get::<_, i64>(0))?
+        > 0;
+    let tiers = if keeps_state {
+        connection
+            .prepare_cached("SELECT domain_key, proxy_tier, browser, state FROM pool_tiers")?
+            .query_map([], |row| {
+                let state = escalation_state(&row.get::<_, String>(3)?)?.from_checkpoint();
+                Ok((
+                    row.get::<_, String>(0)?,
+                    StoredTier {
+                        proxy_tier: tier(&row.get::<_, String>(1)?)?,
+                        browser: row.get(2)?,
+                        state,
+                    },
+                ))
+            })?
+            .collect::<rusqlite::Result<_>>()?
+    } else {
+        connection
+            .prepare_cached("SELECT domain_key, proxy_tier, browser FROM pool_tiers")?
+            .query_map([], |row| {
+                let proxy_tier = tier(&row.get::<_, String>(1)?)?;
+                let state = if proxy_tier == ProxyTier::None {
+                    State::Base
+                } else {
+                    State::Escalated
+                };
+                Ok((
+                    row.get::<_, String>(0)?,
+                    StoredTier {
+                        proxy_tier,
+                        browser: row.get(2)?,
+                        state,
+                    },
+                ))
+            })?
+            .collect::<rusqlite::Result<_>>()?
+    };
     let next_ordinal = connection
         .prepare_cached("SELECT max(address_ordinal) + 1 FROM pool_sessions")
         .and_then(|mut cached| cached.query_row([], |row| row.get::<_, Option<i64>>(0)))?;
@@ -261,13 +296,19 @@ impl Changes {
             ))?;
         }
         let mut tier = connection.prepare_cached(
-            "INSERT INTO pool_tiers (domain_key, proxy_tier, browser) VALUES (?1, ?2, ?3)
+            "INSERT INTO pool_tiers (domain_key, proxy_tier, browser, state) VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT (domain_key) DO UPDATE SET
                 proxy_tier = excluded.proxy_tier,
-                browser = excluded.browser",
+                browser = excluded.browser,
+                state = excluded.state",
         )?;
         for (domain_key, stored) in &self.tiers {
-            tier.execute((domain_key, stored.proxy_tier.as_str(), stored.browser))?;
+            tier.execute((
+                domain_key,
+                stored.proxy_tier.as_str(),
+                stored.browser,
+                stored.state.as_str(),
+            ))?;
         }
         let mut block = connection.prepare_cached(
             "INSERT OR IGNORE INTO pool_blocked_address_blocks (domain_key, block) VALUES (?1, ?2)",
@@ -312,6 +353,16 @@ fn sends_from(name: &str) -> rusqlite::Result<SendsFrom> {
             0,
             rusqlite::types::Type::Text,
             format!("`{name}` is no client a Session sends from").into(),
+        )
+    })
+}
+
+fn escalation_state(name: &str) -> rusqlite::Result<State> {
+    State::parse(name).ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(
+            0,
+            rusqlite::types::Type::Text,
+            format!("`{name}` is no escalation state").into(),
         )
     })
 }

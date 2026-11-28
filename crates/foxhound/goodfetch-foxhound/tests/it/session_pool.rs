@@ -204,27 +204,40 @@ fn the_pools_settings_retire_a_session_by_its_uses_its_age_and_its_error_score(
     assert_eq!((ids, lifecycle), (served_by, json!("finished")));
 }
 
-/// Covers: story:6-251, story:5-138, setting:session.pool.max_size
+/// Covers: story:6-251, story:5-138, story:8-221, setting:session.pool.max_size
 #[rstest]
-#[case::a_403("/corpus/ip-block", true, session("session-2", "datacenter", false))]
-#[case::a_429("/corpus/rate-limit", true, session("session-2", "datacenter", false))]
+#[case::a_403("/corpus/ip-block", false, true, session("session-2", "none", false))]
+// `/corpus/rate-limit` carries `Retry-After: 120`, so this case exercises
+// handler-reported `rate_limit` with `block_classification: false` to avoid
+// a 120s politeness sleep while still verifying pool retirement.
+#[case::a_429("/corpus/rate-limit", true, false, session("session-2", "none", false))]
 // A challenge page is read by the engine on the document it fetched: the
 // Session is retired before any handler is given the request.
-#[case::a_challenge("/corpus/interstitial", false, session("session-2", "none", false))]
+#[case::a_challenge(
+    "/corpus/interstitial",
+    false,
+    true,
+    session("session-2", "none", false)
+)]
 fn a_block_retires_its_session_and_one_that_escalates_opens_the_replacement_at_the_next_proxy_tier(
     #[case] blocked: &str,
     #[case] handed_over: bool,
+    #[case] block_classification: bool,
     #[case] replacement: Value,
 ) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = crate::site::engine_on(&env, &proving_ground);
+    let mut run_settings = settings(&json!({ "max_size": 1 }));
+    if !block_classification {
+        run_settings["fetch"] = json!({ "block_classification": false });
+    }
 
     let (sessions, lifecycle) = crawl(
         &mut engine,
         "escalated",
         &seeds(&proving_ground, &[blocked, "/corpus/article"]),
-        &settings(&json!({ "max_size": 1 })),
+        &run_settings,
         &mut |_, params| handle(&proving_ground, params),
     );
     assert!(engine.finished());

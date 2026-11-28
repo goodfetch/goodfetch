@@ -294,6 +294,7 @@ async fn session_ended(params: Value, context: CallContext) -> Result<Value, Cal
         "default" => Opener::Default,
         _ => Opener::Pool {
             address_ordinal: None,
+            proxy_kind: None,
         },
     };
     let position = sessions

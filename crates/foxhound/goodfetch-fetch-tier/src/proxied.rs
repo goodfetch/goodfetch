@@ -28,6 +28,7 @@ use goodfetch_engine::settings::Resolved;
 use goodfetch_page::document_request::DocumentRequest;
 use goodfetch_page::{BrowserRun, TransportPermit, TransportProxy};
 use goodfetch_protocol::page::SessionId;
+use goodfetch_protocol::page::proxy::ProxyKind;
 use tokio::sync::OnceCell;
 use url::Url;
 
@@ -78,16 +79,23 @@ impl SessionProxies {
     /// signal files of its navigation gate, through a proxy of their own.
     pub(crate) fn of_run(&self) -> Arc<Proxied> {
         let sticky = SessionId(format!("{}.http", self.run.identity.id()));
-        Arc::new(self.proxied(sticky, self.config.local.clone(), Arc::clone(&self.direct)))
+        Arc::new(self.proxied(
+            sticky,
+            None,
+            self.config.local.clone(),
+            Arc::clone(&self.direct),
+        ))
     }
 
-    /// The transport of the pool Session `session`, holding `local`, the
-    /// Run's local addresses for `None`, and sending around the proxy on
-    /// `direct`, the Run's own transport for `None`: the one it took on
-    /// its first use, kept until it retires.
+    /// The transport of the pool Session `session`, at `proxy_kind` when
+    /// the Session pool picked one, holding `local`, the Run's local
+    /// addresses for `None`, and sending around the proxy on `direct`, the
+    /// Run's own transport for `None`: the one it took on its first use,
+    /// kept until it retires.
     pub(crate) fn of(
         &self,
         session: &SessionId,
+        proxy_kind: Option<ProxyKind>,
         local: Option<LocalSource>,
         direct: Option<Arc<dyn Transport>>,
     ) -> Arc<Proxied> {
@@ -101,7 +109,7 @@ impl SessionProxies {
             let sticky = SessionId(format!("{}.http.{}", self.run.identity.id(), session.0));
             let local = local.or_else(|| self.config.local.clone());
             let direct = direct.unwrap_or_else(|| Arc::clone(&self.direct));
-            Arc::new(self.proxied(sticky, local, direct))
+            Arc::new(self.proxied(sticky, proxy_kind, local, direct))
         }))
     }
 
@@ -117,6 +125,7 @@ impl SessionProxies {
     fn proxied(
         &self,
         sticky: SessionId,
+        proxy_kind: Option<ProxyKind>,
         local: Option<LocalSource>,
         direct: Arc<dyn Transport>,
     ) -> Proxied {
@@ -124,6 +133,7 @@ impl SessionProxies {
             run: Arc::clone(&self.run),
             settings: self.settings.clone(),
             sticky,
+            proxy_kind,
             ordinal: self.opened.fetch_add(1, Ordering::Relaxed) + 1,
             config: TransportConfig {
                 local,
@@ -143,6 +153,8 @@ pub(crate) struct Proxied {
     settings: Resolved,
     /// The name its proxy's sticky username takes.
     sticky: SessionId,
+    /// The proxy kind the Session pool chose for it, if any.
+    proxy_kind: Option<ProxyKind>,
     /// Its position among the Run's proxies, from 1.
     ordinal: u64,
     /// Its transport's configuration, without the proxy.
@@ -164,10 +176,15 @@ struct Opened {
 impl Proxied {
     /// Opens the Session's proxy and the transport through it.
     async fn open(&self) -> Result<Option<Opened>, TransportFailure> {
-        let opened =
-            TransportProxy::open(&self.run, &self.settings, self.sticky.clone(), self.ordinal)
-                .await
-                .map_err(|error| TransportFailure::Proxy(CallFailure(error)))?;
+        let opened = TransportProxy::open(
+            &self.run,
+            &self.settings,
+            self.sticky.clone(),
+            self.ordinal,
+            self.proxy_kind,
+        )
+        .await
+        .map_err(|error| TransportFailure::Proxy(CallFailure(error)))?;
         let Some(proxy) = opened else {
             return Ok(None);
         };

@@ -1979,6 +1979,12 @@ number = 11
 kind = "command"
 prefix = "skill."
 
+# `mcp` server command (spec #608, ticket #1359).
+[[area]]
+number = 11
+kind = "command"
+prefix = "mcp"
+
 [[area]]
 number = 11
 kind = "error"

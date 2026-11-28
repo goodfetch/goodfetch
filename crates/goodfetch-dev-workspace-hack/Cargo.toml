@@ -55,6 +55,7 @@ flate2 = { version = "1" }
 foldhash = { version = "0.2" }
 form_urlencoded = { version = "1" }
 futures-channel = { version = "0.3", features = ["sink"] }
+futures-executor = { version = "0.3" }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
@@ -70,6 +71,8 @@ i18n-embed = { version = "0.15", features = ["fluent-system"] }
 icu_locale_core = { version = "2", default-features = false, features = ["alloc", "zerovec"] }
 icu_provider = { version = "2", default-features = false, features = ["alloc", "baked"] }
 idna = { version = "1" }
+indexmap = { version = "2", features = ["serde"] }
+insta = { version = "1", default-features = false, features = ["filters"] }
 jiff = { version = "0.2", default-features = false, features = ["serde", "tz-system", "tzdb-bundle-platform", "tzdb-zoneinfo"] }
 libc = { version = "0.2" }
 litemap = { version = "0.8", default-features = false, features = ["alloc"] }
@@ -98,8 +101,10 @@ rcgen = { version = "0.14", default-features = false, features = ["pem", "ring"]
 regex = { version = "1" }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa", "perf", "std", "unicode"] }
 regex-syntax = { version = "0.8" }
+rmcp = { version = "3", default-features = false, features = ["client", "server", "transport-child-process", "transport-io"] }
 rusqlite = { version = "0.40", default-features = false, features = ["backup", "bundled", "cache", "hooks", "serialize", "trace"] }
 rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
+schemars = { version = "1" }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", features = ["alloc", "rc"] }
 serde_json = { version = "1", features = ["alloc", "float_roundtrip", "raw_value", "unbounded_depth"] }
@@ -166,6 +171,7 @@ errno = { version = "0.3" }
 hyper-util = { version = "0.1", default-features = false, features = ["client-legacy", "client-proxy"] }
 ipnet = { version = "2", features = ["serde"] }
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
+nix = { version = "0.31", default-features = false, features = ["fs", "poll", "signal"] }
 rustix = { version = "1", features = ["fs", "system"] }
 security-framework-sys = { version = "2" }
 simdutf8 = { version = "0.1", features = ["aarch64_neon", "public_imp"] }

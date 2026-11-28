@@ -1168,7 +1168,7 @@ version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b72b06487a0d4683349ad74d62e87ad639b09667082b3c495c5b6bab7d84b3da"
 dependencies = [
- "windows",
+ "windows 0.44.0",
 ]
 
 [[package]]
@@ -2536,6 +2536,7 @@ dependencies = [
  "goodfetch-dev-workspace-hack",
  "goodfetch-engine",
  "goodfetch-extractor",
+ "goodfetch-mcp",
  "goodfetch-page",
  "goodfetch-protocol",
  "goodfetch-runtime",
@@ -2562,6 +2563,7 @@ dependencies = [
  "prost",
  "rcgen",
  "regex",
+ "rmcp",
  "rstest",
  "rusqlite",
  "rustls",
@@ -2791,6 +2793,7 @@ dependencies = [
  "foldhash 0.2.0",
  "form_urlencoded",
  "futures-channel",
+ "futures-executor",
  "futures-io",
  "futures-util",
  "getrandom 0.2.17",
@@ -2807,6 +2810,8 @@ dependencies = [
  "icu_locale_core",
  "icu_provider",
  "idna",
+ "indexmap",
+ "insta",
  "ipnet",
  "jiff 0.2.38",
  "libc",
@@ -2816,6 +2821,7 @@ dependencies = [
  "memchr",
  "minimal-lexical",
  "moka",
+ "nix 0.31.3",
  "nom 7.1.3",
  "num-bigint 0.4.8",
  "num-integer",
@@ -2838,9 +2844,11 @@ dependencies = [
  "regex",
  "regex-automata",
  "regex-syntax 0.8.11",
+ "rmcp",
  "rusqlite",
  "rustix",
  "rustls",
+ "schemars",
  "security-framework-sys",
  "serde",
  "serde_core",
@@ -3210,6 +3218,26 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "goodfetch-mcp"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-dev-workspace-hack",
+ "goodfetch-protocol",
+ "goodfetch-runtime",
+ "goodfetch-workspace-hack",
+ "insta",
+ "rmcp",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "url",
 ]
 
 [[package]]
@@ -4586,6 +4614,8 @@ checksum = "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
 dependencies = [
  "equivalent",
  "hashbrown 0.17.1",
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -6278,6 +6308,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "process-wrap"
+version = "10.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "89291549ac1d51b93677833a3de18d4ad0bc97b25cbea8a7b3dc5377c3990dab"
+dependencies = [
+ "futures",
+ "indexmap",
+ "nix 0.31.3",
+ "tokio",
+ "tracing",
+ "windows 0.62.2",
+]
+
+[[package]]
 name = "prometheus"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6761,6 +6805,34 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "rmcp"
+version = "3.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc4fa9a7558c480e1817c0f02e9a73782001ac1f47fb9d26cc073915963282ea"
+dependencies = [
+ "futures",
+ "indexmap",
+ "jiff 1.0.3",
+ "libc",
+ "pastey",
+ "percent-encoding",
+ "pin-project-lite",
+ "process-wrap",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tracing",
+ "unicode-general-category",
+ "unicode-normalization",
+ "uuid",
 ]
 
 [[package]]
@@ -7982,6 +8054,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-stream"
+version = "0.1.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3d06f0b082ba57c26b79407372e57cf2a1e28124f78e9479fe80322cf53420b"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
+ "tokio",
+]
+
+[[package]]
 name = "tokio-tungstenite"
 version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8367,6 +8450,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 
 [[package]]
+name = "unicode-normalization"
+version = "0.1.26"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75cd3fb03d5288b3ba9a1ee103ac7e9cbb59f0b03d64f8ddfcc04dd42758a85d"
+dependencies = [
+ "tinyvec",
+]
+
+[[package]]
 name = "unicode-segmentation"
 version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8730,6 +8822,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "windows"
+version = "0.62.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "527fadee13e0c05939a6a05d5bd6eec6cd2e3dbd648b9f8e447c6518133d8580"
+dependencies = [
+ "windows-collections",
+ "windows-core 0.62.2",
+ "windows-future",
+ "windows-numerics",
+]
+
+[[package]]
+name = "windows-collections"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23b2d95af1a8a14a3c7367e1ed4fc9c20e0a26e79551b1454d72583c97cc6610"
+dependencies = [
+ "windows-core 0.62.2",
+]
+
+[[package]]
 name = "windows-core"
 version = "0.62.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8753,6 +8866,17 @@ dependencies = [
  "windows-link 0.100.0",
  "windows-result 0.100.0",
  "windows-strings 0.100.0",
+]
+
+[[package]]
+name = "windows-future"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1d6f90251fe18a279739e78025bd6ddc52a7e22f921070ccdc67dde84c605cb"
+dependencies = [
+ "windows-core 0.62.2",
+ "windows-link 0.2.1",
+ "windows-threading",
 ]
 
 [[package]]
@@ -8821,6 +8945,16 @@ dependencies = [
  "keyring-core",
  "windows-sys 0.61.2",
  "zeroize",
+]
+
+[[package]]
+name = "windows-numerics"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e2e40844ac143cdb44aead537bbf727de9b044e107a0f1220392177d15b0f26"
+dependencies = [
+ "windows-core 0.62.2",
+ "windows-link 0.2.1",
 ]
 
 [[package]]
@@ -8917,6 +9051,15 @@ dependencies = [
  "windows_x86_64_gnu 0.52.6",
  "windows_x86_64_gnullvm 0.52.6",
  "windows_x86_64_msvc 0.52.6",
+]
+
+[[package]]
+name = "windows-threading"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3949bd5b99cafdf1c7ca86b43ca564028dfe27d66958f2470940f73d86d75b37"
+dependencies = [
+ "windows-link 0.2.1",
 ]
 
 [[package]]

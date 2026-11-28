@@ -119,6 +119,10 @@
         "name": "daemon"
       },
       {
+        "commands": [],
+        "name": "mcp"
+      },
+      {
         "commands": [
           {
             "commands": [],
@@ -573,6 +577,10 @@
           }
         ],
         "name": "daemon"
+      },
+      {
+        "commands": [],
+        "name": "mcp"
       },
       {
         "commands": [

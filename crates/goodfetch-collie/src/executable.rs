@@ -117,6 +117,7 @@ mod init;
 mod limit_flags;
 mod log_file;
 mod logs;
+mod mcp;
 mod metrics;
 mod needs_you;
 pub mod operation;
@@ -227,6 +228,13 @@ enum Command {
     Daemon {
         #[command(subcommand)]
         command: DaemonCommand,
+        #[command(flatten)]
+        _colour: ColourFlag,
+    },
+    /// Runs the Model Context Protocol server over stdio.
+    Mcp {
+        #[command(flatten)]
+        arguments: mcp::Arguments,
         #[command(flatten)]
         _colour: ColourFlag,
     },
@@ -541,7 +549,7 @@ pub fn main(start: &Start) -> ExitCode {
         settings: settings.clone(),
     };
     let engine = engine.with_daemon_reach(Arc::new(reach));
-    if !launched {
+    if !launched && !matches!(parsed, Parsed::HandWritten(Command::Mcp { .. })) {
         age_notice(start.release_date, &home, engine.identity(), clock);
     }
     let Ok(entropy) = entropy.inspect_err(|error| {
@@ -861,6 +869,7 @@ fn run(
         Command::Daemon { command, .. } => {
             daemon_command(command, engine, dependencies, &machine, human)
         }
+        Command::Mcp { arguments, .. } => mcp::run(arguments, engine, dependencies, &machine),
         Command::Runs {
             command: RunsCommand::Reindex { paths, json },
             ..

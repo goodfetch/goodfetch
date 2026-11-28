@@ -1,0 +1,12 @@
+# Which of goodfetch-mcp's top-level modules may import which (ADR 0126).
+[modules]
+code_mode_tool = []
+engine = []
+oauth = []
+observations = []
+profiles = ["projection"]
+projection = []
+resources = []
+revisions = []
+server = ["engine", "observations", "profiles", "projection", "resources", "revisions"]
+transports = ["server"]

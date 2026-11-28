@@ -555,6 +555,17 @@
       ]
     },
     {
+      "id": "command:mcp",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:needs-you.answer",
       "kind": "command",
       "area": 12,

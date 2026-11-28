@@ -13,7 +13,7 @@ readme = "README.md"
 # The executable's own dependencies (ADR 0094): `cargo install
 # goodfetch-collie --locked --features executable` builds Collie's
 # executable; a program embedding the crate never compiles them.
-executable = ["dep:clap", "dep:jiff", "dep:mimalloc", "dep:regex", "dep:schemars", "dep:secrecy", "dep:serde", "dep:tempfile", "dep:thiserror", "dep:url", "dep:zstd", "dep:libc", "dep:windows-sys", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:opentelemetry-prometheus", "dep:prometheus", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "tokio/io-util", "tokio/macros", "tokio/rt-multi-thread", "tokio/signal"]
+executable = ["dep:clap", "dep:goodfetch-mcp", "dep:jiff", "dep:mimalloc", "dep:regex", "dep:schemars", "dep:secrecy", "dep:serde", "dep:tempfile", "dep:thiserror", "dep:url", "dep:zstd", "dep:libc", "dep:windows-sys", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:opentelemetry-prometheus", "dep:prometheus", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "tokio/io-util", "tokio/macros", "tokio/rt-multi-thread", "tokio/signal"]
 # The program's OpenTelemetry context, read from its current `tracing` span
 # through `tracing-opentelemetry`, in each request it sends (ADR 0132);
 # without it, a request carries none. The engine, which the SDK links,
@@ -35,6 +35,7 @@ goodfetch-collie-client.workspace = true
 # The executable's hidden `plugin-shim` mode, a Plugin's launcher (ADR 0033).
 goodfetch-confinement.workspace = true
 goodfetch-engine.workspace = true
+goodfetch-mcp = { workspace = true, optional = true }
 goodfetch-page.workspace = true
 # The runtimes the executables and a linked engine build (ADR 0081).
 goodfetch-runtime.workspace = true
@@ -142,6 +143,7 @@ jiff.workspace = true
 jsonschema.workspace = true
 # The settings flags' duration reader, over generated durations.
 proptest.workspace = true
+rmcp = { workspace = true, features = ["client", "transport-async-rw", "transport-child-process"] }
 rstest.workspace = true
 # The program's type a page's fields are read into (tests/it/sdk/page.rs).
 serde.workspace = true

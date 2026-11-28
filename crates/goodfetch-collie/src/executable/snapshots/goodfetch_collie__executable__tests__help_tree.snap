@@ -15,6 +15,7 @@ Commands:
   doctor           Checks the installation: Goodfetch home, the installed executables, the Daemon, the version it runs and the browser build a Run launches, with a fix for each finding not in order, and writes a bug-report file to attach to an issue, which it sends nowhere. Exits 0 whatever it finds
   init             Writes a starter project this executable carries, which runs and tests itself, in TypeScript, Python or Rust, or deployment files for a Supported target with `--deploy`, never replacing a file already there
   daemon           Starts, stops and shows the Daemon of this executable's major, which both Products share
+  mcp              Arguments for the `mcp` command
   needs-you        Lists what waits for a person, and takes them through it
   recipe           Starts a Recipe and prints the digest that names a version of one
   runs             Works on the runs of this executable's major, of both Products
@@ -381,6 +382,17 @@ Options:
       --environment <NAME=VALUE>  A deployment variable the service passes, as `NAME=VALUE`; repeatable
       --color <WHEN>              When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help                      Print help
+
+$ goodfetch-collie mcp --help
+Arguments for the `mcp` command
+
+Usage: goodfetch-collie mcp [OPTIONS]
+
+Options:
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
 
 $ goodfetch-collie needs-you --help
 Lists what waits for a person, and takes them through it

@@ -627,6 +627,22 @@ impl Machine<'_> {
         ))))
     }
 
+    /// Finds the Daemon for an MCP server: a running or configured remote
+    /// Daemon, starting the major's pick only when `start` is true (`--daemon`).
+    pub(super) fn daemon_for_mcp(
+        &self,
+        start: bool,
+    ) -> Result<Option<(DaemonEndpoint, DaemonToken)>, Failure> {
+        let wanted = Wanted {
+            start,
+            remote: true,
+            needs: self.identity.product,
+        };
+        Ok(self
+            .find(&wanted)?
+            .map(|found| (found.endpoint, found.token)))
+    }
+
     /// The Daemon `wanted` asks for: the remote one `GOODFETCH_URL` names,
     /// when it asks for it and the variable is set; else the running Daemon
     /// of the major, the installed service's socket, or, when it asks to

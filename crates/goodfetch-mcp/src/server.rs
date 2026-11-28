@@ -1,0 +1,188 @@
+//! The MCP [`ServerHandler`] implementation shared by Collie and Foxhound
+//! (ADRs 0011, 0070, 0080, 0090, 0132; spec #608).
+//!
+//! The server asks nothing of its host: it advertises neither sampling nor
+//! elicitation and never sends either request. `initialize` carries the
+//! executable's name (`goodfetch-collie` or `goodfetch-foxhound`) and two
+//! sentences of `instructions` naming the active profile and pointing to the
+//! docs resources and skills.
+
+use std::borrow::Cow;
+use std::sync::Arc;
+
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::jsonrpc::TraceContext;
+use rmcp::ErrorData as McpError;
+use rmcp::ServerHandler;
+use rmcp::model::{
+    CallToolRequestParams, CallToolResponse, Implementation, ListToolsResult,
+    PaginatedRequestParams, ProgressNotificationParam, ProtocolVersion, ServerCapabilities,
+    ServerConfig, Tool,
+};
+use rmcp::service::{RequestContext, RoleServer};
+use tokio::sync::mpsc;
+use tokio_util::task::TaskTracker;
+
+use crate::engine::{EngineLink, ProgressUpdate};
+use crate::profiles::ResolvedProfile;
+use crate::projection::{error_tool_result, success_tool_result};
+use crate::revisions;
+
+/// Bounded queue for forwarding engine progress updates to MCP notifications.
+const PROGRESS_BUFFER: usize = 32;
+
+/// Static configuration for an [`McpServer`] instance.
+#[derive(Clone, Debug)]
+pub struct ServerOptions {
+    /// The Product this server serves (`Product::Collie` or `Product::Foxhound`).
+    pub product: Product,
+    /// The executable's version string (reported in `serverInfo.version`).
+    pub version: String,
+    /// The resolved tool profile to serve.
+    pub profile: ResolvedProfile,
+}
+
+/// The Goodfetch MCP server handler, backed by one [`EngineLink`] per session.
+#[derive(Clone)]
+pub struct McpServer {
+    options: Arc<ServerOptions>,
+    engine: EngineLink,
+    tasks: TaskTracker,
+}
+
+impl McpServer {
+    /// Creates an MCP server bound to an open [`EngineLink`].
+    #[must_use]
+    pub fn new(options: ServerOptions, engine: EngineLink) -> Self {
+        Self {
+            options: Arc::new(options),
+            engine,
+            tasks: TaskTracker::new(),
+        }
+    }
+
+    /// The two-sentence `instructions` string returned by `initialize` (#1359).
+    #[must_use]
+    pub fn instructions(&self) -> String {
+        format!(
+            "Goodfetch {} MCP server running the `{}` profile. Read `goodfetch://docs/llms.txt` for product documentation and use `skills/list` to inspect available skills.",
+            self.options.product.name(),
+            self.options.profile.name,
+        )
+    }
+
+    /// Closes the underlying engine connection and waits for active forwarders.
+    ///
+    /// # Cancel safety
+    ///
+    /// Safe to cancel; closing is idempotent.
+    pub async fn shutdown(&self) {
+        self.engine.close().await;
+        self.tasks.close();
+        self.tasks.wait().await;
+    }
+}
+
+impl ServerHandler for McpServer {
+    fn get_info(&self) -> ServerConfig {
+        let mut info = ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
+            .with_protocol_version(revisions::DEFAULT_HANDSHAKE_VERSION)
+            .with_server_info(Implementation::new(
+                self.options.product.executable_name(),
+                self.options.version.clone(),
+            ));
+        info.instructions = Some(self.instructions());
+        info
+    }
+
+    fn supported_protocol_versions(&self) -> Cow<'static, [ProtocolVersion]> {
+        Cow::Borrowed(revisions::SUPPORTED)
+    }
+
+    fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> impl std::future::Future<Output = Result<ListToolsResult, McpError>> + Send + '_ {
+        let tools = self
+            .options
+            .profile
+            .tools
+            .iter()
+            .map(|projected| projected.tool.clone())
+            .collect();
+        std::future::ready(Ok(ListToolsResult::with_all_items(tools)))
+    }
+
+    fn get_tool(&self, name: &str) -> Option<Tool> {
+        self.options
+            .profile
+            .get(name)
+            .map(|projected| projected.tool.clone())
+    }
+
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResponse, McpError> {
+        let Some(projected) = self.options.profile.get(&request.name) else {
+            return Err(McpError::invalid_params(
+                format!("unknown tool `{}`", request.name),
+                None,
+            ));
+        };
+
+        // Propagate W3C traceparent and tracestate; never pass baggage (ADR 0132).
+        let trace = TraceContext {
+            traceparent: context.meta.get_traceparent().map(str::to_owned),
+            tracestate: context.meta.get_tracestate().map(str::to_owned),
+        };
+
+        let (progress_tx, forwarder) = match context.meta.get_progress_token() {
+            Some(token) => {
+                let (tx, rx) = mpsc::channel::<ProgressUpdate>(PROGRESS_BUFFER);
+                let peer = context.peer.clone();
+                let handle = self.tasks.spawn(async move {
+                    let mut rx = rx;
+                    while let Some(update) = rx.recv().await {
+                        let mut param =
+                            ProgressNotificationParam::new(token.clone(), update.progress)
+                                .with_message(update.message);
+                        if let Some(total) = update.total {
+                            param = param.with_total(total);
+                        }
+                        if let Err(error) = peer.notify_progress(param).await {
+                            tracing::debug!(%error, "MCP progress notification failed");
+                            break;
+                        }
+                    }
+                });
+                (Some(tx), Some(handle))
+            }
+            None => (None, None),
+        };
+
+        let arguments = request.arguments.unwrap_or_default();
+        let outcome = self
+            .engine
+            .call(
+                projected.operation,
+                arguments,
+                trace,
+                progress_tx,
+                context.ct.clone(),
+            )
+            .await;
+
+        if let Some(handle) = forwarder {
+            let _ = handle.await;
+        }
+
+        let tool_result = match outcome {
+            Ok(value) => success_tool_result(value),
+            Err(error) => error_tool_result(&error, Some(projected.operation)),
+        };
+        Ok(CallToolResponse::from(tool_result))
+    }
+}

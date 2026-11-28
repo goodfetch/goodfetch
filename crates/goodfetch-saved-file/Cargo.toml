@@ -15,5 +15,8 @@ goodfetch-workspace-hack.workspace = true
 # The hidden attribute of a Saved file's temporary file (ADR 0116).
 windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"] }
 
+[dev-dependencies]
+goodfetch-dev-workspace-hack.workspace = true
+
 [lints]
 workspace = true

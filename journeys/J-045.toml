@@ -1,0 +1,41 @@
+#:schema ./journey.schema.json
+id = "J-045"
+title = "Deliver a crawl's Dataset to SQLite, kill the Run mid-delivery, and find every Record once"
+goal = """
+A person probes a SQLite Sink and starts a Crawl on the Daemon that delivers \
+its Dataset to that SQLite destination, kills the Daemon mid-delivery, starts \
+the Daemon again and resumes the Crawl. The probe MUST report the Sink's \
+Guarantee class, and after the kill and resume the SQLite destination MUST \
+hold every Record of the Dataset exactly once, in order (ADRs 0026, 0063 and \
+0094)."""
+area = 6
+product = "foxhound"
+status = "active"
+covers = ["story:6-282", "story:6-283"]
+
+[proving_ground]
+seed = 45
+
+[surfaces]
+cli = "M4"
+
+[[steps]]
+text = "Start the Daemon and probe the SQLite Sink (`sink probe`)"
+
+[[steps]]
+text = "Start a Crawl delivering its Dataset to the SQLite Sink and wait until some Records land in SQLite"
+
+[[steps]]
+text = "Kill the Daemon (`kill -9`) mid-delivery"
+
+[[steps]]
+text = "Start the Daemon again, resume the Crawl by its Run ID, and wait until it finishes"
+
+[[steps]]
+text = "Read the Run report, the Dataset's Records and the SQLite destination's rows"
+
+[[expect]]
+text = "The probe and the Run report both reported the SQLite Sink's Guarantee class (`fenced`)"
+
+[[expect]]
+text = "After the kill and resume, the SQLite destination holds every committed Record of the Dataset exactly once, in order"

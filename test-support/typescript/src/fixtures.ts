@@ -57,6 +57,8 @@ export interface TestSupportFixtures {
   provingGroundSeed: number | undefined;
   /** Whether the test's setup starts the Daemon of `product`'s executable in its home, which `daemon` needs. */
   withDaemon: boolean;
+  /** Whether the started Daemon enables its HTTP JSON-RPC listener on loopback port 0 (`--http-listener`). */
+  withHttpListener: boolean;
   /** Whether the test's home is prepared for an engine that launches a browser and reaches the Proving ground. */
   withBrowser: boolean;
   /** How the engine's first use of an empty Browser cache goes, with the Proving ground; the cache is laid out without it. */
@@ -82,6 +84,7 @@ export const test: TestAPI<TestSupportFixtures> = base.extend<TestSupportFixture
   testEnvProgram: undefined,
   provingGroundSeed: undefined,
   withDaemon: false,
+  withHttpListener: false,
   withBrowser: false,
   browserDownload: undefined,
   // oxlint-disable-next-line no-empty-pattern -- Vitest reads a fixture's dependencies from its first parameter, which must be a destructuring pattern.
@@ -99,6 +102,7 @@ export const test: TestAPI<TestSupportFixtures> = base.extend<TestSupportFixture
       testEnvProgram,
       provingGroundSeed,
       withDaemon,
+      withHttpListener,
       withBrowser,
       browserDownload,
       product,
@@ -117,6 +121,7 @@ export const test: TestAPI<TestSupportFixtures> = base.extend<TestSupportFixture
       program: testEnvProgram,
       provingGroundSeed,
       daemon: withDaemon ? product : undefined,
+      httpListener: withHttpListener,
       browser: withBrowser,
       browserDownload,
     });

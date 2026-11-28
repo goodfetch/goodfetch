@@ -2814,6 +2814,7 @@ version = "0.0.0"
 dependencies = [
  "bytes",
  "goodfetch-counted-work",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "rstest",
@@ -2834,6 +2835,7 @@ dependencies = [
  "data-encoding",
  "dom_query",
  "goodfetch-counted-work",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "moka",
@@ -2865,6 +2867,7 @@ dependencies = [
  "goodfetch-collie-client",
  "goodfetch-confinement",
  "goodfetch-conformance",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-engine",
  "goodfetch-extractor",
  "goodfetch-page",
@@ -2899,6 +2902,7 @@ dependencies = [
  "schemars",
  "secrecy",
  "serde",
+ "serde-saphyr",
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
@@ -2914,6 +2918,7 @@ dependencies = [
  "url",
  "windows-sys 0.61.2",
  "zip",
+ "zstd",
 ]
 
 [[package]]
@@ -2926,6 +2931,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "goodfetch-conformance",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-encoding",
  "goodfetch-engine",
  "goodfetch-protocol",
@@ -2959,6 +2965,7 @@ dependencies = [
 name = "goodfetch-confinement"
 version = "0.0.0"
 dependencies = [
+ "goodfetch-dev-workspace-hack",
  "goodfetch-protocol",
  "goodfetch-workspace-hack",
  "landlock",
@@ -2977,6 +2984,7 @@ name = "goodfetch-conformance"
 version = "0.0.0"
 dependencies = [
  "data-encoding",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-protocol",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
@@ -3003,6 +3011,7 @@ version = "0.0.0"
 dependencies = [
  "dom_query",
  "glob",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-workspace-hack",
  "lol_html",
  "moka",
@@ -3017,6 +3026,7 @@ dependencies = [
  "futures-util",
  "goodfetch-counted-work",
  "goodfetch-dataset",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-engine",
  "goodfetch-extractor",
  "goodfetch-fetch-tier",
@@ -3056,6 +3066,7 @@ dependencies = [
  "data-encoding",
  "flate2",
  "goodfetch-counted-work",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-engine",
  "goodfetch-protocol",
  "goodfetch-test-support",
@@ -3077,10 +3088,179 @@ dependencies = [
 ]
 
 [[package]]
+name = "goodfetch-dev-workspace-hack"
+version = "0.0.0"
+dependencies = [
+ "aead 0.6.1",
+ "aes",
+ "aes-gcm",
+ "ahash",
+ "aho-corasick",
+ "anyhow",
+ "arrow-array",
+ "arrow-data",
+ "arrow-schema",
+ "base64 0.23.1",
+ "bit-set 0.8.0",
+ "bitflags 2.13.2",
+ "block-buffer 0.12.1",
+ "bstr",
+ "byteorder",
+ "bytes",
+ "chacha20 0.10.2",
+ "chrono",
+ "cipher 0.5.2",
+ "clap",
+ "clap_builder",
+ "const-oid 0.9.6",
+ "crc32fast",
+ "crypto-bigint",
+ "crypto-common 0.1.7",
+ "crypto-common 0.2.2",
+ "curve25519-dalek 4.1.3",
+ "data-encoding",
+ "der 0.7.10",
+ "der 0.8.3",
+ "derive_more",
+ "digest 0.10.7",
+ "digest 0.11.3",
+ "dom_query",
+ "duckdb",
+ "ecdsa",
+ "ed25519 2.2.3",
+ "ed25519-dalek 2.2.0",
+ "either",
+ "elliptic-curve",
+ "encoding_rs",
+ "errno",
+ "fastrand",
+ "flatbuffers",
+ "flate2",
+ "foldhash 0.2.0",
+ "form_urlencoded",
+ "futures-channel",
+ "futures-io",
+ "futures-util",
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
+ "getrandom 0.4.3",
+ "ghash",
+ "hashbrown 0.17.1",
+ "hmac 0.13.0",
+ "http",
+ "http-body-util",
+ "httparse",
+ "hybrid-array",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
+ "i18n-embed",
+ "icu_locale_core",
+ "icu_provider",
+ "idna",
+ "ipnet",
+ "jiff 0.2.38",
+ "libc",
+ "libduckdb-sys",
+ "linux-raw-sys",
+ "litemap",
+ "log",
+ "mail-send",
+ "memchr",
+ "minimal-lexical",
+ "moka",
+ "nix 0.31.3",
+ "nom 7.1.3",
+ "num-bigint 0.4.8",
+ "num-bigint 0.5.1",
+ "num-integer",
+ "num-traits",
+ "objc2-core-foundation",
+ "objc2-system-configuration",
+ "once_cell",
+ "opentelemetry",
+ "opentelemetry_sdk",
+ "p256",
+ "percent-encoding",
+ "phf 0.13.1",
+ "phf_shared 0.11.3",
+ "pkcs8 0.11.0",
+ "polyval",
+ "postcard",
+ "potential_utf",
+ "primeorder",
+ "proc-macro2",
+ "psl",
+ "quick-xml 0.41.0",
+ "quote",
+ "rand 0.10.3",
+ "rand 0.8.8",
+ "rand_core 0.6.4",
+ "rcgen",
+ "regex",
+ "regex-automata",
+ "regex-syntax 0.8.11",
+ "rusqlite",
+ "rustix",
+ "rustls",
+ "rustls-webpki",
+ "sec1",
+ "security-framework-sys",
+ "serde",
+ "serde_core",
+ "serde_json",
+ "sha1 0.10.7",
+ "sha2 0.10.9",
+ "sha2 0.11.1",
+ "signature 2.2.0",
+ "simdutf8",
+ "slab",
+ "smallvec",
+ "socket2",
+ "spki 0.8.1",
+ "stable_deref_trait",
+ "string_cache",
+ "subtle",
+ "syn 3.0.9",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "tinystr",
+ "tokio",
+ "tokio-btls",
+ "tokio-rustls",
+ "tokio-util",
+ "toml 1.1.8+spec-1.1.0",
+ "toml_datetime",
+ "toml_parser",
+ "toml_writer",
+ "tracing",
+ "tracing-core",
+ "tracing-subscriber",
+ "typenum",
+ "unic-langid",
+ "url",
+ "uuid",
+ "web_atoms",
+ "winnow",
+ "writeable",
+ "yoke",
+ "zerocopy",
+ "zerofrom",
+ "zeroize",
+ "zerotrie",
+ "zerovec",
+ "zstd",
+ "zstd-safe",
+ "zstd-sys",
+]
+
+[[package]]
 name = "goodfetch-encoding"
 version = "0.0.0"
 dependencies = [
  "encoding_rs",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-workspace-hack",
  "html5ever 0.39.0",
  "rstest",
@@ -3107,6 +3287,7 @@ dependencies = [
  "getrandom 0.3.4",
  "goodfetch-confinement",
  "goodfetch-counted-work",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-protocol",
  "goodfetch-runtime",
  "goodfetch-saved-file",
@@ -3184,6 +3365,7 @@ dependencies = [
  "dom_smoothie",
  "fixed_decimal",
  "goodfetch-counted-work",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-protocol",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
@@ -3225,6 +3407,7 @@ dependencies = [
  "encoding_rs",
  "flate2",
  "goodfetch-counted-work",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-encoding",
  "goodfetch-engine",
  "goodfetch-extractor",
@@ -3294,6 +3477,7 @@ dependencies = [
  "goodfetch-counted-work",
  "goodfetch-crawl",
  "goodfetch-dataset",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-engine",
  "goodfetch-fetch-tier",
  "goodfetch-foxhound",
@@ -3336,6 +3520,7 @@ dependencies = [
 name = "goodfetch-foxhound-compile-fail"
 version = "0.0.0"
 dependencies = [
+ "goodfetch-dev-workspace-hack",
  "goodfetch-foxhound",
  "goodfetch-workspace-hack",
  "serde",
@@ -3350,6 +3535,7 @@ dependencies = [
  "encoding_rs",
  "flate2",
  "goodfetch-counted-work",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-engine",
  "goodfetch-page",
  "goodfetch-protocol",
@@ -3383,6 +3569,7 @@ version = "0.0.0"
 dependencies = [
  "chacha20 0.10.2",
  "flate2",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "proptest",
@@ -3397,6 +3584,7 @@ name = "goodfetch-memory-site"
 version = "0.0.0"
 dependencies = [
  "bytes",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-fetch-tier",
  "goodfetch-workspace-hack",
  "serde_json",
@@ -3409,6 +3597,7 @@ name = "goodfetch-model-provider"
 version = "0.0.0"
 dependencies = [
  "futures-util",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-engine",
  "goodfetch-protocol",
  "goodfetch-workspace-hack",
@@ -3421,6 +3610,7 @@ version = "0.0.0"
 dependencies = [
  "data-encoding",
  "futures-util",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-engine",
  "goodfetch-protocol",
  "goodfetch-runtime",
@@ -3466,6 +3656,7 @@ dependencies = [
  "goodfetch-cdp",
  "goodfetch-clean-up-rules",
  "goodfetch-counted-work",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-engine",
  "goodfetch-extractor",
  "goodfetch-identity-profile",
@@ -3538,6 +3729,7 @@ dependencies = [
  "encoding_rs",
  "flate2",
  "form_urlencoded",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-runtime",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
@@ -3582,6 +3774,7 @@ dependencies = [
 name = "goodfetch-recording-gate"
 version = "0.0.0"
 dependencies = [
+ "goodfetch-dev-workspace-hack",
  "goodfetch-engine",
  "goodfetch-page",
  "goodfetch-protocol",
@@ -3593,6 +3786,7 @@ dependencies = [
 name = "goodfetch-runtime"
 version = "0.0.0"
 dependencies = [
+ "goodfetch-dev-workspace-hack",
  "goodfetch-workspace-hack",
  "tokio",
 ]
@@ -3601,6 +3795,7 @@ dependencies = [
 name = "goodfetch-saved-file"
 version = "0.0.0"
 dependencies = [
+ "goodfetch-dev-workspace-hack",
  "goodfetch-workspace-hack",
  "windows-sys 0.61.2",
 ]
@@ -3610,6 +3805,7 @@ name = "goodfetch-schedule"
 version = "0.0.0"
 dependencies = [
  "croner",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-engine",
  "goodfetch-protocol",
  "goodfetch-test-support",
@@ -3632,6 +3828,7 @@ name = "goodfetch-scripted-model"
 version = "0.0.0"
 dependencies = [
  "futures-util",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-engine",
  "goodfetch-model-provider",
  "goodfetch-protocol",
@@ -3649,6 +3846,7 @@ name = "goodfetch-secret-providers"
 version = "0.0.0"
 dependencies = [
  "data-encoding",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-engine",
  "goodfetch-protocol",
  "goodfetch-runtime",
@@ -3673,6 +3871,7 @@ dependencies = [
 name = "goodfetch-session-pool"
 version = "0.0.0"
 dependencies = [
+ "goodfetch-dev-workspace-hack",
  "goodfetch-engine",
  "goodfetch-protocol",
  "goodfetch-workspace-hack",
@@ -3685,6 +3884,7 @@ dependencies = [
 name = "goodfetch-simulation"
 version = "0.0.0"
 dependencies = [
+ "goodfetch-dev-workspace-hack",
  "goodfetch-engine",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
@@ -3705,6 +3905,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "goodfetch-dataset",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-engine",
  "goodfetch-protocol",
  "goodfetch-simulation",
@@ -3750,6 +3951,7 @@ version = "0.0.0"
 dependencies = [
  "duckdb",
  "goodfetch-dataset",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-engine",
  "goodfetch-protocol",
  "goodfetch-test-support",
@@ -3768,6 +3970,7 @@ dependencies = [
  "clap",
  "futures-util",
  "goodfetch-conformance",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-engine",
  "goodfetch-protocol",
  "goodfetch-runtime",
@@ -3795,6 +3998,7 @@ dependencies = [
 name = "goodfetch-test-client"
 version = "0.0.0"
 dependencies = [
+ "goodfetch-dev-workspace-hack",
  "goodfetch-protocol",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
@@ -3812,6 +4016,7 @@ dependencies = [
  "data-encoding",
  "expectrl",
  "flate2",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-runtime",
  "goodfetch-workspace-hack",
  "httparse",
@@ -10349,6 +10554,7 @@ dependencies = [
  "getrandom 0.3.4",
  "glob",
  "goodfetch-counted-work",
+ "goodfetch-dev-workspace-hack",
  "goodfetch-protocol",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
@@ -10376,6 +10582,7 @@ dependencies = [
  "unicode-ident",
  "ureq",
  "windows-sys 0.61.2",
+ "zstd",
 ]
 
 [[package]]

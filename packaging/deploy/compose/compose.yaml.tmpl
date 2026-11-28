@@ -1,0 +1,27 @@
+# Rendered for {{product_name}} {{product_version}} (ADR 0049, ADR 0122).
+services:
+  daemon:
+    image: {{image}}
+    command: ["daemon", "run"]
+    user: "10001:10001"
+    restart: unless-stopped
+    stop_grace_period: 120s
+    shm_size: 1g
+    security_opt:
+      - seccomp=./seccomp-profile.json
+    ports:
+      - "127.0.0.1:{{daemon_port}}:{{daemon_port}}"
+    volumes:
+      - goodfetch-home:/home/goodfetch/.goodfetch
+      - ./operator-policy.toml:/home/goodfetch/.goodfetch/{{major_folder}}/operator-policy.toml:ro
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/{{executable}}", "daemon", "health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: local
+
+volumes:
+  goodfetch-home:

@@ -13,7 +13,7 @@ Commands:
   certs            Lists, accepts and forgets the certificate pins of the user's known-certificates store
   config           Shows the settings and where each value comes from
   doctor           Checks the installation: Goodfetch home, the installed executables, the Daemon, the version it runs and the browser build a Run launches, with a fix for each finding not in order, and writes a bug-report file to attach to an issue, which it sends nowhere. Exits 0 whatever it finds
-  init             Writes a starter project this executable carries, which runs and tests itself, in TypeScript, Python or Rust, never replacing a file already there
+  init             Writes a starter project this executable carries, which runs and tests itself, in TypeScript, Python or Rust, or deployment files for a Supported target with `--deploy`, never replacing a file already there
   daemon           Starts, stops and shows the Daemon of this executable's major, which both Products share
   needs-you        Lists what waits for a person, and takes them through it
   recipe           Starts a Recipe and prints the digest that names a version of one
@@ -234,7 +234,7 @@ Options:
   -h, --help          Print help
 
 $ goodfetch-foxhound init --help
-Writes a starter project this executable carries, which runs and tests itself, in TypeScript, Python or Rust, never replacing a file already there
+Writes a starter project this executable carries, which runs and tests itself, in TypeScript, Python or Rust, or deployment files for a Supported target with `--deploy`, never replacing a file already there
 
 Usage: goodfetch-foxhound init [OPTIONS] [DIRECTORY]
 
@@ -244,6 +244,7 @@ Arguments:
 Options:
       --starter <NAME>   The starter to write, such as `browser`; asked on a terminal when not given
       --lang <LANGUAGE>  Its language; asked on a terminal when not given [possible values: typescript, python, rust]
+      --deploy <TARGET>  Adds deployment files for a Supported target, such as `compose`
       --json             Prints the result as JSON
       --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help             Print help

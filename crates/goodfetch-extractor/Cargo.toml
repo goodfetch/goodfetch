@@ -42,6 +42,7 @@ gungraun.workspace = true
 mimalloc.workspace = true
 proptest.workspace = true
 rstest.workspace = true
+goodfetch-dev-workspace-hack.workspace = true
 
 # ADR 0071: instruction counts under Callgrind, heap metrics under DHAT.
 [[bench]]

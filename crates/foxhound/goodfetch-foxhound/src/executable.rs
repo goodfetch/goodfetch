@@ -13,8 +13,9 @@
 
 use clap::Command;
 use goodfetch_collie::executable::catalog_commands::{self, OwnCommand, OwnCommands};
-use goodfetch_collie::executable::{SkillFile, Skills, Starters};
+use goodfetch_collie::executable::{DeployFile, DeployTemplates, SkillFile, Skills, Starters};
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::deploy::DeployTarget;
 
 mod crawl_start;
 mod dataset_erase;
@@ -37,6 +38,10 @@ pub const SKILLS: Skills = Skills::new(&include!("../generated/skills.rs"));
 /// Collie's executable entry for `init`: Collie's, which Foxhound offers
 /// unchanged; its own `crawl` and `extract` join with issue 1520.
 pub const STARTERS: Starters = Starters::COLLIE;
+
+/// The deployment templates Foxhound's executable carries, which its `main`
+/// passes to Collie's executable entry for `init --deploy`.
+pub const DEPLOY_TEMPLATES: DeployTemplates = include!("../generated/deploy.rs");
 
 /// The commands Foxhound's executable writes by hand.
 const OWN: &[OwnCommand] = &[

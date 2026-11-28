@@ -13,6 +13,10 @@ export interface DaemonDescription {
   readonly socket: string;
   /** The per-launch token a Client's `hello` carries. */
   readonly token: string;
+  /** The HTTP JSON-RPC listener's base URL (`http://127.0.0.1:<port>`), present only with `withHttpListener`. */
+  readonly http?: string | undefined;
+  /** The Bearer token the HTTP listener takes in `Authorization: Bearer …`, present only with `withHttpListener`. */
+  readonly http_token?: string | undefined;
 }
 
 /** The Daemon a description names; `daemon_not_requested` when the test asked for none. */

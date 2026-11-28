@@ -19,6 +19,7 @@ pub mod clean_up_rules;
 pub mod cli;
 pub mod connection;
 pub mod daemon;
+pub mod deploy;
 pub mod dns;
 pub mod doctor;
 pub mod download;

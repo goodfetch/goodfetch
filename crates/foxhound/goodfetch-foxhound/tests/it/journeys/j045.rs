@@ -1,5 +1,5 @@
-//! J-044, "Deliver a crawl's Dataset to SQLite, kill the Run mid-delivery, and
-//! find every Record once", on the `cli` surface (`J-044@foxhound-cli`;
+//! J-045, "Deliver a crawl's Dataset to SQLite, kill the Run mid-delivery, and
+//! find every Record once", on the `cli` surface (`J-045@foxhound-cli`;
 //! ADRs 0026, 0063, 0075 and 0094; issue 1204): a person starts the Daemon
 //! with Foxhound's shipped executable, probes a SQLite Sink, starts a
 //! code-free crawl delivering its `pages` Dataset to that SQLite Sink, kills
@@ -38,7 +38,7 @@ const LANDED_BEFORE_KILL: usize = 2;
 /// Writes the crawl settings with a `sqlite` Sink (`warehouse`) and 200 ms
 /// domain pacing so the kill lands mid-delivery.
 fn sink_crawl_settings(run: &JourneyRun<impl Sized>) -> PathBuf {
-    let proving_ground = run.proving_ground().expect("J-044 has a Proving ground");
+    let proving_ground = run.proving_ground().expect("J-045 has a Proving ground");
     let path = run.env().folder().join("sink-settings.json");
     let more = json!({
         "fetch": { "tier": "http" },
@@ -155,7 +155,7 @@ fn start_crawl_and_wait(
     std::fs::write(&fields, fields_read().to_string()).unwrap();
     let start = run
         .proving_ground()
-        .expect("J-044 has a Proving ground")
+        .expect("J-045 has a Proving ground")
         .start_url("catalog/1")
         .unwrap();
     let started = command_line(run.env(), run.engine())
@@ -229,8 +229,8 @@ fn read_committed(run: &JourneyRun<impl Sized>) -> Vec<(u64, String)> {
 /// Covers: story:6-282, story:6-283
 #[test]
 fn cli() {
-    let mut run = JourneyRun::start("J-044", "cli", Path::new(FOXHOUND), ResultDocument::journey)
-        .expect("J-044's cli variant starts");
+    let mut run = JourneyRun::start("J-045", "cli", Path::new(FOXHOUND), ResultDocument::journey)
+        .expect("J-045's cli variant starts");
     run.env()
         .user_configuration("daemon.idle_timeout = 60000\n");
     let sink_db = run.env().folder().join("destination.sqlite");
@@ -320,6 +320,6 @@ fn cli() {
         .args(["daemon", "stop"])
         .run();
     run.finish()
-        .expect("J-044's document is written")
+        .expect("J-045's document is written")
         .assert_proved();
 }

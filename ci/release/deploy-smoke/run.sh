@@ -86,17 +86,23 @@ run_compose() {
   local image="goodfetch/${product}:deploy-smoke"
   docker image inspect "$image" >/dev/null 2>&1 || return 77
   start_proving_ground
-  local compose_file="$scratch/compose-${product}.yml"
-  cat >"$compose_file" <<EOF
+  local deploy_dir="$scratch/compose-${product}"
+  cargo run --quiet --bin xtask -- deploy-templates smoke \
+    --product "$product" \
+    --target compose \
+    --out "$deploy_dir"
+  local override_file="$deploy_dir/compose.smoke.yaml"
+  cat >"$override_file" <<EOF
 services:
-  ${product}:
+  daemon:
     image: ${image}
     network_mode: host
+    ports: !reset []
     environment:
       GOODFETCH_PROVING_GROUND_URL: "${pg_url}"
     command: ["--version"]
 EOF
-  docker compose -f "$compose_file" run --rm "${product}"
+  docker compose -f "$deploy_dir/compose.yaml" -f "$override_file" run --rm daemon
 }
 
 run_kind() {

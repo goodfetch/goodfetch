@@ -565,6 +565,7 @@ def start_journey_run(
     *,
     test_name: str,
     environ: Mapping[str, str],
+    browser: bool = False,
     browser_download: BrowserDownload | None = None,
 ) -> JourneyRun:
     """Starts the variant on `surface` of the Journey `file` holds.
@@ -576,6 +577,8 @@ def start_journey_run(
         test_name: The test's full name, from which its seed and folder come.
         environ: The runner's environment, which names the tool manifest and
             may name `GOODFETCH_TEST_RESULT_DOCUMENTS`.
+        browser: Whether the home lays out a Browser cache and reaches the
+            Proving ground, as `TestEnv.open`'s `browser`.
         browser_download: How the engine's first use of an empty Browser
             cache goes, as `TestEnv.open`'s, from the Journey's Proving
             ground (#665): `SERVED` for a variant whose engine downloads its
@@ -600,6 +603,7 @@ def start_journey_run(
         test_name,
         environ,
         proving_ground_seed=journey.seed,
+        browser=browser,
         browser_download=browser_download,
     )
     try:
@@ -620,7 +624,11 @@ def start_journey_run(
 
 
 def journey(
-    journey_id: str, surface: str, *, browser_download: BrowserDownload | None = None
+    journey_id: str,
+    surface: str,
+    *,
+    browser: bool = False,
+    browser_download: BrowserDownload | None = None,
 ) -> Callable[
     [Callable[[JourneyRun], Awaitable[None]]], Callable[[pytest.FixtureRequest], None]
 ]:
@@ -644,6 +652,7 @@ def journey(
                 surface,
                 test_name=item.nodeid,
                 environ=os.environ,
+                browser=browser,
                 browser_download=browser_download,
             ) as run:
                 if run.id != journey_id:

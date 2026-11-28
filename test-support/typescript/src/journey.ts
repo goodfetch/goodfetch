@@ -85,6 +85,11 @@ export interface JourneyRunStart {
   /** The environment the run's setup starts with, as `startTestEnv`'s `env`. */
   readonly env?: Readonly<Record<string, string | undefined>> | undefined;
   /**
+   * Whether the home lays out a Browser cache and reaches the Proving ground,
+   * as `startTestEnv`'s `browser`.
+   */
+  readonly browser?: boolean | undefined;
+  /**
    * How the engine's first use of an empty Browser cache goes, as
    * `startTestEnv`'s `browserDownload`, from the Journey's Proving ground
    * (#665): `served` for a variant whose engine downloads its browser.
@@ -94,6 +99,8 @@ export interface JourneyRunStart {
 
 /** How a `journey()` variant's home is laid out. */
 export interface JourneyOptions {
+  /** As `JourneyRunStart`'s `browser`. */
+  readonly browser?: boolean | undefined;
   /** As `JourneyRunStart`'s `browserDownload`. */
   readonly browserDownload?: BrowserDownload | undefined;
 }
@@ -205,6 +212,7 @@ export async function startJourneyRun(start: JourneyRunStart): Promise<JourneyRu
     env: start.env,
     // The Journey's own seed, never the test's (ADR 0063).
     provingGroundSeed: variant.proving_ground?.seed,
+    browser: start.browser,
     browserDownload: start.browserDownload,
   });
   try {
@@ -254,6 +262,7 @@ export function journey(
       processes,
       testName: task.fullName,
       toolManifest,
+      browser: options.browser,
       browserDownload: options.browserDownload,
     });
     let failed = true;

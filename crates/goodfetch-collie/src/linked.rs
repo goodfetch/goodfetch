@@ -30,6 +30,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::installed::{InstalledList, fingerprint};
+use goodfetch_engine::plugin_shim::{PluginShim, default_pin};
 use goodfetch_engine::politeness::PolitenessOptions;
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::secrets::Keychain;
@@ -849,13 +850,15 @@ impl LinkedEngine {
         dependencies: Dependencies,
     ) -> Result<(Self, Network), Error> {
         let product = engine.product;
+        let product_version = version();
         let identity = Identity {
             product,
-            product_version: version(),
+            product_version: product_version.clone(),
             channel: Channel::CratesIo,
         };
-        let engine =
-            Engine::new(identity, &(engine.composition)()).map_err(Error::engine_failed)?;
+        let engine = Engine::new(identity, &(engine.composition)())
+            .map_err(Error::engine_failed)?
+            .with_plugin_shim(PluginShim::linked(product, product_version, None));
         let (network, dialer) = transport::in_memory();
         let tasks = TaskTracker::new();
         let (home, clock) = (dependencies.home.clone(), dependencies.clock);
@@ -911,14 +914,17 @@ impl LinkedEngine {
 fn record(product: Product, home: &Home, clock: Clock) -> std::io::Result<()> {
     let path = std::env::current_exe()?;
     let (size, modified_at) = fingerprint(&path)?;
+    let product_version = version();
+    let mut pins = crate::pins::pinned_artifact_ids();
+    pins.push(default_pin(product, &product_version).id);
     InstalledList::of(home).record(&InstalledExecutable {
         kind: ExecutableKind::LinkedProgram,
         product,
-        product_version: version(),
+        product_version,
         path: path.display().to_string(),
         size,
         modified_at,
-        pins: crate::pins::pinned_artifact_ids(),
+        pins,
         copy: None,
         last_seen: clock.wall(),
     })

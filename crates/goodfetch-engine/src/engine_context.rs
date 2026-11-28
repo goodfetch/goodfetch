@@ -34,6 +34,7 @@ use crate::known_certificates::KnownCertificates;
 use crate::ledger::Ledger;
 use crate::needs_you::NeedsYou;
 use crate::plugin_provenance::AttestationTrustRoot;
+use crate::plugin_shim::PluginShim;
 use crate::response_cache::{Bounds, ResponseCache, ResponseSource};
 use crate::run_index::RunIndex;
 use crate::sandbox_probe::SandboxProbe;
@@ -160,6 +161,10 @@ pub(crate) struct Host {
     /// The trust root verifying Plugin artifact provenance attestations
     /// (bundled in production, injected as a value in tests, ADR 0059).
     pub(crate) plugin_attestation_trust_root: AttestationTrustRoot,
+    /// How this engine locates its `plugin-shim` launcher (current executable
+    /// for Attached/Daemon engines; env var or pinned download for linked
+    /// Rust engines, ADR 0051, issue 1077).
+    pub(crate) plugin_shim: PluginShim,
 }
 
 /// The user's known-certificates store, Usage ledger, Run index, Response
@@ -263,6 +268,7 @@ struct Held {
     daemon: Option<Arc<dyn ToTheDaemon>>,
     plugin_index_trust_root: TrustRoot,
     plugin_attestation_trust_root: AttestationTrustRoot,
+    plugin_shim: PluginShim,
 }
 
 impl std::fmt::Debug for EngineContext {
@@ -303,6 +309,7 @@ impl EngineContext {
             daemon,
             plugin_index_trust_root,
             plugin_attestation_trust_root,
+            plugin_shim,
         } = host;
         Self {
             stores: Arc::new(stores),
@@ -322,8 +329,16 @@ impl EngineContext {
                 daemon,
                 plugin_index_trust_root,
                 plugin_attestation_trust_root,
+                plugin_shim,
             }),
         }
+    }
+
+    /// How this engine locates its `plugin-shim` launcher executable (ADR
+    /// 0051, issue 1077).
+    #[must_use]
+    pub(crate) fn plugin_shim(&self) -> &PluginShim {
+        &self.held.plugin_shim
     }
 
     /// The trust root used to verify signed Plugin indexes (bundled with the

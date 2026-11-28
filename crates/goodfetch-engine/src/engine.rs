@@ -50,6 +50,7 @@ use crate::metrics::Metrics;
 use crate::needs_you::{NeedsYou, NeedsYouSource, SourceContext};
 use crate::ops::{self, Health, OpsOptions};
 use crate::plugin_provenance::AttestationTrustRoot;
+use crate::plugin_shim::PluginShim;
 use crate::politeness::{PolitenessOptions, PolitenessTables};
 use crate::product::Identity;
 use crate::rpc::{self, Access, Dispatch};
@@ -99,6 +100,7 @@ pub struct Engine {
     daemon_reach: Option<Arc<dyn DaemonReach>>,
     plugin_index_trust_root: TrustRoot,
     plugin_attestation_trust_root: AttestationTrustRoot,
+    plugin_shim: PluginShim,
 }
 
 /// What an engine runs on, which `main` builds once (the system versions)
@@ -164,7 +166,17 @@ impl Engine {
             daemon_reach: None,
             plugin_index_trust_root: TrustRoot::bundled(),
             plugin_attestation_trust_root: AttestationTrustRoot::bundled(),
+            plugin_shim: PluginShim::CurrentExecutable,
         })
+    }
+
+    /// The same, resolving `plugin-shim` via `shim` (used by linked Rust
+    /// engines to read the Product's engine-path variable or download the
+    /// pinned executable on first use, ADR 0051, issue 1077).
+    #[must_use]
+    pub fn with_plugin_shim(mut self, shim: PluginShim) -> Self {
+        self.plugin_shim = shim;
+        self
     }
 
     /// The same, verifying signed Plugin index updates and offline imports
@@ -586,6 +598,10 @@ impl Engine {
                 daemon,
                 plugin_index_trust_root: self.plugin_index_trust_root.clone(),
                 plugin_attestation_trust_root: self.plugin_attestation_trust_root.clone(),
+                plugin_shim: self
+                    .plugin_shim
+                    .clone()
+                    .with_environment(&dependencies.environment),
             },
         );
         let secrets = Secrets::new(

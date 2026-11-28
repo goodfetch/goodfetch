@@ -40,7 +40,10 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::egress::EGRESS_OFFLINE;
 use goodfetch_protocol::formats::BROWSER_CACHE;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::settings::{BROWSERS_PATH_VARIABLE, SettingLimit, SettingsLayer};
+use goodfetch_protocol::settings::{
+    BROWSERS_PATH_VARIABLE, COLLIE_ENGINE_PATH_VARIABLE, FOXHOUND_ENGINE_PATH_VARIABLE,
+    SettingLimit, SettingsLayer,
+};
 
 pub use artifact::{BuildPlatform, PinnedArtifact, Pins, content_digest};
 pub(crate) use artifact::{FILE, file_digest, tree_digest};
@@ -187,7 +190,24 @@ fn install_command(product: Product, artifact: &ArtifactId) -> String {
     }
 }
 
+/// The engine-path deployment variable that supplies `product`'s executable.
+fn engine_path_variable(product: Product) -> &'static str {
+    match product {
+        Product::Collie => COLLIE_ENGINE_PATH_VARIABLE,
+        Product::Foxhound => FOXHOUND_ENGINE_PATH_VARIABLE,
+    }
+}
+
 fn describe(artifact: &ArtifactId, pinned_by: &PinnedBy) -> String {
+    if artifact.kind == ArtifactKind::EngineExecutable {
+        return format!(
+            "the engine executable {} {}, pinned by {} {}",
+            artifact.name,
+            artifact.build,
+            pinned_by.product.name(),
+            pinned_by.product_version,
+        );
+    }
     format!(
         "the {} build {} {}, pinned by {} {}",
         artifact.kind.as_str(),
@@ -711,6 +731,24 @@ impl BrowserCache {
         why: Unreachable,
     ) -> CacheError {
         let cache = self.root.display().to_string();
+        if artifact.id.kind == ArtifactKind::EngineExecutable {
+            let variable = engine_path_variable(pinned_by.product);
+            let reason = match why {
+                Unreachable::ReadOnly => "the cache is not writable",
+                Unreachable::NoArchiveDigest => "its pin names no archive digest yet",
+            };
+            return CacheError::Cache {
+                path: self.root.clone(),
+                source: io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!(
+                        "{} is not in the cache at {cache} ({reason}); set {variable} to the {} executable",
+                        describe(&artifact.id, pinned_by),
+                        pinned_by.product.executable_name(),
+                    ),
+                ),
+            };
+        }
         let install = install_command(pinned_by.product, &artifact.id);
         let read_only_mode =
             matches!(why, Unreachable::ReadOnly) && self.mode == CacheMode::ReadOnly;
@@ -800,6 +838,20 @@ impl BrowserCache {
             "{} is not in the Browser cache at {cache}, and `egress.offline` refuses its download",
             describe(&artifact.id, pinned_by),
         );
+        let fix = if artifact.id.kind == ArtifactKind::EngineExecutable {
+            format!(
+                "Set {} to the {} executable, or lift `{}` where it was set",
+                engine_path_variable(pinned_by.product),
+                pinned_by.product.executable_name(),
+                EGRESS_OFFLINE.name,
+            )
+        } else {
+            format!(
+                "Run `{}` beforehand where the Browser cache is writable, or lift `{}` where it was set",
+                install_command(pinned_by.product, &artifact.id),
+                EGRESS_OFFLINE.name,
+            )
+        };
         CacheError::Offline {
             message,
             details: Box::new(ArtifactUnavailableOfflineDetails {
@@ -812,11 +864,7 @@ impl BrowserCache {
                     layer,
                     origin: None,
                 },
-                fix: format!(
-                    "Run `{}` beforehand where the Browser cache is writable, or lift `{}` where it was set",
-                    install_command(pinned_by.product, &artifact.id),
-                    EGRESS_OFFLINE.name,
-                ),
+                fix,
             }),
         }
     }
@@ -861,6 +909,18 @@ fn download_failed(
         "downloading {} from {host} failed: {what}",
         describe(&artifact.id, pinned_by),
     );
+    let fix = if artifact.id.kind == ArtifactKind::EngineExecutable {
+        format!(
+            "Retry, or set {} to the {} executable, or point {BROWSERS_PATH_VARIABLE} at a prepared cache",
+            engine_path_variable(pinned_by.product),
+            pinned_by.product.executable_name(),
+        )
+    } else {
+        format!(
+            "Retry, or run `{}` beforehand, or point {BROWSERS_PATH_VARIABLE} at a prepared Browser cache",
+            install_command(pinned_by.product, &artifact.id),
+        )
+    };
     CacheError::DownloadFailed {
         message,
         details: Box::new(ArtifactDownloadFailedDetails {
@@ -868,10 +928,7 @@ fn download_failed(
             pinned_by: pinned_by.pinners(),
             host: host.to_owned(),
             failure,
-            fix: format!(
-                "Retry, or run `{}` beforehand, or point {BROWSERS_PATH_VARIABLE} at a prepared Browser cache",
-                install_command(pinned_by.product, &artifact.id),
-            ),
+            fix,
         }),
     }
 }

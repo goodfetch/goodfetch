@@ -119,6 +119,8 @@ mod plugin_extractor;
 mod plugin_host;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod plugin_kinds;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod plugin_shim;
 mod private_endpoint;
 mod private_ranges;
 mod proxy;

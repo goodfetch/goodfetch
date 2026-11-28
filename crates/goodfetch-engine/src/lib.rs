@@ -84,6 +84,7 @@ pub mod plugin_oci;
 pub mod plugin_provenance;
 pub mod plugin_runtime;
 pub mod plugin_setup;
+pub mod plugin_shim;
 pub mod plugin_store;
 pub mod plugin_update;
 pub mod politeness;

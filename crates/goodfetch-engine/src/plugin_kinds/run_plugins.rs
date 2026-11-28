@@ -49,6 +49,7 @@ use crate::browser_cache::{BrowserCache, CacheLocation, HeldArtifact};
 use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::home::Home;
+use crate::pinned_download::Fetching;
 use crate::plugin_gate::{
     EffectsGate, Inserting, PluginEffectJournal, PluginFetch, StreamAccountant, permission_denied,
 };
@@ -59,6 +60,7 @@ use crate::plugin_host::settings::{self as plugin_settings, EnvironmentError, Pl
 use crate::plugin_host::spend::{PluginSpend, SpendAccountant};
 use crate::plugin_index::{self, LoadRefusal, PluginIndexStore};
 use crate::plugin_runtime::{self, RuntimeCatalog};
+use crate::plugin_shim::PluginShim;
 use crate::plugin_store::{Installed, PluginStore, StoreError};
 use crate::sandbox_probe::SandboxProbe;
 use crate::secrets::{RunSecrets, SecretError};
@@ -96,6 +98,9 @@ pub struct RunPlugins {
     product: Product,
     run_id: RunId,
     owner: Arc<TaskOwner>,
+    /// How this Run locates its `plugin-shim` launcher executable (ADR 0051,
+    /// issue 1077).
+    shim: PluginShim,
     /// What its Plugins' `net.fetch` waits on.
     clock: Clock,
     /// Shared cache locks held for each started Plugin's runtime until the
@@ -159,6 +164,7 @@ impl RunPlugins {
             product,
             run_id,
             owner,
+            shim: PluginShim::CurrentExecutable,
             clock,
             held_runtimes: tokio::sync::Mutex::new(Vec::new()),
             running: tokio::sync::Mutex::new(BTreeMap::new()),
@@ -216,6 +222,15 @@ impl RunPlugins {
     #[must_use]
     pub fn with_effects_journal(mut self, journal: Arc<dyn PluginEffectJournal>) -> Self {
         self.effects_journal = Some(journal);
+        self
+    }
+
+    /// Configures how this Run locates its `plugin-shim` launcher executable
+    /// (current executable vs linked-engine env var / pinned download, ADR
+    /// 0051, issue 1077).
+    #[must_use]
+    pub fn with_shim(mut self, shim: PluginShim) -> Self {
+        self.shim = shim;
         self
     }
 
@@ -769,7 +784,7 @@ impl RunPlugins {
         let digest = installed.digest.clone();
         let places = self.places.clone();
         let cache_root = self.cache.root().to_path_buf();
-        let helper_launcher = self.sandbox_helper_for(probe, network_level).await;
+        let (launcher, is_helper) = self.select_launcher(probe, network_level, resolved).await?;
         let plugin = self
             .owner
             .blocking(move || {
@@ -780,7 +795,8 @@ impl RunPlugins {
                     &folder,
                     places.as_deref(),
                     &cache_root,
-                    helper_launcher,
+                    launcher,
+                    is_helper,
                     reduced_confinement,
                 )
             })
@@ -823,6 +839,41 @@ impl RunPlugins {
         )
         .await;
         Ok((instance, effects))
+    }
+
+    /// Selects the launcher executable for a process Plugin: the root-owned
+    /// `goodfetch-sandbox` helper when the host requires it, otherwise the
+    /// resolved `plugin-shim` executable (current executable, env var, or
+    /// downloaded `EngineExecutable` pin, ADRs 0033, 0051 and 0115; issue 1077).
+    async fn select_launcher(
+        &self,
+        probe: &SandboxProbe,
+        network_level: NetworkLevel,
+        resolved: &Resolved,
+    ) -> Result<(PathBuf, bool), StartError> {
+        if let Some(helper) = self.sandbox_helper_for(probe, network_level).await {
+            return Ok((helper, true));
+        }
+        let cache = BrowserCache::new(&self.cache, self.owner.blocking_threads());
+        let fetching = if self.shim.needs_cache() {
+            Some(Fetching::of(resolved, self.clock, &self.owner).await)
+        } else {
+            None
+        };
+        let resolved_shim = self
+            .shim
+            .resolve(
+                &cache,
+                fetching.as_ref(),
+                self.clock.timestamp(),
+                &self.owner.blocking_threads(),
+            )
+            .await
+            .map_err(StartError::Refused)?;
+        if let Some(held) = resolved_shim.held {
+            self.held_runtimes.lock().await.push(held);
+        }
+        Ok((resolved_shim.launcher, false))
     }
 
     /// Returns the configured `goodfetch-sandbox` helper path when this host
@@ -1332,7 +1383,8 @@ fn set_up(
     folder: &Path,
     places: Option<&Places>,
     cache_root: &Path,
-    helper_launcher: Option<PathBuf>,
+    launcher: PathBuf,
+    is_helper: bool,
     reduced_confinement: bool,
 ) -> Result<SetUp, String> {
     let places =
@@ -1365,7 +1417,7 @@ fn set_up(
     };
     let policy =
         Policy::of(&installed.manifest, &instance, places).map_err(|error| error.to_string())?;
-    let launcher_env = if helper_launcher.is_some() {
+    let launcher_env = if is_helper {
         vec![
             (
                 goodfetch_protocol::settings::HOME_VARIABLE.to_owned(),
@@ -1378,10 +1430,6 @@ fn set_up(
         ]
     } else {
         Vec::new()
-    };
-    let launcher = match helper_launcher {
-        Some(helper) => helper,
-        None => std::env::current_exe().map_err(|error| error.to_string())?,
     };
     Ok(SetUp {
         launcher,

@@ -72,6 +72,7 @@ mod plugin_provenance;
 mod plugin_runtime;
 mod plugin_secrets;
 mod plugin_setup;
+mod plugin_shim;
 mod plugin_traffic;
 mod plugin_update;
 #[cfg(target_os = "linux")]

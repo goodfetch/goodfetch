@@ -3667,6 +3667,10 @@ entries = ["sample.echo", "sample.crawl"]
 reason = "The engine's sample operations, which tests and benchmarks call; no Product member serves them."
 
 [[unreached]]
+entries = ["sink.probe", "sink.list", "sink.deliver"]
+reason = "Operator Sink operations (issues 1128, 1146 and 1149); CLI and SDK views belong to area 11."
+
+[[unreached]]
 entries = ["connection.set_log_level"]
 reason = "The Connection sends it itself, following the level the program's logging asks of the engine's logs (ADR 0078); no member sets it."
 
@@ -3747,6 +3751,9 @@ words = ["add", "seeds"]
 form = "round_trip"
 
 [[unreached]]
+entries = ["crawl_request.enqueue_links_by_clicking_elements"]
+reason = "Issue 1087 builds the engine operation; Foxhound's SDK surface adds `enqueueLinksByClickingElements` in area 11."
+
+[[unreached]]
 entries = ["dataset.list", "dataset.page", "dataset.query", "dataset.search", "record.search"]
 reason = "No member reads a Run's Datasets yet."
-

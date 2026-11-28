@@ -156,6 +156,9 @@ pub(crate) struct Request<'a> {
     pub(crate) operation: &'static str,
     /// The locator's CSS selector.
     pub(crate) selector: &'a str,
+    /// Optional target handle in the guard world's registry; when set, `check.js`
+    /// acts on that handle instead of querying `selector` (issue 1087).
+    pub(crate) handle: Option<u64>,
     /// What it does.
     pub(crate) action: Action,
     /// How long it may wait.
@@ -287,11 +290,14 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
         if remaining.is_zero() {
             return Err(deadline_error(&request, last, clock.now() - started));
         }
+        let target = request
+            .handle
+            .map_or(Target::Selector(request.selector), Target::Handle);
         let human_scroll = request.human_input.is_some()
             && !human_scrolled
             && !matches!(request.action, Action::Scroll);
         let argument = check::argument(
-            Target::Selector(request.selector),
+            target,
             request.action.kind(),
             remaining.min(SLICE),
             human_scroll,
@@ -328,7 +334,9 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
                 {
                     PointerOutcome::Landed(watch) => {
                         drop(turn);
-                        Box::pin(page.settle_gesture(*watch)).await;
+                        if request.handle.is_none() {
+                            Box::pin(page.settle_gesture(*watch)).await;
+                        }
                         return Ok(());
                     }
                     PointerOutcome::Intercepted(observed) => {

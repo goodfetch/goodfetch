@@ -449,7 +449,7 @@ fn a_detached_run_on_the_daemon_outlives_the_connection_that_started_it() {
 /// read each fail `run.start` with `recording_invalid` (`ProgramError`),
 /// naming the recording path and reason, and start no Run.
 ///
-/// Covers: story:6-54, error:recording_invalid, operation:run.start
+/// Covers: story:6-61, error:recording_invalid, operation:run.start
 #[rstest]
 #[case::unreadable(None)]
 #[case::not_warc(Some(b"not a warc file at all\r\n".as_slice()))]

@@ -1082,7 +1082,7 @@ fn one_request_per_domain_key_in_flight_gives_the_same_order_either_way() {
 /// 0105, #239); missing crawl requests fail with `response_not_recorded`
 /// without retry and appear in the Run report's `recording.misses`.
 ///
-/// Covers: story:6-52, story:6-53, story:6-61
+/// Covers: story:6-52, story:6-53
 #[test]
 fn a_replaying_crawl_takes_no_politeness_permit_delay_or_backoff() {
     let env = TestEnv::new();

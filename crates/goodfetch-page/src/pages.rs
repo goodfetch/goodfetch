@@ -119,8 +119,8 @@ use crate::page_navigation::{self, Destination};
 use crate::page_owner::PageOwners;
 use crate::page_reads;
 use crate::page_value::{
-    BrowserPages, EngineFetch, EngineFetched, FetchedBody, HandlerPages, HeldPlace, Opening,
-    OwnFetch, PageValue, PooledSession, ProgramPages, ServedFormatsAhead,
+    BrowserPages, DiscoveredByClicking, EngineFetch, EngineFetched, FetchedBody, HandlerPages,
+    HeldPlace, Opening, OwnFetch, PageValue, PooledSession, ProgramPages, ServedFormatsAhead,
 };
 use crate::placeholders::Placeholders;
 use crate::proxy;
@@ -133,6 +133,7 @@ mod arrival;
 mod blocked;
 mod blocking_off;
 mod clean_up;
+mod discovery;
 mod plugin_extractor;
 mod scroll_collect;
 pub(crate) mod served_formats;
@@ -453,6 +454,7 @@ async fn gesture(
     let request = Request {
         operation,
         selector: &locator.selector,
+        handle: None,
         action,
         window: Window {
             limit,
@@ -1035,6 +1037,9 @@ impl BrowserPages for Opener {
             // body for as long as the navigation goes on, its request charged
             // at its admission already.
             let sent = page.owner.interception().send_own(own);
+            if own.bypass_cache {
+                CdpPage::of(&page.driver).set_cache_disabled(true).await?;
+            }
             let navigated = self
                 .pages
                 .navigate(
@@ -1046,6 +1051,9 @@ impl BrowserPages for Opener {
                     context,
                 )
                 .await;
+            if own.bypass_cache && navigated.is_ok() {
+                let _ = CdpPage::of(&page.driver).set_cache_disabled(false).await;
+            }
             drop(sent);
             closing.disarm();
             match navigated {
@@ -1232,6 +1240,23 @@ impl BrowserPages for Opener {
         self.pages
             .blocks
             .classify(response, proxy::Party::Site, markup)
+    }
+
+    fn discover_links_by_clicking<'a>(
+        &'a self,
+        page_id: &'a PageId,
+        selector: &'a str,
+        context: &'a CallContext,
+    ) -> Opening<'a, Result<DiscoveredByClicking, CallError>> {
+        Box::pin(async move {
+            let (page, _) = self
+                .pages
+                .open(page_id, |page| {
+                    Ok(Some(page.driver.action_deadline().clone()))
+                })
+                .await?;
+            discovery::run(&self.pages.sessions, &page, page_id, selector, context).await
+        })
     }
 }
 

@@ -34,20 +34,22 @@
 //! `detach_unsupported`, before the Run begins; a code-free crawl started
 //! detached on a Daemon outlives its Connection.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, OnceLock};
 
 use goodfetch_dataset::{Began, Datasets};
 use goodfetch_engine::admission::Keys;
+use goodfetch_engine::audit::Origin;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run::{
     InProgram, StartLimits, checkpoint_interval, client_start, resume_run, run_error, run_id,
     run_layer, settings_error, start_error,
 };
 use goodfetch_engine::runs::{Driving, EndedBy, Initialize, RunError, Start, Started};
-use goodfetch_engine::settings::{Opening, RunSettings};
+use goodfetch_engine::settings::{Opening, Resolved, RunSettings};
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_fetch_tier::FetchTiers;
+use goodfetch_protocol::audit::Actor;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::foxhound::crawl::{
     CRAWL_KEEP_ALIVE, CRAWL_SERVE, CRAWL_START, CrawlStartParams, CrawlStarted, LabelDeclaration,
@@ -58,11 +60,16 @@ use goodfetch_protocol::foxhound::hook::CrawlHookDeclaration;
 use goodfetch_protocol::foxhound::settings::{
     FEATURE_SWITCHED_OFF, PROVENANCE_LOG, SWITCHED_OFF_FEATURES,
 };
+use goodfetch_protocol::run::warning::PERSONAL_DATA_NOTICE as PERSONAL_DATA_WARNING;
 use goodfetch_protocol::run::{
     Lifecycle, RUN_NOT_FOUND, RunDetails, RunId, RunKind, RunParams, RunReport, RunStarted,
-    StartInput, StartedAs,
+    RunWarning, StartInput, StartedAs,
 };
 use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
+use goodfetch_protocol::site_preferences::{
+    PERSONAL_DATA_KEYWORD, PERSONAL_DATA_NOTICE as PERSONAL_DATA_AUDIT, SITE_PREFERENCES_PURPOSE,
+};
+use goodfetch_sink::Sinks;
 
 use crate::code_free::{self, CodeFree, CodeFreeCrawl};
 use crate::crawl_run::CrawlRun;
@@ -90,8 +97,10 @@ use crate::work_items::{self, CheckedSeed};
 /// record of each per-page feature a Run switches off (ADR 0138). Its crawl
 /// requests are fetched on the tiers of `tiers` (spec #579), the value
 /// Foxhound's composition also hands Collie's pages, and which finds the
-/// Run of a raw call naming a page they serve (ADR 0099).
-pub fn contribution(tiers: FetchTiers) -> Contribution {
+/// Run of a raw call naming a page they serve (ADR 0099). Its crawls
+/// deliver their Records to the Sinks of `sinks` (ADR 0026), the value of
+/// Foxhound's composition.
+pub fn contribution(tiers: FetchTiers, sinks: Sinks) -> Contribution {
     let crawls = Crawls::default();
     let starting = tiers.clone();
     let serving = crawls.clone();
@@ -105,7 +114,8 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
     let pages = code_free::Pages::default();
     let [read_outcomes, read_failed_requests] = outcomes::handlers();
     let [add_seed, add_seeds] = seeding::handlers(&crawls);
-    let [read_links, enqueue_links] = enqueue::links::handlers(&crawls, &tiers);
+    let [read_links, enqueue_links, enqueue_links_by_clicking] =
+        enqueue::links::handlers(&crawls, &tiers);
     // A per-page feature switched off is recorded once per Run (ADR 0138).
     let contribution = SWITCHED_OFF_FEATURES.into_iter().fold(
         Contribution::new("goodfetch-crawl"),
@@ -119,7 +129,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
                 params,
                 context,
                 crawls.clone(),
-                starting.clone(),
+                (starting.clone(), sinks),
                 redeclared.clone(),
                 pages.clone(),
             )
@@ -131,6 +141,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
         .with_handler(push::handler(pushing))
         .with_handler(read_links)
         .with_handler(enqueue_links)
+        .with_handler(enqueue_links_by_clicking)
         .with_handler(add_seed)
         .with_handler(add_seeds)
         .with_handler(read_outcomes)
@@ -153,7 +164,18 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
                 let (redeclared, crawls, tiers) =
                     (redeclaring.clone(), resuming.clone(), tiers.clone());
                 Box::pin(async move {
-                    let run = CrawlRun::of(&run, &context);
+                    // A resumed copy probes its Sinks again (ADR 0026): one
+                    // that no longer meets the Run's minimum ends it.
+                    let run =
+                        match CrawlRun::started(&run, &context, (sinks, settings.resolved()))
+                            .await
+                        {
+                            Ok(started) => started,
+                            Err(error) => {
+                                tracing::warn!(%error, run_id = %run.identity.id(), "the resumed crawl's Sinks were refused");
+                                return;
+                            }
+                        };
                     let hooks = redeclared.record(&run.identity, &run.state).await;
                     // Boxed: the resumed delivery's future is large.
                     Box::pin(delivery::resume(
@@ -251,7 +273,7 @@ async fn start(
     mut params: CrawlStartParams,
     context: CallContext,
     crawls: Crawls,
-    tiers: FetchTiers,
+    (tiers, sinks): (FetchTiers, Sinks),
     redeclared: Redeclared,
     pages: code_free::Pages,
 ) -> Result<CrawlStarted, CallError> {
@@ -269,6 +291,7 @@ async fn start(
     labels.sends_from_login_pools(settings.resolved())?;
     let datasets = pages.map_or_else(|| Datasets::declare(&params.datasets), Ok)?;
     FetchTiers::check(settings.resolved(), &labels.settings)?;
+    sinks.check(settings.resolved(), datasets.declarations())?;
     let invariants = Invariants::of_settings(settings.resolved(), &params.labels, fragments)?;
     let egress = domain_policy(settings.resolved())?;
     let existing_seeds =
@@ -331,7 +354,7 @@ async fn start(
         record_path,
         context,
         crawls,
-        tiers,
+        (tiers, sinks),
         redeclared,
         limits,
         settings,
@@ -369,7 +392,7 @@ async fn finish_started(
     record_path: Option<String>,
     context: CallContext,
     crawls: Crawls,
-    tiers: FetchTiers,
+    (tiers, sinks): (FetchTiers, Sinks),
     redeclared: Redeclared,
     limits: StartLimits,
     settings: RunSettings,
@@ -411,7 +434,7 @@ async fn finish_started(
             }
             start_new(
                 (run, &context),
-                (limits, settings, new_answers),
+                (limits, settings, new_answers, sinks),
                 (crawls, egress, serving, opening),
                 (tiers, labels, crawl, hooks),
             )
@@ -463,10 +486,92 @@ async fn finish_started(
     }
 }
 
+/// Shows ADR 0016's advisory personal-data notice once for a new crawl whose
+/// declared Datasets mark one or more fields with `"x-goodfetch-personal":
+/// true`, and records one `personal_data_notice` Audit log entry. Never blocks
+/// or delays the Run.
+async fn notify_personal_data(
+    run: &CrawlRun,
+    datasets: &Datasets,
+    resolved: &Resolved,
+    context: &CallContext,
+) {
+    let per_dataset = datasets.personal_fields();
+    if per_dataset.is_empty() {
+        return;
+    }
+    let fields: Vec<String> = per_dataset
+        .iter()
+        .flat_map(|(_, fields)| fields.iter().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let purpose: &str = resolved.get(&SITE_PREFERENCES_PURPOSE);
+    let joined = fields.join(", ");
+    let notice = format!(
+        "The Run's schema marks personal-data field(s) {joined} (`\"{PERSONAL_DATA_KEYWORD}\": true`; Purpose: `{purpose}`): review your data-protection obligations (including the CNIL measures for AI training when Purpose is `ai-train`). The Run is not blocked (ADR 0016)."
+    );
+    tracing::warn!(
+        run_id = %run.identity.id(),
+        fields = %joined,
+        purpose = %purpose,
+        "{notice}"
+    );
+    let warning = RunWarning {
+        code: PERSONAL_DATA_WARNING.to_owned(),
+        message: notice,
+        sessions: Vec::new(),
+        folder: None,
+    };
+    if let Err(error) = run.warnings.warn_once(warning).await {
+        tracing::warn!(
+            %error,
+            run_id = %run.identity.id(),
+            "the personal-data notice warning was not kept"
+        );
+    }
+    let datasets_json: Vec<serde_json::Value> = per_dataset
+        .into_iter()
+        .map(|(dataset, fields)| serde_json::json!({ "dataset": dataset, "fields": fields }))
+        .collect();
+    let origin = Origin {
+        actor: Actor::Engine,
+        surface: Some(context.surface()),
+        layer: None,
+        run_id: Some(run.identity.id().clone()),
+    };
+    if let Err(error) = context
+        .engine()
+        .audit()
+        .record(
+            &origin,
+            &PERSONAL_DATA_AUDIT,
+            serde_json::json!({
+                "fields": fields,
+                "datasets": datasets_json,
+                "purpose": purpose,
+            }),
+            run.identity.clock().timestamp(),
+        )
+        .await
+    {
+        tracing::error!(
+            %error,
+            run_id = %run.identity.id(),
+            "the personal-data notice was not recorded in the Audit log"
+        );
+    }
+}
+
 /// Starts delivery for a newly created crawl Run after applying its Limits.
 async fn start_new(
     (run, context): (goodfetch_engine::runs::RunParts, &CallContext),
-    (limits, settings, new_answers): (StartLimits, RunSettings, Arc<OnceLock<Vec<Enqueued>>>),
+    (limits, settings, new_answers, sinks): (
+        StartLimits,
+        RunSettings,
+        Arc<OnceLock<Vec<Enqueued>>>,
+        Sinks,
+    ),
     (crawls, egress, serving, opening): (Crawls, Policy, Invariants, Datasets),
     (tiers, labels, crawl, hooks): (
         FetchTiers,
@@ -475,7 +580,10 @@ async fn start_new(
         Vec<CrawlHookDeclaration>,
     ),
 ) -> Result<CrawlStarted, CallError> {
-    let run = CrawlRun::of(&run, context);
+    // A Sink below the Run's `crawl.min_sink_guarantee` refuses it
+    // before it does any work (ADR 0026).
+    let run = CrawlRun::started(&run, context, (sinks, settings.resolved())).await?;
+    notify_personal_data(&run, &opening, settings.resolved(), context).await;
     let started = RunStarted {
         run_id: run.identity.id().clone(),
         started_as: StartedAs::New,
@@ -485,7 +593,7 @@ async fn start_new(
     // Its Limits hold it before its driver sends a request; a
     // crawl they cannot hold ends `failed` rather than run unheld.
     if let Err(error) = limits.give(&started, context).await {
-        run.end.end(delivery::failed(&run.identity, &error)).await;
+        run.end(delivery::failed(&run.identity, &error)).await;
         return Err(error);
     }
     let seeds = new_answers.get().cloned().unwrap_or_default();

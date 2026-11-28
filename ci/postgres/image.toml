@@ -1,0 +1,5 @@
+# The pinned PostgreSQL image the PostgreSQL and Supabase Sink conformance
+# tests run (ADRs 0026 and 0043).
+repository = "docker.io/library/postgres"
+tag = "17-alpine"
+digest = "sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73"

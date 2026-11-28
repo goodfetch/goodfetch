@@ -57,7 +57,7 @@ use super::hops;
 use super::lookups::Lookups;
 use super::routes::Route;
 use super::steps::{self, Blocking, Overrides, Stopped, entries};
-use super::{PageState, RunPowers, lock};
+use super::{PageState, RunPowers, is_safe_discovery_method, lock};
 use crate::cdp::driver::{PageDriver, cdp_response};
 use crate::cdp::{
     AuthChallenge, CdpPage, ContinueRequest, Fulfill, Header, InterceptionEvent,
@@ -285,7 +285,7 @@ pub(super) async fn dispatch(mut events: InterceptionEvents, context: Arc<PageCo
                     // The navigation's last hop ends with the page's `load`.
                     drop(lock(&context.permit).take());
                     drop(lock(&context.proxy_permit).take());
-                    lock(&context.recorded_responses).clear();
+                    context.clear_recorded_responses();
                     context.state.navigation.ended();
                 }
             }
@@ -323,7 +323,7 @@ pub(super) async fn dispatch(mut events: InterceptionEvents, context: Arc<PageCo
     // the reader answers itself ends as the browser fails its answers.
     lock(&context.responses).clear();
     lock(&context.storing).clear();
-    lock(&context.recorded_responses).clear();
+    context.clear_recorded_responses();
     while answering.answers.next().await.is_some() {}
 }
 
@@ -535,6 +535,12 @@ impl PageContext {
     /// navigation gate or its proxy's Permit, on a hop of the main frame's
     /// navigation or a service worker's request that may carry one.
     fn request_waits(&self, paused: &PausedRequest) -> bool {
+        if self
+            .state
+            .discovery_handles(paused.method(), self.main_document(paused))
+        {
+            return false;
+        }
         let url = paused.url();
         if self.state.routes.matches_any(url) || self.state.session.matches_any(url) {
             return true;
@@ -581,6 +587,20 @@ impl PageContext {
     /// Runs one paused request through the pipeline.
     async fn intercept(&self, paused: PausedRequest) {
         let navigation = self.main_document(&paused);
+        if let Some(slot) = self.state.discovery_slot() {
+            let method = paused.method();
+            let url = paused.url();
+            if !is_safe_discovery_method(method) {
+                slot.capture.record_aborted(method, url, slot.is_popup);
+                let _ = self.cdp.fail(paused.id(), AbortReason::Aborted).await;
+                return;
+            }
+            if navigation {
+                slot.capture.record_url(url, slot.is_popup);
+                let _ = self.cdp.fail(paused.id(), AbortReason::Aborted).await;
+                return;
+            }
+        }
         let mut held = Held {
             paused,
             overrides: Overrides::default(),
@@ -1463,9 +1483,24 @@ impl PageContext {
         let navigation = self.main_document(paused);
         if self.sender.records_at_once() {
             self.record_refusal(paused.url(), paused.method(), refused.failure());
+        } else if let Sender::ServiceWorker { session, log } = &self.sender {
+            let failure = refused.failure();
+            record_outcome(self.run.identity(), &failure.code);
+            log.service_worker_request(&ServiceWorkerRequest {
+                session_id: session.clone(),
+                url: paused.url().to_owned(),
+                method: paused.method().to_owned(),
+                resource_type: paused.resource_type(),
+                failure: Some(RequestFailure {
+                    error_text: NetError::BlockedByClient.name().to_owned(),
+                    error: Some(failure),
+                }),
+            });
         } else if let Some(network_id) = paused.network_id() {
             self.refusals
                 .leave(network_id.as_str(), refused.failure(), !navigation);
+        } else {
+            self.record_refusal(paused.url(), paused.method(), refused.failure());
         }
         if navigation {
             self.state.leave(refused.error());
@@ -1744,6 +1779,8 @@ impl PageContext {
             // recorded too.
             let recorded = !held.navigation || !self.driver.navigation_waits();
             self.refusals.leave(network_id.as_str(), refusal, recorded);
+        } else {
+            self.record_refusal(held.url(), held.method(), refusal);
         }
     }
 
@@ -1796,6 +1833,9 @@ impl PageContext {
         let Sender::ServiceWorker { session, log } = &self.sender else {
             return;
         };
+        if let Some(error) = failure.as_ref().and_then(|failure| failure.error.as_ref()) {
+            record_outcome(self.run.identity(), &error.code);
+        }
         log.service_worker_request(&ServiceWorkerRequest {
             session_id: session.clone(),
             url: held.url().to_owned(),

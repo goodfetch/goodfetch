@@ -1,11 +1,11 @@
-// J-045, "Develop against the Response cache, then test offline from a
+// J-046, "Develop against the Response cache, then test offline from a
 // recording", on the `sdk-typescript` surface (ADRs 0046, 0063 and 0105;
 // ticket #808): a developer runs an automation against a live Proving ground
 // product page under `cache.mode: "replay"`, re-runs it against the same
 // Response cache with zero requests to the Proving ground, records a Response
 // recording, and runs it again offline with `recording: { mode: "replay" }`
 // with zero requests and no miss listed in its Run report. Rust's
-// `tests/it/journeys/j045.rs` and Python's `tests/journeys/test_j045.py` are
+// `tests/it/journeys/j046.rs` and Python's `tests/journeys/test_j046.py` are
 // its twins.
 import { join } from "node:path";
 import { Collie, type Recording, type RunReport, type RunSettings } from "@goodfetch/collie";
@@ -36,12 +36,12 @@ async function runProgram(
 }
 
 test(
-  "J-045@sdk-typescript",
-  { tags: ["J-045", "sdk-typescript"] },
+  "J-046@sdk-typescript",
+  { tags: ["J-046", "sdk-typescript"] },
   journey(async (run) => {
     const provingGround = run.provingGround;
     if (provingGround === undefined) {
-      throw new TypeError("J-045 has a Proving ground");
+      throw new TypeError("J-046 has a Proving ground");
     }
     const productUrl = await taskStartUrl(provingGround, "catalog/2");
     const warcPath = join(run.testEnv.folder, "product.warc");

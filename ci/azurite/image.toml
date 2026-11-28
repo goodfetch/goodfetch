@@ -1,0 +1,5 @@
+# The pinned Azurite image the Azure Blob Files-mode Sink conformance tests
+# run (ADRs 0026 and 0043).
+repository = "mcr.microsoft.com/azure-storage/azurite"
+tag = "3.35.0"
+digest = "sha256:647c63a91102a9d8e8000aab803436e1fc85fbb285e7ce830a82ee5d6661cf37"

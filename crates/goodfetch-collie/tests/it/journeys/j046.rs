@@ -1,12 +1,12 @@
-//! J-045, "Develop against the Response cache, then test offline from a
+//! J-046, "Develop against the Response cache, then test offline from a
 //! recording", on the `sdk-rust` surface (ADRs 0046, 0063, 0069 and 0105;
 //! ticket #808): a Rust program drives Collie's shipped executable as a Daemon,
 //! runs against a Proving ground product page twice under `cache.mode: replay`
 //! (the second run sending zero requests to the Proving ground), records a
 //! Response recording of the program, and runs it again offline from the
 //! recording with `recording.mode: replay` (sending zero requests and listing
-//! no miss in its Run report). TypeScript's `tests/journeys/J-045.test.ts` and
-//! Python's `tests/journeys/test_j045.py` are its twins.
+//! no miss in its Run report). TypeScript's `tests/journeys/J-046.test.ts` and
+//! Python's `tests/journeys/test_j046.py` are its twins.
 
 use std::collections::BTreeMap;
 
@@ -108,7 +108,7 @@ async fn run_program(
 fn total_requests<C>(run: &JourneyRun<C>) -> usize {
     let observations = run
         .proving_ground()
-        .expect("J-045 has a Proving ground")
+        .expect("J-046 has a Proving ground")
         .observations()
         .expect("Proving ground observations are readable");
     ReceivedRequests::of(&observations).every().count()
@@ -124,11 +124,11 @@ fn sdk_rust() {
     let engine = manifest
         .path(Tool::Collie)
         .expect("collie executable is in test tools manifest");
-    let mut run = JourneyRun::start("J-045", "sdk-rust", engine, ResultDocument::journey)
-        .expect("J-045's sdk-rust variant starts");
+    let mut run = JourneyRun::start("J-046", "sdk-rust", engine, ResultDocument::journey)
+        .expect("J-046's sdk-rust variant starts");
     run.surface_package("goodfetch-collie", env!("CARGO_PKG_VERSION"));
 
-    let proving_ground = run.proving_ground().expect("J-045 has a Proving ground");
+    let proving_ground = run.proving_ground().expect("J-046 has a Proving ground");
     browser_cache_in_home(run.env()).expect("Playwright's Chrome for Testing is installed");
     run.env()
         .user_configuration(&proving_ground.description().reaching());
@@ -302,6 +302,6 @@ fn sdk_rust() {
     );
 
     run.finish()
-        .expect("J-045's document is written")
+        .expect("J-046's document is written")
         .assert_proved();
 }

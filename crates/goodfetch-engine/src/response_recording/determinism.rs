@@ -22,7 +22,7 @@ const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 
 /// `SplitMix64` additive Weyl constant.
-const SPLITMIX_INCREMENT: u64 = 0x9e37_79b9_7f4a_7c15;
+pub(super) const SPLITMIX_INCREMENT: u64 = 0x9e37_79b9_7f4a_7c15;
 
 /// `SplitMix64` avalanche multipliers.
 const SPLITMIX_MUL_1: u64 = 0xbf58_476d_1ce4_e5b9;
@@ -39,7 +39,7 @@ pub(crate) fn canonical_url(url: &str) -> &str {
 }
 
 /// Mixes `z` through `SplitMix64`'s finalizer.
-const fn mix64(mut z: u64) -> u64 {
+pub(super) const fn mix64(mut z: u64) -> u64 {
     z = (z ^ (z >> 30)).wrapping_mul(SPLITMIX_MUL_1);
     z = (z ^ (z >> 27)).wrapping_mul(SPLITMIX_MUL_2);
     z ^ (z >> 31)

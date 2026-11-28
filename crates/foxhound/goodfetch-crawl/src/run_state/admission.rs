@@ -216,6 +216,19 @@ impl LinksRequest {
             priority: params.priority,
         }
     }
+
+    /// What discovery clicks' `params` admission reads of them (issue 1087).
+    pub(crate) fn of_clicking(
+        params: &goodfetch_protocol::foxhound::frontier::CrawlRequestEnqueueLinksByClickingElementsParams,
+    ) -> Self {
+        Self {
+            crawl_request_id: params.crawl_request_id.clone(),
+            lease_epoch: params.lease_epoch,
+            label: params.label.clone(),
+            limit: params.limit,
+            priority: params.priority,
+        }
+    }
 }
 
 /// A batch of links as the task that serves its call read them, each keyed,

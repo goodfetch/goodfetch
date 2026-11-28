@@ -8,6 +8,7 @@
 
 use crate::catalog::SettingScope::{Connection, Label, Page, Run, Session};
 use crate::catalog::{Authority, Setting, SettingScope};
+use crate::egress::EGRESS_LOCAL_ADDRESSES;
 use crate::foxhound::crawl::{CRAWL_CONTENT_TYPES, CRAWL_RETRY_HANDLER_FAILED};
 use crate::foxhound::fetch::{
     FETCH_ENCODING, FETCH_HTTP_FROM, FETCH_KEPT_RESPONSES_URLS, FETCH_TIER,
@@ -105,11 +106,13 @@ pub fn label_sets(key: &str) -> bool {
 }
 
 /// Whether the key `name` is one of what a Session keeps for its life,
-/// which only its opening sets (ADR 0021, ADR 0083; pitfall S05): its
+/// which only its opening sets (ADRs 0021, 0044 and 0083; pitfall S05): its
 /// Access mode, an item of its Identity profile, its signing key and key
-/// directory, its device emulation and network throttling, or its proxy.
+/// directory, its device emulation and network throttling, its proxy, or its
+/// local addresses (`egress.local_addresses`).
 pub fn fixed_for_the_session(name: &str) -> bool {
     name == BROWSER_ACCESS_MODE.name
+        || name == EGRESS_LOCAL_ADDRESSES.name
         || STEALTH_ITEMS.iter().any(|item| item.name == name)
         || IDENTIFIED_ITEMS.iter().any(|item| item.name == name)
         || EMULATION_SETTINGS.iter().any(|item| item.name == name)

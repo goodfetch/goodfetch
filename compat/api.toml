@@ -202,11 +202,11 @@ reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to
 
 [[announced]]
 entry = "typescript @goodfetch/foxhound FoxhoundError"
-reason = "An Error code joins Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678): a switch over every Foxhound error needs its case."
+reason = "Two Error codes join Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678) and `sink_guarantee_unmet` (issue 1128): a switch over every Foxhound error needs their cases."
 
 [[announced]]
 entry = "typescript @goodfetch/foxhound FoxhoundErrorCode"
-reason = "An Error code joins Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678): a switch over every code needs its case."
+reason = "Two Error codes join Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678) and `sink_guarantee_unmet` (issue 1128): a switch over every code needs their cases."
 
 [[announced]]
 entry = "typescript @goodfetch/foxhound FoxhoundSettings"
@@ -226,11 +226,11 @@ reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to
 
 [[announced]]
 entry = "typescript @goodfetch/foxhound/generated FoxhoundError"
-reason = "An Error code joins Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678): a switch over every Foxhound error needs its case."
+reason = "Two Error codes join Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678) and `sink_guarantee_unmet` (issue 1128): a switch over every Foxhound error needs their cases."
 
 [[announced]]
 entry = "typescript @goodfetch/foxhound/generated FoxhoundErrorCode"
-reason = "An Error code joins Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678): a switch over every code needs its case."
+reason = "Two Error codes join Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678) and `sink_guarantee_unmet` (issue 1128): a switch over every code needs their cases."
 
 [[announced]]
 entry = "typescript @goodfetch/foxhound/generated FoxhoundSettings"
@@ -403,6 +403,10 @@ reason = "A Product's sequence may make each item asynchronously, such as a Reco
 [[announced]]
 entry = "typescript @goodfetch/foxhound DatasetRecord"
 reason = "`CrawlRun.records()` reads each Record as its Dataset's own output type (issue 1487, ADR 0103): `DatasetRecord` is generic in its value's type, `DatasetRecord<O>`, keeping the wire Record's members, and its `value` is read-only; the default `O` is the wire's JSON object, so a program that names `DatasetRecord` alone reads the same members."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/generated AuditKind"
+reason = "`politeness_weakened` joined Collie's `AuditKind` so Collie records a weakened `politeness.sharing` (ADR 0086, issue 643): Foxhound's `AuditKind` inherits it through `CollieAuditKind` instead of repeating the literal, keeping the same values."
 
 [[announced]]
 entry = "foxhound settings politeness.domain.concurrency"

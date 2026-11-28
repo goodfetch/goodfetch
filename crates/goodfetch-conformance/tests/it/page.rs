@@ -35,6 +35,7 @@ const SESSIONS: Part = (
         "sessions.page_check",
         "sessions.blocked",
         "sessions.proxy",
+        "secrets.caller",
     ],
 );
 const PROXY_LIMITS: Part = ("proxy_limits", &["sessions.proxy_limits"]);
@@ -198,7 +199,7 @@ fn prove_in(env: &TestEnv, (_, capabilities): Part, name: &str) {
     );
 }
 
-/// Covers: story:5-61, story:5-60, story:5-62, operation:run.new_session, operation:session.new_page, operation:session.close, error:closed, error:setting_not_applicable, error:capability_unavailable, error:run_ended, story:5-79, setting:session.page_check, error:logged_out, error:page_check_failed, operation:run.new_page, operation:page.goto, error:setting_invalid, story:5-88, story:5-89, error:proxy_unavailable, error:proxy_auth_failed, setting:proxy.server, setting:proxy.password, error:setting_locked, story:5-91, story:8-63, story:8-58, story:8-59, error:blocked, operation:locator.click, operation:page.wait_for_url, operation:page.evaluate, operation:page.request, operation:session.pages, setting:session.source, operation:run.start, story:8-64
+/// Covers: story:5-61, story:5-60, story:5-62, operation:run.new_session, operation:session.new_page, operation:session.close, error:closed, error:setting_not_applicable, error:capability_unavailable, error:run_ended, story:5-79, setting:session.page_check, error:logged_out, error:page_check_failed, operation:run.new_page, operation:page.goto, error:setting_invalid, story:5-88, story:5-89, error:proxy_unavailable, error:proxy_auth_failed, setting:proxy.server, setting:proxy.password, error:setting_locked, story:5-91, story:8-63, story:8-58, story:8-59, error:blocked, operation:locator.click, operation:page.wait_for_url, operation:page.evaluate, operation:page.request, operation:session.pages, setting:session.source, operation:run.start, story:8-64, story:4-59, error:secret_unavailable, setting:timeout.secret
 #[test]
 fn the_page_suite_proves_sessions_against_collies_attached_engine() {
     prove(SESSIONS);
@@ -364,7 +365,7 @@ fn the_page_suite_proves_robots_txt_against_collies_attached_engine() {
     prove(ROBOTS_TXT);
 }
 
-/// Covers: story:6-40, story:6-41, story:6-51, setting:cache.mode, setting:browser.service_workers, operation:page.goto, operation:page.evaluate, operation:run.new_session, operation:session.new_page, operation:effect.open, operation:effect.close
+/// Covers: story:6-39, story:6-40, story:6-41, story:6-46, story:6-51, story:8-65, setting:cache.mode, setting:browser.service_workers, setting:proxy.provider, setting:proxy.country, setting:browser.locale, setting:browser.is_mobile, setting:session.page_check, setting:tls.accept_invalid_certs, operation:run.start, operation:run.finish, operation:page.goto, operation:page.evaluate, operation:run.new_session, operation:session.new_page, operation:session.close, operation:cache.stats, operation:effect.open, operation:effect.close
 #[test]
 fn the_page_suite_proves_the_response_cache_against_collies_attached_engine() {
     prove(RESPONSE_CACHE);

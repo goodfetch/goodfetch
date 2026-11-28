@@ -534,10 +534,18 @@ impl<'a> Load<'a> {
             .method
             .clone()
             .unwrap_or_else(|| paused.method().to_owned());
-        let mut current_url = url::Url::parse(initial_url)
-            .map_err(|_| network_error(initial_url, "net::ERR_INVALID_URL"))?;
+        let Ok(mut current_url) = url::Url::parse(initial_url) else {
+            self.fail(paused.id(), AbortReason::Failed).await;
+            return Err(network_error(initial_url, "net::ERR_INVALID_URL"));
+        };
         let mut headers = replay_headers(paused, command);
-        let mut body = replay_body(paused, command, initial_url)?;
+        let mut body = match replay_body(paused, command, initial_url) {
+            Ok(body) => body,
+            Err(error) => {
+                self.fail(paused.id(), AbortReason::Failed).await;
+                return Err(error);
+            }
+        };
         loop {
             let cache_request =
                 CacheRequest::new(&method, &current_url, &headers, Bytes::from(body.clone()));
@@ -631,9 +639,13 @@ impl<'a> Load<'a> {
             self.fail(id, AbortReason::Aborted).await;
             return Err(self.too_many_redirects());
         }
-        let next_url = current_url
-            .join(&location)
-            .map_err(|_| network_error(current_url.as_str(), "net::ERR_INVALID_REDIRECT"))?;
+        let Ok(next_url) = current_url.join(&location) else {
+            self.fail(id, AbortReason::Failed).await;
+            return Err(network_error(
+                current_url.as_str(),
+                "net::ERR_INVALID_REDIRECT",
+            ));
+        };
         if matches!(response.status, 301..=303) && method != "GET" && method != "HEAD" {
             "GET".clone_into(method);
             body.clear();

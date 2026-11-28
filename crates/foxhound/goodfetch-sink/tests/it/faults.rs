@@ -17,16 +17,16 @@ pub(crate) enum Fault {
     Killed { write: usize, landed: bool },
 }
 
-/// The SQLite Sink behind a link that fails once as `fault` says.
-pub(crate) struct Faulty {
-    sink: SqliteSink,
+/// A Sink behind a link that fails once as `fault` says.
+pub(crate) struct Faulty<S = SqliteSink> {
+    sink: S,
     fault: Fault,
     writes: usize,
     killed: bool,
 }
 
-impl Faulty {
-    pub(crate) fn new(sink: SqliteSink, fault: Fault) -> Self {
+impl<S> Faulty<S> {
+    pub(crate) fn new(sink: S, fault: Fault) -> Self {
         Self {
             sink,
             fault,
@@ -34,27 +34,32 @@ impl Faulty {
             killed: false,
         }
     }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn into_inner(self) -> S {
+        self.sink
+    }
 }
 
 /// What the faulty link answers.
 #[derive(Debug)]
-pub(crate) enum LinkError {
-    Destination(rusqlite::Error),
+pub(crate) enum LinkError<E> {
+    Destination(E),
     Lost,
     Killed,
 }
 
-impl Primitives for Faulty {
-    type Error = LinkError;
+impl<S: Primitives> Primitives for Faulty<S> {
+    type Error = LinkError<S::Error>;
 
-    fn probe(&mut self, run: &RunCopy) -> Result<Probe, LinkError> {
+    fn probe(&mut self, run: &RunCopy) -> Result<Probe, Self::Error> {
         if self.killed {
             return Err(LinkError::Killed);
         }
         self.sink.probe(run).map_err(LinkError::Destination)
     }
 
-    fn write(&mut self, batch: &Batch) -> Result<Written, LinkError> {
+    fn write(&mut self, batch: &Batch) -> Result<Written, Self::Error> {
         if self.killed {
             return Err(LinkError::Killed);
         }
@@ -75,7 +80,25 @@ impl Primitives for Faulty {
         }
     }
 
-    fn map_failure(&self, error: LinkError) -> Failure {
+    fn finish(&mut self, run: &RunCopy) -> Result<Written, Self::Error> {
+        if self.killed {
+            return Err(LinkError::Killed);
+        }
+        self.sink.finish(run).map_err(LinkError::Destination)
+    }
+
+    fn flush_expired(&mut self, run: &RunCopy) -> Result<Written, Self::Error> {
+        if self.killed {
+            return Err(LinkError::Killed);
+        }
+        self.sink.flush_expired(run).map_err(LinkError::Destination)
+    }
+
+    fn next_flush_after(&self) -> Option<std::time::Duration> {
+        self.sink.next_flush_after()
+    }
+
+    fn map_failure(&self, error: Self::Error) -> Failure {
         match error {
             LinkError::Destination(error) => self.sink.map_failure(error),
             LinkError::Lost => Failure::new(FailureKind::Transient, "the answer was lost"),

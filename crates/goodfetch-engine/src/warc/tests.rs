@@ -472,6 +472,7 @@ mod warc_reader {
     goodfetch_test_support::fuzz_replay!(crate::warc::fuzz_warc, "fuzz/warc");
 }
 
+/// Covers: format:warc
 #[test]
 fn reads_committed_compat_warc_head_fixtures_plain_and_gzipped() {
     let plain = Bytes::from_static(include_bytes!(

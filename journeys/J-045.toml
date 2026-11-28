@@ -1,58 +1,41 @@
 #:schema ./journey.schema.json
 id = "J-045"
-title = "Develop against the Response cache, then test offline from a recording"
+title = "Deliver a crawl's Dataset to SQLite, kill the Run mid-delivery, and find every Record once"
 goal = """
-A developer builds an automation against a live product page of a site \
-under `cache.mode: "replay"`, re-runs it against the same Response cache \
-so the site is fetched once, then records a Response recording of the \
-program and runs it again offline with `recording.mode: "replay"`. The \
-first run, the second cached run and the offline replayed run MUST each \
-answer the product's fields verified by the oracle; the second run under \
-cache replay MUST send the Proving ground no request; and the offline \
-run from the Response recording MUST send the Proving ground no request \
-and MUST list no miss in its Run report."""
+A person probes a SQLite Sink and starts a Crawl on the Daemon that delivers \
+its Dataset to that SQLite destination, kills the Daemon mid-delivery, starts \
+the Daemon again and resumes the Crawl. The probe MUST report the Sink's \
+Guarantee class, and after the kill and resume the SQLite destination MUST \
+hold every Record of the Dataset exactly once, in order (ADRs 0026, 0063 and \
+0094)."""
 area = 6
-product = "collie"
+product = "foxhound"
 status = "active"
-covers = ["story:6-36", "story:6-52", "row:CO-31"]
+covers = ["story:6-282", "story:6-283"]
 
 [proving_ground]
-seed = 43
-tasks = [
-  { id = "catalog/2", digest = "39d58a3a9d525d1f51a644f31f656b1fa22bbd9526dd2e6df3fdd30ffb521f5b" },
-]
+seed = 45
 
 [surfaces]
-sdk-typescript = "M2"
-sdk-python = "M2"
-sdk-rust = "M2"
+cli = "M4"
 
 [[steps]]
-text = "Run the program against a product page of the site under cache replay"
+text = "Start the Daemon and probe the SQLite Sink (`sink probe`)"
 
 [[steps]]
-text = "Run the same program a second time under cache replay on the same Response cache"
+text = "Start a Crawl delivering its Dataset to the SQLite Sink and wait until some Records land in SQLite"
 
 [[steps]]
-text = "Record a Response recording of the program against the site"
+text = "Kill the Daemon (`kill -9`) mid-delivery"
 
 [[steps]]
-text = "Run the same program offline from the Response recording"
+text = "Start the Daemon again, resume the Crawl by its Run ID, and wait until it finishes"
+
+[[steps]]
+text = "Read the Run report, the Dataset's Records and the SQLite destination's rows"
 
 [[expect]]
-text = "The oracle verifies the product the first run reads"
-task = "catalog/2"
+text = "The probe and the Run report both reported the SQLite Sink's Guarantee class (`fenced`)"
 
 [[expect]]
-text = "The oracle verifies the product the second run reads from the Response cache"
-task = "catalog/2"
-
-[[expect]]
-text = "The second run under cache replay sends the Proving ground no request"
-
-[[expect]]
-text = "The oracle verifies the product the offline run reads from the Response recording"
-task = "catalog/2"
-
-[[expect]]
-text = "The offline run from the Response recording sends the Proving ground no request and lists no miss in its Run report"
+text = "After the kill and resume, the SQLite destination holds every committed Record of the Dataset exactly once, in order"

@@ -66,8 +66,8 @@ use goodfetch_extractor::fields::Found;
 use goodfetch_page::blocks::Block;
 use goodfetch_page::document_request::{DocumentRequest, Unread};
 use goodfetch_page::page_value::{
-    BrowserPages, HandlerPages, KeptFrom, KeptTree, Observer, OwnFetch, PageValue, PooledSession,
-    ProgramPages, Reader, ServedDocument, ServedFormatsAhead,
+    BrowserPages, DiscoveredByClicking, HandlerPages, KeptFrom, KeptTree, Observer, OwnFetch,
+    PageValue, PooledSession, ProgramPages, Reader, ServedDocument, ServedFormatsAhead,
 };
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::Setting;
@@ -2193,6 +2193,81 @@ impl FetchTiers {
         request: &CrawlRequest,
         context: &CallContext,
     ) -> Result<(PageId, Navigated), CallError> {
+        self.browser_opening(hand_over, pooled, request, context, false)
+            .await
+    }
+
+    /// Clicks every element matching `locator` on its page in document order
+    /// through the guard to discover script-only links (issue 1087): on a
+    /// non-browser tier it escalates under `fetch.tier: auto` and fails with
+    /// `browser_required` under a forced tier.
+    ///
+    /// # Errors
+    ///
+    /// `attempt_ended` (escalated) or `browser_required` on a non-browser tier,
+    /// `invalid_params` for an invalid CSS selector, `closed` when the page is
+    /// closed, or the browser's error.
+    ///
+    /// # Cancel safety
+    ///
+    /// Not cancel-safe once a click has been dispatched: dropping the future
+    /// disarms discovery interception via RAII drop guard, though already-sent
+    /// click inputs on the page remain applied.
+    pub async fn discover_links_by_clicking(
+        &self,
+        locator: &goodfetch_protocol::page::Locator,
+        context: &CallContext,
+    ) -> Result<DiscoveredByClicking, CallError> {
+        let is_document_tier = lock(&self.served.pages).open.contains_key(&locator.page_id);
+        if is_document_tier {
+            return Err(self.unserved(
+                &locator.page_id,
+                goodfetch_protocol::foxhound::frontier::CRAWL_REQUEST_ENQUEUE_LINKS_BY_CLICKING_ELEMENTS.name,
+                false,
+            ));
+        }
+        let Some(pages) = self.served.browser.get() else {
+            return Err(CallError::protocol(
+                ProtocolFailure::InternalError,
+                "the engine's composition handed the fetch tiers no browser pages",
+            ));
+        };
+        pages
+            .discover_links_by_clicking(&locator.page_id, &locator.selector, context)
+            .await
+    }
+
+    /// As [`FetchTiers::browser`], bypassing the Session's HTTP cache for the
+    /// navigation so a tier race's navigation does not wait in Chrome's HTTP
+    /// cache lock behind its in-flight browser-fetch (ADR 0040; issue 1630).
+    ///
+    /// # Errors
+    ///
+    /// As [`FetchTiers::browser`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`FetchTiers::browser`]: dropping the future cancels the navigation
+    /// and closes any newly opened page.
+    pub async fn browser_raced(
+        &self,
+        hand_over: &Arc<HandOver>,
+        pooled: &PooledSession,
+        request: &CrawlRequest,
+        context: &CallContext,
+    ) -> Result<(PageId, Navigated), CallError> {
+        self.browser_opening(hand_over, pooled, request, context, true)
+            .await
+    }
+
+    async fn browser_opening(
+        &self,
+        hand_over: &Arc<HandOver>,
+        pooled: &PooledSession,
+        request: &CrawlRequest,
+        context: &CallContext,
+        bypass_cache: bool,
+    ) -> Result<(PageId, Navigated), CallError> {
         let Some(pages) = self.served.browser.get() else {
             return Err(CallError::protocol(
                 ProtocolFailure::InternalError,
@@ -2205,6 +2280,7 @@ impl FetchTiers {
             method: request.method.as_str(),
             headers: (!request.headers.is_empty()).then_some(&request.headers),
             body: request.body.as_ref().map(HttpBody::bytes),
+            bypass_cache,
         };
         OPENING
             .scope(

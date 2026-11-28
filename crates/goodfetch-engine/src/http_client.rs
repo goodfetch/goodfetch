@@ -57,7 +57,7 @@ use crate::clock::Clock;
 use crate::dns::{Dns, HostMapping, IpFamily, LookupError, Resolution, Route, family_of};
 use crate::egress::{ConfiguredKind, EndpointPolicy, Gate, Refused, Stopped};
 use crate::happy_eyeballs::{Delays, Families, Race, RaceError};
-use crate::local_addresses::SessionAddresses;
+use crate::local_addresses::{Device, SessionAddresses};
 use crate::response_limits::Limits;
 use crate::settings::Resolved;
 use crate::tasks::{self, BlockingThreads};
@@ -82,20 +82,25 @@ pub(crate) struct Network<'a> {
     pub(crate) delays: Delays,
 }
 
-/// A Session's local addresses (ADR 0044): what its connections bind, and
-/// the engine's resolution whose queries leave from them.
+/// A Session's local addresses (ADR 0044): what its connections bind (and,
+/// when `egress.local_addresses` names an interface, the device its sockets
+/// bind on Linux, macOS and illumos), and the engine's resolution whose
+/// queries leave from them.
 #[derive(Clone)]
 pub struct LocalBinding {
     addresses: SessionAddresses,
+    device: Device,
     dns: Dns,
 }
 
 impl LocalBinding {
-    /// The Session holding `addresses`, resolving through `dns` with its
-    /// queries sent from them.
-    pub fn new(addresses: SessionAddresses, dns: &Dns) -> Self {
+    /// The Session holding `addresses` (bound to `device`, resolved once on a
+    /// blocking thread when the Session opened), resolving through `dns` with
+    /// its queries sent from them.
+    pub fn new(addresses: SessionAddresses, device: Device, dns: &Dns) -> Self {
         Self {
             addresses,
+            device,
             dns: dns.from_local_addresses(addresses.ipv4, addresses.ipv6),
         }
     }
@@ -170,7 +175,7 @@ impl LocalBinding {
         let Some(local) = self.of(family_of(address.ip())) else {
             return Err(io::ErrorKind::AddrNotAvailable.into());
         };
-        attempt(address, Some(local)).await
+        attempt(address, Some(local), Some(&self.device)).await
     }
 }
 
@@ -179,19 +184,25 @@ impl std::fmt::Debug for LocalBinding {
         formatter
             .debug_struct("LocalBinding")
             .field("addresses", &self.addresses)
+            .field("device", &self.device)
             .finish_non_exhaustive()
     }
 }
 
 /// Where a Session's connections leave from (ADR 0044): the local address
-/// of each family it holds, and its proxy, which its connections reach in
-/// place of the site.
+/// of each family it holds, its network device when an interface gave them
+/// (resolved once on a blocking thread), and its proxy, which its connections
+/// reach in place of the site.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Egress {
     /// The IPv4 address its connections bind, when it holds one.
     pub local_ipv4: Option<Ipv4Addr>,
     /// The IPv6 address its connections bind, when it holds one.
     pub local_ipv6: Option<Ipv6Addr>,
+    /// The network device its sockets bind (`SO_BINDTODEVICE` on Linux,
+    /// `IP_BOUND_IF` on macOS and illumos; ADR 0044), resolved once before
+    /// connecting so async workers never block.
+    pub local_device: Device,
     /// Its proxy's host and port.
     pub proxy: Option<(String, u16)>,
 }
@@ -273,13 +284,21 @@ pub async fn connect(
         families: egress.families(),
     };
     let dns = &connecting.dns;
+    let device = &egress.local_device;
     let raced = race
         .connect(
             name,
             port,
             dns.addresses(name, IpFamily::Ipv6, route),
             dns.addresses(name, IpFamily::Ipv4, route),
-            |address| attempt(address, egress.local_address(family_of(address.ip()))),
+            |address| async move {
+                attempt(
+                    address,
+                    egress.local_address(family_of(address.ip())),
+                    Some(device),
+                )
+                .await
+            },
         )
         .await;
     match raced {
@@ -944,24 +963,31 @@ async fn race_to(
         port,
         ready(of(IpFamily::Ipv6)),
         ready(of(IpFamily::Ipv4)),
-        |address| attempt(address, None),
+        |address| attempt(address, None, None),
     )
     .await
     .map(|won| won.connection)
 }
 
-/// One connection attempt to `address`, bound to `local` when the Session
-/// holds a local address of its family.
+/// One connection attempt to `address`, bound to `device` (on Linux, macOS and
+/// illumos) and `local` when the Session holds a local address of its family.
 #[expect(
     clippy::disallowed_types,
     reason = "the engine's own HTTP client opens its outbound sockets, which the Simulation never carries (ADR 0060)"
 )]
-async fn attempt(address: SocketAddr, local: Option<IpAddr>) -> io::Result<TcpStream> {
+async fn attempt(
+    address: SocketAddr,
+    local: Option<IpAddr>,
+    device: Option<&Device>,
+) -> io::Result<TcpStream> {
     let socket = if address.is_ipv4() {
         tokio::net::TcpSocket::new_v4()?
     } else {
         tokio::net::TcpSocket::new_v6()?
     };
+    if let Some(device) = device {
+        device.bind(&socket2::SockRef::from(&socket), address)?;
+    }
     if let Some(local) = local {
         socket.bind(SocketAddr::new(local, 0))?;
     }

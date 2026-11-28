@@ -76,6 +76,23 @@ struct Asked {
 }
 
 impl PageContext {
+    /// Clears any recorded-response truncation tracking for this page.
+    pub(super) fn clear_recorded_responses(&self) {
+        lock(&self.recorded_responses).clear();
+    }
+
+    /// Tracks `network_id -> sequence` (bounded to 256 entries) so a later
+    /// disconnect can mark the recorded exchange truncated.
+    fn note_recorded_response(&self, network_id: &NetworkId, sequence: u64) {
+        let mut recorded = lock(&self.recorded_responses);
+        if recorded.len() >= 256
+            && let Some(oldest) = recorded.keys().next().cloned()
+        {
+            recorded.remove(&oldest);
+        }
+        recorded.insert(network_id.as_str().to_owned(), sequence);
+    }
+
     /// Whether `url` is answered from the Run's Response recording rather than
     /// reached live (ADR 0105, issue 801).
     pub(super) fn replays_url(&self, url: &str) -> bool {
@@ -621,8 +638,7 @@ impl PageContext {
                         && !short
                         && let Some(network_id) = storing.network_id.as_ref()
                     {
-                        lock(&self.recorded_responses)
-                            .insert(network_id.as_str().to_owned(), sequence);
+                        self.note_recorded_response(network_id, sequence);
                     }
                 }
                 if store_in_cache && !short {

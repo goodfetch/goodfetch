@@ -302,6 +302,18 @@ export interface FoxhoundSettings {
      */
     readonly maxURLLength?: number | null;
     /**
+     * The weakest Guarantee class a crawl's Run accepts of each of its Sinks, from the strongest: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). Each Sink is probed at the Run's start, and a Sink whose probe proves a weaker class, or fails, refuses the start with `sink_guarantee_unmet` before the Run does any work. None by default: any class is accepted, and a Sink whose probe fails delivers nothing; `null` clears it.
+     *
+     * `crawl.min_sink_guarantee`.
+     */
+    readonly minSinkGuarantee?: "fenced" | "record_fenced" | "keyed" | "at_least_once" | null;
+    /**
+     * Whether collection goes on when a Sink fails (`continue`, the default) or stops at the next safe point (`stop`), so a destination's outage never stops a crawl unasked (ADR 0026).
+     *
+     * `crawl.on_sink_failure`.
+     */
+    readonly onSinkFailure?: "continue" | "stop";
+    /**
      * Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.
      *
      * `crawl.path_budgets`.
@@ -416,7 +428,7 @@ export interface FoxhoundSettings {
      */
     readonly blockedDomains?: readonly string[];
     /**
-     * The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `["192.0.2.10", "2001:db8::10"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own.
+     * The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `["192.0.2.10", "2001:db8::10"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. Naming an interface also binds each socket to its device on Linux (`SO_BINDTODEVICE`), macOS and illumos (`IP_BOUND_IF`); Windows binds by the interface's address under its strong host model (the interface needs its own route, and an administrator can change this with `WeakHostSend`). A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own.
      *
      * `egress.local_addresses`.
      */
@@ -1400,7 +1412,7 @@ export interface FoxhoundSettings {
      */
     readonly run?: number | null;
     /**
-     * How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: "timed_out"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.
+     * How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: "timed_out"`, or `"resolver_failed"` for the program's own `resolveSecret`, asked for a `caller:` reference: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.
      *
      * `timeout.secret`.
      */
@@ -1722,6 +1734,18 @@ export interface CrawlSettings {
      */
     readonly maxURLLength?: number | null;
     /**
+     * The weakest Guarantee class a crawl's Run accepts of each of its Sinks, from the strongest: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). Each Sink is probed at the Run's start, and a Sink whose probe proves a weaker class, or fails, refuses the start with `sink_guarantee_unmet` before the Run does any work. None by default: any class is accepted, and a Sink whose probe fails delivers nothing; `null` clears it.
+     *
+     * `crawl.min_sink_guarantee`.
+     */
+    readonly minSinkGuarantee?: "fenced" | "record_fenced" | "keyed" | "at_least_once" | null;
+    /**
+     * Whether collection goes on when a Sink fails (`continue`, the default) or stops at the next safe point (`stop`), so a destination's outage never stops a crawl unasked (ADR 0026).
+     *
+     * `crawl.on_sink_failure`.
+     */
+    readonly onSinkFailure?: "continue" | "stop";
+    /**
      * Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.
      *
      * `crawl.path_budgets`.
@@ -1836,7 +1860,7 @@ export interface CrawlSettings {
      */
     readonly blockedDomains?: readonly string[];
     /**
-     * The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `["192.0.2.10", "2001:db8::10"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own.
+     * The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `["192.0.2.10", "2001:db8::10"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. Naming an interface also binds each socket to its device on Linux (`SO_BINDTODEVICE`), macOS and illumos (`IP_BOUND_IF`); Windows binds by the interface's address under its strong host model (the interface needs its own route, and an administrator can change this with `WeakHostSend`). A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own.
      *
      * `egress.local_addresses`.
      */
@@ -2814,7 +2838,7 @@ export interface CrawlSettings {
      */
     readonly plugin?: number;
     /**
-     * How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: "timed_out"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.
+     * How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: "timed_out"`, or `"resolver_failed"` for the program's own `resolveSecret`, asked for a `caller:` reference: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.
      *
      * `timeout.secret`.
      */
@@ -3036,6 +3060,8 @@ const SPELLING: Spelling = {
     maxSitemapNesting: "max_sitemap_nesting",
     maxStagedEnqueues: "max_staged_enqueues",
     maxURLLength: "max_url_length",
+    minSinkGuarantee: "min_sink_guarantee",
+    onSinkFailure: "on_sink_failure",
     pathBudgets: { setting: "path_budgets", value: { items: { fields: { "max_requests": "maxRequests" } } } },
     payload: ["payload", {
       maxSize: "max_size",

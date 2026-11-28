@@ -628,6 +628,7 @@ dependencies = [
  "memchr",
  "minimal-lexical",
  "nom",
+ "once_cell",
  "percent-encoding",
  "phf_shared 0.11.3",
  "postcard",

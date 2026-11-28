@@ -409,6 +409,18 @@ class ConnectionCrawlSettings(TypedDict):
     `crawl.max_url_length`.
     """
 
+    min_sink_guarantee: NotRequired[Literal["fenced", "record_fenced", "keyed", "at_least_once"] | None]
+    """The weakest Guarantee class a crawl's Run accepts of each of its Sinks, from the strongest: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). Each Sink is probed at the Run's start, and a Sink whose probe proves a weaker class, or fails, refuses the start with `sink_guarantee_unmet` before the Run does any work. None by default: any class is accepted, and a Sink whose probe fails delivers nothing; `null` clears it.
+
+    `crawl.min_sink_guarantee`.
+    """
+
+    on_sink_failure: NotRequired[Literal["continue", "stop"]]
+    """Whether collection goes on when a Sink fails (`continue`, the default) or stops at the next safe point (`stop`), so a destination's outage never stops a crawl unasked (ADR 0026).
+
+    `crawl.on_sink_failure`.
+    """
+
     path_budgets: NotRequired[list[CrawlPathBudgetsItem]]
     """Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.
 
@@ -516,7 +528,7 @@ class ConnectionEgressSettings(TypedDict):
     """
 
     local_addresses: NotRequired[list[str] | str | None]
-    """The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `["192.0.2.10", "2001:db8::10"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own.
+    """The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `["192.0.2.10", "2001:db8::10"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. Naming an interface also binds each socket to its device on Linux (`SO_BINDTODEVICE`), macOS and illumos (`IP_BOUND_IF`); Windows binds by the interface's address under its strong host model (the interface needs its own route, and an administrator can change this with `WeakHostSend`). A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own.
 
     `egress.local_addresses`.
     """
@@ -1774,7 +1786,7 @@ class SinksEntry(TypedDict):
     """The fields a keyed mode uses: each Dataset's own key when left out."""
 
     mode: NotRequired[Literal["append", "upsert", "insert_only", "replace", "history"] | None]
-    """How it writes them: `append` when left out ([`Self::write_mode`])."""
+    """How it writes them: `append` when left out."""
 
     rate: NotRequired[SinksEntryRate | None]
     """Its token bucket: the destination's preset when left out."""
@@ -1988,7 +2000,7 @@ class ConnectionTimeoutSettings(TypedDict):
     """
 
     secret: NotRequired[timedelta]
-    """How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: "timed_out"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.
+    """How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: "timed_out"`, or `"resolver_failed"` for the program's own `resolveSecret`, asked for a `caller:` reference: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.
 
     `timeout.secret`.
     """
@@ -2479,6 +2491,18 @@ class RunCrawlSettings(TypedDict):
     `crawl.max_url_length`.
     """
 
+    min_sink_guarantee: NotRequired[Literal["fenced", "record_fenced", "keyed", "at_least_once"] | None]
+    """The weakest Guarantee class a crawl's Run accepts of each of its Sinks, from the strongest: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). Each Sink is probed at the Run's start, and a Sink whose probe proves a weaker class, or fails, refuses the start with `sink_guarantee_unmet` before the Run does any work. None by default: any class is accepted, and a Sink whose probe fails delivers nothing; `null` clears it.
+
+    `crawl.min_sink_guarantee`.
+    """
+
+    on_sink_failure: NotRequired[Literal["continue", "stop"]]
+    """Whether collection goes on when a Sink fails (`continue`, the default) or stops at the next safe point (`stop`), so a destination's outage never stops a crawl unasked (ADR 0026).
+
+    `crawl.on_sink_failure`.
+    """
+
     path_budgets: NotRequired[list[CrawlPathBudgetsItem]]
     """Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.
 
@@ -2586,7 +2610,7 @@ class RunEgressSettings(TypedDict):
     """
 
     local_addresses: NotRequired[list[str] | str | None]
-    """The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `["192.0.2.10", "2001:db8::10"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own.
+    """The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `["192.0.2.10", "2001:db8::10"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. Naming an interface also binds each socket to its device on Linux (`SO_BINDTODEVICE`), macOS and illumos (`IP_BOUND_IF`); Windows binds by the interface's address under its strong host model (the interface needs its own route, and an administrator can change this with `WeakHostSend`). A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own.
 
     `egress.local_addresses`.
     """
@@ -3684,7 +3708,7 @@ class RunTimeoutSettings(TypedDict):
     """
 
     secret: NotRequired[timedelta]
-    """How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: "timed_out"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.
+    """How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: "timed_out"`, or `"resolver_failed"` for the program's own `resolveSecret`, asked for a `caller:` reference: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.
 
     `timeout.secret`.
     """

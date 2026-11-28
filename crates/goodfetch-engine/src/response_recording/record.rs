@@ -295,18 +295,15 @@ impl Recorder {
             recorded_to,
             writer_version: WRITER_VERSION.to_owned(),
         };
-        let mut bytes = Vec::new();
-        let mut writer = Writer::new(&mut bytes, gzip_per_record);
-        if let Err(error) = write_all_records(&mut writer, &info, &rows, || self.next_uuid()) {
-            return Ok(Err(save_error_to_ending(
-                &self.path,
-                SaveError::of_storage(&error, "encode the recording"),
-            )));
-        }
         let result = (|| -> Result<(), SaveError> {
-            let mut saving = Saving::create(target)?;
-            saving.write(&bytes)?;
-            saving.finish()
+            let mut sink = SavingWriter::new(Saving::create(target)?);
+            let mut writer = Writer::new(&mut sink, gzip_per_record);
+            if let Err(error) = write_all_records(&mut writer, &info, &rows, || self.next_uuid()) {
+                return Err(sink
+                    .take_error()
+                    .unwrap_or_else(|| SaveError::of_storage(&error, "encode the recording")));
+            }
+            sink.finish()
         })();
         match result {
             Ok(()) => Ok(Ok(RecordingReport {
@@ -329,10 +326,13 @@ impl Recorder {
     fn next_uuid(&self) -> String {
         let mut state = self.lock();
         state.id_counter = state.id_counter.wrapping_add(1);
-        let hi = splitmix64(self.id_seed ^ state.id_counter);
-        let lo = splitmix64(
-            self.id_seed
-                .wrapping_add(state.id_counter.wrapping_mul(0x9e37_79b9_7f4a_7c15)),
+        let hi = super::determinism::mix64(self.id_seed ^ state.id_counter);
+        let lo = super::determinism::mix64(
+            self.id_seed.wrapping_add(
+                state
+                    .id_counter
+                    .wrapping_mul(super::determinism::SPLITMIX_INCREMENT),
+            ),
         );
         // RFC 4122 version 4, variant 1 layout.
         let mut b = [0u8; 16];
@@ -384,6 +384,7 @@ impl Capture for Recorder {
                     let mut state = self.lock();
                     std::mem::take(&mut state.truncated_positions)
                 };
+                let restore = pending_truncated.clone();
                 match run_state
                     .write(move |connection| {
                         for position in pending_truncated {
@@ -395,6 +396,9 @@ impl Capture for Recorder {
                 {
                     Ok(position) => return position,
                     Err(error) => {
+                        if !restore.is_empty() {
+                            self.lock().truncated_positions.extend(restore);
+                        }
                         tracing::warn!(
                             run_id = %self.run_id,
                             %error,
@@ -427,15 +431,46 @@ impl Capture for Recorder {
     }
 }
 
-fn splitmix64(mut x: u64) -> u64 {
-    x = x.wrapping_add(0x9e37_79b9_7f4a_7c15);
-    x = (x ^ (x >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-    x = (x ^ (x >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-    x ^ (x >> 31)
+/// Adapts [`Saving`] to [`std::io::Write`] so WARC records stream directly to
+/// the temporary file without double-buffering the whole recording in memory.
+struct SavingWriter {
+    saving: Saving,
+    error: Option<SaveError>,
 }
 
-fn write_all_records(
-    writer: &mut Writer<&mut Vec<u8>>,
+impl SavingWriter {
+    fn new(saving: Saving) -> Self {
+        Self {
+            saving,
+            error: None,
+        }
+    }
+
+    fn take_error(&mut self) -> Option<SaveError> {
+        self.error.take()
+    }
+
+    fn finish(self) -> Result<(), SaveError> {
+        self.saving.finish()
+    }
+}
+
+impl std::io::Write for SavingWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if let Err(error) = self.saving.write(buf) {
+            self.error = Some(error);
+            return Err(std::io::Error::other("recording save failed"));
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn write_all_records<W: std::io::Write>(
+    writer: &mut Writer<W>,
     info: &WarcInfo,
     rows: &[SanitizedExchange],
     mut next_id: impl FnMut() -> String,

@@ -75,6 +75,36 @@
         }
       ]
     },
+    "AbortedDiscoveryRequest": {
+      "description": "An unsafe network request aborted unsent during a discovery click (issue\n1087): any method other than `GET`, `HEAD` or `OPTIONS`.",
+      "oneOf": [
+        {
+          "description": "A request with an unsafe HTTP method was aborted before leaving the\nbrowser so discovery clicks never place an order or mutate a site.",
+          "properties": {
+            "kind": {
+              "const": "unsafe_request_aborted",
+              "type": "string"
+            },
+            "method": {
+              "arrived_in": "0.1",
+              "description": "The aborted request's HTTP method, such as `POST`.",
+              "type": "string"
+            },
+            "url": {
+              "arrived_in": "0.1",
+              "description": "The aborted request's URL.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "method",
+            "url"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "Acted": {
       "description": "What a locator action answers once its input landed on its target:\nnothing, since no operation returns a handle on an element (ADR 0085).",
       "type": "object"
@@ -3731,6 +3761,88 @@
       ],
       "type": "object"
     },
+    "CrawlRequestEnqueueLinksByClickingElementsParams": {
+      "additionalProperties": false,
+      "description": "What `crawl_request.enqueue_links_by_clicking_elements` takes: a locator on\nthe attempt's browser page whose matched elements are clicked in document\norder through the guard to discover script-only links (ADR 0093; issue 1087).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "crawl_request_id": {
+          "arrived_in": "0.1",
+          "description": "The ID of the crawl request whose attempt enqueues.",
+          "type": "string"
+        },
+        "exclude": {
+          "arrived_in": "0.1",
+          "description": "URL patterns a link must match none of, besides the crawl's scope.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "include": {
+          "arrived_in": "0.1",
+          "description": "URL patterns, globs as `crawl.scope.include`'s, of which a link must\nmatch one when there are any, besides the crawl's scope, which they\nonly narrow.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "label": {
+          "arrived_in": "0.1",
+          "description": "Their Label.",
+          "type": "string"
+        },
+        "lease_epoch": {
+          "arrived_in": "0.1",
+          "description": "The attempt's lease epoch, as `crawl_request.handle` gave it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "limit": {
+          "arrived_in": "0.1",
+          "description": "At most this many links are added; once they are, each later\ndiscovered URL the Frontier would judge is not added, with\n`link_limit`. None for no limit.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator, on the browser page `crawl_request.handle` gave."
+        },
+        "payload": {
+          "arrived_in": "0.1",
+          "description": "The one Payload every discovered link takes."
+        },
+        "priority": {
+          "arrived_in": "0.1",
+          "default": 0,
+          "description": "Their priority among the requests of their domain, as\n`crawl_request.enqueue`'s; 0 by default.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id",
+        "crawl_request_id",
+        "lease_epoch",
+        "locator",
+        "label"
+      ],
+      "type": "object"
+    },
     "CrawlRequestEnqueueLinksParams": {
       "additionalProperties": false,
       "description": "What `crawl_request.enqueue_links` takes: every link a locator matches,\nto add from one attempt under one Label (ADR 0093).",
@@ -6285,6 +6397,34 @@
       "description": "What `page.on_dialog` answers when its page closes.",
       "type": "object"
     },
+    "DiscoveryClickRefusal": {
+      "description": "A matched element whose discovery click the guard refused (issue 1087).",
+      "properties": {
+        "code": {
+          "arrived_in": "0.1",
+          "description": "The guard's Error code (for example `deadline_exceeded`).",
+          "type": "string"
+        },
+        "index": {
+          "arrived_in": "0.1",
+          "description": "Zero-based index of the matched element in document order.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "message": {
+          "arrived_in": "0.1",
+          "description": "Why the guard refused the click.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "index",
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
     "DoctorFinding": {
       "description": "What `doctor` found about one part of the installation.",
       "properties": {
@@ -7302,6 +7442,39 @@
           "description": "Each element's answer.",
           "items": {
             "$ref": "#/$defs/EnqueuedLink"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "links"
+      ],
+      "type": "object"
+    },
+    "EnqueuedLinksByClickingElements": {
+      "description": "What `crawl_request.enqueue_links_by_clicking_elements` answers: what\nbecame of each discovered link, each unsafe request aborted unsent, and\nany matched element whose click the guard refused (issue 1087).",
+      "properties": {
+        "aborted": {
+          "arrived_in": "0.1",
+          "description": "Requests with a method other than `GET`, `HEAD` or `OPTIONS` aborted\nunsent during the clicks.",
+          "items": {
+            "$ref": "#/$defs/AbortedDiscoveryRequest"
+          },
+          "type": "array"
+        },
+        "links": {
+          "arrived_in": "0.1",
+          "description": "Each discovered link's admission answer, as `crawl_request.enqueue_links`\nanswers.",
+          "items": {
+            "$ref": "#/$defs/EnqueuedLink"
+          },
+          "type": "array"
+        },
+        "refused": {
+          "arrived_in": "0.1",
+          "description": "Matched elements whose click the guard refused.",
+          "items": {
+            "$ref": "#/$defs/DiscoveryClickRefusal"
           },
           "type": "array"
         }
@@ -24896,6 +25069,20 @@
         }
       ]
     },
+    "SecretResolved": {
+      "description": "What `resolveSecret` answers: the value. Its `Debug` leaves it out.",
+      "properties": {
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The value.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "type": "object"
+    },
     "SecretUnavailableDetails": {
       "description": "What `secret_unavailable` details.",
       "properties": {
@@ -24954,6 +25141,38 @@
       "required": [
         "placeholder",
         "bound"
+      ],
+      "type": "object"
+    },
+    "SecretsResolveParams": {
+      "description": "What `secrets.resolve` gives the program's `resolveSecret`.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The host the value is sent to, where the use has one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The reference's name, what follows `caller:`.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run that uses it, which this Connection opened."
+        }
+      },
+      "required": [
+        "name",
+        "run_id"
       ],
       "type": "object"
     },
@@ -26148,6 +26367,426 @@
       "required": [
         "signing_keys",
         "authority"
+      ],
+      "type": "object"
+    },
+    "SinkDeliver": {
+      "description": "What `sink.deliver` answers (ADR 0026).",
+      "properties": {
+        "dead_letters": {
+          "arrived_in": "0.1",
+          "description": "How many dead letters remain for this Run and Sink after this call.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "delivered": {
+          "arrived_in": "0.1",
+          "description": "How many Records or dead letters were delivered by this call.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose Records were delivered."
+        },
+        "sink": {
+          "arrived_in": "0.1",
+          "description": "The Sink's name.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/SinkStatus",
+          "arrived_in": "0.1",
+          "description": "The Sink's status after this delivery."
+        }
+      },
+      "required": [
+        "run_id",
+        "sink",
+        "delivered",
+        "dead_letters",
+        "status"
+      ],
+      "type": "object"
+    },
+    "SinkDeliverAction": {
+      "description": "What `sink.deliver` does against a Run's committed Records or dead letters\n(ADR 0026).",
+      "oneOf": [
+        {
+          "description": "Redelivers one delivery by its `delivery_id`, carrying the same\ndelivery ID so the destination can deduplicate it.",
+          "properties": {
+            "delivery_id": {
+              "arrived_in": "0.1",
+              "description": "The delivery ID to redeliver (`<run_id>/<sink>/<dataset>/<number>`).",
+              "type": "string"
+            },
+            "kind": {
+              "const": "redeliver",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "delivery_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Recovers failed deliveries (dead letters) committed at or after `since`\n(RFC 3339 in UTC).",
+          "properties": {
+            "kind": {
+              "const": "recover",
+              "type": "string"
+            },
+            "since": {
+              "$ref": "#/$defs/PointInTime",
+              "arrived_in": "0.1",
+              "description": "RFC 3339 UTC timestamp lower bound (inclusive)."
+            }
+          },
+          "required": [
+            "kind",
+            "since"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Replays committed Records of the Run that were never delivered to the\nSink.",
+          "properties": {
+            "kind": {
+              "const": "replay",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Backfills every committed Record of a past Run to any configured Sink,\nincluding a Sink added after the Run ended.",
+          "properties": {
+            "kind": {
+              "const": "backfill",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SinkDeliverParams": {
+      "additionalProperties": false,
+      "description": "What `sink.deliver` takes (ADRs 0026 and 0099).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "action": {
+          "$ref": "#/$defs/SinkDeliverAction",
+          "arrived_in": "0.1",
+          "description": "Which delivery operation to run (`redeliver`, `recover`, `replay` or\n`backfill`)."
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The project configuration the Client found, layer 3 (ADR 0083)."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose Records or dead letters to deliver."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Settings over the connection's, nested by key, as a crawl's Run takes\nthem (ADR 0083), such as a Sink added after the Run ended.",
+          "type": "object"
+        },
+        "sink": {
+          "arrived_in": "0.1",
+          "description": "The Sink's name, its key under `sinks`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "sink",
+        "action"
+      ],
+      "type": "object"
+    },
+    "SinkGuaranteeUnmetDetails": {
+      "description": "What `sink_guarantee_unmet` details.",
+      "properties": {
+        "cause": {
+          "arrived_in": "0.1",
+          "description": "Why the probe failed, for people; none when it proved a class.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proved": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GuaranteeClass"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The class the Sink's probe proved; none when the probe failed."
+        },
+        "required": {
+          "$ref": "#/$defs/GuaranteeClass",
+          "arrived_in": "0.1",
+          "description": "The class the Run requires, its `crawl.min_sink_guarantee`."
+        },
+        "sink": {
+          "arrived_in": "0.1",
+          "description": "The Sink's name, its key under `sinks`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sink",
+        "required"
+      ],
+      "type": "object"
+    },
+    "SinkList": {
+      "description": "What `sink.list` answers (ADR 0026).",
+      "properties": {
+        "sinks": {
+          "arrived_in": "0.1",
+          "description": "Each Sink, in name order.",
+          "items": {
+            "$ref": "#/$defs/SinkListEntry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "sinks"
+      ],
+      "type": "object"
+    },
+    "SinkListEntry": {
+      "description": "One Sink in `sink.list`'s answer (ADR 0026).",
+      "properties": {
+        "dead_letters": {
+          "arrived_in": "0.1",
+          "description": "How many deliveries are currently on its dead-letter list.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "guarantee_class": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GuaranteeClass"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its Guarantee class, when probed or recorded on a Run; none when\nprobing failed outside any Run."
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Sink's name, its key under `sinks`.",
+          "type": "string"
+        },
+        "outside_dedup_window": {
+          "arrived_in": "0.1",
+          "description": "How many deliveries fell outside the destination's deduplication\nwindow, and so were at least once.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "probe_cause": {
+          "arrived_in": "0.1",
+          "description": "Why probing failed outside a Run, when `guarantee_class` is absent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SinkStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its delivery status on the named Run; absent when listing\nconfigured Sinks outside a single Run."
+        }
+      },
+      "required": [
+        "name",
+        "dead_letters",
+        "outside_dedup_window"
+      ],
+      "type": "object"
+    },
+    "SinkListParams": {
+      "additionalProperties": false,
+      "description": "What `sink.list` takes: optionally one Run to read each Sink's status\nfrom, or settings over the connection's to probe and summarize every\nconfigured Sink (ADRs 0026 and 0099).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The project configuration the Client found, layer 3 (ADR 0083)."
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When set, lists the Sinks that applied to this Run with its\nRun-scoped class, status, dead letters and deliveries outside the\ndeduplication window. When absent, lists the Sinks configured in\n`settings` and aggregates their dead letters and late deliveries\nacross Runs."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Settings over the connection's, nested by key, as a crawl's Run\ntakes them (ADR 0083).",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "SinkProbe": {
+      "description": "What `sink.probe` answers.",
+      "properties": {
+        "outcome": {
+          "$ref": "#/$defs/SinkProbeOutcome",
+          "arrived_in": "0.1",
+          "description": "What its probe found."
+        },
+        "sink": {
+          "arrived_in": "0.1",
+          "description": "The Sink's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sink",
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "SinkProbeOutcome": {
+      "description": "What a Sink's probe found.",
+      "oneOf": [
+        {
+          "description": "Its destination proved a Guarantee class.",
+          "properties": {
+            "class": {
+              "$ref": "#/$defs/GuaranteeClass",
+              "arrived_in": "0.1",
+              "description": "The class."
+            },
+            "status": {
+              "const": "proved",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "class"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Its probe failed: its destination did not resolve, open or answer.",
+          "properties": {
+            "cause": {
+              "arrived_in": "0.1",
+              "description": "Why, for people.",
+              "type": "string"
+            },
+            "status": {
+              "const": "failed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "cause"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SinkProbeParams": {
+      "additionalProperties": false,
+      "description": "What `sink.probe` takes: the Sink, by its name among the `sinks` the\nsettings resolve to as a crawl's Run would.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The project configuration the Client found, layer 3 (ADR 0083)."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Settings over the connection's, nested by key, as a crawl's Run\ntakes them (ADR 0083), such as the `sinks` to probe.",
+          "type": "object"
+        },
+        "sink": {
+          "arrived_in": "0.1",
+          "description": "The Sink's name, its key under `sinks`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sink"
       ],
       "type": "object"
     },
@@ -30588,7 +31227,7 @@
                     "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
                   },
                   "secret": {
-                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
+                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`, or `\"resolver_failed\"` for the program's own `resolveSecret`, asked for a `caller:` reference: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -31187,6 +31826,29 @@
                     ],
                     "description": "The longest URL a crawl admits, in characters as the WHATWG parser serializes it, without its fragment (Scrapy's `URLLENGTH_LIMIT`): a longer one is not added, with `max_url_length`, and a finished Run that refused one is `unverified`. 2,083 by default; `null` turns the cap off."
                   },
+                  "min_sink_guarantee": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "fenced",
+                          "record_fenced",
+                          "keyed",
+                          "at_least_once"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The weakest Guarantee class a crawl's Run accepts of each of its Sinks, from the strongest: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). Each Sink is probed at the Run's start, and a Sink whose probe proves a weaker class, or fails, refuses the start with `sink_guarantee_unmet` before the Run does any work. None by default: any class is accepted, and a Sink whose probe fails delivers nothing; `null` clears it."
+                  },
+                  "on_sink_failure": {
+                    "description": "Whether collection goes on when a Sink fails (`continue`, the default) or stops at the next safe point (`stop`), so a destination's outage never stops a crawl unasked (ADR 0026).",
+                    "enum": [
+                      "continue",
+                      "stop"
+                    ]
+                  },
                   "path_budgets": {
                     "description": "Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.",
                     "items": {
@@ -31444,7 +32106,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `[\"192.0.2.10\", \"2001:db8::10\"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own."
+                    "description": "The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `[\"192.0.2.10\", \"2001:db8::10\"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. Naming an interface also binds each socket to its device on Linux (`SO_BINDTODEVICE`), macOS and illumos (`IP_BOUND_IF`); Windows binds by the interface's address under its strong host model (the interface needs its own route, and an administrator can change this with `WeakHostSend`). A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own."
                   },
                   "no_private_endpoints": {
                     "description": "Whether Operator-configured endpoints (Model providers, Secret providers, proxies, Notification channels, OTLP collectors, the Plugin index, a configured `cdp_url`) are refused every address that is not globally reachable, as the addresses a page can reach are, so a tenant's endpoint never reaches the network the engine runs in. `false` by default, so an endpoint on localhost or a private network works; set only in an Operator policy, as Goodfetch Cloud sets it. A refused endpoint fails with `egress_refused` before it connects.",
@@ -34788,7 +35450,7 @@
                         }
                       ],
                       "arrived_in": "0.1",
-                      "description": "How it writes them: `append` when left out ([`Self::write_mode`])."
+                      "description": "How it writes them: `append` when left out."
                     },
                     "rate": {
                       "additionalProperties": false,
@@ -35477,7 +36139,7 @@
                     "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
                   },
                   "secret": {
-                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
+                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`, or `\"resolver_failed\"` for the program's own `resolveSecret`, asked for a `caller:` reference: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -36192,6 +36854,29 @@
                     ],
                     "description": "The longest URL a crawl admits, in characters as the WHATWG parser serializes it, without its fragment (Scrapy's `URLLENGTH_LIMIT`): a longer one is not added, with `max_url_length`, and a finished Run that refused one is `unverified`. 2,083 by default; `null` turns the cap off."
                   },
+                  "min_sink_guarantee": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "fenced",
+                          "record_fenced",
+                          "keyed",
+                          "at_least_once"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The weakest Guarantee class a crawl's Run accepts of each of its Sinks, from the strongest: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). Each Sink is probed at the Run's start, and a Sink whose probe proves a weaker class, or fails, refuses the start with `sink_guarantee_unmet` before the Run does any work. None by default: any class is accepted, and a Sink whose probe fails delivers nothing; `null` clears it."
+                  },
+                  "on_sink_failure": {
+                    "description": "Whether collection goes on when a Sink fails (`continue`, the default) or stops at the next safe point (`stop`), so a destination's outage never stops a crawl unasked (ADR 0026).",
+                    "enum": [
+                      "continue",
+                      "stop"
+                    ]
+                  },
                   "path_budgets": {
                     "description": "Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.",
                     "items": {
@@ -36449,7 +37134,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `[\"192.0.2.10\", \"2001:db8::10\"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own."
+                    "description": "The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `[\"192.0.2.10\", \"2001:db8::10\"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. Naming an interface also binds each socket to its device on Linux (`SO_BINDTODEVICE`), macOS and illumos (`IP_BOUND_IF`); Windows binds by the interface's address under its strong host model (the interface needs its own route, and an administrator can change this with `WeakHostSend`). A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own."
                   },
                   "no_private_endpoints": {
                     "description": "Whether Operator-configured endpoints (Model providers, Secret providers, proxies, Notification channels, OTLP collectors, the Plugin index, a configured `cdp_url`) are refused every address that is not globally reachable, as the addresses a page can reach are, so a tenant's endpoint never reaches the network the engine runs in. `false` by default, so an endpoint on localhost or a private network works; set only in an Operator policy, as Goodfetch Cloud sets it. A refused endpoint fails with `egress_refused` before it connects.",
@@ -39793,7 +40478,7 @@
                         }
                       ],
                       "arrived_in": "0.1",
-                      "description": "How it writes them: `append` when left out ([`Self::write_mode`])."
+                      "description": "How it writes them: `append` when left out."
                     },
                     "rate": {
                       "additionalProperties": false,
@@ -40482,7 +41167,7 @@
                     "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
                   },
                   "secret": {
-                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
+                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`, or `\"resolver_failed\"` for the program's own `resolveSecret`, asked for a `caller:` reference: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -41213,6 +41898,29 @@
                     ],
                     "description": "The longest URL a crawl admits, in characters as the WHATWG parser serializes it, without its fragment (Scrapy's `URLLENGTH_LIMIT`): a longer one is not added, with `max_url_length`, and a finished Run that refused one is `unverified`. 2,083 by default; `null` turns the cap off."
                   },
+                  "min_sink_guarantee": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "fenced",
+                          "record_fenced",
+                          "keyed",
+                          "at_least_once"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The weakest Guarantee class a crawl's Run accepts of each of its Sinks, from the strongest: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). Each Sink is probed at the Run's start, and a Sink whose probe proves a weaker class, or fails, refuses the start with `sink_guarantee_unmet` before the Run does any work. None by default: any class is accepted, and a Sink whose probe fails delivers nothing; `null` clears it."
+                  },
+                  "on_sink_failure": {
+                    "description": "Whether collection goes on when a Sink fails (`continue`, the default) or stops at the next safe point (`stop`), so a destination's outage never stops a crawl unasked (ADR 0026).",
+                    "enum": [
+                      "continue",
+                      "stop"
+                    ]
+                  },
                   "path_budgets": {
                     "description": "Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.",
                     "items": {
@@ -41470,7 +42178,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `[\"192.0.2.10\", \"2001:db8::10\"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own."
+                    "description": "The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `[\"192.0.2.10\", \"2001:db8::10\"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. Naming an interface also binds each socket to its device on Linux (`SO_BINDTODEVICE`), macOS and illumos (`IP_BOUND_IF`); Windows binds by the interface's address under its strong host model (the interface needs its own route, and an administrator can change this with `WeakHostSend`). A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own."
                   },
                   "no_private_endpoints": {
                     "description": "Whether Operator-configured endpoints (Model providers, Secret providers, proxies, Notification channels, OTLP collectors, the Plugin index, a configured `cdp_url`) are refused every address that is not globally reachable, as the addresses a page can reach are, so a tenant's endpoint never reaches the network the engine runs in. `false` by default, so an endpoint on localhost or a private network works; set only in an Operator policy, as Goodfetch Cloud sets it. A refused endpoint fails with `egress_refused` before it connects.",
@@ -44814,7 +45522,7 @@
                         }
                       ],
                       "arrived_in": "0.1",
-                      "description": "How it writes them: `append` when left out ([`Self::write_mode`])."
+                      "description": "How it writes them: `append` when left out."
                     },
                     "rate": {
                       "additionalProperties": false,
@@ -45503,7 +46211,7 @@
                     "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
                   },
                   "secret": {
-                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
+                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`, or `\"resolver_failed\"` for the program's own `resolveSecret`, asked for a `caller:` reference: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
                     "minimum": 0,
                     "type": "integer"
                   },

@@ -80,6 +80,24 @@ fn held_ms(proving_ground: &ProvingGround, target: &str) -> Option<u64> {
         })
 }
 
+/// Whether the second request for `target` on [`HOST`] (the race's navigation)
+/// arrived at the Proving ground before the first (browser-fetch) was answered
+/// (issue 1630).
+fn navigation_arrived_before_first_answer(proving_ground: &ProvingGround, target: &str) -> bool {
+    let received = proving_ground.received_requests().unwrap();
+    let requests: Vec<_> = received
+        .of_the_case()
+        .filter(|request| request.host.split(':').next() == Some(HOST) && request.target == target)
+        .collect();
+    if requests.len() < 2 {
+        return false;
+    }
+    requests[0]
+        .timing
+        .answered_microseconds
+        .is_some_and(|answered| requests[1].timing.arrived_microseconds < answered)
+}
+
 /// Each `tier_race` Provenance entry of `run_id`: its Label, its delay,
 /// how browser-fetch and the navigation ended, and the winner.
 fn races(env: &TestEnv, run_id: &str) -> Vec<Value> {
@@ -109,9 +127,9 @@ fn navigations_sent(env: &TestEnv, run_id: &str) -> u64 {
 /// check first, so the handler is given it on `http`, and the navigation
 /// started 500 ms after it, the Label having no browser-fetch latency yet,
 /// is cancelled. The site received both, and Usage counts both; the
-/// navigation's request reaches the site only as browser-fetch's answer
-/// arrives, since Chrome holds a second request for a URL its Session's
-/// HTTP cache is already fetching. The case first checks the Proving
+/// navigation's page bypasses Chrome's HTTP cache lock (ADR 0040; issue
+/// 1630), so its request arrives at the Proving ground before
+/// browser-fetch's held answer. The case first checks the Proving
 /// ground held that answer 3 s, its one premise. The Label learned `http`
 /// first, on its sample of another static listing, whose handler enqueued
 /// the held one; the held one's enqueues the next request of the Label,
@@ -158,6 +176,10 @@ fn browser_fetch_that_passes_first_wins_and_its_navigation_is_cancelled_both_cou
     assert!(
         answered_after.is_some_and(|after| after >= 3_000),
         "the Proving ground held browser-fetch's answer {answered_after:?} ms, not 3000: its executable predates `tiers.test`'s `hold`; build the test tools again (`just test`)"
+    );
+    assert!(
+        navigation_arrived_before_first_answer(&proving_ground, "/products/1?hold=3000"),
+        "the race's navigation must arrive at the Proving ground before browser-fetch's held answer"
     );
     let mut list_races = races(&env, "won-by-fetch");
     let next_delay = list_races[1][1].clone();

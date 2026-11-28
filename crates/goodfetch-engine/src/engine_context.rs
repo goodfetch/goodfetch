@@ -455,8 +455,9 @@ impl EngineContext {
     }
 
     /// Where reads and writes of these stores block, which the Run registry
-    /// waits for before it stops.
-    pub(crate) fn owner(&self) -> &Arc<TaskOwner> {
+    /// waits for before it stops; a call outside any Run that blocks, such
+    /// as `sink.probe` opening a Sink's destination, blocks there too.
+    pub fn owner(&self) -> &Arc<TaskOwner> {
         &self.stores.owner
     }
 

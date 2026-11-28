@@ -17,7 +17,7 @@ use goodfetch_protocol::response_cache::CacheMode;
 use goodfetch_protocol::run::RunId;
 
 use crate::dns::HostMapping;
-use crate::runs::ActiveEffects;
+use crate::sync::ActiveEffects;
 
 use super::{
     CacheRequest, EntryScope, Hit, Lookup, Partition, ResponseCache, ResponseCacheError,
@@ -401,20 +401,23 @@ impl ResponseSource {
         if let Some(served) = routed {
             return Source::Routed(served);
         }
-        if let Some(recording) = &self.recording
-            && self.replays_url(&request.url)
-        {
-            return match recording.recorded(request).await {
-                Recorded::Answered {
-                    served,
-                    recorded_at,
-                } => Source::Recorded {
-                    served,
-                    recorded_at,
-                },
-                Recorded::Cut(served) => Source::RecordedCut(served),
-                Recorded::Missed(miss) => Source::NotRecorded(miss),
-            };
+        if let Some(recording) = &self.recording {
+            if self.replays_url(&request.url) {
+                return match recording.recorded(request).await {
+                    Recorded::Answered {
+                        served,
+                        recorded_at,
+                    } => Source::Recorded {
+                        served,
+                        recorded_at,
+                    },
+                    Recorded::Cut(served) => Source::RecordedCut(served),
+                    Recorded::Missed(miss) => Source::NotRecorded(miss),
+                };
+            }
+            // A host mapped to loopback by `network.resolve` during replay
+            // reaches the live local test server directly, never the cache.
+            return Source::Network;
         }
         if refetch || self.capture.is_some() || kept_out.is_some_and(KeptOut::bars_serving) {
             return Source::Network;

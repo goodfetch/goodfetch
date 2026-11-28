@@ -32,6 +32,7 @@ use std::time::Duration;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::dns::LookupError;
 use goodfetch_engine::happy_eyeballs::{Delays, Families, Race, RaceError};
+use goodfetch_engine::local_addresses::Device;
 use goodfetch_protocol::dns::IpFamily;
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::sync::mpsc;
@@ -214,86 +215,4 @@ async fn attempt(
         socket.bind(SocketAddr::new(local, 0))?;
     }
     socket.connect(address).await
-}
-
-/// The device of the interface the Session's local addresses came from,
-/// which each socket binds (`SO_BINDTODEVICE`), on Linux.
-#[cfg(target_os = "linux")]
-#[derive(Clone, Debug)]
-struct Device(Option<Arc<str>>);
-
-#[cfg(target_os = "linux")]
-impl Device {
-    fn of(interface: Option<&str>) -> Self {
-        Self(interface.map(Arc::from))
-    }
-
-    fn bind(&self, socket: &socket2::SockRef<'_>, _address: SocketAddr) -> io::Result<()> {
-        match &self.0 {
-            Some(interface) => socket.bind_device(Some(interface.as_bytes())),
-            None => Ok(()),
-        }
-    }
-}
-
-/// The interface the Session's local addresses came from, which each
-/// socket binds by its index (`IP_BOUND_IF`, `IPV6_BOUND_IF`), on macOS and
-/// illumos. The index is read once, when the transport is built, as the
-/// Session's addresses are.
-#[cfg(any(target_os = "macos", target_os = "illumos"))]
-#[derive(Clone, Copy, Debug)]
-enum Device {
-    /// The Session names no interface.
-    Any,
-    /// The interface of this index.
-    Index(std::num::NonZeroU32),
-    /// An interface the host no longer has, which fails each attempt.
-    Gone,
-}
-
-#[cfg(any(target_os = "macos", target_os = "illumos"))]
-impl Device {
-    fn of(interface: Option<&str>) -> Self {
-        let Some(name) = interface else {
-            return Self::Any;
-        };
-        netdev::get_interfaces()
-            .into_iter()
-            .find(|interface| interface.name == name)
-            .and_then(|interface| std::num::NonZeroU32::new(interface.index))
-            .map_or(Self::Gone, Self::Index)
-    }
-
-    fn bind(&self, socket: &socket2::SockRef<'_>, address: SocketAddr) -> io::Result<()> {
-        match *self {
-            Self::Any => Ok(()),
-            Self::Gone => Err(io::Error::from(io::ErrorKind::NotFound)),
-            Self::Index(index) => match address {
-                SocketAddr::V4(_) => socket.bind_device_by_index_v4(Some(index)),
-                SocketAddr::V6(_) => socket.bind_device_by_index_v6(Some(index)),
-            },
-        }
-    }
-}
-
-/// Nothing: Windows binds the interface's address alone, which its strong
-/// host model sends from that interface (ADR 0044).
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "illumos")))]
-#[derive(Clone, Debug)]
-struct Device;
-
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "illumos")))]
-impl Device {
-    fn of(_interface: Option<&str>) -> Self {
-        Self
-    }
-
-    #[expect(
-        clippy::unused_self,
-        clippy::unnecessary_wraps,
-        reason = "it binds as the other OSes' `Device` does, which reads itself and can fail"
-    )]
-    fn bind(&self, _socket: &socket2::SockRef<'_>, _address: SocketAddr) -> io::Result<()> {
-        Ok(())
-    }
 }

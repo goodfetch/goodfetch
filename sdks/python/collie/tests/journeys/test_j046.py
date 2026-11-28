@@ -1,4 +1,4 @@
-"""J-045, develop against the Response cache, then test offline from a recording.
+"""J-046, develop against the Response cache, then test offline from a recording.
 
 "Develop against the Response cache, then test offline from a recording", on
 the `sdk-python` surface (ADRs 0046, 0063 and 0105; ticket #808): a developer
@@ -6,8 +6,8 @@ runs an automation against a live Proving ground product page under
 `cache.mode: "replay"`, re-runs it against the same Response cache with zero
 requests to the Proving ground, records a Response recording, and runs it again
 offline with `recording: { mode: "replay" }` with zero requests and no miss
-listed in its Run report. Rust's `tests/it/journeys/j045.rs` and TypeScript's
-`tests/journeys/J-045.test.ts` are its twins.
+listed in its Run report. Rust's `tests/it/journeys/j046.rs` and TypeScript's
+`tests/journeys/J-046.test.ts` are its twins.
 """
 
 from typing import TYPE_CHECKING, cast
@@ -58,11 +58,11 @@ async def run_program(
     return dict(read.values), report
 
 
-@journey("J-045", "sdk-python")
-async def test_j045(run: JourneyRun) -> None:
+@journey("J-046", "sdk-python")
+async def test_j046(run: JourneyRun) -> None:
     """Develop against cache replay, then record and replay offline."""
     proving_ground = run.proving_ground
-    assert proving_ground is not None, "J-045 has a Proving ground"
+    assert proving_ground is not None, "J-046 has a Proving ground"
     product_url = await anyio.to_thread.run_sync(proving_ground.start_url, "catalog/2")
     warc_path = str(run.test_env.folder / "product.warc")
     resolve = {host: [address] for host, address in proving_ground.resolve.items()}

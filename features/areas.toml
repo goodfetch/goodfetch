@@ -1316,11 +1316,37 @@ number = 6
 kind = "setting"
 prefix = "webhook."
 
-# A crawl's Sinks, one map of entries by name (#1121).
+# A crawl's Sinks, one map of entries by name (#1121), their operations,
+# commands, error codes and crawl-level Sink settings (#1128, #1142, #1146, #1149).
 [[area]]
 number = 6
 kind = "setting"
 prefix = "sinks"
+
+[[area]]
+number = 6
+kind = "setting"
+prefix = "crawl.min_sink_guarantee"
+
+[[area]]
+number = 6
+kind = "setting"
+prefix = "crawl.on_sink_failure"
+
+[[area]]
+number = 6
+kind = "operation"
+prefix = "sink."
+
+[[area]]
+number = 6
+kind = "command"
+prefix = "sink."
+
+[[area]]
+number = 6
+kind = "error"
+prefix = "sink_"
 # The Browser cache's commands (#259, #1203): `browser install` and `browser clean`.
 [[area]]
 number = 3

@@ -119,7 +119,7 @@ const THREE_STATES: &str = "A key left out inherits, `None` clears a setting tha
 
 /// The JSON Schema keywords a setting's value schema may carry that type
 /// nothing: the SDK checks no value the engine owns.
-const UNTYPED_KEYWORDS: [&str; 13] = [
+const UNTYPED_KEYWORDS: [&str; 14] = [
     "arrived_in",
     "default",
     "description",
@@ -133,6 +133,7 @@ const UNTYPED_KEYWORDS: [&str; 13] = [
     "minItems",
     "maxItems",
     "propertyNames",
+    "x-goodfetch-personal",
 ];
 
 /// The JSON Schema keywords that give a value schema its Python type.

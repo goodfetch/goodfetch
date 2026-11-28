@@ -17,6 +17,10 @@
 //! The idempotency key a body sends is derived from a per-Run secret kept
 //! in the journal's own table, so it is the same on every attempt and
 //! resume, and a Checkpoint carries it.
+//!
+//! Size: `Effects`, `effect.open`, `effect.close`, `SendWindow` and
+//! `reconcile` are one concern sharing the private `Shelf`/`Book` lock and
+//! the in-memory `ActiveEffects` counter.
 
 mod journal;
 pub mod lifecycle;
@@ -163,6 +167,71 @@ impl Book {
         self.active.set(self.bodies.len());
         judged
     }
+
+    fn record_answered(&mut self, namespace: String, key: String, owner: Owner) {
+        self.answered.push(Answered {
+            namespace,
+            key,
+            owner,
+        });
+    }
+
+    fn unsent_for(&self, attempt: Option<&EffectAttempt>) -> Vec<(usize, i64)> {
+        self.bodies
+            .iter()
+            .enumerate()
+            .filter(|(_, body)| {
+                body.owner.declares_through(attempt)
+                    && matches!(apply(body.state(), EffectEvent::Send), Ok(Next::To(_)))
+            })
+            .map(|(at, body)| (at, body.entry))
+            .collect()
+    }
+
+    fn mark_sent_at(&mut self, indices: &[usize], command: &str, since: SystemTime) {
+        for &at in indices {
+            self.bodies[at].sent = Some((command.to_owned(), since));
+        }
+    }
+
+    fn has_live_body(&self) -> bool {
+        self.bodies.iter().any(|body| body.owner.is_alive())
+    }
+
+    fn has_entry(&self, entry: i64) -> bool {
+        self.bodies.iter().any(|body| body.entry == entry)
+    }
+
+    fn check_key(&mut self, namespace: &str, key: &str, owner: &Owner) -> KeyCheck {
+        self.answered.retain(|answered| answered.owner.is_alive());
+        if self.answered.iter().any(|answered| {
+            answered.namespace == namespace && answered.key == key && answered.owner.is(owner)
+        }) {
+            return KeyCheck::Reused;
+        }
+        let Some(at) = self
+            .bodies
+            .iter()
+            .position(|body| body.namespace == namespace && body.key == key)
+        else {
+            return KeyCheck::Free;
+        };
+        if self.bodies[at].owner.is(owner) {
+            return KeyCheck::Reused;
+        }
+        if !self.bodies[at].owner.is_alive() {
+            let gone = self.remove_body(at);
+            return KeyCheck::DroppedDead(gone.owner);
+        }
+        KeyCheck::Running(self.bodies[at].owner.client.clone())
+    }
+}
+
+enum KeyCheck {
+    Free,
+    Reused,
+    DroppedDead(Owner),
+    Running(Client),
 }
 
 /// A body that runs.
@@ -392,11 +461,7 @@ impl Effects {
         };
         owner.end_effect();
         if answer.is_ok() {
-            book.answered.push(Answered {
-                namespace,
-                key,
-                owner,
-            });
+            book.record_answered(namespace, key, owner);
         }
         answer
     }
@@ -482,11 +547,7 @@ impl Effects {
         };
         body.owner.end_effect();
         if matches!(judged, Ok(EffectClosed::Done { .. })) {
-            book.answered.push(Answered {
-                namespace: body.namespace,
-                key: body.key,
-                owner: body.owner,
-            });
+            book.record_answered(body.namespace, body.key, body.owner);
         }
         run_shelf.judged.notify_waiters();
         judged
@@ -512,30 +573,20 @@ impl Effects {
         };
         let attempt = lease.and_then(LeaseCheck::effect_attempt);
         let mut book = run_shelf.book.lock().await;
-        let marked: Vec<usize> = book
-            .bodies
-            .iter()
-            .enumerate()
-            .filter(|(_, body)| {
-                body.owner.declares_through(attempt.as_ref())
-                    && matches!(apply(body.state(), EffectEvent::Send), Ok(Next::To(_)))
-            })
-            .map(|(at, _)| at)
-            .collect();
-        if marked.is_empty() {
+        let unsent = book.unsent_for(attempt.as_ref());
+        if unsent.is_empty() {
             return Ok(());
         }
         let since = run.point_in_time();
-        let entries: Vec<i64> = marked.iter().map(|&at| book.bodies[at].entry).collect();
+        let indices: Vec<usize> = unsent.iter().map(|&(at, _)| at).collect();
+        let entries: Vec<i64> = unsent.iter().map(|&(_, entry)| entry).collect();
         let first_command = command.to_owned();
         state
             .write_with(Syncing::Sent, move |connection| {
                 mark_sent(connection, &entries, &first_command, since)
             })
             .await?;
-        for at in marked {
-            book.bodies[at].sent = Some((command.to_owned(), since));
-        }
+        book.mark_sent_at(&indices, command, since);
         Ok(())
     }
 
@@ -560,14 +611,7 @@ impl Effects {
             let judged = run_shelf.judged.notified();
             tokio::pin!(judged);
             judged.as_mut().enable();
-            if !run_shelf
-                .book
-                .lock()
-                .await
-                .bodies
-                .iter()
-                .any(|body| body.owner.is_alive())
-            {
+            if !run_shelf.book.lock().await.has_live_body() {
                 break;
             }
             tokio::select! {
@@ -619,7 +663,7 @@ impl Effects {
         };
         let run_shelf = self.shelf(run.id()).await;
         let book = run_shelf.book.lock().await;
-        if book.bodies.iter().any(|body| body.entry == number) {
+        if book.has_entry(number) {
             return Ok(Reconciled::NotUncertain);
         }
         let by = context.person();
@@ -744,30 +788,16 @@ impl Shelf {
         };
         loop {
             let mut book = self.book.lock().await;
-            book.answered.retain(|answered| answered.owner.is_alive());
-            if book.answered.iter().any(|answered| {
-                answered.namespace == namespace && answered.key == key && answered.owner.is(owner)
-            }) {
-                return Err(reused());
-            }
-            let Some(at) = book
-                .bodies
-                .iter()
-                .position(|body| body.namespace == namespace && body.key == key)
-            else {
-                return Ok(book);
+            let other = match book.check_key(namespace, key, owner) {
+                KeyCheck::Free => return Ok(book),
+                KeyCheck::Reused => return Err(reused()),
+                KeyCheck::DroppedDead(gone) => {
+                    gone.end_effect();
+                    self.judged.notify_waiters();
+                    return Ok(book);
+                }
+                KeyCheck::Running(other) => other,
             };
-            let running = &book.bodies[at];
-            if running.owner.is(owner) {
-                return Err(reused());
-            }
-            if !running.owner.is_alive() {
-                let gone = book.remove_body(at);
-                gone.owner.end_effect();
-                self.judged.notify_waiters();
-                return Ok(book);
-            }
-            let other = running.owner.client.clone();
             let judged = self.judged.notified();
             tokio::pin!(judged);
             judged.as_mut().enable();

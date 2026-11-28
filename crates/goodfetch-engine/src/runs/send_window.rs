@@ -13,43 +13,7 @@ use crate::call_error::CallError;
 use crate::lease::LeaseCheck;
 use crate::run_identity::RunIdentity;
 use crate::run_state::RunState;
-use crate::sync::{AtomicU64, Ordering};
-
-/// In-memory count of declared Effect bodies currently running for one Run,
-/// read with a single atomic load and no I/O on the Response cache hot path
-/// (ADRs 0046, 0106 and 0140).
-#[derive(Clone, Debug, Default)]
-pub struct ActiveEffects(Arc<AtomicU64>);
-
-impl ActiveEffects {
-    /// Whether at least one declared Effect body is currently running.
-    #[must_use]
-    pub fn is_running(&self) -> bool {
-        self.0.load(Ordering::Acquire) > 0
-    }
-
-    /// Updates the running body count.
-    pub(crate) fn set(&self, count: usize) {
-        self.0
-            .store(u64::try_from(count).unwrap_or(u64::MAX), Ordering::Release);
-    }
-
-    /// Downgrades to a weak handle so [`crate::effect::Effects`] drops entries
-    /// once no Run or Shelf holds them.
-    pub(crate) fn downgrade(&self) -> std::sync::Weak<AtomicU64> {
-        Arc::downgrade(&self.0)
-    }
-
-    /// Upgrades a weak handle back into an [`ActiveEffects`] handle.
-    pub(crate) fn upgrade(weak: &std::sync::Weak<AtomicU64>) -> Option<Self> {
-        weak.upgrade().map(Self)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn count(&self) -> u64 {
-        self.0.load(Ordering::Acquire)
-    }
-}
+pub use crate::sync::ActiveEffects;
 
 /// ADR 0106's send window: the engine's declared Effects, which mark the
 /// bodies a Run's command counts for sent before it goes out, and which a

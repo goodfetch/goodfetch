@@ -90,7 +90,18 @@ fn mcp_http() {
                 .to_owned();
 
             let (name, tools) = real_time_runtime().block_on(async {
-                let http = reqwest::Client::builder().build().unwrap();
+                let tls = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
+                    rustls::crypto::ring::default_provider(),
+                ))
+                .with_safe_default_protocol_versions()
+                .unwrap()
+                .with_root_certificates(rustls::RootCertStore::empty())
+                .with_no_client_auth();
+                let http = reqwest::Client::builder()
+                    .tls_backend_preconfigured(tls)
+                    .no_proxy()
+                    .build()
+                    .unwrap();
                 let transport = StreamableHttpClientTransport::with_client(
                     http,
                     StreamableHttpClientTransportConfig::with_uri(url).auth_header(bearer),

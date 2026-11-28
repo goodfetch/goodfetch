@@ -1555,10 +1555,6 @@ impl crate::engine::EngineConnector for ScriptedSessionConnector {
 /// Covers: story:11-220
 #[test]
 #[expect(
-    clippy::disallowed_methods,
-    reason = "integration test builds a plain reqwest client to send raw HTTP refusal attempts"
-)]
-#[expect(
     clippy::too_many_lines,
     reason = "end-to-end Streamable HTTP refusal matrix verifies missing, wrong, query-string tokens, foreign Host/Origin, and rmcp client access"
 )]
@@ -1595,6 +1591,7 @@ fn streamable_http_refuses_missing_wrong_query_token_and_foreign_host_or_origin(
             transports::HttpServerConfig {
                 bind: transports::DEFAULT_HTTP_BIND.parse().unwrap(),
                 auth: transports::HttpAuth::LaunchToken(SecretString::from(token.clone())),
+                tls: transports::HttpTls::Plain,
                 refusals: Some(Arc::<RecordingRefusals>::clone(&refusals)),
                 cancellation: cancellation.clone(),
             },
@@ -1611,7 +1608,7 @@ fn streamable_http_refuses_missing_wrong_query_token_and_foreign_host_or_origin(
             let _ = bound.serve().await;
         });
 
-        let http = reqwest::Client::builder().build().unwrap();
+        let http = test_http_client(&[]);
         let init_body = json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -1731,10 +1728,6 @@ fn streamable_http_refuses_missing_wrong_query_token_and_foreign_host_or_origin(
 /// Covers: story:11-231
 #[test]
 #[expect(
-    clippy::disallowed_methods,
-    reason = "integration test builds plain reqwest clients for two concurrent rmcp Streamable HTTP sessions"
-)]
-#[expect(
     clippy::too_many_lines,
     reason = "verifies per-session Limit isolation and independent cancellation across two concurrent Streamable HTTP sessions"
 )]
@@ -1769,6 +1762,7 @@ fn streamable_http_two_concurrent_sessions_keep_independent_limits_and_cancellat
             transports::HttpServerConfig {
                 bind: transports::DEFAULT_HTTP_BIND.parse().unwrap(),
                 auth: transports::HttpAuth::LaunchToken(SecretString::from(token.clone())),
+                tls: transports::HttpTls::Plain,
                 refusals: None,
                 cancellation: cancellation.clone(),
             },
@@ -1785,7 +1779,7 @@ fn streamable_http_two_concurrent_sessions_keep_independent_limits_and_cancellat
 
         let client_a = ()
             .serve(StreamableHttpClientTransport::with_client(
-                reqwest::Client::builder().build().unwrap(),
+                test_http_client(&[]),
                 StreamableHttpClientTransportConfig::with_uri(url.clone())
                     .auth_header(token.clone()),
             ))
@@ -1794,7 +1788,7 @@ fn streamable_http_two_concurrent_sessions_keep_independent_limits_and_cancellat
 
         let client_b = ()
             .serve(StreamableHttpClientTransport::with_client(
-                reqwest::Client::builder().build().unwrap(),
+                test_http_client(&[]),
                 StreamableHttpClientTransportConfig::with_uri(url).auth_header(token),
             ))
             .await
@@ -1905,6 +1899,585 @@ fn streamable_http_two_concurrent_sessions_keep_independent_limits_and_cancellat
 
         let _ = client_a.cancel().await;
         let _ = client_b.cancel().await;
+        cancellation.cancel();
+        tasks.close();
+        tasks.wait().await;
+    });
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "unit test builds a reqwest client with explicit ring rustls config"
+)]
+fn test_http_client(extra_roots: &[rustls::pki_types::CertificateDer<'static>]) -> reqwest::Client {
+    let mut roots = rustls::RootCertStore::empty();
+    for cert in extra_roots {
+        roots.add(cert.clone()).unwrap();
+    }
+    let tls = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    reqwest::Client::builder()
+        .tls_backend_preconfigured(tls)
+        .no_proxy()
+        .build()
+        .unwrap()
+}
+
+/// Local OAuth 2.1 authorization server stub serving RFC 8414 metadata and a
+/// JWKS with both Ed25519 (`EdDSA`) and P-256 (`ES256`) signing keys.
+struct LocalAuthServerStub {
+    issuer: String,
+    ed_key: ed25519_dalek::SigningKey,
+    ed_kid: String,
+    ec_key: p256::ecdsa::SigningKey,
+    ec_kid: String,
+    cancellation: tokio_util::sync::CancellationToken,
+}
+
+impl LocalAuthServerStub {
+    #[expect(
+        clippy::disallowed_types,
+        reason = "test authorization server stub opens a loopback TCP listener"
+    )]
+    async fn start(tasks: &TaskTracker) -> Self {
+        use bytes::Bytes;
+        use data_encoding::BASE64URL_NOPAD;
+        use http::{Request, Response, StatusCode, header};
+        use http_body_util::Full;
+        use hyper::body::Incoming;
+        use hyper_util::rt::TokioIo;
+        use std::convert::Infallible;
+
+        let ed_key = ed25519_dalek::SigningKey::from_bytes(&[0x42u8; 32]);
+        let ed_x = BASE64URL_NOPAD.encode(ed_key.verifying_key().as_bytes());
+        let ed_kid = "stub-ed25519-1".to_owned();
+
+        let p256_key = p256::ecdsa::SigningKey::from_slice(&[0x24u8; 32]).unwrap();
+        let p256_point = p256_key.verifying_key().to_sec1_point(false);
+        let p256_x = BASE64URL_NOPAD.encode(p256_point.x().unwrap().as_slice());
+        let p256_y = BASE64URL_NOPAD.encode(p256_point.y().unwrap().as_slice());
+        let p256_kid = "stub-es256-1".to_owned();
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let issuer = format!("http://{addr}");
+        let metadata = Arc::new(
+            serde_json::to_vec(&json!({
+                "issuer": issuer,
+                "jwks_uri": format!("{issuer}/jwks.json"),
+            }))
+            .unwrap(),
+        );
+        let jwks = Arc::new(
+            serde_json::to_vec(&json!({
+                "keys": [
+                    { "kty": "OKP", "crv": "Ed25519", "kid": ed_kid, "use": "sig", "alg": "EdDSA", "x": ed_x },
+                    { "kty": "EC", "crv": "P-256", "kid": p256_kid, "use": "sig", "alg": "ES256", "x": p256_x, "y": p256_y }
+                ]
+            }))
+            .unwrap(),
+        );
+        let cancellation = tokio_util::sync::CancellationToken::new();
+        let stop = cancellation.clone();
+        let conn_tasks = tasks.clone();
+        tasks.spawn(async move {
+            loop {
+                let accepted = tokio::select! {
+                    () = stop.cancelled() => break,
+                    res = listener.accept() => res,
+                };
+                let Ok((stream, _)) = accepted else { break };
+                let (metadata, jwks) = (Arc::clone(&metadata), Arc::clone(&jwks));
+                conn_tasks.spawn(async move {
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(
+                            TokioIo::new(stream),
+                            hyper::service::service_fn(move |req: Request<Incoming>| {
+                                let (metadata, jwks) = (Arc::clone(&metadata), Arc::clone(&jwks));
+                                async move {
+                                    let (status, body) = match req.uri().path() {
+                                        "/.well-known/oauth-authorization-server" => {
+                                            (StatusCode::OK, (*metadata).clone())
+                                        }
+                                        "/jwks.json" => (StatusCode::OK, (*jwks).clone()),
+                                        _ => (StatusCode::NOT_FOUND, b"{}".to_vec()),
+                                    };
+                                    let mut resp = Response::new(Full::new(Bytes::from(body)));
+                                    *resp.status_mut() = status;
+                                    resp.headers_mut().insert(
+                                        header::CONTENT_TYPE,
+                                        http::HeaderValue::from_static("application/json"),
+                                    );
+                                    Ok::<_, Infallible>(resp)
+                                }
+                            }),
+                        )
+                        .await;
+                });
+            }
+        });
+
+        Self {
+            issuer,
+            ed_key,
+            ed_kid,
+            ec_key: p256_key,
+            ec_kid: p256_kid,
+            cancellation,
+        }
+    }
+
+    fn sign_eddsa(&self, claims: &Value) -> String {
+        use data_encoding::BASE64URL_NOPAD;
+        use ed25519_dalek::Signer as _;
+        let header = json!({ "alg": "EdDSA", "typ": "JWT", "kid": self.ed_kid });
+        let input = format!(
+            "{}.{}",
+            BASE64URL_NOPAD.encode(header.to_string().as_bytes()),
+            BASE64URL_NOPAD.encode(claims.to_string().as_bytes())
+        );
+        let sig = self.ed_key.sign(input.as_bytes());
+        format!("{input}.{}", BASE64URL_NOPAD.encode(&sig.to_bytes()))
+    }
+
+    fn sign_es256(&self, claims: &Value) -> String {
+        use data_encoding::BASE64URL_NOPAD;
+        use p256::ecdsa::signature::Signer as _;
+        let header = json!({ "alg": "ES256", "typ": "JWT", "kid": self.ec_kid });
+        let input = format!(
+            "{}.{}",
+            BASE64URL_NOPAD.encode(header.to_string().as_bytes()),
+            BASE64URL_NOPAD.encode(claims.to_string().as_bytes())
+        );
+        let sig: p256::ecdsa::Signature = self.ec_key.sign(input.as_bytes());
+        format!("{input}.{}", BASE64URL_NOPAD.encode(&sig.to_bytes()))
+    }
+}
+
+struct RecordingEngineConnector {
+    tasks: TaskTracker,
+    recorded_wire: Arc<Mutex<Vec<String>>>,
+}
+
+impl crate::engine::EngineConnector for RecordingEngineConnector {
+    fn connect(
+        &self,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<crate::engine::EngineLink, crate::engine::EngineLinkError>,
+                > + Send
+                + '_,
+        >,
+    > {
+        let tasks = self.tasks.clone();
+        let recorded = Arc::clone(&self.recorded_wire);
+        Box::pin(async move {
+            let (client_io, engine_io) = tokio::io::duplex(64 * 1024);
+            let (engine_read, mut engine_write) = tokio::io::split(engine_io);
+            let (client_read, client_write) = tokio::io::split(client_io);
+
+            tasks.spawn(async move {
+                use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+                let mut lines = BufReader::new(engine_read).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    recorded.lock().unwrap().push(line.clone());
+                    let msg: Value = serde_json::from_str(&line).unwrap();
+                    let method = msg.get("method").and_then(Value::as_str).unwrap_or("");
+                    let Some(id) = msg.get("id").cloned() else {
+                        continue;
+                    };
+                    let reply = match method {
+                        "hello" => json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "protocol_version": goodfetch_protocol::catalog::PROTOCOL_VERSION.to_string(),
+                                "product": "collie",
+                                "product_version": "0.1.0",
+                                "engine_instance": "attached",
+                                "max_calls_in_flight": 16,
+                                "timeouts": []
+                            }
+                        }),
+                        "run.start" => json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": { "run_id": "run-oauth-verified" }
+                        }),
+                        other => json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": {
+                                "code": -32001,
+                                "message": format!("unexpected method {other}"),
+                                "data": {
+                                    "code": "method_not_found",
+                                    "group": "program",
+                                    "retryable": false
+                                }
+                            }
+                        }),
+                    };
+                    let mut out = serde_json::to_vec(&reply).unwrap();
+                    out.push(b'\n');
+                    if engine_write.write_all(&out).await.is_err() {
+                        break;
+                    }
+                    let _ = engine_write.flush().await;
+                }
+            });
+
+            let (link, _hello) = crate::engine::EngineLink::connect_split(
+                client_read,
+                client_write,
+                crate::engine::EngineLinkConfig {
+                    product: Product::Collie,
+                    product_version: goodfetch_protocol::connection::ProductVersion::parse("0.1.0")
+                        .unwrap(),
+                    token: Some("internal-engine-only-token".to_owned()),
+                    live_view_base_url: None,
+                },
+            )
+            .await?;
+            Ok(link)
+        })
+    }
+}
+
+/// Covers: story:11-221, setting:mcp.oauth.issuer, setting:mcp.oauth.audience
+#[test]
+fn oauth_config_validates_issuer_and_audience_and_builds_rfc9728_metadata() {
+    use crate::oauth::OAuthConfig;
+
+    let bad_issuer = OAuthConfig::new("http://auth.example.com", "https://mcp.example.com/mcp")
+        .expect_err("non-loopback HTTP issuer must be refused");
+    assert_eq!(bad_issuer.key, "mcp.oauth.issuer");
+
+    let empty_issuer = OAuthConfig::new("", "https://mcp.example.com/mcp").unwrap_err();
+    assert_eq!(empty_issuer.key, "mcp.oauth.issuer");
+
+    let fragment_aud = OAuthConfig::new(
+        "https://auth.example.com",
+        "https://mcp.example.com/mcp#frag",
+    )
+    .unwrap_err();
+    assert_eq!(fragment_aud.key, "mcp.oauth.audience");
+
+    let config = OAuthConfig::new("https://auth.example.com", "https://mcp.example.com/mcp")
+        .expect("valid HTTPS OAuth config");
+    let metadata = config.protected_resource_metadata();
+    assert_eq!(metadata.resource, "https://mcp.example.com/mcp");
+    assert_eq!(
+        metadata.authorization_servers,
+        vec!["https://auth.example.com"]
+    );
+    assert_eq!(metadata.bearer_methods_supported, vec!["header"]);
+    assert_eq!(
+        config.resource_metadata_url(),
+        "https://mcp.example.com/.well-known/oauth-protected-resource/mcp"
+    );
+    assert!(config.matches_metadata_path("/.well-known/oauth-protected-resource"));
+    assert!(config.matches_metadata_path("/.well-known/oauth-protected-resource/mcp"));
+}
+
+/// Covers: story:11-221, setting:mcp.oauth.issuer, setting:mcp.oauth.audience
+#[test]
+#[expect(
+    clippy::disallowed_types,
+    reason = "integration test opens one raw plain TCP socket to prove the TLS listener refuses plaintext with tls_required"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "verifies TLS enforcement, RFC 9728 metadata, issuer/audience/exp/missing/signature rejections, rmcp HTTPS client, and no token passthrough"
+)]
+fn remote_mcp_tls_and_oauth_enforces_metadata_audience_issuer_exp_and_no_passthrough() {
+    use crate::oauth::{OAuthConfig, OAuthResourceServer};
+    use goodfetch_protocol::audit::RefusalReason;
+    use rmcp::transport::StreamableHttpClientTransport;
+    use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    use tokio_util::sync::CancellationToken;
+
+    let rt = test_runtime();
+    rt.block_on(async {
+        let tasks = TaskTracker::new();
+        let stub = LocalAuthServerStub::start(&tasks).await;
+
+        // Generate a self-signed TLS certificate for `localhost` / `127.0.0.1`.
+        let key_pair = rcgen::KeyPair::generate().unwrap();
+        let cert = rcgen::CertificateParams::new(vec![
+            "localhost".to_owned(),
+            "127.0.0.1".to_owned(),
+        ])
+        .unwrap()
+        .self_signed(&key_pair)
+        .unwrap();
+        let cert_der = cert.der().clone();
+        let key_der = rustls::pki_types::PrivateKeyDer::Pkcs8(
+            rustls::pki_types::PrivatePkcs8KeyDer::from(key_pair.serialize_der()),
+        );
+        let server_tls = rustls::ServerConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_no_client_auth()
+        .with_single_cert(vec![cert_der.clone()], key_der)
+        .unwrap();
+        let tls_acceptor = Arc::new(transports::StaticTlsAcceptor(
+            tokio_rustls::TlsAcceptor::from(Arc::new(server_tls)),
+        ));
+
+        let fixed_now: u64 = 1_800_000_000;
+        let audience = "https://mcp.remote.test/mcp";
+        let oauth_config = OAuthConfig::new(&stub.issuer, audience).unwrap();
+        let fetcher = Arc::new(transports::HttpOAuthFetcher::new(&[]));
+        let oauth = Arc::new(OAuthResourceServer::new(
+            oauth_config,
+            fetcher,
+            Arc::new(move || fixed_now),
+        ));
+
+        let refusals = Arc::new(RecordingRefusals::default());
+        let recorded_wire = Arc::new(Mutex::new(Vec::new()));
+        let connector = Arc::new(RecordingEngineConnector {
+            tasks: tasks.clone(),
+            recorded_wire: Arc::clone(&recorded_wire),
+        });
+        let options = ServerOptions {
+            product: Product::Collie,
+            version: "0.1.0".to_owned(),
+            profile: ResolvedProfile::for_product(Product::Collie, ProfileName::Browser),
+            resources: crate::resources::ResourceStore::default(),
+        };
+        let cancellation = CancellationToken::new();
+        let bound = transports::BoundHttpServer::bind(
+            transports::HttpServerConfig {
+                bind: "0.0.0.0:0".parse().unwrap(),
+                auth: transports::HttpAuth::OAuth(Arc::clone(&oauth)),
+                tls: transports::HttpTls::Direct(tls_acceptor),
+                refusals: Some(Arc::<RecordingRefusals>::clone(&refusals)),
+                cancellation: cancellation.clone(),
+            },
+            options,
+            connector,
+        )
+        .await
+        .expect("bind remote TLS + OAuth MCP server");
+        let port = bound.local_addr().port();
+        assert!(bound.url().starts_with("https://"));
+
+        tasks.spawn(async move {
+            let _ = bound.serve().await;
+        });
+
+        // 1. Plaintext HTTP attempt on the TLS listener is closed unanswered with `tls_required`.
+        let mut plain = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .unwrap();
+        plain
+            .write_all(b"GET /mcp HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .await
+            .unwrap();
+        let mut buf = [0u8; 16];
+        match plain.read(&mut buf).await {
+            Ok(0) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::ConnectionReset => {}
+            other => panic!("TLS listener must close plaintext connection unanswered, got {other:?}"),
+        }
+
+        let https = test_http_client(&[cert_der]);
+        let base = format!("https://localhost:{port}");
+        let mcp_url = format!("{base}/mcp");
+
+        // 2. RFC 9728 Protected Resource Metadata is served without auth and names issuer + audience.
+        for path in [
+            "/.well-known/oauth-protected-resource",
+            "/.well-known/oauth-protected-resource/mcp",
+        ] {
+            let resp = https.get(format!("{base}{path}")).send().await.unwrap();
+            assert_eq!(resp.status(), 200, "metadata path {path}");
+            let meta: Value = resp.json().await.unwrap();
+            assert_eq!(meta["resource"], audience);
+            assert_eq!(meta["authorization_servers"], json!([stub.issuer]));
+            assert_eq!(meta["bearer_methods_supported"], json!(["header"]));
+        }
+
+        let init_body = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": { "name": "oauth-test", "version": "1.0.0" }
+            }
+        });
+
+        // 3. Missing token -> 401 with RFC 9728 `resource_metadata` in WWW-Authenticate.
+        let resp = https
+            .post(&mcp_url)
+            .header("Accept", "application/json, text/event-stream")
+            .json(&init_body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 401);
+        let www_auth = resp
+            .headers()
+            .get("www-authenticate")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(
+            www_auth.contains("resource_metadata=\"https://mcp.remote.test/.well-known/oauth-protected-resource/mcp\""),
+            "unexpected WWW-Authenticate: {www_auth}"
+        );
+
+        // 4. Token from another issuer -> 401.
+        let wrong_iss = stub.sign_eddsa(&json!({
+            "iss": "https://other-issuer.invalid",
+            "aud": audience,
+            "exp": fixed_now + 600,
+            "sub": "user-1"
+        }));
+        let resp = https
+            .post(&mcp_url)
+            .header("Authorization", format!("Bearer {wrong_iss}"))
+            .header("Accept", "application/json, text/event-stream")
+            .json(&init_body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 401);
+
+        // 5. Token of another audience -> 401.
+        let wrong_aud = stub.sign_eddsa(&json!({
+            "iss": stub.issuer,
+            "aud": "https://other-service.invalid/mcp",
+            "exp": fixed_now + 600,
+            "sub": "user-1"
+        }));
+        let resp = https
+            .post(&mcp_url)
+            .header("Authorization", format!("Bearer {wrong_aud}"))
+            .header("Accept", "application/json, text/event-stream")
+            .json(&init_body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 401);
+
+        // 6. Expired token -> 401.
+        let expired = stub.sign_eddsa(&json!({
+            "iss": stub.issuer,
+            "aud": audience,
+            "exp": fixed_now - 1,
+            "sub": "user-1"
+        }));
+        let resp = https
+            .post(&mcp_url)
+            .header("Authorization", format!("Bearer {expired}"))
+            .header("Accept", "application/json, text/event-stream")
+            .json(&init_body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 401);
+
+        // 7. `alg: none` token -> 401.
+        let alg_none = format!(
+            "{}.{}.sig",
+            data_encoding::BASE64URL_NOPAD.encode(b"{\"alg\":\"none\",\"typ\":\"JWT\"}"),
+            data_encoding::BASE64URL_NOPAD.encode(
+                json!({ "iss": stub.issuer, "aud": audience, "exp": fixed_now + 600 })
+                    .to_string()
+                    .as_bytes()
+            )
+        );
+        let resp = https
+            .post(&mcp_url)
+            .header("Authorization", format!("Bearer {alg_none}"))
+            .header("Accept", "application/json, text/event-stream")
+            .json(&init_body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 401);
+
+        // 8. Valid EdDSA token -> rmcp Streamable HTTP client succeeds over HTTPS.
+        let valid_eddsa = stub.sign_eddsa(&json!({
+            "iss": stub.issuer,
+            "aud": audience,
+            "exp": fixed_now + 600,
+            "sub": "agent-client"
+        }));
+        let client_ed = ()
+            .serve(StreamableHttpClientTransport::with_client(
+                https.clone(),
+                StreamableHttpClientTransportConfig::with_uri(mcp_url.clone())
+                    .auth_header(valid_eddsa.clone()),
+            ))
+            .await
+            .expect("rmcp HTTPS client with valid EdDSA token");
+        let started = client_ed
+            .call_tool(CallToolRequestParams::new("run_start").with_arguments(Map::new()))
+            .await
+            .expect("run_start with EdDSA token");
+        assert_ne!(started.is_error, Some(true));
+        let _ = client_ed.cancel().await;
+
+        // 9. Valid ES256 token with array `aud` -> rmcp HTTPS client succeeds.
+        let valid_es256 = stub.sign_es256(&json!({
+            "iss": stub.issuer,
+            "aud": ["https://other.example.test", audience],
+            "exp": fixed_now + 600,
+            "sub": "agent-client-ec"
+        }));
+        let p256_client = ()
+            .serve(StreamableHttpClientTransport::with_client(
+                https,
+                StreamableHttpClientTransportConfig::with_uri(mcp_url)
+                    .auth_header(valid_es256.clone()),
+            ))
+            .await
+            .expect("rmcp HTTPS client with valid ES256 token");
+        let tools = p256_client.list_all_tools().await.expect("list_all_tools");
+        assert!(tools.iter().any(|t| t.name == "run_start"));
+        let _ = p256_client.cancel().await;
+
+        // 10. Prove NO OAuth bearer token (or any segment of it) ever reached the engine.
+        let wire_messages = recorded_wire.lock().unwrap().clone();
+        assert!(
+            wire_messages.iter().any(|line| line.contains("\"hello\"")),
+            "engine must have received hello"
+        );
+        assert!(
+            wire_messages.iter().any(|line| line.contains("\"run.start\"")),
+            "engine must have received run.start"
+        );
+        for token in [&valid_eddsa, &valid_es256] {
+            for segment in std::iter::once(token.as_str()).chain(token.split('.')) {
+                assert!(
+                    wire_messages.iter().all(|line| !line.contains(segment)),
+                    "OAuth token segment leaked into engine wire message: {wire_messages:?}"
+                );
+            }
+        }
+
+        // Verify Audit refusals recorded TlsRequired + TokenMissing + TokenWrong.
+        let reasons = refusals.reasons.lock().unwrap().clone();
+        assert!(reasons.contains(&RefusalReason::TlsRequired));
+        assert!(reasons.contains(&RefusalReason::TokenMissing));
+        assert!(reasons.contains(&RefusalReason::TokenWrong));
+
+        stub.cancellation.cancel();
         cancellation.cancel();
         tasks.close();
         tasks.wait().await;

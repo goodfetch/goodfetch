@@ -3219,6 +3219,10 @@ const SPELLING: Spelling = {
     output: "output",
   }],
   mcp: ["mcp", {
+    oauth: ["oauth", {
+      audience: "audience",
+      issuer: "issuer",
+    }],
     profile: "profile",
   }],
   network: ["network", {

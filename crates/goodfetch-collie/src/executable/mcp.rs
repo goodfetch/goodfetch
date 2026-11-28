@@ -14,31 +14,37 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
-use goodfetch_engine::audit::AuditLog;
+use goodfetch_engine::audit::{AuditLog, Origin};
 use goodfetch_engine::daemon::{DaemonOptions, Drain, Holds, Succession};
-use goodfetch_engine::endpoint::Refusals;
+use goodfetch_engine::endpoint::{Refusals, Termination};
 use goodfetch_engine::ops::Ops;
-use goodfetch_engine::settings::get_or_default;
+use goodfetch_engine::settings::{Resolved, SettingsError, get_or_default};
 use goodfetch_engine::tasks::TaskOwner;
+use goodfetch_engine::tls::ServingCertificate;
 use goodfetch_engine::transport::{self, InMemoryDialer, Network};
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_mcp::engine::{EngineConnector, EngineLink, EngineLinkConfig, EngineLinkError};
+use goodfetch_mcp::oauth::{EpochSecondsClock, OAuthConfig, OAuthResourceServer};
 use goodfetch_mcp::profiles::{ProfileName, ResolvedProfile};
 use goodfetch_mcp::resources::{EmbeddedDoc, EmbeddedSkillFile, ResourceStore};
 use goodfetch_mcp::server::{McpServer, ServerOptions};
 use goodfetch_mcp::transports::{
-    self, BoundHttpServer, DEFAULT_HTTP_BIND, HttpAuth, HttpRefusalRecorder, HttpServerConfig,
+    self, BoundHttpServer, DEFAULT_HTTP_BIND, HttpAuth, HttpOAuthFetcher, HttpRefusalRecorder,
+    HttpServerConfig, HttpTls, HttpTlsAcceptor,
 };
-use goodfetch_protocol::audit::{Listener, RefusalReason};
-use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::audit::{Actor, Listener, RefusalReason, TLS_TERMINATED_UPSTREAM};
+use goodfetch_protocol::catalog::{Product, Setting};
 use goodfetch_protocol::connection::ProductVersion;
-use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonToken, TLS_CERT_FILE, TLS_KEY_FILE};
-use goodfetch_protocol::mcp::PROFILE;
+use goodfetch_protocol::daemon::{
+    DaemonEndpoint, DaemonToken, TLS_CERT_FILE, TLS_KEY_FILE, TLS_UPSTREAM,
+};
+use goodfetch_protocol::mcp::{OAUTH_AUDIENCE, OAUTH_ISSUER, PROFILE};
+use goodfetch_protocol::settings::SettingsLayer;
 use secrecy::SecretString;
 use serde::Serialize;
 use tokio_util::sync::CancellationToken;
 
-use super::daemon::Machine;
+use super::daemon::{Machine, tls as daemon_tls};
 use super::engine_choice::{Choice, EngineFlags};
 use super::output;
 use super::skills::Skills;
@@ -112,11 +118,13 @@ pub(super) struct Arguments {
 }
 
 /// Startup record printed once on stdout by `mcp --http` before serving
-/// (ADRs 0011, 0017, 0067; issue 1365).
+/// (ADRs 0011, 0017, 0067; issues 1365 and 1367). Remote OAuth 2.1 servers
+/// omit `token` because they hold no shared secret.
 #[derive(Serialize)]
 struct HttpStartupRecord {
     address: String,
-    token: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    token: Option<String>,
 }
 
 /// Resolves the MCP profile from `--profile`, `mcp.profile`, or the `browser` default.
@@ -239,6 +247,116 @@ impl HttpRefusalRecorder for AuditRefusalRecorder {
     }
 }
 
+struct ServingCertificateAcceptor {
+    certificate: ServingCertificate,
+    owner: Arc<TaskOwner>,
+}
+
+impl HttpTlsAcceptor for ServingCertificateAcceptor {
+    fn acceptor(&self) -> Pin<Box<dyn Future<Output = tokio_rustls::TlsAcceptor> + Send + '_>> {
+        Box::pin(async move { self.certificate.acceptor(&self.owner).await })
+    }
+}
+
+fn setting_layer(settings: &Resolved, setting: &Setting) -> SettingsLayer {
+    settings
+        .effective(setting)
+        .map_or(SettingsLayer::Default, |effective| effective.layer)
+}
+
+fn resolve_http_security(
+    bind: SocketAddr,
+    settings: &Resolved,
+) -> Result<(Termination, Option<OAuthConfig>), SettingsError> {
+    let termination = daemon_tls::open_termination(settings)?;
+    let issuer = settings
+        .get::<Option<&str>>(&OAUTH_ISSUER)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let audience = settings
+        .get::<Option<&str>>(&OAUTH_AUDIENCE)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    if !bind.ip().is_loopback() {
+        if matches!(termination, Termination::Plain) {
+            return Err(SettingsError::Invalid {
+                key: TLS_CERT_FILE.name.to_owned(),
+                layer: None,
+                reason: format!(
+                    "`{bind}` is not a loopback address: remote `mcp --http` requires TLS; set `{}` and `{}`, or `{}` behind an ingress that terminates TLS",
+                    TLS_CERT_FILE.name, TLS_KEY_FILE.name, TLS_UPSTREAM.name
+                ),
+            });
+        }
+        let Some(issuer) = issuer else {
+            return Err(SettingsError::Invalid {
+                key: OAUTH_ISSUER.name.to_owned(),
+                layer: Some(setting_layer(settings, &OAUTH_ISSUER)),
+                reason: format!(
+                    "`{bind}` is not a loopback address: remote `mcp --http` requires OAuth 2.1; set `{}` and `{}` in user configuration or an Operator policy",
+                    OAUTH_ISSUER.name, OAUTH_AUDIENCE.name
+                ),
+            });
+        };
+        let Some(audience) = audience else {
+            return Err(SettingsError::Invalid {
+                key: OAUTH_AUDIENCE.name.to_owned(),
+                layer: Some(setting_layer(settings, &OAUTH_AUDIENCE)),
+                reason: format!(
+                    "`{bind}` is not a loopback address: remote `mcp --http` requires OAuth 2.1; set `{}` alongside `{}` in user configuration or an Operator policy",
+                    OAUTH_AUDIENCE.name, OAUTH_ISSUER.name
+                ),
+            });
+        };
+        let oauth = parse_oauth_config(settings, issuer, audience)?;
+        return Ok((termination, Some(oauth)));
+    }
+
+    match (issuer, audience) {
+        (None, None) => Ok((termination, None)),
+        (Some(_), None) => Err(SettingsError::Invalid {
+            key: OAUTH_AUDIENCE.name.to_owned(),
+            layer: Some(setting_layer(settings, &OAUTH_AUDIENCE)),
+            reason: format!(
+                "`{}` is set without `{}`: set both keys or unset `{}`",
+                OAUTH_ISSUER.name, OAUTH_AUDIENCE.name, OAUTH_ISSUER.name
+            ),
+        }),
+        (None, Some(_)) => Err(SettingsError::Invalid {
+            key: OAUTH_ISSUER.name.to_owned(),
+            layer: Some(setting_layer(settings, &OAUTH_ISSUER)),
+            reason: format!(
+                "`{}` is set without `{}`: set both keys or unset `{}`",
+                OAUTH_AUDIENCE.name, OAUTH_ISSUER.name, OAUTH_AUDIENCE.name
+            ),
+        }),
+        (Some(issuer), Some(audience)) => {
+            let oauth = parse_oauth_config(settings, issuer, audience)?;
+            Ok((termination, Some(oauth)))
+        }
+    }
+}
+
+fn parse_oauth_config(
+    settings: &Resolved,
+    issuer: &str,
+    audience: &str,
+) -> Result<OAuthConfig, SettingsError> {
+    OAuthConfig::new(issuer, audience).map_err(|err| {
+        let setting = if err.key == OAUTH_ISSUER.name {
+            &OAUTH_ISSUER
+        } else {
+            &OAUTH_AUDIENCE
+        };
+        SettingsError::Invalid {
+            key: err.key.to_owned(),
+            layer: Some(setting_layer(settings, setting)),
+            reason: err.reason,
+        }
+    })
+}
+
 struct InProcessSuccession;
 
 impl Succession for InProcessSuccession {
@@ -286,7 +404,7 @@ pub(super) fn run(
             server_options,
             engine,
             dependencies,
-            settings,
+            machine,
             product,
             product_version,
         );
@@ -397,6 +515,94 @@ fn run_stdio(
     }
 }
 
+fn build_http_auth(
+    oauth_config: Option<OAuthConfig>,
+    clock: goodfetch_engine::clock::Clock,
+) -> Result<(HttpAuth, Option<String>), String> {
+    if let Some(oauth_config) = oauth_config {
+        let now: EpochSecondsClock = Arc::new(move || {
+            clock
+                .wall()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+        });
+        let fetcher = Arc::new(HttpOAuthFetcher::new(&[]));
+        let oauth = Arc::new(OAuthResourceServer::new(oauth_config, fetcher, now));
+        return Ok((HttpAuth::OAuth(oauth), None));
+    }
+    let launch_token = transports::new_launch_token()
+        .map_err(|error| format!("could not generate per-launch MCP HTTP token: {error}"))?;
+    Ok((
+        HttpAuth::LaunchToken(SecretString::from(launch_token.clone())),
+        Some(launch_token),
+    ))
+}
+
+async fn activate_http_tls(
+    termination: Termination,
+    bind: SocketAddr,
+    audit: &AuditLog,
+    clock: goodfetch_engine::clock::Clock,
+    audit_owner: &TaskOwner,
+) -> HttpTls {
+    match termination {
+        Termination::Plain => HttpTls::Plain,
+        Termination::Tls(certificate) => HttpTls::Direct(Arc::new(ServingCertificateAcceptor {
+            certificate,
+            owner: Arc::new(audit_owner.child()),
+        })),
+        Termination::Upstream(proxies) => {
+            let trusted: Vec<String> = proxies.iter().map(ToString::to_string).collect();
+            let origin = Origin {
+                actor: Actor::Engine,
+                surface: None,
+                layer: None,
+                run_id: None,
+            };
+            let details = serde_json::json!({
+                "address": bind.to_string(),
+                "trusted_proxies": trusted,
+            });
+            if let Err(error) = audit
+                .record(
+                    &origin,
+                    &TLS_TERMINATED_UPSTREAM,
+                    details,
+                    clock.timestamp(),
+                )
+                .await
+            {
+                tracing::error!(
+                    %error,
+                    "the Audit log did not record that MCP HTTP TLS is terminated upstream"
+                );
+            }
+            HttpTls::Upstream(proxies)
+        }
+    }
+}
+
+async fn probe_daemon_for_http(
+    choice: Choice,
+    daemon: Option<(DaemonEndpoint, DaemonToken)>,
+) -> Option<(DaemonEndpoint, DaemonToken)> {
+    match daemon {
+        Some((endpoint, token)) if choice == Choice::Daemon => Some((endpoint, token)),
+        Some((endpoint, token)) => match transport::connect_daemon(&endpoint).await {
+            Ok(connection) => {
+                drop(connection);
+                Some((endpoint, token))
+            }
+            Err(error) => {
+                tracing::warn!(%error, %endpoint, "Daemon unreachable; running engine in-process");
+                None
+            }
+        },
+        None => None,
+    }
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "runs the Streamable HTTP MCP transport with already-resolved CLI, engine, and Daemon parameters"
@@ -408,37 +614,37 @@ fn run_http(
     server_options: ServerOptions,
     engine: &Engine,
     dependencies: Dependencies,
-    settings: Option<&goodfetch_engine::settings::Resolved>,
+    machine: &Machine<'_>,
     product: Product,
     product_version: ProductVersion,
 ) -> ExitCode {
     let bind = match parse_http_bind(raw_bind) {
         Ok(addr) => addr,
         Err(message) => {
-            tracing::error!("{message}");
+            tracing::error!(code = "setting_invalid", "{message}");
             return ExitCode::FAILURE;
         }
     };
-    if !bind.ip().is_loopback() {
-        tracing::error!(
-            code = "setting_invalid",
-            address = %bind,
-            "non-loopback `--http` binding requires TLS (`{}` and `{}`) and OAuth 2.1 configuration",
-            TLS_CERT_FILE.name,
-            TLS_KEY_FILE.name,
-        );
-        return ExitCode::FAILURE;
-    }
-
-    let launch_token = match transports::new_launch_token() {
-        Ok(token) => token,
+    let settings = match machine.settings() {
+        Ok(settings) => settings,
+        Err(failure) => return failure.report(),
+    };
+    let (termination, oauth_config) = match resolve_http_security(bind, settings) {
+        Ok(resolved) => resolved,
         Err(error) => {
-            tracing::error!(%error, "could not generate per-launch MCP HTTP token");
+            tracing::error!(code = error.code(), "{error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let (auth, startup_token) = match build_http_auth(oauth_config, dependencies.clock) {
+        Ok(built) => built,
+        Err(error) => {
+            tracing::error!("{error}");
             return ExitCode::FAILURE;
         }
     };
 
-    let rt = runtime::multi_thread(Threads::of(settings));
+    let rt = runtime::multi_thread(Threads::of(Some(settings)));
     let served = rt.block_on(async {
         let audit_owner = TaskOwner::root(dependencies.blocking);
         let audit = AuditLog::of(
@@ -446,9 +652,15 @@ fn run_http(
             dependencies.run_state.vfs.clone(),
             Arc::new(audit_owner.child()),
         );
-        let refusals = Refusals::new(audit, dependencies.clock, Arc::new(audit_owner.child()));
+        let refusals = Refusals::new(
+            audit.clone(),
+            dependencies.clock,
+            Arc::new(audit_owner.child()),
+        );
         let refusal_recorder: Arc<dyn HttpRefusalRecorder> =
             Arc::new(AuditRefusalRecorder { refusals });
+        let tls =
+            activate_http_tls(termination, bind, &audit, dependencies.clock, &audit_owner).await;
 
         let shutdown = CancellationToken::new();
         let signal_ct = shutdown.clone();
@@ -457,30 +669,14 @@ fn run_http(
             signal_ct.cancel();
         });
 
-        let use_daemon = match daemon {
-            Some((endpoint, token)) => {
-                // Probe reachability before committing to the Daemon backend in Auto mode.
-                match transport::connect_daemon(&endpoint).await {
-                    Ok(connection) => {
-                        drop(connection);
-                        Some((endpoint, token))
-                    }
-                    Err(error) if choice == Choice::Daemon => {
-                        return Err(format!("the Daemon at {endpoint} does not answer: {error}"));
-                    }
-                    Err(error) => {
-                        tracing::warn!(%error, %endpoint, "Daemon unreachable; running engine in-process");
-                        None
-                    }
-                }
-            }
-            None => None,
-        };
+        let use_daemon = probe_daemon_for_http(choice, daemon).await;
 
         let result = if let Some((endpoint, token)) = use_daemon {
             serve_http_on_daemon(
                 bind,
-                launch_token,
+                auth,
+                tls,
+                startup_token,
                 endpoint,
                 token,
                 server_options,
@@ -493,7 +689,9 @@ fn run_http(
         } else {
             serve_http_in_process(
                 bind,
-                launch_token,
+                auth,
+                tls,
+                startup_token,
                 server_options,
                 engine,
                 dependencies,
@@ -526,7 +724,9 @@ fn run_http(
 )]
 async fn serve_http_on_daemon(
     bind: SocketAddr,
-    launch_token: String,
+    auth: HttpAuth,
+    tls: HttpTls,
+    startup_token: Option<String>,
     endpoint: DaemonEndpoint,
     daemon_token: DaemonToken,
     server_options: ServerOptions,
@@ -547,7 +747,8 @@ async fn serve_http_on_daemon(
     let bound = BoundHttpServer::bind(
         HttpServerConfig {
             bind,
-            auth: HttpAuth::LaunchToken(SecretString::from(launch_token.clone())),
+            auth,
+            tls,
             refusals: Some(refusal_recorder),
             cancellation: shutdown,
         },
@@ -558,7 +759,7 @@ async fn serve_http_on_daemon(
     .map_err(|err| err.to_string())?;
     output::json(&HttpStartupRecord {
         address: bound.url().to_owned(),
-        token: launch_token,
+        token: startup_token,
     });
     bound.serve().await.map_err(|err| err.to_string())
 }
@@ -569,7 +770,9 @@ async fn serve_http_on_daemon(
 )]
 async fn serve_http_in_process(
     bind: SocketAddr,
-    launch_token: String,
+    auth: HttpAuth,
+    tls: HttpTls,
+    startup_token: Option<String>,
     server_options: ServerOptions,
     engine: &Engine,
     dependencies: Dependencies,
@@ -597,7 +800,8 @@ async fn serve_http_in_process(
     let bound = BoundHttpServer::bind(
         HttpServerConfig {
             bind,
-            auth: HttpAuth::LaunchToken(SecretString::from(launch_token.clone())),
+            auth,
+            tls,
             refusals: Some(refusal_recorder),
             cancellation: shutdown.clone(),
         },
@@ -632,7 +836,7 @@ async fn serve_http_in_process(
 
     output::json(&HttpStartupRecord {
         address: bound.url().to_owned(),
-        token: launch_token,
+        token: startup_token,
     });
 
     let (engine_end, http_res) = tokio::join!(

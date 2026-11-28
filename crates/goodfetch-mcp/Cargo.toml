@@ -10,13 +10,17 @@ publish.workspace = true
 
 [dependencies]
 bytes.workspace = true
+data-encoding.workspace = true
+ed25519-dalek = { workspace = true, features = ["std"] }
 getrandom.workspace = true
 goodfetch-protocol.workspace = true
 http.workspace = true
 http-body-util.workspace = true
-hyper = { workspace = true, features = ["http1", "server"] }
+hyper = { workspace = true, features = ["client", "http1", "server"] }
 hyper-util = { workspace = true, features = ["tokio"] }
+p256 = { workspace = true, features = ["ecdsa", "std"] }
 rmcp = { workspace = true, features = ["server", "transport-async-rw", "transport-io", "transport-streamable-http-server"] }
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 schemars.workspace = true
 secrecy.workspace = true
 serde = { workspace = true, features = ["derive"] }
@@ -24,15 +28,18 @@ serde_json.workspace = true
 subtle.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "sync", "time"] }
+tokio-rustls = { workspace = true, features = ["ring"] }
 tokio-util = { workspace = true, features = ["rt"] }
 tracing.workspace = true
 url.workspace = true
+webpki-roots.workspace = true
 goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]
 goodfetch-runtime.workspace = true
 insta.workspace = true
-reqwest = { workspace = true, features = ["json", "stream"] }
+rcgen = { workspace = true, features = ["pem", "ring"] }
+reqwest = { workspace = true, features = ["json", "rustls-no-provider", "stream"] }
 rmcp = { workspace = true, features = ["client", "transport-async-rw", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
 goodfetch-dev-workspace-hack.workspace = true

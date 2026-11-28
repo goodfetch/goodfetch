@@ -354,7 +354,7 @@ mail-builder = { version = "2.0.1", default-features = false }
 mail-send = { version = "0.7.0", default-features = false }
 smtp-proto = { version = "0.2.5", default-features = false }
 # SFTP and FTP Files-mode Sinks (ADR 0026; issue 1159).
-russh = { version = "0.65.4", default-features = false, features = ["ring", "rsa"] }
+russh = { version = "0.65.4", default-features = false, features = ["ring"] }
 russh-sftp = { version = "4.0.0", default-features = false }
 suppaftp = { version = "13.0.0", default-features = false, features = ["rustls-ring"] }
 # The Proving ground's identity site verifies Web Bot Auth signatures with

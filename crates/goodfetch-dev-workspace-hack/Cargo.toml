@@ -34,7 +34,6 @@ arrow-schema = { version = "60", default-features = false, features = ["ffi"] }
 base64 = { version = "0.23" }
 bit-set = { version = "0.8" }
 bitflags = { version = "2", default-features = false, features = ["serde"] }
-block-buffer = { version = "0.12", default-features = false, features = ["zeroize"] }
 bstr = { version = "1" }
 byteorder = { version = "1" }
 bytes = { version = "1", features = ["serde"] }
@@ -54,7 +53,7 @@ der-c38e5c1d305a1b54 = { package = "der", version = "0.8", default-features = fa
 der-ca01ad9e24f5d932 = { package = "der", version = "0.7", default-features = false, features = ["derive", "flagset", "oid", "std", "zeroize"] }
 derive_more = { version = "2", features = ["add", "add_assign", "as_ref"] }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["mac", "std"] }
-digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid", "rand_core", "zeroize"] }
+digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid", "rand_core"] }
 dom_query = { version = "0.28", features = ["atomic", "mini_selector"] }
 duckdb = { version = "1", default-features = false, features = ["json", "vtab"] }
 ecdsa = { version = "0.17", features = ["algorithm", "getrandom", "pem", "std"] }
@@ -75,7 +74,6 @@ getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-f
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng", "wasm_js"] }
 ghash = { version = "0.6", default-features = false, features = ["zeroize"] }
 hashbrown = { version = "0.17" }
-hmac = { version = "0.13", default-features = false, features = ["zeroize"] }
 http = { version = "1" }
 http-body-util = { version = "0.1" }
 httparse = { version = "1" }
@@ -130,7 +128,7 @@ serde_core = { version = "1", features = ["alloc", "rc"] }
 serde_json = { version = "1", features = ["alloc", "float_roundtrip", "raw_value", "unbounded_depth"] }
 sha1 = { version = "0.10" }
 sha2-93f6ce9d446188ac = { package = "sha2", version = "0.10" }
-sha2-a6292c17cd707f01 = { package = "sha2", version = "0.11", features = ["zeroize"] }
+sha2-a6292c17cd707f01 = { package = "sha2", version = "0.11" }
 signature = { version = "2", default-features = false, features = ["std"] }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new"] }

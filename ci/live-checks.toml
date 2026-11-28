@@ -63,3 +63,12 @@ id = "skills"
 area = 9
 job = "nightly.yml#models"
 run = "node bench/src/cli.ts skills"
+
+# Clean-up rules daily-channel gate on owned fixtures and the online Proving
+# ground (ADRs 0047 and 0064; issue 208). Exit 75 marks inconclusive and
+# publishes nothing.
+[[live-check]]
+id = "clean-up-rules-daily"
+area = 1
+job = "clean-up-rules-daily.yml#build-and-gate"
+run = "ci/release/gate-clean-up-set.sh"

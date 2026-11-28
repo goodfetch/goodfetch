@@ -20,6 +20,7 @@ mod figure;
 mod figures;
 mod gungraun;
 mod measure;
+mod protocol;
 mod pull_request;
 mod reference;
 mod table;
@@ -123,7 +124,7 @@ pub(crate) enum Command {
 
 /// What `compare` reads, each path relative to the workspace.
 #[derive(Args)]
-#[command(group(clap::ArgGroup::new("reports").required(true).multiple(true).args(["gungraun", "size_head"])))]
+#[command(group(clap::ArgGroup::new("reports").required(true).multiple(true).args(["gungraun", "size_head", "protocol_head"])))]
 pub(crate) struct Reports {
     /// gungraun's JSON summaries of the head, run with `--baseline=base`
     /// (repeatable).
@@ -140,6 +141,12 @@ pub(crate) struct Reports {
     /// size-limit's `--json` report of the head.
     #[arg(long)]
     size_head: Option<PathBuf>,
+    /// MCP protocol wire-byte counts of the base.
+    #[arg(long, requires = "protocol_head")]
+    protocol_base: Option<PathBuf>,
+    /// MCP protocol wire-byte counts of the head.
+    #[arg(long)]
+    protocol_head: Option<PathBuf>,
     /// The folder of the new benchmarks' admission runs, one gungraun
     /// report (`*.jsonl`) per run of one build.
     #[arg(long)]
@@ -156,6 +163,9 @@ pub(crate) struct Reports {
     /// size-limit's `--json` report of the pinned reference build.
     #[arg(long)]
     reference_size: Option<PathBuf>,
+    /// MCP protocol wire-byte counts of the pinned reference build.
+    #[arg(long)]
+    reference_protocol: Option<PathBuf>,
     /// The job's summary page (`GITHUB_STEP_SUMMARY`), which gets the
     /// table too.
     #[arg(long)]
@@ -190,9 +200,12 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 gungraun_base: vec![measured.base],
                 size_base: measured.size_base,
                 size_head: measured.size_head,
+                protocol_base: measured.protocol_base,
+                protocol_head: measured.protocol_head,
                 admission: measured.admission,
                 reference_gungraun: measured.reference.into_iter().collect(),
                 reference_size: measured.size_reference,
+                reference_protocol: measured.protocol_reference,
                 pull_request,
                 summary,
                 save: Some(PathBuf::from("target/junit").join(figures::FILE_NAME)),
@@ -238,6 +251,13 @@ fn compare(root: &Path, reports: &Reports) -> Result<ExitCode> {
             base_measured.extend(bundle::entry_subjects(base)?);
         }
         measured.extend(bundle::read(base.as_deref(), &root.join(head))?);
+    }
+    if let Some(head) = &reports.protocol_head {
+        let base = reports.protocol_base.as_ref().map(|path| root.join(path));
+        if let Some(base) = &base {
+            base_measured.extend(protocol::entry_subjects(base)?);
+        }
+        measured.extend(protocol::read(base.as_deref(), &root.join(head))?);
     }
     let mut rows: Vec<Row> = measured.into_iter().map(compare::row).collect();
     rows.sort_by_key(|row| row.measured.id());
@@ -297,7 +317,10 @@ fn compare(root: &Path, reports: &Reports) -> Result<ExitCode> {
 /// The reference build's figures, as the reports hold them, when any report
 /// is given.
 fn reference_figures(root: &Path, reports: &Reports) -> Result<Option<Vec<figure::Measured>>> {
-    if reports.reference_gungraun.is_empty() && reports.reference_size.is_none() {
+    if reports.reference_gungraun.is_empty()
+        && reports.reference_size.is_none()
+        && reports.reference_protocol.is_none()
+    {
         return Ok(None);
     }
     let paths: Vec<PathBuf> = reports
@@ -308,6 +331,9 @@ fn reference_figures(root: &Path, reports: &Reports) -> Result<Option<Vec<figure
     let mut figures = gungraun::read(&paths)?;
     if let Some(size) = &reports.reference_size {
         figures.extend(bundle::read(None, &root.join(size))?);
+    }
+    if let Some(proto) = &reports.reference_protocol {
+        figures.extend(protocol::read(None, &root.join(proto))?);
     }
     Ok(Some(figures))
 }

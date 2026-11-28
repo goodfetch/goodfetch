@@ -1,0 +1,36 @@
+#:schema ./journey.schema.json
+id = "J-047"
+title = "Connect an MCP host over Streamable HTTP using the startup record"
+goal = """
+A developer starts `goodfetch-collie mcp --http`, reads the single \
+`{ address, token }` startup record from stdout, fills an MCP host \
+configuration from it, connects an `rmcp` Streamable HTTP client, and lists \
+the server's tools. The server MUST bind loopback by default, stdout MUST \
+carry nothing beyond that startup record, and the configured host MUST \
+connect and list Collie's projected browser tools (ADRs 0011, 0017, 0067, \
+0070; spec #608)."""
+area = 11
+product = "collie"
+status = "active"
+covers = ["story:11-220"]
+
+[surfaces]
+mcp-http = "M2"
+
+[[steps]]
+text = "Start `goodfetch-collie mcp --http --attached` and read the single `{ address, token }` JSON record from stdout"
+
+[[steps]]
+text = "Build an MCP host configuration from `{ address, token }`, connect an `rmcp` Streamable HTTP client with it, and list tools"
+
+[[steps]]
+text = "Stop the MCP HTTP server cleanly and confirm stdout carried nothing beyond the startup record"
+
+[[expect]]
+text = "The startup record names a loopback `http://127.0.0.1:<port>/mcp` address and a 64-character hex bearer token"
+
+[[expect]]
+text = "The MCP host connects with the configured bearer token, negotiates `goodfetch-collie`, and lists projected browser tools including `run_start`"
+
+[[expect]]
+text = "No extra line or log byte appeared on stdout after the startup record"

@@ -52,6 +52,13 @@ traces_endpoint = "example"
 logs_endpoint = "example"
 metrics_endpoint = "example"
 
+[settings.mcp]
+profile = "browser"
+
+[settings.mcp.oauth]
+issuer = "example"
+audience = "example"
+
 [settings.daemon]
 idle_timeout = 30000
 address = "example"
@@ -558,6 +565,13 @@ max_files = 4
 traces_endpoint = "example"
 logs_endpoint = "example"
 metrics_endpoint = "example"
+
+[lock.mcp]
+profile = "browser"
+
+[lock.mcp.oauth]
+issuer = "example"
+audience = "example"
 
 [lock.daemon]
 idle_timeout = 30000

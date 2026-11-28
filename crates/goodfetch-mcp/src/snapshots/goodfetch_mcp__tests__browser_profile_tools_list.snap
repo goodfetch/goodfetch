@@ -1,0 +1,205 @@
+---
+source: crates/goodfetch-mcp/src/tests.rs
+expression: "serde_json::to_string_pretty(&summary).unwrap()"
+---
+[
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "input_schema_type": "object",
+    "name": "locator_click",
+    "operation": "locator.click"
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "input_schema_type": "object",
+    "name": "locator_fill",
+    "operation": "locator.fill"
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "input_schema_type": "object",
+    "name": "locator_press",
+    "operation": "locator.press"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "input_schema_type": "object",
+    "name": "page_close",
+    "operation": "page.close"
+  },
+  {
+    "annotations": {
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "input_schema_type": "object",
+    "name": "page_formats",
+    "operation": "page.formats"
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "input_schema_type": "object",
+    "name": "page_go_back",
+    "operation": "page.go_back"
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "input_schema_type": "object",
+    "name": "page_go_forward",
+    "operation": "page.go_forward"
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "input_schema_type": "object",
+    "name": "page_goto",
+    "operation": "page.goto"
+  },
+  {
+    "annotations": {
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "input_schema_type": "object",
+    "name": "page_read",
+    "operation": "page.read"
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "input_schema_type": "object",
+    "name": "page_reload",
+    "operation": "page.reload"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "input_schema_type": "object",
+    "name": "run_finish",
+    "operation": "run.finish"
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "input_schema_type": "object",
+    "name": "run_new_session",
+    "operation": "run.new_session"
+  },
+  {
+    "annotations": {
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "input_schema_type": "object",
+    "name": "run_progress",
+    "operation": "run.progress"
+  },
+  {
+    "annotations": {
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "input_schema_type": "object",
+    "name": "run_report",
+    "operation": "run.report"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "input_schema_type": "object",
+    "name": "run_start",
+    "operation": "run.start"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "input_schema_type": "object",
+    "name": "run_stop",
+    "operation": "run.stop"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "input_schema_type": "object",
+    "name": "session_close",
+    "operation": "session.close"
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "input_schema_type": "object",
+    "name": "session_new_page",
+    "operation": "session.new_page"
+  },
+  {
+    "annotations": {
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "input_schema_type": "object",
+    "name": "session_pages",
+    "operation": "session.pages"
+  }
+]

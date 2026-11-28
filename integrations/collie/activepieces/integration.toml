@@ -1,0 +1,8 @@
+# Collie Integration for Activepieces (ADRs 0027, 0070, 0072, 0090, 0095; spec #608, issue 1409).
+actions = [
+  "start-recipe",
+  "start-catalog-run",
+  "get-run-report",
+  "get-run-progress",
+]
+triggers = ["notification"]

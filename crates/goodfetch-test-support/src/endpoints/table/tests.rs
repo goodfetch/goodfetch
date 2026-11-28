@@ -15,6 +15,7 @@ listeners.daemon_websocket = { expect = "closed" }
 listeners.live_view = { expect = "closed" }
 listeners.exposed_daemon = { expect = "closed" }
 listeners.proxy_relay = { expect = "challenge" }
+listeners.mcp_http = { expect = "status", status = 401 }
 
 [rule.certificate_unknown_authority]
 summary = "A peer presents a certificate from another group's authority."

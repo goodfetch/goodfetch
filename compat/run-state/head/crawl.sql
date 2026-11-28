@@ -124,6 +124,16 @@ CREATE TABLE learned_rules (
 INSERT INTO "learned_rules" VALUES(1,'no_effect_parameter','list.test','','ref','','3 pairs of URLs differing only by `ref` served pages of matching signatures, and no pair pages of differing ones: https://list.test/items?n=1 and https://list.test/items?n=1&ref=a; https://list.test/items?n=2 and https://list.test/items?n=2&ref=b; https://list.test/items?n=3 and https://list.test/items?n=3&ref=c.',NULL);
 INSERT INTO "learned_rules" VALUES(2,'equivalent_form','list.test','','','trailing_slash','https://list.test/guide redirected to https://list.test/guide/, which differs from it only by a trailing slash.','https://list.test/guide and https://list.test/guide/, both fetched and neither redirected, served pages of differing signatures.');
 INSERT INTO "learned_rules" VALUES(3,'cursor_pagination','list.test','/rows','offset','','`offset` steps by 20 on https://list.test/rows (https://list.test/rows?offset=0, https://list.test/rows?offset=20, https://list.test/rows?offset=40), and three of its pages each link one value of `after` of their own: https://list.test/rows?offset=0 links https://list.test/rows?after=r20/sale, https://list.test/rows?offset=20 links https://list.test/rows?after=r40/sale, and https://list.test/rows?offset=40 links https://list.test/rows?after=r60/sale.',NULL);
+CREATE TABLE notification_deliveries (
+        event_id TEXT NOT NULL,
+        channel TEXT NOT NULL,
+        state TEXT NOT NULL,
+        attempt INTEGER NOT NULL,
+        run_epoch INTEGER NOT NULL,
+        next_attempt_at INTEGER,
+        failure TEXT,
+        PRIMARY KEY (event_id, channel)
+    ) STRICT;
 CREATE TABLE outcomes (
             position INTEGER NOT NULL PRIMARY KEY,
             work_item TEXT NOT NULL,

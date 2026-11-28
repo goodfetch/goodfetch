@@ -149,6 +149,12 @@ pub enum Endpoint {
         /// The `hello` params it accepts (no token; authenticated by mTLS).
         hello: Map<String, Value>,
     },
+    /// The MCP server's Streamable HTTP listener (`POST /mcp`, ADRs 0017 and
+    /// 0070).
+    McpHttp {
+        /// Where it listens.
+        address: SocketAddr,
+    },
 }
 
 /// The listener under test, as a value.
@@ -525,6 +531,10 @@ impl<A: AuditVerifier> EndpointRunner<A> {
                 address: *address,
                 hello,
             },
+            (Endpoint::McpHttp { address }, Transport::McpHttp { path }) => Reach::McpHttp {
+                address: *address,
+                path,
+            },
             _ => {
                 return Err(EndpointRunError::TransportMismatch {
                     listener: listener.kind,
@@ -685,6 +695,10 @@ enum Reach<'a> {
         address: SocketAddr,
         hello: &'a Map<String, Value>,
     },
+    McpHttp {
+        address: SocketAddr,
+        path: &'static str,
+    },
 }
 
 /// An HTTP proxy, and the `CONNECT` target and username of its valid
@@ -780,6 +794,17 @@ impl Reach<'_> {
                     ("Goodfetch-Form", "catalog"),
                 ],
                 Some(r#"{"jsonrpc":"2.0","id":1,"method":"engine.info","params":{}}"#),
+                token,
+                attempt,
+            ),
+            Self::McpHttp { address, path } => http_attempt(
+                (*address, tls),
+                "POST",
+                path,
+                &[("Accept", "application/json, text/event-stream")],
+                Some(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"endpoint-runner","version":"0.1.0"}}}"#,
+                ),
                 token,
                 attempt,
             ),

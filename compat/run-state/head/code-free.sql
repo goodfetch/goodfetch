@@ -96,6 +96,16 @@ CREATE TABLE learned_rules (
             contradiction TEXT,
             UNIQUE (kind, host, path, parameter, form)
         ) STRICT;
+CREATE TABLE notification_deliveries (
+        event_id TEXT NOT NULL,
+        channel TEXT NOT NULL,
+        state TEXT NOT NULL,
+        attempt INTEGER NOT NULL,
+        run_epoch INTEGER NOT NULL,
+        next_attempt_at INTEGER,
+        failure TEXT,
+        PRIMARY KEY (event_id, channel)
+    ) STRICT;
 CREATE TABLE outcomes (
             position INTEGER NOT NULL PRIMARY KEY,
             work_item TEXT NOT NULL,

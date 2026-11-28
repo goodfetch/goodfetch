@@ -76,42 +76,7 @@ pub enum Surface {
     HttpListener,
 }
 
-/// The form a Client's user writes names in (ADR 0099), which the engine
-/// renders the names and targets of its messages in.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Form {
-    /// The TypeScript SDK, and Code mode.
-    Typescript,
-    /// The Python SDK.
-    Python,
-    /// A Rust program.
-    Rust,
-    /// The CLI.
-    Cli,
-    /// The MCP server and the Framework adapters.
-    Tool,
-    /// The catalog's own names: Integrations and the HTTP
-    /// listener.
-    Catalog,
-}
-
-impl Form {
-    /// Every value, in declaration order.
-    pub const ALL: [Self; 6] = [
-        Self::Typescript,
-        Self::Python,
-        Self::Rust,
-        Self::Cli,
-        Self::Tool,
-        Self::Catalog,
-    ];
-
-    /// Its name on the wire.
-    pub fn as_str(self) -> &'static str {
-        crate::wire_name::of(&self)
-    }
-}
+pub use crate::catalog::Form;
 
 impl Surface {
     /// Every value, in declaration order.
@@ -130,19 +95,19 @@ impl Surface {
 
     /// Whether a Client of this surface acts for a model, which sets none of
     /// the settings that send a Secret reference's value to a destination
-    /// they name (ADR 0092): the MCP server, and a Script sandbox worker
-    /// running Code mode.
+    /// they name (ADR 0092): the MCP server, a Script sandbox worker
+    /// running Code mode, and an Integration reaching the HTTP listener
+    /// (ADRs 0027 and 0056).
     pub fn acts_for_model(self) -> bool {
         match self {
-            Self::Mcp | Self::Worker => true,
+            Self::Mcp | Self::Worker | Self::HttpListener => true,
             Self::SdkTypescript
             | Self::SdkPython
             | Self::Rust
             | Self::Cli
             | Self::Kennel
             | Self::Cloud
-            | Self::BrowserHost
-            | Self::HttpListener => false,
+            | Self::BrowserHost => false,
         }
     }
 

@@ -1624,6 +1624,17 @@ number = 11
 kind = "setting"
 prefix = "notifications."
 
+# Integration Notification subscriptions (ADR 0027; issue 1403).
+[[area]]
+number = 11
+kind = "operation"
+prefix = "notification."
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "notification."
+
 # The Daemon's HTTP listener (ADR 0027; issue 1400).
 [[area]]
 number = 11
@@ -2124,6 +2135,17 @@ prefix = ""
 number = 11
 kind = "command"
 prefix = "skill."
+
+# `mcp` server command and settings (spec #608, tickets #1359, #1363).
+[[area]]
+number = 11
+kind = "command"
+prefix = "mcp"
+
+[[area]]
+number = 11
+kind = "setting"
+prefix = "mcp."
 
 [[area]]
 number = 11

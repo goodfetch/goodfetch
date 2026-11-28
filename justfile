@@ -173,6 +173,8 @@ lint:
     steps_lane_begin
     step lint-types '{{ just_executable() }} lint-types'
     step oxlint 'pnpm exec oxlint'
+    step n8n-lint 'pnpm --dir integrations/collie/n8n run lint'
+    step activepieces-lint 'pnpm --dir integrations/collie/activepieces run lint'
     step ruff 'uv run ruff check .'
     step copies 'ci/copies.sh'
     step zizmor 'ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions'

@@ -54,6 +54,7 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.connection import EngineInfo
     from goodfetch_collie_client.engine_choice import EngineChoice
     from goodfetch_collie_client.generated.models import (
+        Form,
         Recording,
         SettingsExplanation,
     )
@@ -395,6 +396,7 @@ class AsyncCollie(AsyncConnection):
         params: Mapping[str, JsonValue] | None = None,
         *,
         timeout: timedelta | NotGiven | None = not_given,
+        form: Form | str | None = None,
     ) -> JsonValue:
         """Sends `operation`, one acting on no value, as the wire's JSON (ADR 0099).
 
@@ -402,10 +404,12 @@ class AsyncCollie(AsyncConnection):
         Foxhound's `run.list` on a Foxhound engine. `params` are sent and
         the result answered as on the wire, in snake_case. `timeout` is
         sent as the operation's own; cancelling the task cancels the call.
+        `form` optionally overrides the naming form the engine renders error
+        messages and `fix` hints in (e.g. `"tool"` for Framework adapters).
         It is never retried, and raises `closed` once the Connection is
         closed.
         """
-        sent = raw_params(operation, params, timeout)
+        sent = raw_params(operation, params, timeout, form=form)
         return await self._connection.raw(operation, sent)
 
     async def explain_settings(
@@ -762,9 +766,10 @@ class Collie(Connection):
         params: Mapping[str, JsonValue] | None = None,
         *,
         timeout: timedelta | NotGiven | None = not_given,
+        form: Form | str | None = None,
     ) -> JsonValue:
         """Sends `operation`, as `AsyncCollie.call` does, and waits for its result."""
-        sent = raw_params(operation, params, timeout)
+        sent = raw_params(operation, params, timeout, form=form)
         try:
             return self._loop.call(
                 functools.partial(self._connection.raw, operation, sent)

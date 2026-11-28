@@ -82,6 +82,19 @@ received (ADR 0079).
 - `token`: Every run a Connection holding a named token starts.
 """
 
+MCPProfile: TypeAlias = Literal["agent", "browser", "code", "full", "run"] | str
+"""A `mcp_profile`, a type both Products share (ADR 0095).
+
+Collie's values below; a value this package does not know is kept as
+received (ADR 0079).
+
+- `agent`: The `browser` MCP profile plus `page_agent`.
+- `browser`: Collie's default MCP profile: Run lifecycle, Session and page opening/closing, navigation and reading, locator actions, and Saved identity listing.
+- `code`: Code mode (`code_mode_run`) and product documentation resources, with no per-operation tools.
+- `full`: Every agent-surface operation of the Product, excluding person-only and granting operations.
+- `run`: Runs, Run reports, `recipe_start`, `catalog_run_start`, `schedule_*`, `usage_*`, and Run index reads, with no page tools.
+"""
+
 NeedsYouKind: TypeAlias = Literal["certificate_changed", "consent_wall", "limit_reached", "run_stopped_by_limit", "run_stopped_by_storage", "storage_level", "wall_refetch_stopped"] | str
 """A `needs_you_kind`, a type both Products share (ADR 0095).
 

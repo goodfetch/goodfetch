@@ -185,6 +185,59 @@ const MACHINE_FILE: &str = "machine-id";
 /// How many commands wait for the registry before their senders wait.
 const COMMANDS: usize = 256;
 
+/// Facts passed to a [`RunEndObserver`] once a Run's end has been recorded,
+/// while its [`RunState`] writer is still open so durable per-Run tables (such
+/// as the Notification delivery ledger, ADR 0027) can commit before close.
+pub struct RunEndedContext<'a> {
+    /// The Run's assembled report.
+    pub report: &'a RunReport,
+    /// The Run's open state writer.
+    pub state: &'a RunState,
+    /// The engine's shared context (settings, clock, blocking pool).
+    pub engine: &'a EngineContext,
+    /// The Product running this engine.
+    pub product: Product,
+}
+
+/// Callback invoked once a Run's end is recorded and while its [`RunState`] is
+/// still open (ADR 0027).
+pub trait RunEndHandler: Send + Sync + 'static {
+    /// Whether this handler currently has active work (such as registered
+    /// webhook subscriptions) that needs the [`RunState`] writer to stay open
+    /// after the end record is written. Returning `false` lets Run close use a
+    /// single `write_last` transaction without advancing the journal position.
+    fn has_work(&self) -> Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
+        Box::pin(async { true })
+    }
+
+    /// Observes the ended Run.
+    fn on_run_end<'a>(
+        &'a self,
+        context: &'a RunEndedContext<'a>,
+    ) -> Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>;
+}
+
+/// Newtype hiding dynamic dispatch for a [`RunEndHandler`] (STYLE.md).
+#[derive(Clone)]
+pub struct RunEndObserver(Arc<dyn RunEndHandler>);
+
+impl RunEndObserver {
+    /// Wraps `handler` as a [`RunEndObserver`].
+    pub fn new(handler: impl RunEndHandler) -> Self {
+        Self(Arc::new(handler))
+    }
+
+    /// Whether the underlying handler has work for a Run's end.
+    pub(crate) async fn has_work(&self) -> bool {
+        self.0.has_work().await
+    }
+
+    /// Invokes the underlying handler for `context`.
+    pub(crate) async fn on_run_end(&self, context: &RunEndedContext<'_>) {
+        self.0.on_run_end(context).await;
+    }
+}
+
 /// What the registry starts from.
 pub(crate) struct RunsSetup {
     /// What the engine gives its Runs: its home, clock and settings, and
@@ -247,6 +300,9 @@ pub(crate) struct RunsSetup {
     /// The switchable controls the composition registered, which each new
     /// Run reports when its settings switch one off.
     pub(crate) controls: Controls,
+    /// Observers notified once a Run's end is recorded, while its run state is
+    /// still open (ADR 0027).
+    pub(crate) run_end_observers: Vec<RunEndObserver>,
 }
 
 /// How a live action reaches the engine that owns a Run (ADR 0031).
@@ -5069,6 +5125,9 @@ impl Registry {
             last_checkpoint: live.checkpoint.clone(),
             parts: self.setup.report_parts.clone(),
             governor: self.setup.governor.clone(),
+            run_end_observers: self.setup.run_end_observers.clone(),
+            engine: self.setup.engine.clone(),
+            product: self.setup.product,
         };
         let recording = Recording {
             index: self.setup.engine.run_index().clone(),
@@ -5996,6 +6055,13 @@ struct Closing {
     parts: Vec<Arc<dyn ReportPart>>,
     /// What reads the filesystem of a stop its run file could not record.
     governor: Governor,
+    /// Observers notified once the Run's end is recorded, while its run state
+    /// is still open (ADR 0027).
+    run_end_observers: Vec<RunEndObserver>,
+    /// Shared engine context handed to `run_end_observers`.
+    engine: EngineContext,
+    /// Product running this engine.
+    product: Product,
 }
 
 impl Closing {
@@ -6027,6 +6093,9 @@ impl Closing {
             last_checkpoint,
             parts,
             governor,
+            run_end_observers,
+            engine,
+            product,
         } = self;
         if let End::Stopped(reason) = &end {
             // Kept, unless one was asked before, as what a call in flight
@@ -6038,46 +6107,36 @@ impl Closing {
         // Each declared Effect's body still running is cut short now, its
         // judgement in the report (ADR 0106).
         run.shared.send_window.settle(Some(clock.now())).await;
-        let (stop_reason, error, finished) = match end {
-            End::Finished(reasons) => (None, None, reasons),
-            End::Failed(error) => (None, Some(error), Vec::new()),
-            End::Stopped(reason) => (Some(reason), None, Vec::new()),
-        };
         let limits = run.shared.charging.give_back(&writer).await;
         exceptions_used(&run, clock).await;
         let (run_id, folder) = (run.identity.id().clone(), run.identity.folder().to_owned());
-        let no_trace_folder = run
-            .shared
-            .trace
-            .is_stopped()
-            .then(|| folder.join("trace").display().to_string());
-        let facts = EndFacts {
-            run_id: run_id.clone(),
+        let facts = build_end_facts(
+            &run,
+            &run_id,
+            &folder,
             kind,
             lifecycle,
-            stop_reason,
+            end,
             started_at,
-            ended_at: clock.point_in_time(),
+            clock.point_in_time(),
             policy_version,
             weakened,
-            settings: kept_settings(&run),
-            checkpoint: None,
             limits,
-            error,
-            finished,
-            no_trace_folder,
-            cache_mode: replay_cache_mode(&run.identity),
-        };
+        );
         let (state, mask) = (run.state.clone(), run.shared.keys.secrets().mask().clone());
         let rolled_back = state.rolled_back();
         drop(run);
         let unwritten = report::masked(report::unwritten(&facts, &parts), mask.masks());
-        let ended = write_last_report(
+        let ended = write_end_and_notify(
             &state,
             facts,
             parts,
             mask,
             (!rolled_back.is_empty()).then_some(rolled_back),
+            &run_end_observers,
+            &engine,
+            product,
+            &run_id,
         )
         .await;
         let written = ended.is_ok();
@@ -6100,17 +6159,17 @@ impl Closing {
         report.checkpoint = last_checkpoint;
         if let Some(to) = checkpoint_to
             && written
-            && let Some(checkpoint) = take_closing_checkpoint(
+        {
+            take_closing_checkpoint(
+                &mut report,
                 run_id,
                 folder,
                 to,
                 clock,
-                Arc::clone(&writer),
+                &writer,
                 state.epoch(),
             )
-            .await
-        {
-            report.checkpoint = Some(checkpoint);
+            .await;
         }
         drop(state);
         writer.wait().await;
@@ -6119,15 +6178,118 @@ impl Closing {
     }
 }
 
-async fn write_last_report(
+#[expect(
+    clippy::too_many_arguments,
+    reason = "internal helper assembling EndFacts so Ending::end stays concise"
+)]
+fn build_end_facts(
+    run: &LiveRun,
+    run_id: &RunId,
+    folder: &Path,
+    kind: RunKind,
+    lifecycle: Lifecycle,
+    end: End,
+    started_at: std::time::SystemTime,
+    ended_at: std::time::SystemTime,
+    policy_version: Option<String>,
+    weakened: Vec<WeakenedSetting>,
+    limits: Vec<goodfetch_protocol::run::AppliedLimit>,
+) -> EndFacts {
+    let (stop_reason, error, finished) = match end {
+        End::Finished(reasons) => (None, None, reasons),
+        End::Failed(error) => (None, Some(error), Vec::new()),
+        End::Stopped(reason) => (Some(reason), None, Vec::new()),
+    };
+    let no_trace_folder = run
+        .shared
+        .trace
+        .is_stopped()
+        .then(|| folder.join("trace").display().to_string());
+    EndFacts {
+        run_id: run_id.clone(),
+        kind,
+        lifecycle,
+        stop_reason,
+        started_at,
+        ended_at,
+        policy_version,
+        weakened,
+        settings: kept_settings(run),
+        checkpoint: None,
+        limits,
+        error,
+        finished,
+        no_trace_folder,
+        cache_mode: replay_cache_mode(&run.identity),
+    }
+}
+
+async fn take_closing_checkpoint(
+    report: &mut RunReport,
+    run_id: RunId,
+    folder: PathBuf,
+    to: CheckpointTo,
+    clock: Clock,
+    writer: &Arc<TaskOwner>,
+    epoch: u64,
+) {
+    let taking = Taking {
+        run_id,
+        destination: to.destination,
+        vfs: to.vfs,
+        nonce: to.nonce,
+        clock,
+        events: to.events,
+        tasks: Arc::clone(writer),
+        folder,
+        governor: to.governor,
+        sealing: None,
+        object_storage: to.object_storage,
+    };
+    match taking.take(Some(epoch)).await {
+        Ok(checkpoint) => report.checkpoint = Some(checkpoint),
+        Err(error) => {
+            tracing::warn!(%error, "the stopping Run's Checkpoint was not written; its run file resumes it");
+        }
+    }
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "internal helper splitting `end()` so run-end observation stays readable"
+)]
+async fn write_end_and_notify(
     state: &RunState,
     facts: EndFacts,
     parts: Vec<Arc<dyn ReportPart>>,
     mask: crate::mask::Mask,
     pending_redone: Option<goodfetch_protocol::run::RedoneReport>,
+    observers: &[RunEndObserver],
+    engine: &EngineContext,
+    product: Product,
+    run_id: &RunId,
 ) -> Result<RunReport, RunStateError> {
-    state
-        .write_last(move |connection| {
+    let mut active_observers = Vec::new();
+    for observer in observers {
+        if observer.has_work().await {
+            active_observers.push(observer);
+        }
+    }
+    if active_observers.is_empty() {
+        return state
+            .write_last(move |connection| {
+                let report =
+                    report::masked(report::assemble(connection, &facts, &parts)?, mask.masks());
+                write_end(connection, &report)?;
+                if let Some(pending) = pending_redone {
+                    report::add_redone(connection, pending)?;
+                }
+                Ok(report)
+            })
+            .await;
+    }
+    let written = state
+        .write(move |connection| {
             let report =
                 report::masked(report::assemble(connection, &facts, &parts)?, mask.masks());
             write_end(connection, &report)?;
@@ -6136,39 +6298,23 @@ async fn write_last_report(
             }
             Ok(report)
         })
-        .await
-}
-
-async fn take_closing_checkpoint(
-    run_id: RunId,
-    folder: PathBuf,
-    to: CheckpointTo,
-    clock: Clock,
-    tasks: Arc<TaskOwner>,
-    epoch: u64,
-) -> Option<Checkpoint> {
-    let taking = Taking {
-        run_id,
-        destination: to.destination,
-        vfs: to.vfs,
-        nonce: to.nonce,
-        clock,
-        events: to.events,
-        tasks,
-        folder,
-        governor: to.governor,
-        sealing: None,
-        object_storage: to.object_storage,
-    };
-    match taking.take(Some(epoch)).await {
-        Ok(checkpoint) => Some(checkpoint),
-        Err(error) => {
-            tracing::warn!(%error, "the stopping Run's Checkpoint was not written; its run file resumes it");
-            None
+        .await;
+    if let Ok(ref report) = written {
+        let context = RunEndedContext {
+            report,
+            state,
+            engine,
+            product,
+        };
+        for observer in active_observers {
+            observer.on_run_end(&context).await;
         }
     }
+    if let Err(error) = state.write_last(|_| Ok(())).await {
+        tracing::warn!(%error, run_id = %run_id, "the Run's state writer did not close cleanly after run-end observers");
+    }
+    written
 }
-
 mod beside;
 mod clean_up;
 mod discard;

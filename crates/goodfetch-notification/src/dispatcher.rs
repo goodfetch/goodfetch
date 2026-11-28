@@ -31,8 +31,11 @@ use crate::webhook::Webhook;
 /// composition root (ADR 0087).
 #[must_use]
 pub fn contribution() -> Contribution {
-    Contribution::new("goodfetch-notification")
-        .with_notification_dispatcher(Arc::new(Dispatcher::new()))
+    Contribution::new("goodfetch-notification").with_notification_dispatcher(new_dispatcher())
+}
+
+pub(crate) fn new_dispatcher() -> Arc<dyn NotificationDispatcher> {
+    Arc::new(Dispatcher::new())
 }
 
 struct Dispatcher {

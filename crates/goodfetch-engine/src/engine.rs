@@ -57,7 +57,8 @@ use crate::rpc::{self, Access, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{RunStateOptions, RunStateTables};
 use crate::runs::{
-    CleanUpVersions, Driving, PanicStop, ProgressPart, ReportPart, Runs, RunsSetup, SendWindow,
+    CleanUpVersions, Driving, PanicStop, ProgressPart, ReportPart, RunEndObserver, Runs, RunsSetup,
+    SendWindow,
 };
 use crate::sandbox_probe::{self, SandboxProbe};
 use crate::secrets::{self, Carried, DriverSlot, Keychain, ProviderFactory, Secrets};
@@ -96,6 +97,7 @@ pub struct Engine {
     user_stores: Vec<&'static UserStoreKind>,
     control_stores: Arc<ControlStateRegistry>,
     controls: Controls,
+    run_end_observers: Vec<RunEndObserver>,
     events: EventsOptions,
     metrics: Metrics,
     system: Option<System>,
@@ -165,6 +167,7 @@ impl Engine {
             user_stores: composition.user_stores(),
             control_stores: Arc::new(composition.control_stores()?),
             controls: composition.controls(),
+            run_end_observers: composition.run_end_observers(),
             events: EventsOptions::default(),
             metrics,
             system: None,
@@ -478,20 +481,8 @@ impl Engine {
             (self.metrics.counted_work().clone(), &governor),
             &self.user_stores,
         );
-        let needs_you = NeedsYou::start(
-            &self.needs_you_sources,
-            SourceContext {
-                clock: dependencies.clock,
-                storage: governor.storage(),
-                run_index: stores.run_index().clone(),
-                ledger: stores.ledger().clone(),
-                settings: settings.clone(),
-                known_certificates: stores.known_certificates().clone(),
-                owner: Arc::new(owner.part("Needs-you list")),
-            },
-            events.clone(),
-            owner,
-        );
+        let needs_you =
+            self.start_needs_you(&dependencies, &governor, &stores, &settings, &events, owner);
         let forwarder = Arc::new(ToOwner {
             home: dependencies.home.clone(),
             version: self.identity().product_version.clone(),
@@ -547,6 +538,13 @@ impl Engine {
     ) -> Runs {
         let mut report_parts = self.report_parts.clone();
         report_parts.push(Arc::new(RecordingReportPart(context.recordings().clone())));
+        let run_state = match &install {
+            Some(install) => RunStateOptions {
+                vfs: Some(install.vfs().to_owned()),
+                ..dependencies.run_state
+            },
+            None => dependencies.run_state,
+        };
         Runs::start_registry(
             RunsSetup {
                 engine: context.clone(),
@@ -556,13 +554,7 @@ impl Engine {
                 forwarder,
                 version: self.identity().product_version.clone(),
                 location: dependencies.run_state_location,
-                run_state: match &install {
-                    Some(install) => RunStateOptions {
-                        vfs: Some(install.vfs().to_owned()),
-                        ..dependencies.run_state
-                    },
-                    None => dependencies.run_state,
-                },
+                run_state,
                 install: install.map(Arc::new),
                 tables: self.run_tables(),
                 driving: self.driving.clone(),
@@ -579,6 +571,7 @@ impl Engine {
                 metrics: self.metrics.clone(),
                 governor,
                 controls: self.controls.clone(),
+                run_end_observers: self.run_end_observers.clone(),
                 masks: self.dispatch.masks.clone(),
             },
             Box::pin(write_managed(
@@ -609,6 +602,31 @@ impl Engine {
             token.cancelled().await;
             cleanup.clear_runtime_handles();
         });
+    }
+
+    fn start_needs_you(
+        &self,
+        dependencies: &Dependencies,
+        governor: &Governor,
+        stores: &Stores,
+        settings: &Settings,
+        events: &Events,
+        owner: &TaskOwner,
+    ) -> NeedsYou {
+        NeedsYou::start(
+            &self.needs_you_sources,
+            SourceContext {
+                clock: dependencies.clock,
+                storage: governor.storage(),
+                run_index: stores.run_index().clone(),
+                ledger: stores.ledger().clone(),
+                settings: settings.clone(),
+                known_certificates: stores.known_certificates().clone(),
+                owner: Arc::new(owner.part("Needs-you list")),
+            },
+            events.clone(),
+            owner,
+        )
     }
 
     /// What sends the calls the major's Daemon keeps to it, through the

@@ -1,0 +1,361 @@
+---
+source: crates/goodfetch-mcp/src/tests.rs
+expression: "serde_json::to_string_pretty(&snapshot_value).unwrap()"
+---
+{
+  "profile": "run",
+  "tools": [
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Starts a code-free catalog run, a Run with no handler in the program whose verbs come from the catalog (ADR 0036): an Extraction of a page by a schema, `extract`, an Agent task, `agent`, or a Plan replayed with no model call, `plan_replay`; and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it.",
+      "input_schema_keys": [
+        "detached",
+        "limits",
+        "project",
+        "recording",
+        "recording_bytes",
+        "run_id",
+        "settings",
+        "tags",
+        "target",
+        "timeout"
+      ],
+      "name": "catalog_run_start",
+      "operation": "catalog_run.start"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Starts a Recipe's run, a Run with no handler in the program, and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it.",
+      "input_schema_keys": [
+        "detached",
+        "limits",
+        "project",
+        "recipe",
+        "recording",
+        "recording_bytes",
+        "run_id",
+        "settings",
+        "tags",
+        "timeout"
+      ],
+      "name": "recipe_start",
+      "operation": "recipe.start"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.",
+      "input_schema_keys": [
+        "forwarded",
+        "run_id"
+      ],
+      "name": "run_abort",
+      "operation": "run.abort"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Writes a Checkpoint of a live Run now, through SQLite's online backup, where the engine keeps the Run's Checkpoints, or where `location` says, a path on the engine's machine that only the catalog's caller gives, an SDK's `checkpoint()` taking none, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.",
+      "input_schema_keys": [
+        "location",
+        "run_id"
+      ],
+      "name": "run_checkpoint",
+      "operation": "run.checkpoint"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. A Run something stopped first answers its report saying `stopped`. A Run that ended `failed` fails the call with the error that failed it, and a write at its end that failed, such as its Plan file's, with that write's error. Cancelling the call, or its `timeout` passing, which fails it with `deadline_exceeded`, ends only the wait.",
+      "input_schema_keys": [
+        "run_id",
+        "timeout"
+      ],
+      "name": "run_finish",
+      "operation": "run.finish"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Lists the Runs of the Run index of the user and major, of either Product (ADRs 0031 and 0098): each row with its tags, Lifecycle, Verdict, Completeness, start and end, the engine that owns it while it is live, and its presence, a Run whose state is gone `missing` and one discarded on purpose `erased`, never left out. The engine filters by tags, the Recipe, Schedule, occurrence and trigger its reserved `goodfetch.` tags name, Product, each axis, start and end time, and a text found in its Run ID or tags, and sorts by the key given; Watch runs are left out unless `watch_runs` asks for them (ADR 0036).",
+      "input_schema_keys": [
+        "completeness",
+        "ended",
+        "lifecycle",
+        "occurrence",
+        "order",
+        "product",
+        "recipe",
+        "schedule",
+        "sort",
+        "started",
+        "tags",
+        "text",
+        "trigger",
+        "verdict",
+        "watch_runs"
+      ],
+      "name": "run_list",
+      "operation": "run.list"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint.",
+      "input_schema_keys": [
+        "location",
+        "run_id"
+      ],
+      "name": "run_migrate",
+      "operation": "run.migrate"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Pauses a live Run: checkpoints it, then stops it at its next safe point, `stopped` with the stop reason `pause` and resumable by its Run ID with `run.resume`, after a restart too. Answers its Run report, which names the Checkpoint.",
+      "input_schema_keys": [
+        "run_id"
+      ],
+      "name": "run_pause",
+      "operation": "run.pause"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Reads a Run's progress: what it does and why it waits. Without `after`, it answers at once; given `after`, the position of the value the reader last read, it waits for a change and answers the latest value, so values in between are coalesced. The value whose `last` is true ends the sequence: the Run ended, and its `lifecycle` and `stop_reason` say how, or no engine works it (`writer: none`) until a start with its Run ID resumes it. A Run another engine works is read through that engine, the owner the Run index names, and one no engine works from its committed state; a read never takes the Run's writer lock. A Run ID the Run index does not list fails with `run_not_found`.",
+      "input_schema_keys": [
+        "after",
+        "run_id"
+      ],
+      "name": "run_progress",
+      "operation": "run.progress"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Reads a Run's report: at once for a Run that ended, and at its end for a live one, which the read never ends. A Run another engine works is read through that engine, and one no engine works from its committed state, never taking its writer lock. A Run that has no live writer and has not ended fails with `run_interrupted`, whose `fix` names a start with its Run ID, and a Run ID the Run index does not list with `run_not_found`.",
+      "input_schema_keys": [
+        "run_id"
+      ],
+      "name": "run_report",
+      "operation": "run.report"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, a Checkpoint of a format version this engine cannot read with `format_version_unsupported`, and a Checkpoint behind the Run's run file on this machine with `checkpoint_behind`, or with the error that file's read gives when it cannot be read, unless `rollback` replaces that file, as the Audit log records.",
+      "input_schema_keys": [
+        "checkpoint",
+        "project",
+        "rollback",
+        "run_id",
+        "settings"
+      ],
+      "name": "run_resume",
+      "operation": "run.resume"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good, and a start under one acts on what the Run index holds (ADR 0102): no such Run begins it, `new`; an interrupted Run, stopped, failed, or running with no live writer, resumes from its committed state at the next run epoch, `resumed`, as `run.resume` does; a finished Run is answered as it ended with no handler called, `ended`. A Run live with a writer, in this engine or another, fails with `run_in_use`; a Run started with other inputs or by another caller with `run_conflict` listing each difference; a Run the Run index lists whose state is missing or unreadable with `run_state_unavailable`, never starting afresh.",
+      "input_schema_keys": [
+        "limits",
+        "plan",
+        "project",
+        "recording",
+        "recording_bytes",
+        "run_id",
+        "settings",
+        "tags",
+        "timeout"
+      ],
+      "name": "run_start",
+      "operation": "run.start"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Stops a Run at its next safe point with a Checkpoint, `stopped` and `incomplete` as an abort by its program, resumable by its Run ID, and answers its Run report; an ended Run's report is answered as it is. The wait is bounded by `timeout.close`, or the call's `timeout`: past it, the call fails with `deadline_exceeded` and the Run still stops at its next safe point. A Run that ended `failed` fails the call as `run.finish` does.",
+      "input_schema_keys": [
+        "run_id",
+        "timeout"
+      ],
+      "name": "run_stop",
+      "operation": "run.stop"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Answers what a Run used, as the Usage ledger charged it: its model calls and tokens, browser time, proxy bytes, requests, paid solves and Paid fetches, each Limit that applies to it with what is left of it, and whether it is uncapped. An ended Run answers its report's Usage.",
+      "input_schema_keys": [
+        "run_id"
+      ],
+      "name": "run_usage",
+      "operation": "run.usage"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Records a Schedule in the Schedule store, which the Daemon keeps, and answers its ID, as given or made (`s` and a lowercase ULID), with warnings. Nothing fires yet. A taken ID fails with `schedule_exists`, a trigger that does not parse with `schedule_trigger_invalid`. Its time zone is the Daemon host's when the definition names none. One store transaction: a cancel stops it only before it commits.",
+      "input_schema_keys": [
+        "definition",
+        "timeout"
+      ],
+      "name": "schedule_create",
+      "operation": "schedule.create"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Deletes the Schedule from its store, so it never fires again, and answers whether it did: false when the store held none of that ID, as after a resent delete. One store transaction: a cancel stops it only before it commits.",
+      "input_schema_keys": [
+        "schedule_id",
+        "timeout"
+      ],
+      "name": "schedule_delete",
+      "operation": "schedule.delete"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Reads the Schedule of an ID. An ID the store does not hold fails with `schedule_not_found`.",
+      "input_schema_keys": [
+        "id",
+        "timeout"
+      ],
+      "name": "schedule_get",
+      "operation": "schedule.get"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Reads the Schedule as its store holds it now. One the store no longer holds fails with `schedule_not_found`.",
+      "input_schema_keys": [
+        "schedule_id",
+        "timeout"
+      ],
+      "name": "schedule_info",
+      "operation": "schedule.info"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Lists every Schedule of the Schedule store, by ID.",
+      "input_schema_keys": [
+        "timeout"
+      ],
+      "name": "schedule_list",
+      "operation": "schedule.list"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Describes a Schedule's trigger in plain words and lists its next Occurrences in a time zone strictly after `after` (now when absent; 5 by default, at most 100), including DST transitions. A trigger that does not parse fails with `schedule_trigger_invalid`.",
+      "input_schema_keys": [
+        "after",
+        "count",
+        "time_zone",
+        "timeout",
+        "trigger"
+      ],
+      "name": "schedule_preview",
+      "operation": "schedule.preview"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left.",
+      "input_schema_keys": [],
+      "name": "usage_list",
+      "operation": "usage.list"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage.",
+      "input_schema_keys": [
+        "amount",
+        "currency",
+        "period",
+        "scope",
+        "scope_id",
+        "usage_kind"
+      ],
+      "name": "usage_set",
+      "operation": "usage.set"
+    }
+  ],
+  "tools_list_bytes": 73056
+}

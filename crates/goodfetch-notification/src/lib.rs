@@ -25,6 +25,14 @@ pub mod message;
 pub mod plugin_channel;
 pub mod rate_limit;
 pub mod sns;
+pub mod subscriptions;
 pub mod webhook;
 
-pub use dispatcher::contribution;
+/// What `goodfetch-notification` contributes to an engine composition: its
+/// [`NotificationDispatcher`](goodfetch_engine::notification::NotificationDispatcher)
+/// and Integration Notification subscriptions (`notification.subscribe` /
+/// `notification.unsubscribe`, ADRs 0017, 0027 and 0087).
+#[must_use]
+pub fn contribution() -> goodfetch_engine::Contribution {
+    subscriptions::contribution().with_notification_dispatcher(dispatcher::new_dispatcher())
+}

@@ -24,7 +24,7 @@ use goodfetch_protocol::settings::edit::{
     UserConfigurationWritten, UserWriteParams,
 };
 use goodfetch_protocol::settings::{
-    CONFIG_EXPLAIN, ConfigExplainParams, RunOrigin, SettingsExplanation, SettingsLayer,
+    CONFIG_EXPLAIN, ConfigExplainParams, SettingsExplanation, SettingsLayer,
 };
 use serde_json::{Value, json};
 
@@ -81,7 +81,11 @@ async fn explain(
             project: params.project.clone(),
             recipe: None,
             settings: given,
-            origin: Some(params.origin.unwrap_or(RunOrigin::Settings)),
+            origin: Some(
+                params
+                    .origin
+                    .unwrap_or_else(|| crate::run::run_origin(context.surface())),
+            ),
             registered: context.registered_settings().clone(),
             acting_for_model: context.surface().acts_for_model(),
             exposed: context.exposed(),

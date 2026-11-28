@@ -14,14 +14,18 @@
 
 import { Buffer } from "node:buffer";
 import type { Caller } from "./caller.ts";
+import type { Stream } from "./client-connection.ts";
 import { ValueInvalidError } from "./generated/errors.ts";
 import {
   CollieOperations,
+  collieOperations,
   type CollieOperationTypes,
   type KeyValueStoreAttempt,
   type KeyValueStoreSetParams,
 } from "./generated/index.ts";
 import { nonJSON, type JSONValue } from "./json.ts";
+import { warnEntry } from "./markers.ts";
+import type { ChannelOpenOptions } from "./rpc.ts";
 import {
   parse,
   type Schema,
@@ -29,6 +33,29 @@ import {
   type SchemaIssue,
   type SchemaOutput,
 } from "./schema.ts";
+import { Sequence } from "./sequence.ts";
+
+/** How many `$/key` notifications `keys()` lets the engine send ahead. */
+const KEY_CREDITS = 16;
+/** How many keys `keys()` reads before granting as many credits again. */
+const KEY_REGRANT = 8;
+
+/** What `keys()` takes: an optional prefix and cancellation signal. */
+export interface KeyValueStoreKeysOptions {
+  /** The prefix every key it yields starts with; every key when left out. */
+  readonly prefix?: string | undefined;
+  /** Cancels `key_value_store.keys` and ends the iteration with the signal's reason. */
+  readonly signal?: AbortSignal | undefined;
+}
+
+/** One `$/key` notification's key, or none when the params are no key. */
+function keyOf(params: unknown): string | undefined {
+  if (typeof params !== "object" || params === null || !("key" in params)) {
+    return undefined;
+  }
+  const { key } = params;
+  return typeof key === "string" ? key : undefined;
+}
 
 /** What the store keeps: any JSON value but a top-level null. A nested null is kept. */
 export type StoredValue = Exclude<JSONValue, null>;
@@ -53,14 +80,21 @@ export interface KeyValueStoreHost {
   setBytes(runId: string, key: string, content: Uint8Array, contentType: string): Promise<void>;
   /** Removes `key`, answering whether it existed. */
   delete(runId: string, key: string): Promise<boolean>;
+  /** Streams committed keys starting with `prefix`, in Unicode scalar order. */
+  keys(
+    runId: string,
+    prefix: string | undefined,
+    signal: AbortSignal | undefined,
+  ): Sequence<string>;
 }
 
 /**
- * A store's calls through `calls`: at once, or staged with `attempt`, the
- * crawl attempt whose handler makes them (ADR 0103).
+ * A store's calls through `calls` and `stream`: at once, or staged with
+ * `attempt`, the crawl attempt whose handler makes them (ADR 0103).
  */
 export function keyValueStoreHost(
   calls: Caller<CollieOperationTypes>,
+  stream: (method: string, params: unknown, options: ChannelOpenOptions) => Stream,
   attempt?: KeyValueStoreAttempt,
 ): KeyValueStoreHost {
   const operations = new CollieOperations(calls);
@@ -98,6 +132,19 @@ export function keyValueStoreHost(
     },
     delete: async (runId, key) =>
       (await operations.keyValueStoreDelete({ runId, key, ...on })).existed,
+    keys: (runId, prefix, signal) =>
+      new Sequence({
+        open: (opened) =>
+          stream(
+            "key_value_store.keys",
+            { run_id: runId, ...(prefix === undefined ? {} : { prefix }) },
+            opened,
+          ),
+        itemOf: (method, notification) => (method === "$/key" ? keyOf(notification) : undefined),
+        credits: KEY_CREDITS,
+        regrant: KEY_REGRANT,
+        signal,
+      }),
   };
 }
 
@@ -229,6 +276,76 @@ export class KeyValueStore {
   async delete(key: string): Promise<boolean> {
     this.#ensureOpen("key_value_store.delete");
     return this.#host.delete(this.#runId, key);
+  }
+
+  /**
+   * Sends the committed keys of a Run's Key-value store that start with
+   * `prefix`, in the order of their Unicode scalar values, in `$/key`
+   * notifications, one per credit granted with `$/credit`, then answers how
+   * many it sent. Takes no writer lock.
+   *
+   * Read with `for await`; `break`, `return()`, `close()`, `using` or the
+   * signal cancel its read at once.
+   *
+   * @experimental
+   */
+  keys(options: KeyValueStoreKeysOptions = {}): Sequence<string> {
+    warnEntry(collieOperations, "key_value_store.keys");
+    this.#ensureOpen("key_value_store.keys");
+    return this.#host.keys(this.#runId, options.prefix, options.signal);
+  }
+}
+
+/**
+ * A read-only view of a Run's Key-value store, reached through
+ * `RunView.keyValueStore` (ADRs 0102 and 0103): reads `get`, `getBytes` and
+ * `keys` without taking a writer lock.
+ */
+export class KeyValueStoreView {
+  readonly #store: KeyValueStore;
+
+  /** @internal A RunView opens its store view; a program never constructs one. */
+  constructor(store: KeyValueStore) {
+    this.#store = store;
+  }
+
+  /**
+   * Answers the JSON value a Run's Key-value store holds for a key, as
+   * committed, or null when the key is absent. A key holding bytes fails
+   * with `value_invalid`, naming `getBytes`. Takes no writer lock, so it
+   * reads a Run no program holds without resuming it. Through a crawl
+   * attempt (`attempt`), it reads what the attempt staged first.
+   *
+   * @experimental
+   */
+  async get(key: string): Promise<JSONValue>;
+  async get<S extends Schema>(key: string, schema: S): Promise<SchemaOutput<S> | null>;
+  async get(key: string, schema?: Schema): Promise<unknown> {
+    return schema === undefined ? this.#store.get(key) : this.#store.get(key, schema);
+  }
+
+  /**
+   * Answers the bytes and content type a Run's Key-value store holds for a
+   * key, as committed, or null when the key is absent. A key holding JSON
+   * fails with `value_invalid`, naming `get`. Takes no writer lock. Through
+   * a crawl attempt (`attempt`), it reads what the attempt staged first.
+   *
+   * @experimental
+   */
+  async getBytes(key: string): Promise<StoredBytes | null> {
+    return this.#store.getBytes(key);
+  }
+
+  /**
+   * Sends the committed keys of a Run's Key-value store that start with
+   * `prefix`, in the order of their Unicode scalar values, in `$/key`
+   * notifications, one per credit granted with `$/credit`, then answers how
+   * many it sent. Takes no writer lock.
+   *
+   * @experimental
+   */
+  keys(options: KeyValueStoreKeysOptions = {}): Sequence<string> {
+    return this.#store.keys(options);
   }
 }
 

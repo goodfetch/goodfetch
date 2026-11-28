@@ -17,7 +17,8 @@ use crate::foxhound::frontier::{CRAWL_KEEP_URL_FRAGMENT, CRAWL_TRAP_LINKS_AVOID}
 use crate::page::access_mode::{BROWSER_ACCESS_MODE, IDENTIFIED_ITEMS, STEALTH_ITEMS};
 use crate::page::emulation::EMULATION_SETTINGS;
 use crate::page::{
-    BROWSER_BLOCK_RESOURCES, BROWSER_SERVICE_WORKERS, CONTENT_EXTRACTOR, LIVE_VIEW_HIDING,
+    BROWSER_BLOCK_RESOURCES, BROWSER_HEADLESS, BROWSER_SERVICE_WORKERS, CONTENT_EXTRACTOR,
+    LIVE_VIEW_HIDING,
 };
 use crate::secrets::placeholders::SECRETS_PLACEHOLDERS;
 use crate::settings::{
@@ -113,6 +114,7 @@ pub fn label_sets(key: &str) -> bool {
 /// local addresses (`egress.local_addresses`).
 pub fn fixed_for_the_session(name: &str) -> bool {
     name == BROWSER_ACCESS_MODE.name
+        || name == BROWSER_HEADLESS.name
         || name == EGRESS_LOCAL_ADDRESSES.name
         || STEALTH_ITEMS.iter().any(|item| item.name == name)
         || IDENTIFIED_ITEMS.iter().any(|item| item.name == name)

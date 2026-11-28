@@ -1432,9 +1432,11 @@ impl Subject {
         leased
             .into_iter()
             .map(|leased| {
-                let lease = crawl
-                    .leases
-                    .grant(&leased.crawl_request.id, leased.lease_epoch, LEASE);
+                let lease = crawl.leases.grant(
+                    crate::lease::request_ref(&leased.crawl_request),
+                    leased.lease_epoch,
+                    LEASE,
+                );
                 let page = page(&leased.crawl_request.url);
                 crawl.attempts.push(Running {
                     leased,

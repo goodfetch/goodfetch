@@ -4,7 +4,8 @@
 // (ADR 0102).
 import { expectTypeOf } from "vitest";
 import type { Run } from "./generated/handles.ts";
-import type { Checkpoint, RunCheckpointParams } from "./generated/types.ts";
+import type { RunCheckpointParams } from "./generated/types.ts";
+import type { Checkpoint } from "./run-copies.ts";
 
 declare const run: Run;
 

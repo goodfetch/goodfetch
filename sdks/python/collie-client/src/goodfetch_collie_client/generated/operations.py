@@ -13,7 +13,7 @@ from typing_extensions import deprecated
 from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 from goodfetch_collie_client.markers import warn_deprecated, warn_deprecated_settings, warn_experimental
 
-from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScrollCollected, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
+from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, CheckpointSaveAsParams, CheckpointSaved, CheckpointStreamParams, CheckpointStreamed, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, RecordingSaveAsParams, RecordingSaved, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunTraceResult, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScrollCollected, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TraceSaveAsParams, TraceSaved, TraceStreamParams, TraceStreamed, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
 from .settings import DEPRECATED_SETTINGS
 
 
@@ -80,6 +80,22 @@ class AsyncCollieOperations:
         """
         warn_experimental("certs.list")
         return result_of(CertsListed, await self._caller.call("certs.list", params))
+
+    async def checkpoint_save_as(self, params: CheckpointSaveAsParams) -> CheckpointSaved:
+        """Saves a Checkpoint's file, which the engine keeps on its machine, whole or not at all (ADRs 0102 and 0116). An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size, its SHA-256 digest and its run epoch. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("checkpoint.save_as")
+        return result_of(CheckpointSaved, await self._caller.call("checkpoint.save_as", params))
+
+    async def checkpoint_stream(self, params: CheckpointStreamParams) -> CheckpointStreamed:
+        """Sends a Checkpoint's bytes in order, in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, and answers its size, its SHA-256 digest and its run epoch once every byte is sent (ADRs 0102 and 0116). Nothing is written on either machine: a program that writes the bytes itself meets its own language's file errors.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("checkpoint.stream")
+        return result_of(CheckpointStreamed, await self._caller.call("checkpoint.stream", params))
 
     async def config_explain(self, params: ConfigExplainParams) -> SettingsExplanation:
         """Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration, the project configuration given and the run layer: the Connection's own settings with the run values given over them, or a live Run's as it opened when `run_id` names one; and lists the keys only the other Product honours as that Product's."""
@@ -455,6 +471,14 @@ class AsyncCollieOperations:
         warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(RunStarted, await self._caller.call("recipe.start", params))
 
+    async def recording_save_as(self, params: RecordingSaveAsParams) -> RecordingSaved:
+        """Saves a Run's recorded Response recording as a WARC 1.1 file, whole or not at all (ADRs 0105 and 0116). An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. A Run that recorded no responses raises `recording_invalid`. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("recording.save_as")
+        return result_of(RecordingSaved, await self._caller.call("recording.save_as", params))
+
     async def response_body(self, params: ResponseBodyParams) -> BodyHandle:
         """Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser, on the session of the frame that loaded it. A body the browser no longer holds, or a redirect's, which has none, raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole. Past its `timeout`, `timeout.wait` when the call gives none, a request that has not ended fails it with `deadline_exceeded`; a page that ends under it raises what ended it, as a call on the page does.
 
@@ -627,6 +651,14 @@ class AsyncCollieOperations:
         warn_experimental("run.stop")
         return result_of(RunReport, await self._caller.call("run.stop", params))
 
+    async def run_trace(self, params: RunParams) -> RunTraceResult:
+        """Reads a Run's trace copy as recorded so far, or null when the Run keeps no trace (ADRs 0102 and 0116). Returns only once the copy is whole, with its size and SHA-256 digest; a write the engine cannot make fails with `file_write_failed`, side `engine`, and leaves no unfinished file. Takes no writer lock, so a view reads a Run no program holds without resuming it. A Run ID the Run index does not list fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("run.trace")
+        return result_of(RunTraceResult, await self._caller.call("run.trace", params))
+
     async def run_usage(self, params: RunParams) -> RunUsage:
         """Answers what a Run used, as the Usage ledger charged it: its model calls and tokens, browser time, proxy bytes, requests, paid solves and Paid fetches, each Limit that applies to it with what is left of it, and whether it is uncapped. An ended Run answers its report's Usage.
 
@@ -752,6 +784,22 @@ class AsyncCollieOperations:
         warn_experimental("signing_key.directory")
         return result_of(SigningKeyDirectory, await self._caller.call("signing_key.directory", params))
 
+    async def trace_save_as(self, params: TraceSaveAsParams) -> TraceSaved:
+        """Saves a Run trace's file, which the engine keeps on its machine, whole or not at all (ADRs 0102 and 0116). An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size and its SHA-256 digest. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("trace.save_as")
+        return result_of(TraceSaved, await self._caller.call("trace.save_as", params))
+
+    async def trace_stream(self, params: TraceStreamParams) -> TraceStreamed:
+        """Sends a Run trace's bytes in order, in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, and answers its size and its SHA-256 digest once every byte is sent (ADRs 0102 and 0116). Nothing is written on either machine: a program that writes the bytes itself meets its own language's file errors.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("trace.stream")
+        return result_of(TraceStreamed, await self._caller.call("trace.stream", params))
+
     async def usage_list(self, params: UsageListParams) -> UsageListResult:
         """Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left.
 
@@ -832,6 +880,22 @@ class CollieOperations:
         """
         warn_experimental("certs.list")
         return result_of(CertsListed, self._caller.call("certs.list", params))
+
+    def checkpoint_save_as(self, params: CheckpointSaveAsParams) -> CheckpointSaved:
+        """Saves a Checkpoint's file, which the engine keeps on its machine, whole or not at all (ADRs 0102 and 0116). An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size, its SHA-256 digest and its run epoch. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("checkpoint.save_as")
+        return result_of(CheckpointSaved, self._caller.call("checkpoint.save_as", params))
+
+    def checkpoint_stream(self, params: CheckpointStreamParams) -> CheckpointStreamed:
+        """Sends a Checkpoint's bytes in order, in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, and answers its size, its SHA-256 digest and its run epoch once every byte is sent (ADRs 0102 and 0116). Nothing is written on either machine: a program that writes the bytes itself meets its own language's file errors.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("checkpoint.stream")
+        return result_of(CheckpointStreamed, self._caller.call("checkpoint.stream", params))
 
     def config_explain(self, params: ConfigExplainParams) -> SettingsExplanation:
         """Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration, the project configuration given and the run layer: the Connection's own settings with the run values given over them, or a live Run's as it opened when `run_id` names one; and lists the keys only the other Product honours as that Product's."""
@@ -1207,6 +1271,14 @@ class CollieOperations:
         warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(RunStarted, self._caller.call("recipe.start", params))
 
+    def recording_save_as(self, params: RecordingSaveAsParams) -> RecordingSaved:
+        """Saves a Run's recorded Response recording as a WARC 1.1 file, whole or not at all (ADRs 0105 and 0116). An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. A Run that recorded no responses raises `recording_invalid`. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("recording.save_as")
+        return result_of(RecordingSaved, self._caller.call("recording.save_as", params))
+
     def response_body(self, params: ResponseBodyParams) -> BodyHandle:
         """Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser, on the session of the frame that loaded it. A body the browser no longer holds, or a redirect's, which has none, raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole. Past its `timeout`, `timeout.wait` when the call gives none, a request that has not ended fails it with `deadline_exceeded`; a page that ends under it raises what ended it, as a call on the page does.
 
@@ -1379,6 +1451,14 @@ class CollieOperations:
         warn_experimental("run.stop")
         return result_of(RunReport, self._caller.call("run.stop", params))
 
+    def run_trace(self, params: RunParams) -> RunTraceResult:
+        """Reads a Run's trace copy as recorded so far, or null when the Run keeps no trace (ADRs 0102 and 0116). Returns only once the copy is whole, with its size and SHA-256 digest; a write the engine cannot make fails with `file_write_failed`, side `engine`, and leaves no unfinished file. Takes no writer lock, so a view reads a Run no program holds without resuming it. A Run ID the Run index does not list fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("run.trace")
+        return result_of(RunTraceResult, self._caller.call("run.trace", params))
+
     def run_usage(self, params: RunParams) -> RunUsage:
         """Answers what a Run used, as the Usage ledger charged it: its model calls and tokens, browser time, proxy bytes, requests, paid solves and Paid fetches, each Limit that applies to it with what is left of it, and whether it is uncapped. An ended Run answers its report's Usage.
 
@@ -1504,6 +1584,22 @@ class CollieOperations:
         warn_experimental("signing_key.directory")
         return result_of(SigningKeyDirectory, self._caller.call("signing_key.directory", params))
 
+    def trace_save_as(self, params: TraceSaveAsParams) -> TraceSaved:
+        """Saves a Run trace's file, which the engine keeps on its machine, whole or not at all (ADRs 0102 and 0116). An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size and its SHA-256 digest. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("trace.save_as")
+        return result_of(TraceSaved, self._caller.call("trace.save_as", params))
+
+    def trace_stream(self, params: TraceStreamParams) -> TraceStreamed:
+        """Sends a Run trace's bytes in order, in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, and answers its size and its SHA-256 digest once every byte is sent (ADRs 0102 and 0116). Nothing is written on either machine: a program that writes the bytes itself meets its own language's file errors.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("trace.stream")
+        return result_of(TraceStreamed, self._caller.call("trace.stream", params))
+
     def usage_list(self, params: UsageListParams) -> UsageListResult:
         """Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left.
 
@@ -1528,6 +1624,8 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "cache.verify",
     "catalog_run.start",
     "certs.list",
+    "checkpoint.save_as",
+    "checkpoint.stream",
     "connection.set_log_level",
     "dialog.accept",
     "dialog.dismiss",
@@ -1572,6 +1670,7 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "page.wait_for_response",
     "page.wait_for_url",
     "recipe.start",
+    "recording.save_as",
     "response.body",
     "route.abort",
     "route.continue",
@@ -1594,6 +1693,7 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "run.start",
     "run.started_as",
     "run.stop",
+    "run.trace",
     "run.usage",
     "sample.echo",
     "schedule.create",
@@ -1609,6 +1709,8 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "session.route",
     "signing_key.create",
     "signing_key.directory",
+    "trace.save_as",
+    "trace.stream",
     "usage.list",
     "usage.set",
 })
@@ -1627,6 +1729,8 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "cache.verify": "read",
     "catalog_run.start": "idempotent_write",
     "certs.list": "read",
+    "checkpoint.save_as": "idempotent_write",
+    "checkpoint.stream": "read",
     "config.explain": "read",
     "connection.set_log_level": "idempotent_write",
     "daemon.health": "read",
@@ -1676,6 +1780,7 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "page.wait_for_response": "read",
     "page.wait_for_url": "read",
     "recipe.start": "idempotent_write",
+    "recording.save_as": "idempotent_write",
     "response.body": "read",
     "route.abort": "effect",
     "route.continue": "effect",
@@ -1698,6 +1803,7 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "run.start": "idempotent_write",
     "run.started_as": "read",
     "run.stop": "idempotent_write",
+    "run.trace": "read",
     "run.usage": "read",
     "sample.echo": "read",
     "schedule.create": "effect",
@@ -1713,6 +1819,8 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "session.route": "idempotent_write",
     "signing_key.create": "idempotent_write",
     "signing_key.directory": "read",
+    "trace.save_as": "idempotent_write",
+    "trace.stream": "read",
     "usage.list": "read",
     "usage.set": "idempotent_write",
 }

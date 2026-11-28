@@ -14,16 +14,28 @@ use std::time::Duration;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::lease::{LeaseCheck as _, LeaseEnded};
+use goodfetch_engine::staging::AttemptWrites as _;
 use goodfetch_protocol::connection::WaitedFor;
-use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, TIMEOUT_HANDLER};
+use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, CrawlRequest, TIMEOUT_HANDLER};
+use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::jsonrpc::RequestId;
+use goodfetch_protocol::run::CrawlRequestRef;
 use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_ACTION};
 use proptest::prelude::*;
 use serde_json::{Value, json};
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 
-use super::{Lease, Leases};
+use super::{Lease, Leases, request_ref};
+use crate::staging::Staging;
+
+fn request(id: &str) -> CrawlRequestRef {
+    CrawlRequestRef {
+        id: id.to_owned(),
+        url: format!("https://shop.test/{id}"),
+        label: "item".to_owned(),
+    }
+}
 
 /// The lease of the settings' default 60 s handler: 60 s plus 10 s.
 const DEFAULT_LEASE: Duration = Duration::from_secs(70);
@@ -87,7 +99,7 @@ fn on_paused_clock(test: impl AsyncFnOnce(Leases, Clock)) {
 fn a_default_lease_ends_seventy_seconds_after_its_grant() {
     on_paused_clock(async |leases, clock| {
         let start = clock.now();
-        let lease = leases.grant("1", 1, DEFAULT_LEASE);
+        let lease = leases.grant(request("1"), 1, DEFAULT_LEASE);
 
         let ended = lease.ended().await;
 
@@ -98,12 +110,44 @@ fn a_default_lease_ends_seventy_seconds_after_its_grant() {
     });
 }
 
+#[test]
+fn request_ref_maps_id_url_and_label_and_restage_preserves_it_for_begin_effect() {
+    let crawl_request = CrawlRequest {
+        id: "req-42".to_owned(),
+        url: "https://shop.test/items/42".to_owned(),
+        label: "product".to_owned(),
+        payload: None,
+        method: HttpMethod::get(),
+        headers: std::collections::BTreeMap::new(),
+        body: None,
+    };
+    let expected = CrawlRequestRef {
+        id: "req-42".to_owned(),
+        url: "https://shop.test/items/42".to_owned(),
+        label: "product".to_owned(),
+    };
+    assert_eq!(request_ref(&crawl_request), expected);
+
+    on_paused_clock(async |leases, _clock| {
+        let staging = Staging::default();
+        let leases = leases.staging_in(staging.clone());
+        let lease = leases.grant(request_ref(&crawl_request), 3, DEFAULT_LEASE);
+        let _ = lease.restage();
+        assert_eq!(
+            staging.begin_effect("req-42", 3).unwrap(),
+            expected,
+            "restage keeps the attempt's CrawlRequestRef for begin_effect"
+        );
+        staging.end_effect("req-42", 3);
+    });
+}
+
 /// Covers: story:3-40
 #[test]
 fn a_renewal_while_the_attempt_waits_lengthens_its_wait() {
     on_paused_clock(async |leases, clock| {
         let start = clock.now();
-        let lease = leases.grant("1", 1, DEFAULT_LEASE);
+        let lease = leases.grant(request("1"), 1, DEFAULT_LEASE);
         let renewing = async {
             clock.sleep(Duration::from_secs(60)).await;
             lease.renew(DEFAULT_LEASE);
@@ -125,7 +169,7 @@ fn a_renewal_while_the_attempt_waits_lengthens_its_wait() {
 fn a_released_lease_ends_its_wait_and_lets_nothing_more_leave() {
     on_paused_clock(async |leases, clock| {
         let start = clock.now();
-        let lease = leases.grant("1", 1, DEFAULT_LEASE);
+        let lease = leases.grant(request("1"), 1, DEFAULT_LEASE);
         let releasing = async {
             clock.sleep(Duration::from_secs(5)).await;
             lease.release();
@@ -151,7 +195,7 @@ fn a_released_lease_ends_its_wait_and_lets_nothing_more_leave() {
 #[test]
 fn a_command_withheld_after_the_lease_ended_raises_attempt_ended() {
     on_paused_clock(async |leases, _clock| {
-        let lease = leases.grant("1", 1, DEFAULT_LEASE);
+        let lease = leases.grant(request("1"), 1, DEFAULT_LEASE);
         lease.release();
 
         let error = lease.withheld(LeaseEnded::Released, "Page.navigate");
@@ -172,7 +216,7 @@ fn a_command_withheld_after_the_lease_ended_raises_attempt_ended() {
 fn a_handler_page_call_ends_at_the_handlers_timeout_and_names_it() {
     on_paused_clock(async |leases, clock| {
         let start = clock.now();
-        let lease = leases.grant("1", 1, DEFAULT_LEASE);
+        let lease = leases.grant(request("1"), 1, DEFAULT_LEASE);
         lease.handler_sent(RequestId::Number(4));
         let handler = lease.enclosing().expect("a handler call was sent");
         clock.sleep(Duration::from_secs(55)).await;
@@ -216,7 +260,7 @@ fn a_handler_page_call_ends_at_the_handlers_timeout_and_names_it() {
 #[test]
 fn no_handler_call_sent_encloses_nothing() {
     on_paused_clock(async |leases, _clock| {
-        let lease = leases.grant("1", 1, DEFAULT_LEASE);
+        let lease = leases.grant(request("1"), 1, DEFAULT_LEASE);
 
         assert!(lease.enclosing().is_none());
     });
@@ -229,7 +273,7 @@ fn no_handler_call_sent_encloses_nothing() {
 #[test]
 fn a_renewal_moves_the_handlers_end_later() {
     on_paused_clock(async |leases, clock| {
-        let lease = leases.grant("1", 1, DEFAULT_LEASE);
+        let lease = leases.grant(request("1"), 1, DEFAULT_LEASE);
         lease.handler_sent(RequestId::Number(4));
         let handler = lease.enclosing().expect("a handler call was sent");
         let renewed = async {
@@ -263,7 +307,7 @@ fn a_permit_wait_longer_than_the_handlers_timeout_ends_none_of_its_calls() {
         let leases =
             leases.handled_under(Deadline::given(&TIMEOUT_HANDLER, 1_000, SettingsLayer::Run));
         let start = clock.now();
-        let lease = leases.grant("1", 1, Duration::from_secs(11));
+        let lease = leases.grant(request("1"), 1, Duration::from_secs(11));
         lease.handler_sent(RequestId::Number(4));
         let handler = lease.enclosing().expect("a handler call was sent");
         let (permitted, wait_ended) = oneshot::channel::<()>();

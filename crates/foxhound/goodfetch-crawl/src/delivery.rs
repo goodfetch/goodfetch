@@ -1211,7 +1211,7 @@ async fn lease_to_servers(
                 site_files,
             } = drawn;
             let lease = run_leases.grant(
-                &leased.crawl_request.id,
+                crate::lease::request_ref(&leased.crawl_request),
                 leased.lease_epoch,
                 policy.lease_length(),
             );

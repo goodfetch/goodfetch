@@ -34,6 +34,7 @@ sha2.workspace = true
 goodfetch-saved-file.workspace = true
 # The schemas of a program's own types, re-exported so that its derive's
 # version is the SDK's (ADR 0082).
+jsonschema.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true

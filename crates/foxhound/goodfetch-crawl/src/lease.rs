@@ -32,10 +32,11 @@ use goodfetch_engine::run_state::{RunState, RunStateError};
 use goodfetch_protocol::connection::EnclosingCall;
 use goodfetch_protocol::effect::EffectAttempt;
 use goodfetch_protocol::foxhound::crawl::{
-    ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, PushedRecord, TIMEOUT_HANDLER,
+    ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, CrawlRequest, PushedRecord, TIMEOUT_HANDLER,
 };
 use goodfetch_protocol::foxhound::provenance::RobotsTxtMark;
 use goodfetch_protocol::jsonrpc::RequestId;
+use goodfetch_protocol::run::CrawlRequestRef;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
@@ -175,16 +176,17 @@ impl Leases {
         self
     }
 
-    /// Grants the lease of epoch `lease_epoch` on `work_item`, which the
+    /// Grants the lease of epoch `lease_epoch` on `request`, which the
     /// run file already holds, for `length` from now.
     pub(crate) fn grant(
         &self,
-        work_item: &str,
+        request: CrawlRequestRef,
         lease_epoch: u64,
         length: Duration,
     ) -> WorkItemLease {
         let lease = Lease::granted(lease_epoch, self.clock.now(), length);
-        self.staging.open(work_item, lease_epoch);
+        let request = Arc::new(request);
+        self.staging.open(Arc::clone(&request), lease_epoch);
         let (state, _) = watch::channel(Held {
             lease,
             released: false,
@@ -193,13 +195,22 @@ impl Leases {
         });
         let granted = WorkItemLease(Arc::new(Shared {
             leases: self.clone(),
-            work_item: Arc::from(work_item),
+            request,
             length,
             state,
             handler: watch::Sender::new(None),
         }));
         granted.trace("grant", &lease, None);
         granted
+    }
+}
+
+/// The [`CrawlRequestRef`] of a leased [`CrawlRequest`].
+pub(crate) fn request_ref(request: &CrawlRequest) -> CrawlRequestRef {
+    CrawlRequestRef {
+        id: request.id.clone(),
+        url: request.url.clone(),
+        label: request.label.clone(),
     }
 }
 
@@ -211,7 +222,7 @@ pub(crate) struct WorkItemLease(Arc<Shared>);
 #[derive(Debug)]
 struct Shared {
     leases: Leases,
-    work_item: Arc<str>,
+    request: Arc<CrawlRequestRef>,
     /// How long it was granted for, which each renewal grants again.
     length: Duration,
     state: watch::Sender<Held>,
@@ -224,7 +235,7 @@ impl Drop for Shared {
     /// What its attempt staged and never committed goes with it.
     fn drop(&mut self) {
         let epoch = self.state.borrow().lease.epoch();
-        self.leases.staging.discard(&self.work_item, epoch);
+        self.leases.staging.discard(&self.request.id, epoch);
     }
 }
 
@@ -495,13 +506,14 @@ impl WorkItemLease {
     pub(crate) fn restage(&self) -> SoFar {
         let epoch = self.0.state.borrow().lease.epoch();
         let staging = &self.0.leases.staging;
-        let robots_txt = staging.robots_txt(&self.0.work_item, epoch);
-        let pushed = staging.discard(&self.0.work_item, epoch);
+        let work_item = self.0.request.id.as_str();
+        let robots_txt = staging.robots_txt(work_item, epoch);
+        let pushed = staging.discard(work_item, epoch);
         if self.check().is_ok() {
-            staging.open(&self.0.work_item, epoch);
+            staging.open(Arc::clone(&self.0.request), epoch);
             if robots_txt.is_some() {
                 staging.fetched(
-                    AttemptKey::new(&*self.0.work_item, epoch),
+                    AttemptKey::new(work_item, epoch),
                     Fetched {
                         robots_txt,
                         ..Fetched::default()
@@ -554,25 +566,28 @@ impl WorkItemLease {
 
     /// Its attempt: its work item under the lease epoch it holds now.
     fn attempt(&self) -> AttemptKey<&str> {
-        AttemptKey::new(&*self.0.work_item, self.0.state.borrow().lease.epoch())
+        AttemptKey::new(
+            self.0.request.id.as_str(),
+            self.0.state.borrow().lease.epoch(),
+        )
     }
 
     /// What its attempt staged so far, which stays staged.
     pub(crate) fn pushed(&self) -> SoFar {
         let epoch = self.0.state.borrow().lease.epoch();
-        self.0.leases.staging.pushed(&self.0.work_item, epoch)
+        self.0.leases.staging.pushed(&self.0.request.id, epoch)
     }
 
     /// Whether its work item declared an Effect, in this attempt or an
     /// earlier one (ADR 0106).
     pub(crate) fn declares_effect(&self) -> bool {
-        self.0.leases.staging.declares_effect(&self.0.work_item)
+        self.0.leases.staging.declares_effect(&self.0.request.id)
     }
 
     /// Discards what its attempt staged and did not commit.
     fn discard(&self) {
         let epoch = self.0.state.borrow().lease.epoch();
-        self.0.leases.staging.discard(&self.0.work_item, epoch);
+        self.0.leases.staging.discard(&self.0.request.id, epoch);
     }
 
     /// Waits until it ends: until its attempt releases it, or until the
@@ -659,7 +674,7 @@ impl WorkItemLease {
         // validated on the run file's writer thread.
         let records = leases.datasets.check(records, &leases.work);
         Ok(Commit {
-            work_item: self.0.work_item.to_string(),
+            work_item: self.0.request.id.clone(),
             epoch: lease.epoch(),
             staging: leases.staging.clone(),
             counted_work: leases.work.clone(),
@@ -719,7 +734,7 @@ impl WorkItemLease {
             transition,
             run_id = &*leases.run_id,
             run_epoch = leases.run_epoch,
-            work_item = &*self.0.work_item,
+            work_item = self.0.request.id.as_str(),
             lease_epoch = lease.epoch(),
             now = since(leases.clock.now()),
             expires_at = since(lease.expires_at()),
@@ -764,7 +779,7 @@ impl LeaseCheck for WorkItemLease {
     /// Its attempt: its work item, the crawl request, under its epoch.
     fn effect_attempt(&self) -> Option<EffectAttempt> {
         Some(EffectAttempt {
-            crawl_request_id: self.0.work_item.to_string(),
+            crawl_request_id: self.0.request.id.clone(),
             lease_epoch: self.0.state.borrow().lease.epoch(),
         })
     }

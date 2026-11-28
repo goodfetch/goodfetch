@@ -1,5 +1,5 @@
 {
-  "description": "A Collie Client's hello accepted, a Run started and a page opened in it (ADRs 0092 and 0114): a fill of the `shop_totp` placeholder fails with `secret_unavailable`, `failure: \"no_code\"`, since Bitwarden made no one-time code from the item's seed, naming the placeholder, the reference and the provider, never a value; then a click fails with `page_navigated_during_call`, retryable, naming the document the call read and the one a navigation it did not start replaced it with, and the fix. Only an AI verb fails with that code, and no call of this protocol has one yet, so the script answers it to a click, which a Client reads by its code alone. Then a navigation the site rate-limits fails with `blocked`, its Block cause `rate_limit`, status 429 and `retry_after` the time the site's `Retry-After` asks for, written at UTC+2, and one the site refuses with a cause no catalog names, `geo_block`, asking for no time (ADRs 0035 and 0118). The Run then finishes. The `complete-error-details` client conformance case.",
+  "description": "A Collie Client's hello accepted, a Run started and a page opened in it (ADRs 0035, 0079, 0092, 0101, 0106, 0114, 0115 and 0118): a fill of `shop_totp` fails with `secret_unavailable` (`failure: \"no_code\"`); a click fails with `page_navigated_during_call` naming both documents and the fix; two navigations fail with `blocked` (`rate_limit` with `retry_after` as a point in time, and unknown `geo_block` with `retry_after: null`); a click fails with `model_unavailable` (`retry_after` duration in ms); a click fails with `effect_uncertain` (`UncertainEffect.request: null` on a Collie Run); a navigation fails with `artifact_unavailable_offline` (`pinned_by` list of product and plugin pinners, plus `limit` and `fix`); and a navigation fails with `too_many_redirects` (`hops` and browser `limit`). The Run then finishes. The `complete-error-details` client conformance case.",
   "steps": [
     {
       "expect": {
@@ -138,6 +138,121 @@
             "cause": "geo_block",
             "status": 451,
             "retry_after": null
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "locator.click",
+        "params": { "locator": { "page_id": "page-1", "selector": "#summarize" } }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "the Model provider rate-limited calls and asked to wait 1500 ms",
+          "data": {
+            "code": "model_unavailable",
+            "retryable": true,
+            "operation": "locator.click",
+            "call_id": "call-5",
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+            "target": "#summarize",
+            "url": "https://shop.test/item",
+            "reason": "rate_limited",
+            "retry_after": 1500
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "locator.click",
+        "params": { "locator": { "page_id": "page-1", "selector": "#pay" } }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32003,
+          "message": "the Effect charge-order-42 was left uncertain when the browser closed",
+          "data": {
+            "code": "effect_uncertain",
+            "retryable": false,
+            "operation": "locator.click",
+            "call_id": "call-6",
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+            "target": "#pay",
+            "url": "https://shop.test/checkout",
+            "entry": "effect-1",
+            "key": "charge-order-42",
+            "request": null,
+            "reason": "browser closed before confirmation",
+            "first_command": "locator.click",
+            "since": "2026-11-21T08:00:00Z"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.goto",
+        "params": { "page_id": "page-1", "url": "https://shop.test/offline" }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32002,
+          "message": "the offline setting refused downloading chrome-for-testing",
+          "data": {
+            "code": "artifact_unavailable_offline",
+            "retryable": false,
+            "operation": "page.goto",
+            "call_id": "call-7",
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+            "artifact": {
+              "kind": "browser",
+              "name": "chrome-for-testing",
+              "build": "141.0.7390.54-linux64"
+            },
+            "pinned_by": [
+              { "kind": "product", "name": "collie", "version": "0.0.0" },
+              { "kind": "plugin", "name": "demo-plugin", "version": "1.2.0" }
+            ],
+            "cache": "/var/cache/goodfetch/browsers",
+            "limit": {
+              "key": "offline",
+              "value": true,
+              "layer": "run"
+            },
+            "fix": "Run `collie browser install` where the cache is writable."
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.goto",
+        "params": { "page_id": "page-1", "url": "https://shop.test/bounce" }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32003,
+          "message": "navigation to https://shop.test/bounce exceeded the browser's 20-request redirect limit",
+          "data": {
+            "code": "too_many_redirects",
+            "retryable": false,
+            "operation": "page.goto",
+            "call_id": "call-8",
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+            "url": "https://shop.test/bounce",
+            "hops": ["https://shop.test/bounce/1", "https://shop.test/bounce/2"],
+            "limit": { "kind": "browser", "count": 20 }
           }
         }
       }

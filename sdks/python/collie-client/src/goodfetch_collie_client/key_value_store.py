@@ -62,7 +62,13 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.schema import JSONSchema
     from goodfetch_collie_client.sequence import AsyncSequence, Sequence
 
-__all__ = ["AsyncKeyValueStore", "KeyValueStore", "StoredBytes"]
+__all__ = [
+    "AsyncKeyValueStore",
+    "AsyncKeyValueStoreView",
+    "KeyValueStore",
+    "KeyValueStoreView",
+    "StoredBytes",
+]
 
 T = TypeVar("T")
 
@@ -560,3 +566,139 @@ class KeyValueStore:
         """
         warn_entry(KEYS, EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         return self._host.read(KEYS, self._calls.keys_params(prefix), _key_of)
+
+
+class AsyncKeyValueStoreView:
+    """Read-only view of a Run's Key-value store in the async API (ADRs 0102, 0103).
+
+    Reached through `AsyncRunView.key_value_store`: reads `get`, `get_bytes`
+    and `keys` without taking a writer lock.
+    """
+
+    def __init__(self, store: AsyncKeyValueStore) -> None:
+        """Takes the store whose read methods this view exposes."""
+        self._store = store
+
+    @overload
+    async def get(self, key: str) -> JSONValue: ...
+    @overload
+    async def get(self, key: str, schema: JSONSchema) -> JSONValue: ...
+    @overload
+    async def get(self, key: str, schema: TypeForm[T]) -> T | None: ...
+    async def get(
+        self, key: str, schema: JSONSchema | TypeForm[T] | None = None
+    ) -> JSONValue | T:
+        """The JSON value stored for `key`, or `None` when the key is absent.
+
+        Answers the JSON value a Run's Key-value store holds for a key, as
+        committed, or null when the key is absent. A key holding bytes fails
+        with `value_invalid`, naming `getBytes`. Takes no writer lock, so it
+        reads a Run no program holds without resuming it. Through a crawl
+        attempt (`attempt`), it reads what the attempt staged first.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        if schema is None:
+            return await self._store.get(key)
+        return await self._store.get(key, schema)
+
+    async def get_bytes(self, key: str) -> StoredBytes | None:
+        """The bytes stored for `key`, or `None` when the key is absent.
+
+        Answers the bytes and content type a Run's Key-value store holds for a
+        key, as committed, or null when the key is absent. A key holding JSON
+        fails with `value_invalid`, naming `get`. Takes no writer lock. Through
+        a crawl attempt (`attempt`), it reads what the attempt staged first.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return await self._store.get_bytes(key)
+
+    def keys(self, *, prefix: str | None = None) -> AsyncSequence[str]:
+        """The committed keys that start with `prefix`, every key when left out.
+
+        Sends the committed keys of a Run's Key-value store that start with
+        `prefix`, in the order of their Unicode scalar values, in `$/key`
+        notifications, one per credit granted with `$/credit`, then answers how
+        many it sent. Takes no writer lock.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return self._store.keys(prefix=prefix)
+
+
+class _SyncReadStore(Protocol):
+    """Read-only subset of `KeyValueStore` that `KeyValueStoreView` delegates to."""
+
+    @overload
+    def get(self, key: str) -> JSONValue: ...
+    @overload
+    def get(self, key: str, schema: JSONSchema) -> JSONValue: ...
+    @overload
+    def get(self, key: str, schema: TypeForm[T]) -> T | None: ...
+    def get(
+        self, key: str, schema: JSONSchema | TypeForm[T] | None = None
+    ) -> JSONValue | T: ...
+
+    def get_bytes(self, key: str) -> StoredBytes | None: ...
+
+    def keys(self, *, prefix: str | None = None) -> Sequence[str]: ...
+
+
+class KeyValueStoreView:
+    """A read-only view of a Run's Key-value store in the sync API (ADRs 0102 and 0103).
+
+    Reached through `RunView.key_value_store`: reads `get`, `get_bytes` and
+    `keys` without taking a writer lock.
+    """
+
+    def __init__(self, store: _SyncReadStore) -> None:
+        """Takes the store whose read methods this view exposes."""
+        self._store = store
+
+    @overload
+    def get(self, key: str) -> JSONValue: ...
+    @overload
+    def get(self, key: str, schema: JSONSchema) -> JSONValue: ...
+    @overload
+    def get(self, key: str, schema: TypeForm[T]) -> T | None: ...
+    def get(
+        self, key: str, schema: JSONSchema | TypeForm[T] | None = None
+    ) -> JSONValue | T:
+        """The JSON value stored for `key`, or `None` when the key is absent.
+
+        Answers the JSON value a Run's Key-value store holds for a key, as
+        committed, or null when the key is absent. A key holding bytes fails
+        with `value_invalid`, naming `getBytes`. Takes no writer lock, so it
+        reads a Run no program holds without resuming it. Through a crawl
+        attempt (`attempt`), it reads what the attempt staged first.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        if schema is None:
+            return self._store.get(key)
+        return self._store.get(key, schema)
+
+    def get_bytes(self, key: str) -> StoredBytes | None:
+        """The bytes stored for `key`, or `None` when the key is absent.
+
+        Answers the bytes and content type a Run's Key-value store holds for a
+        key, as committed, or null when the key is absent. A key holding JSON
+        fails with `value_invalid`, naming `get`. Takes no writer lock. Through
+        a crawl attempt (`attempt`), it reads what the attempt staged first.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return self._store.get_bytes(key)
+
+    def keys(self, *, prefix: str | None = None) -> Sequence[str]:
+        """The committed keys that start with `prefix`, every key when left out.
+
+        Sends the committed keys of a Run's Key-value store that start with
+        `prefix`, in the order of their Unicode scalar values, in `$/key`
+        notifications, one per credit granted with `$/credit`, then answers how
+        many it sent. Takes no writer lock.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return self._store.keys(prefix=prefix)

@@ -31,7 +31,7 @@ from goodfetch_collie import (
     ArtifactUnavailableOfflineError,
     AsyncCollie,
     Collie,
-    EgressRefusedError,
+    ResponseNotRecordedError,
     Settings,
     testing,
 )
@@ -314,7 +314,7 @@ async def test_a_loopback_resolve_entry_is_reached_any_other_host_is_refused(
     await run.finish()
     await engine.close()
 
-    assert (status, type(refused)) == (200, EgressRefusedError)
+    assert (status, type(refused)) == (200, ResponseNotRecordedError)
     assert tree(cache) == before
 
 

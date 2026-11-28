@@ -5,8 +5,8 @@
 //! reaches a Daemon ([`crate::EngineChoice`]).
 
 use goodfetch_collie_client::{
-    ClientConnection, Connection, Error, HandlerlessStart, Query, RawCall, RunView, Schedules,
-    Start,
+    ClientConnection, Connection, Error, EventStream, HandlerlessStart, Query, RawCall, RunView,
+    Schedules, SecretRequest, Start,
 };
 use goodfetch_protocol::run::{CatalogTarget, RunId};
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
@@ -271,6 +271,18 @@ impl Collie {
     #[must_use]
     pub fn schedules(&self) -> Schedules {
         self.linked.connection().schedules()
+    }
+
+    /// The engine's `secrets.resolve` requests for `caller:<name>` Secret
+    /// references opened by Runs on this connection (ADRs 0092 and 0104).
+    ///
+    /// # Errors
+    ///
+    /// `setting_invalid` when [`ConnectOptions::resolve_secret`] was not
+    /// declared or when another `secret_requests()` stream is already active,
+    /// and `closed` once the connection is closed.
+    pub fn secret_requests(&self) -> Result<EventStream<SecretRequest>, Error> {
+        self.linked.connection().secret_requests()
     }
 
     /// Shows each setting's effective value, the layer that set it and the

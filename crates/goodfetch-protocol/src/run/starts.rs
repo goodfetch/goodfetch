@@ -17,7 +17,7 @@ use crate::catalog::{
 };
 use crate::settings::ProjectSettings;
 
-use super::{RUN_ID_PATTERN, RunLimit, RunStarted, Tags};
+use super::{RUN_ID_PATTERN, RunId, RunLimit, RunStarted, Tags};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -45,6 +45,26 @@ pub struct Recording {
     /// directory.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub path: String,
+}
+
+impl Recording {
+    /// Replays the Response recording at `path` (ADR 0105).
+    #[must_use]
+    pub fn replay(path: impl Into<String>) -> Self {
+        Self {
+            mode: RecordingMode::Replay,
+            path: path.into(),
+        }
+    }
+
+    /// Records every response the Run receives into `path` (ADR 0105).
+    #[must_use]
+    pub fn record(path: impl Into<String>) -> Self {
+        Self {
+            mode: RecordingMode::Record,
+            path: path.into(),
+        }
+    }
 }
 
 /// What `recipe.start` takes.
@@ -79,6 +99,12 @@ pub struct RecipeStartParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub recording: Option<Recording>,
+    /// The Response recording's bytes in Base64, when the SDK read the file on
+    /// the program's machine for `mode: "replay"` (ADR 0105); empty string for
+    /// a test engine's empty replay recording.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub recording_bytes: Option<String>,
     /// How long the Run may last, in milliseconds, at least 1, as
     /// `timeout.run` for this Run: absent for the setting's value, `null`
     /// for none.
@@ -157,6 +183,9 @@ impl CatalogTarget {
     }
 }
 
+// Wire parameter structs stay flat because `serde(deny_unknown_fields)` rejects
+// `serde(flatten)` in JSON-RPC contracts (ADR 0038).
+// jscpd:ignore-start
 /// What `catalog_run.start` takes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -188,6 +217,12 @@ pub struct CatalogRunStartParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub recording: Option<Recording>,
+    /// The Response recording's bytes in Base64, when the SDK read the file on
+    /// the program's machine for `mode: "replay"` (ADR 0105); empty string for
+    /// a test engine's empty replay recording.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub recording_bytes: Option<String>,
     /// How long the Run may last, in milliseconds, at least 1, as
     /// `timeout.run` for this Run: absent for the setting's value, `null`
     /// for none.
@@ -205,6 +240,7 @@ pub struct CatalogRunStartParams {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub detached: bool,
 }
+// jscpd:ignore-end
 
 /// `recipe.start`.
 pub const RECIPE_START: Operation = Operation {
@@ -235,6 +271,60 @@ pub const CATALOG_RUN_START: Operation = Operation {
     result: schema_of::<RunStarted>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `recording.save_as` takes (ADRs 0105 and 0116).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RecordingSaveAsParams {
+    /// The Run's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// The program's path, absolute, which an Attached engine writes
+    /// itself; any other engine leaves it to the SDK and sends the file's
+    /// bytes in `$/chunk` notifications instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub path: Option<String>,
+    /// The recording's file name (such as `site.warc.gz`), used for `warcinfo`
+    /// and `.gz` per-record gzip detection when `path` is absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub filename: Option<String>,
+}
+
+/// What `recording.save_as` answers once the file is whole (ADRs 0105 and 0116).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RecordingSaved {
+    /// The file's size in bytes.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub size: u64,
+    /// The SHA-256 of its bytes, in lowercase hexadecimal.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub digest: String,
+    /// Whether the engine wrote the program's path itself; when not, the
+    /// `$/chunk` notifications before this answer carried every byte, and
+    /// the SDK writes the path.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub written: bool,
+}
+
+/// `recording.save_as`.
+pub const RECORDING_SAVE_AS: Operation = Operation {
+    name: "recording.save_as",
+    description: "Saves a Run's recorded Response recording as a WARC 1.1 file, whole or not at all (ADRs 0105 and 0116). An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. A Run that recorded no responses raises `recording_invalid`. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::SdkOnly,
+    params: schema_of::<RecordingSaveAsParams>,
+    result: schema_of::<RecordingSaved>,
+    events: &[],
+    cancellable: true,
     input: None,
     bound: None,
     stability: Stability::Experimental,

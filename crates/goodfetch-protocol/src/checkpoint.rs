@@ -436,10 +436,116 @@ pub const CHECKPOINT_INTERVAL: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// What `checkpoint.save_as` takes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CheckpointSaveAsParams {
+    /// The Run's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// Where the Checkpoint is on the engine's machine, as `run.checkpoint` answered.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub location: String,
+    /// The program's path, absolute, which an Attached engine writes
+    /// itself; any other engine leaves it to the SDK and sends the file's
+    /// bytes instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub path: Option<String>,
+}
+
+/// What `checkpoint.save_as` answers once the file is whole.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CheckpointSaved {
+    /// The file's size in bytes.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub size: u64,
+    /// The SHA-256 of its bytes, in lowercase hexadecimal.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub digest: String,
+    /// Whether the engine wrote the program's path itself; when not, the
+    /// `$/chunk` notifications before this answer carried every byte, and
+    /// the SDK writes the path.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub written: bool,
+    /// The run epoch of the writer that took the Checkpoint (ADR 0003).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_epoch: u64,
+}
+
+/// `checkpoint.save_as`.
+pub const CHECKPOINT_SAVE_AS: Operation = Operation {
+    name: "checkpoint.save_as",
+    description: "Saves a Checkpoint's file, which the engine keeps on its machine, whole or not at all (ADRs 0102 and 0116). An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size, its SHA-256 digest and its run epoch. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::SdkOnly,
+    params: schema_of::<CheckpointSaveAsParams>,
+    result: schema_of::<CheckpointSaved>,
+    events: &[],
+    cancellable: true,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `checkpoint.stream` takes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CheckpointStreamParams {
+    /// The Run's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// Where the Checkpoint is on the engine's machine, as `run.checkpoint` answered.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub location: String,
+}
+
+/// What `checkpoint.stream` answers once it sent every byte.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CheckpointStreamed {
+    /// The file's size in bytes.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub size: u64,
+    /// The SHA-256 of its bytes, in lowercase hexadecimal.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub digest: String,
+    /// The run epoch of the writer that took the Checkpoint (ADR 0003).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_epoch: u64,
+}
+
+/// `checkpoint.stream`.
+pub const CHECKPOINT_STREAM: Operation = Operation {
+    name: "checkpoint.stream",
+    description: "Sends a Checkpoint's bytes in order, in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, and answers its size, its SHA-256 digest and its run epoch once every byte is sent (ADRs 0102 and 0116). Nothing is written on either machine: a program that writes the bytes itself meets its own language's file errors.",
+    class: OperationClass::Read,
+    kind: OperationKind::Sequence,
+    reach: Reach::SdkOnly,
+    params: schema_of::<CheckpointStreamParams>,
+    result: schema_of::<CheckpointStreamed>,
+    events: &[],
+    cancellable: true,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[RUN_CHECKPOINT, RUN_PAUSE, RUN_MIGRATE, RUN_RESUME],
+    operations: &[
+        RUN_CHECKPOINT,
+        RUN_PAUSE,
+        RUN_MIGRATE,
+        RUN_RESUME,
+        CHECKPOINT_SAVE_AS,
+        CHECKPOINT_STREAM,
+    ],
     events: &[RUN_CHECKPOINTING, RUN_MIGRATING, RUN_ABORTING, RUN_STOPPING],
     handler_requests: &[],
     error_codes: &[

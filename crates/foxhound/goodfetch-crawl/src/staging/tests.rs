@@ -21,12 +21,21 @@ use goodfetch_frontier::{
 use goodfetch_protocol::foxhound::crawl::Seed;
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReason};
 use goodfetch_protocol::foxhound::outcomes::NotAddedAtCommit;
+use goodfetch_protocol::run::CrawlRequestRef;
 use rusqlite::Connection;
 use serde_json::json;
 
 use super::{Answered, AttemptKey, Staging};
 use crate::invariants::fixture;
 use crate::work_items::{self, Adding, Positions};
+
+fn request(id: &str) -> CrawlRequestRef {
+    CrawlRequestRef {
+        id: id.to_owned(),
+        url: format!("https://shop.test/{id}"),
+        label: "item".to_owned(),
+    }
+}
 
 /// A run file in memory holding one seed, `https://shop.test/`, leased to
 /// its first attempt, under lease epoch 1.
@@ -142,8 +151,8 @@ fn answer(answered: Answered<Enqueued>) -> Enqueued {
 fn a_staged_enqueue_is_answered_as_it_commits_and_keeps_its_id_through_the_commit() {
     let connection = leased();
     let staging = Staging::default();
-    staging.open("1", 1);
-    staging.open("1", 7);
+    staging.open(request("1"), 1);
+    staging.open(request("1"), 7);
 
     let answers = [
         answer(staging.admit(&connection, "1", 1, enqueue("https://shop.test/b"))),
@@ -201,13 +210,27 @@ fn a_staged_enqueue_is_answered_as_it_commits_and_keeps_its_id_through_the_commi
 fn an_enqueue_or_a_write_inside_an_effects_body_fails_with_effect_staging_refused() {
     let connection = leased();
     let staging = Staging::default();
-    staging.open("1", 1);
+    staging.open(request("1"), 1);
     let set = || StagedWrite::Set {
         key: "progress".to_owned(),
         value: json!(1),
     };
 
-    assert!(staging.begin_effect("1", 1).is_ok());
+    assert_eq!(staging.begin_effect("1", 1).unwrap(), request("1"));
+    staging.end_effect("1", 1);
+    let saved = staging.set_aside(AttemptKey::new("1", 1)).unwrap();
+    assert_eq!(
+        staging.begin_effect("1", 1).unwrap(),
+        request("1"),
+        "set_aside keeps the attempt's CrawlRequestRef"
+    );
+    staging.end_effect("1", 1);
+    staging.put_back(AttemptKey::new("1", 1), saved);
+    assert_eq!(
+        staging.begin_effect("1", 1).unwrap(),
+        request("1"),
+        "put_back restores the attempt's CrawlRequestRef"
+    );
     let enqueued = staging
         .admit(&connection, "1", 1, enqueue("https://shop.test/b"))
         .unwrap()
@@ -333,7 +356,7 @@ fn a_staged_enqueue_names_its_identity_without_scanning_the_visited_set() {
     let connection = leased();
     visited_elsewhere(&connection, 100_000);
     let staging = Staging::default();
-    staging.open("1", 1);
+    staging.open(request("1"), 1);
 
     let (answered, statements) = statements_of(&connection, || {
         answer(staging.admit(&connection, "1", 1, enqueue("https://shop.test/b")))
@@ -367,7 +390,7 @@ fn a_staged_enqueue_names_its_identity_without_scanning_the_visited_set() {
 fn separate_enqueues_of_one_attempt_run_one_admission_each() {
     let connection = leased();
     let staging = Staging::default();
-    staging.open("1", 1);
+    staging.open(request("1"), 1);
     let admissions = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let counted = |url: &'static str| {
         let admissions = std::sync::Arc::clone(&admissions);
@@ -435,8 +458,8 @@ fn a_commit_names_each_staged_request_another_commit_added_first() {
     .unwrap();
     let epoch = work_items::lease(&connection, &["2".to_owned()]).unwrap()[0].lease_epoch;
     let staging = Staging::default();
-    staging.open("1", 1);
-    staging.open("2", epoch);
+    staging.open(request("1"), 1);
+    staging.open(request("2"), epoch);
     let answers = [
         answer(staging.admit(&connection, "1", 1, enqueue("https://shop.test/b"))),
         answer(staging.admit(&connection, "2", epoch, enqueue("https://shop.test/b"))),
@@ -491,7 +514,7 @@ fn a_commit_names_each_staged_request_another_commit_added_first() {
 fn an_admission_past_the_attempts_bound_fails_with_staging_full() {
     let connection = leased();
     let staging = Staging::bounded(2);
-    staging.open("1", 1);
+    staging.open(request("1"), 1);
     answer(staging.admit(&connection, "1", 1, enqueue("https://shop.test/b")));
     answer(staging.admit(&connection, "1", 1, enqueue("https://shop.test/c")));
 
@@ -593,7 +616,7 @@ fn staged_admissions_are_answered_as_admitting_them_in_turn_answers() {
     let staged_run = bounded();
     let direct_run = bounded();
     let staging = Staging::default();
-    staging.open("1", 1);
+    staging.open(request("1"), 1);
 
     let staged: Vec<Enqueued> = dependent_steps()
         .into_iter()
@@ -668,14 +691,14 @@ fn named(enqueued: &Enqueued) -> String {
 fn what_an_attempt_staged_names_the_frontier_identity_of_each_request_it_added() {
     let connection = leased();
     let staging = Staging::default();
-    staging.open("1", 1);
+    staging.open(request("1"), 1);
 
     answer(staging.admit(&connection, "1", 1, enqueue("https://shop.test/b")));
     answer(staging.admit(&connection, "1", 1, enqueue("https://shop.test/b")));
     answer(staging.admit(&connection, "1", 1, enqueue("https://shop.test/c?x=1")));
     let so_far = staging.pushed("1", 1).enqueues;
     let discarded = staging.discard("1", 1).enqueues;
-    staging.open("1", 1);
+    staging.open(request("1"), 1);
 
     assert_eq!(
         (so_far.clone(), discarded, staging.pushed("1", 1).enqueues),

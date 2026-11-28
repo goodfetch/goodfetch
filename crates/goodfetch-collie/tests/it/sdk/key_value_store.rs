@@ -12,7 +12,9 @@
 
 use std::collections::BTreeMap;
 
-use goodfetch_collie::{Collie, Error, ErrorCode, KeyValueStore, Run, StoredBytes, blocking};
+use goodfetch_collie::{
+    Collie, Error, ErrorCode, KeyValueStore, Run, Schema, StoredBytes, blocking,
+};
 use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::key_value_store::{Refused, ValueInvalidDetails, ValueInvalidReason};
 use goodfetch_test_support::{TestEnv, case_logs, real_time_runtime};
@@ -213,21 +215,39 @@ struct Draft {
 /// A value comes back in the program's type, and one that is not JSON, that
 /// its type does not read back as given, or that the type it is read with
 /// does not read, is refused, the stored value unchanged.
-/// Covers: story:11-66, story:11-68, error:value_invalid
+/// Covers: story:11-66, story:11-68, story:11-69, error:value_invalid
 #[test]
 fn a_type_reads_its_value_back_and_what_it_does_not_read_is_refused() {
+    let mut case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "typed-value-round-trip",
+        RustMode::Linked,
+    )
+    .unwrap();
     let dune = || Book {
         title: "Dune".to_owned(),
         pages: 412,
     };
-    let (read, refusals, unchanged) = with_store(async |_, store| {
+    let hand_schema = Schema::json(json!({
+        "type": "object",
+        "properties": { "title": { "type": "string" }, "year": { "type": "string" } },
+        "required": ["title", "year"]
+    }))
+    .unwrap();
+    let (read, hand_read, refusals, unchanged) = with_store(async |_, store| {
         store.set("book", &dune()).await.unwrap();
         store.set("books", &vec![dune()]).await.unwrap();
+        let hand_value = json!({ "title": "Dune", "year": "1965" });
+        store
+            .set_with("hand", &hand_value, &hand_schema)
+            .await
+            .unwrap();
         let read = (
             store.get::<Book>("book").await.unwrap(),
             store.get::<Vec<Book>>("books").await.unwrap(),
             store.get::<Book>("absent").await.unwrap(),
         );
+        let hand_read = store.get_with("hand", &hand_schema).await.unwrap();
         let draft = Draft {
             title: "Dune".to_owned(),
             note: "reread".to_owned(),
@@ -238,23 +258,85 @@ fn a_type_reads_its_value_back_and_what_it_does_not_read_is_refused() {
             refusal(store.set("book", &draft).await),
             refusal(store.get::<Book>("books").await),
         ];
-        (read, refusals, store.get::<Value>("book").await.unwrap())
+        (
+            read,
+            hand_read,
+            refusals,
+            store.get::<Value>("book").await.unwrap(),
+        )
     });
 
-    assert_eq!(read, (Some(dune()), Some(vec![dune()]), None));
+    case.check(
+        "typed reads answer the program's type and hand-written JSON Schema round-trips",
+        || {
+            assert_eq!(read, (Some(dune()), Some(vec![dune()]), None));
+            assert_eq!(hand_read, Some(json!({ "title": "Dune", "year": "1965" })));
+        },
+    );
     let (not_json, schema) = (
         ValueInvalidReason::ValueNotJson,
         ValueInvalidReason::ValueSchema,
     );
-    assert_eq!(
-        refusals.each_ref().map(refused),
-        [
-            ("book", Refused::Value, not_json, Some("/amount")),
-            ("book", Refused::Value, schema, Some("/note")),
-            ("books", Refused::Value, schema, Some("")),
-        ]
+    case.check(
+        "values rejected by their type or schema fail with value_invalid naming their path",
+        || {
+            assert_eq!(
+                refusals.each_ref().map(refused),
+                [
+                    ("book", Refused::Value, not_json, Some("/amount")),
+                    ("book", Refused::Value, schema, Some("/note")),
+                    ("books", Refused::Value, schema, Some("")),
+                ]
+            );
+            assert_eq!(unchanged, Some(json!({ "title": "Dune", "pages": 412 })));
+        },
     );
-    assert_eq!(unchanged, Some(json!({ "title": "Dune", "pages": 412 })));
+}
+
+/// Non-JSON values are refused before sending, naming their JSON Pointer path,
+/// while `__proto__` and `constructor` keys cross untouched (ADR 0082).
+/// Covers: story:11-68, error:value_invalid
+#[test]
+fn non_json_values_are_refused_before_sending_and_proto_keys_cross() {
+    let mut case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "non-json-value-refused",
+        RustMode::Linked,
+    )
+    .unwrap();
+    let proto = json!({ "__proto__": { "polluted": true }, "constructor": "kept" });
+
+    let (refusals, stored_proto) = with_store(async |_, store| {
+        let nan_price = BTreeMap::from([("amount".to_owned(), f64::NAN)]);
+        let inf_list = vec![1.0_f64, f64::INFINITY];
+        let wide_int = u128::MAX;
+        let refusals = [
+            refusal(store.set("price", &nan_price).await),
+            refusal(store.set("tags", &inf_list).await),
+            refusal(store.set("count", &wide_int).await),
+        ];
+        store.set("user-data", &proto).await.unwrap();
+        let stored_proto = store.get::<Value>("user-data").await.unwrap();
+        (refusals, stored_proto)
+    });
+
+    let not_json = ValueInvalidReason::ValueNotJson;
+    case.check(
+        "each non-JSON value fails with value_invalid naming the key and path",
+        || {
+            assert_eq!(
+                refusals.each_ref().map(refused),
+                [
+                    ("price", Refused::Value, not_json, Some("/amount")),
+                    ("tags", Refused::Value, not_json, Some("/1")),
+                    ("count", Refused::Value, not_json, Some("")),
+                ]
+            );
+        },
+    );
+    case.check("__proto__ and constructor keys cross untouched", || {
+        assert_eq!(stored_proto, Some(proto));
+    });
 }
 
 /// A store's calls are its Run's, so a closed Run's fail with `closed`.

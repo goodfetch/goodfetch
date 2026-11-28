@@ -174,7 +174,7 @@ pub enum EffectClosed {
     Uncertain {
         /// The Effect left uncertain, as the Run report lists it.
         #[schemars(extend("arrived_in" = "0.1"))]
-        effect: UncertainEffect,
+        effect: Box<UncertainEffect>,
         /// The Error code the body's value met, `effect_output_invalid`,
         /// when it returned one the Effect journal does not keep.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -288,7 +288,7 @@ pub const EFFECT_OUTPUT_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
 /// An Effect that may or may not have happened (ADR 0091's code).
 pub const EFFECT_UNCERTAIN: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "effect_uncertain",
-    description: "An Effect may or may not have happened (ADRs 0091 and 0106): its body sent something and did not return a value the Effect journal keeps, so the engine never runs it again until a person reconciles it (\"it happened\", \"it did not happen\" or \"leave uncertain\"). The details name the Effect journal `entry`, the `key`, the `crawl_request`, the `reason` (`failed_after_send`, `interrupted` or `journal_incomplete`), the `first_command` sent and `since` when.",
+    description: "An Effect may or may not have happened (ADRs 0091 and 0106): its body sent something and did not return a value the Effect journal keeps, so the engine never runs it again until a person reconciles it (\"it happened\", \"it did not happen\" or \"leave uncertain\"). The details name the Effect journal `entry`, the `key`, the `request` (the crawl request's `id`, `url` and `label`, or `null` on a Collie Run), the `reason` (`failed_after_send`, `interrupted` or `journal_incomplete`), the `first_command` sent and `since` when.",
     group: ErrorGroup::Page,
     retryable: false,
     exit_code: None,

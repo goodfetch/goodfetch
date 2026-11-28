@@ -8,7 +8,9 @@
 
 #[cfg(unix)]
 mod attached;
+mod browser_setup;
 mod call_cancelled;
+mod caller_secret_resolution;
 mod calls_in_flight;
 mod cancellation;
 mod cdp_url_errors;
@@ -32,7 +34,9 @@ mod partial_results;
 mod points_in_time;
 mod product_and_provisioning;
 mod reconnect;
+mod response_recordings;
 mod results;
+mod run_view_and_copies;
 mod scripted_daemon;
 mod session_events;
 mod sessions;

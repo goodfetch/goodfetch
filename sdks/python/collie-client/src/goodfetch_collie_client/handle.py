@@ -24,6 +24,9 @@ if TYPE_CHECKING:
 
     from pydantic import BaseModel, JsonValue
 
+    from .connection import ClientConnection
+    from .portal import PrivateLoop
+
 __all__ = [
     "AsyncHandleHost",
     "AsyncListener",
@@ -160,6 +163,11 @@ class AsyncHandleHost(Protocol[_Id]):
         """The ID each of the handle's calls carries."""
         ...
 
+    @property
+    def connection(self) -> ClientConnection:
+        """The Connection this handle's calls and copies reach the engine through."""
+        ...
+
     async def call(
         self, operation: str, params: BaseModel, *, timeout_setting: str | None = None
     ) -> object:
@@ -235,6 +243,16 @@ class HandleHost(Protocol[_Id]):
     @property
     def id(self) -> _Id:
         """The ID each of the handle's calls carries."""
+        ...
+
+    @property
+    def connection(self) -> ClientConnection:
+        """The Connection this handle's calls and copies reach the engine through."""
+        ...
+
+    @property
+    def loop(self) -> PrivateLoop:
+        """The private loop that drives this handle's async calls and Run copies."""
         ...
 
     def call(

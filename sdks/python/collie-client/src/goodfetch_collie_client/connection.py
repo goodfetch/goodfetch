@@ -11,11 +11,14 @@ TypeScript's `client-connection.ts` is its twin.
 
 from __future__ import annotations
 
+import base64
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeVar, cast
 
 import anyio
+import anyio.to_thread
 
 from goodfetch_collie_client._attached_engine import EngineExit
 from goodfetch_collie_client._framing import object_members
@@ -45,6 +48,7 @@ from goodfetch_collie_client.generated.errors import (
     EngineExitedError,
     EngineOutputInvalidError,
     ProtocolVersionUnsupportedError,
+    RecordingInvalidError,
 )
 from goodfetch_collie_client.generated.models import (
     CatalogRunStartParams,
@@ -54,6 +58,8 @@ from goodfetch_collie_client.generated.models import (
     ProductVersion,
     ProtocolVersion,
     RecipeStartParams,
+    Recording,
+    RecordingMode,
     RunOrigin,
     RunStartParams,
     SetLogLevelParams,
@@ -83,6 +89,7 @@ from goodfetch_collie_client.listeners import MAX_LISTENER_QUEUE, ResumedEvents
 from goodfetch_collie_client.markers import warn_deprecated_settings, warn_entry
 from goodfetch_collie_client.run import AsyncRun, explain_params
 from goodfetch_collie_client.run_view import AsyncRunView
+from goodfetch_collie_client.secrets import SECRETS_RESOLVE, serve_secret_resolver
 from goodfetch_collie_client.settings import settings_on_wire
 
 if TYPE_CHECKING:
@@ -98,7 +105,6 @@ if TYPE_CHECKING:
     from goodfetch_collie_client._rpc import ServedRequest, TransportEnd
     from goodfetch_collie_client.generated.models import (
         ProjectSettings,
-        Recording,
         RunLimit,
         RunStarted,
         SettingsExplanation,
@@ -106,6 +112,7 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.generated.settings import RunSettings
     from goodfetch_collie_client.goodfetch_error import ErrorClass
     from goodfetch_collie_client.handlerless import CatalogTarget
+    from goodfetch_collie_client.secrets import AsyncSecretResolver
 
 __all__ = ["ClientConnection", "EngineFallback", "EngineInfo", "closed_error"]
 
@@ -257,6 +264,7 @@ class ClientConnection:
         *,
         needs: Product,
         worker_target: WorkerTarget | None = None,
+        resolve_secret: AsyncSecretResolver | None = None,
     ) -> None:
         """Takes the transport, its engine when one started, and the code classes.
 
@@ -281,6 +289,8 @@ class ClientConnection:
         self._runs: dict[AsyncRun, None] = {}
         self._served: dict[str, Callable[[ServedRequest], None]] = {}
         """What serves the engine's requests of each method, by `serve`."""
+        if resolve_secret is not None:
+            self._served[SECRETS_RESOLVE] = serve_secret_resolver(resolve_secret)
         self._published = SharedSubscription(self, listener_queue)
         self._info: EngineInfo | None = None
         self._ended = False
@@ -301,6 +311,12 @@ class ClientConnection:
         """What `hello` sent, which reaching the engine again sends again."""
         self._engine_instance: str | None = None
         """The engine instance the last `hello` answered from."""
+        self._default_empty_replay = False
+        """Whether Runs without `recording` replay an empty one (`TestEngine`)."""
+
+    def enable_empty_replay_by_default(self) -> None:
+        """Marks this Connection as belonging to a `TestEngine` (ADR 0105)."""
+        self._default_empty_replay = True
 
     @classmethod
     async def open(
@@ -322,6 +338,7 @@ class ClientConnection:
         reconnect: Reconnect | None = None,
         project: ProjectFile | None = None,
         worker_target: WorkerTarget | None = None,
+        resolve_secret: AsyncSecretResolver | None = None,
     ) -> ClientConnection:
         """Opens a Connection over `transport`, finishing `hello` before it returns.
 
@@ -363,6 +380,7 @@ class ClientConnection:
             project,
             needs=needs,
             worker_target=worker_target,
+            resolve_secret=resolve_secret,
         )
         try:
             # The Connection's own, for every caller: no Trace context (ADR 0132).
@@ -580,8 +598,18 @@ class ClientConnection:
         warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
         self._ensure_owner("run.start")
         self.ensure_open("run.start")
+        prepared_recording, recording_bytes = await _prepare_recording(
+            recording, self._default_empty_replay
+        )
         fields = _start_fields(
-            run_id, tags, limits, settings, recording, timeout, self._project
+            run_id,
+            tags,
+            limits,
+            settings,
+            prepared_recording,
+            timeout,
+            self._project,
+            recording_bytes=recording_bytes,
         )
         if plan is not None:
             fields["plan"] = plan
@@ -593,7 +621,13 @@ class ClientConnection:
         started = await self._operations.run_start(
             RunStartParams.model_construct(None, **fields)
         )
-        return self._held_run(started, detached=False)
+        record_path = (
+            prepared_recording.path
+            if prepared_recording is not None
+            and prepared_recording.mode == RecordingMode.record
+            else None
+        )
+        return self._held_run(started, detached=False, record_path=record_path)
 
     async def start_recipe(
         self,
@@ -628,15 +662,32 @@ class ClientConnection:
         """
         warn_entry("recipe.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
+        prepared_recording, recording_bytes = await _prepare_recording(
+            recording, self._default_empty_replay
+        )
         fields = self._handlerless_fields(
-            "recipe.start", run_id, tags, limits, settings, recording, timeout, detached
+            "recipe.start",
+            run_id,
+            tags,
+            limits,
+            settings,
+            prepared_recording,
+            timeout,
+            detached,
+            recording_bytes=recording_bytes,
         )
         await self._follow_log_level()
         self.ensure_open("recipe.start")
         started = await self._operations.recipe_start(
             RecipeStartParams.model_construct(None, recipe=recipe, **fields)
         )
-        return self._held_run(started, detached=detached)
+        record_path = (
+            prepared_recording.path
+            if prepared_recording is not None
+            and prepared_recording.mode == RecordingMode.record
+            else None
+        )
+        return self._held_run(started, detached=detached, record_path=record_path)
 
     async def start_catalog_run(
         self,
@@ -667,15 +718,19 @@ class ClientConnection:
         """
         warn_entry("catalog_run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
+        prepared_recording, recording_bytes = await _prepare_recording(
+            recording, self._default_empty_replay
+        )
         fields = self._handlerless_fields(
             "catalog_run.start",
             run_id,
             tags,
             limits,
             settings,
-            recording,
+            prepared_recording,
             timeout,
             detached,
+            recording_bytes=recording_bytes,
         )
         await self._follow_log_level()
         self.ensure_open("catalog_run.start")
@@ -684,7 +739,13 @@ class ClientConnection:
                 None, target=target_on_wire(target), **fields
             )
         )
-        return self._held_run(started, detached=detached)
+        record_path = (
+            prepared_recording.path
+            if prepared_recording is not None
+            and prepared_recording.mode == RecordingMode.record
+            else None
+        )
+        return self._held_run(started, detached=detached, record_path=record_path)
 
     def _handlerless_fields(
         self,
@@ -696,6 +757,8 @@ class ClientConnection:
         recording: Recording | None,
         timeout: timedelta | NotGiven | None,
         detached: bool,
+        *,
+        recording_bytes: str | None = None,
     ) -> dict[str, object]:
         """The fields a handler-less start sends besides its target, once open.
 
@@ -707,16 +770,29 @@ class ClientConnection:
         self._ensure_owner(operation)
         self.ensure_open(operation)
         fields = _start_fields(
-            run_id, tags, limits, settings, recording, timeout, self._project
+            run_id,
+            tags,
+            limits,
+            settings,
+            recording,
+            timeout,
+            self._project,
+            recording_bytes=recording_bytes,
         )
         if detached:
             fields["detached"] = True
         return fields
 
-    def _held_run(self, started: RunStarted, *, detached: bool) -> AsyncRun:
+    def _held_run(
+        self,
+        started: RunStarted,
+        *,
+        detached: bool,
+        record_path: str | None = None,
+    ) -> AsyncRun:
         """The Run a start answered, held until the Connection closes."""
         _log_start(started)
-        run = AsyncRun(self, started, detached=detached)
+        run = AsyncRun(self, started, detached=detached, record_path=record_path)
         self._runs[run] = None
         return run
 
@@ -764,7 +840,7 @@ class ClientConnection:
             ClosedError: The Connection is closed.
         """
         self.ensure_open("open_run")
-        return AsyncRunView(run_id)
+        return AsyncRunView(self, run_id)
 
     async def explain_settings(
         self, keys: Iterable[str] | None = None
@@ -1182,6 +1258,28 @@ def _log_start(started: RunStarted) -> None:
             )
 
 
+async def _prepare_recording(
+    recording: Recording | None, default_empty_replay: bool
+) -> tuple[Recording | None, str | None]:
+    """Reads a replay recording's bytes on the program's machine (ADR 0105)."""
+    if recording is None:
+        if default_empty_replay:
+            return Recording(mode=RecordingMode.replay, path=""), ""
+        return None, None
+    if recording.mode != RecordingMode.replay:
+        return recording, None
+    try:
+        raw = await anyio.to_thread.run_sync(Path(recording.path).read_bytes)
+    except OSError as error:
+        reason = str(error)
+        raise RecordingInvalidError(
+            f"Could not read the Response recording `{recording.path}`: {reason}",
+            details={"recording": recording.path, "reason": reason},
+            fix="Record the file again, or name another.",
+        ) from error
+    return recording, base64.b64encode(raw).decode("ascii")
+
+
 def _start_fields(
     run_id: str | None,
     tags: Iterable[str] | None,
@@ -1190,6 +1288,8 @@ def _start_fields(
     recording: Recording | None,
     timeout: timedelta | NotGiven | None,
     project: ProjectSettings | None,
+    *,
+    recording_bytes: str | None = None,
 ) -> dict[str, object]:
     """The fields every start takes, each one given, and the project file read.
 
@@ -1209,6 +1309,8 @@ def _start_fields(
         fields["settings"] = settings_on_wire(settings)
     if recording is not None:
         fields["recording"] = recording
+    if recording_bytes is not None:
+        fields["recording_bytes"] = recording_bytes
     if not isinstance(timeout, NotGiven):
         fields["timeout"] = timeout_of(timeout, "timeout.run")
     if project is not None:

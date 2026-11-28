@@ -8,8 +8,8 @@ use goodfetch_protocol::key_value_store::{
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use super::{Call, Run};
-use crate::StoredBytes;
+use super::{Call, EventIter, Run};
+use crate::{Schema, StoredBytes};
 
 /// A Run's Key-value store, as [`crate::KeyValueStore`], whose calls block.
 /// Cloning it is cheap and every clone is the same store.
@@ -49,7 +49,7 @@ impl KeyValueStore {
         &self,
         key: impl Into<String>,
     ) -> Call<Option<T>, KeyValueStoreKeyParams> {
-        Call::new(self.0.get(key), self.0.connection())
+        Call::new(self.0.get(key), self.0.runtime())
     }
 
     /// Commits a JSON value for a key in a live Run's Key-value store,
@@ -68,7 +68,7 @@ impl KeyValueStore {
         key: impl Into<String>,
         value: &T,
     ) -> Call<(), KeyValueStoreSetParams> {
-        Call::new(self.0.set(key, value), self.0.connection())
+        Call::new(self.0.set(key, value), self.0.runtime())
     }
 
     /// Answers the bytes and content type a Run's Key-value store holds for
@@ -85,7 +85,7 @@ impl KeyValueStore {
         &self,
         key: impl Into<String>,
     ) -> Call<Option<StoredBytes>, KeyValueStoreKeyParams> {
-        Call::new(self.0.get_bytes(key), self.0.connection())
+        Call::new(self.0.get_bytes(key), self.0.runtime())
     }
 
     /// Commits bytes with their content type for a key in a live Run's
@@ -105,7 +105,7 @@ impl KeyValueStore {
     ) -> Call<(), KeyValueStoreSetBytesParams> {
         Call::new(
             self.0.set_bytes(key, content, content_type),
-            self.0.connection(),
+            self.0.runtime(),
         )
     }
 
@@ -119,6 +119,112 @@ impl KeyValueStore {
     /// Removes `key`, as [`crate::KeyValueStore::delete`], which `send()`
     /// sends.
     pub fn delete(&self, key: impl Into<String>) -> Call<bool, KeyValueStoreKeyParams> {
-        Call::new(self.0.delete(key), self.0.connection())
+        Call::new(self.0.delete(key), self.0.runtime())
+    }
+
+    /// Answers the JSON value a Run's Key-value store holds for a key, as
+    /// committed, or null when the key is absent. A key holding bytes fails
+    /// with `value_invalid`, naming `getBytes`. Takes no writer lock, so it
+    /// reads a Run no program holds without resuming it. Through a crawl
+    /// attempt (`attempt`), it reads what the attempt staged first.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn get_with<T: Serialize + DeserializeOwned + Send + 'static>(
+        &self,
+        key: impl Into<String>,
+        schema: &Schema<T>,
+    ) -> Call<Option<T>, KeyValueStoreKeyParams> {
+        Call::new(self.0.get_with(key, schema), self.0.runtime())
+    }
+
+    /// Commits a JSON value for a key in a live Run's Key-value store,
+    /// replacing the one it held: the last commit wins. A null value fails
+    /// with `value_invalid`; remove a key with `delete`. Through a crawl
+    /// attempt (`attempt`), the write is staged with the attempt and commits
+    /// or is discarded with it; once the attempt ended, it fails with
+    /// `attempt_ended`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn set_with<T: Serialize + DeserializeOwned>(
+        &self,
+        key: impl Into<String>,
+        value: &T,
+        schema: &Schema<T>,
+    ) -> Call<(), KeyValueStoreSetParams> {
+        Call::new(self.0.set_with(key, value, schema), self.0.runtime())
+    }
+
+    /// Sends the committed keys of a Run's Key-value store that start with
+    /// `prefix`, in the order of their Unicode scalar values, in `$/key`
+    /// notifications, one per credit granted with `$/credit`, then answers how
+    /// many it sent. Takes no writer lock.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn keys(&self, prefix: Option<&str>) -> EventIter<String> {
+        EventIter::new(self.0.keys(prefix), self.0.runtime())
+    }
+}
+
+/// Blocking twin of [`crate::KeyValueStoreView`].
+#[derive(Clone, Debug)]
+pub struct KeyValueStoreView(crate::KeyValueStoreView);
+
+impl From<crate::KeyValueStoreView> for KeyValueStoreView {
+    fn from(view: crate::KeyValueStoreView) -> Self {
+        Self(view)
+    }
+}
+
+impl KeyValueStoreView {
+    /// Answers the JSON value a Run's Key-value store holds for a key, as
+    /// committed, or null when the key is absent. A key holding bytes fails
+    /// with `value_invalid`, naming `getBytes`. Takes no writer lock, so it
+    /// reads a Run no program holds without resuming it. Through a crawl
+    /// attempt (`attempt`), it reads what the attempt staged first.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn get<T: DeserializeOwned + Send + 'static>(
+        &self,
+        key: impl Into<String>,
+    ) -> Call<Option<T>, KeyValueStoreKeyParams> {
+        Call::new(self.0.get(key), self.0.runtime())
+    }
+
+    /// Answers the JSON value a Run's Key-value store holds for a key, as
+    /// committed, or null when the key is absent. A key holding bytes fails
+    /// with `value_invalid`, naming `getBytes`. Takes no writer lock, so it
+    /// reads a Run no program holds without resuming it. Through a crawl
+    /// attempt (`attempt`), it reads what the attempt staged first.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn get_with<T: Serialize + DeserializeOwned + Send + 'static>(
+        &self,
+        key: impl Into<String>,
+        schema: &Schema<T>,
+    ) -> Call<Option<T>, KeyValueStoreKeyParams> {
+        Call::new(self.0.get_with(key, schema), self.0.runtime())
+    }
+
+    /// Answers the bytes and content type a Run's Key-value store holds for a
+    /// key, as committed, or null when the key is absent. A key holding JSON
+    /// fails with `value_invalid`, naming `get`. Takes no writer lock. Through
+    /// a crawl attempt (`attempt`), it reads what the attempt staged first.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn get_bytes(
+        &self,
+        key: impl Into<String>,
+    ) -> Call<Option<StoredBytes>, KeyValueStoreKeyParams> {
+        Call::new(self.0.get_bytes(key), self.0.runtime())
+    }
+
+    /// Sends the committed keys of a Run's Key-value store that start with
+    /// `prefix`, in the order of their Unicode scalar values, in `$/key`
+    /// notifications, one per credit granted with `$/credit`, then answers how
+    /// many it sent. Takes no writer lock.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn keys(&self, prefix: Option<&str>) -> EventIter<String> {
+        EventIter::new(self.0.keys(prefix), self.0.runtime())
     }
 }

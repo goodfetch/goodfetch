@@ -286,7 +286,7 @@ impl ReportPart for Seeded {
             entry: "e1".to_owned(),
             key: Some("order-1".to_owned()),
             instruction: None,
-            crawl_request: None,
+            request: None,
             reason: "sent".to_owned(),
             first_command: Some("Input.dispatchMouseEvent".to_owned()),
             since: report.started_at,

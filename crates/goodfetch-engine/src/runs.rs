@@ -2514,6 +2514,43 @@ impl Runs {
         Ok(KeptExport { sha256, size })
     }
 
+    /// Packages the Run `run_id`'s `trace/` folder into a whole ZIP copy in
+    /// the Run's folder (`trace-copies/<sha256>`), or answers `None` when the
+    /// Run keeps no trace files yet (ADRs 0102, 0116 and 0122). While the Run
+    /// folder's filesystem is at the `critical` storage level, fails at once
+    /// before writing anything.
+    ///
+    /// # Errors
+    ///
+    /// `Storage` when the folder cannot take the file or is at `critical`;
+    /// `State` never.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave a hidden temporary file beside the trace
+    /// copies, never a partial copy.
+    pub async fn keep_trace_copy(
+        &self,
+        run_id: RunId,
+    ) -> Result<Option<goodfetch_protocol::run_trace::RunTrace>, KeepError> {
+        let stopped = || KeepError::Storage {
+            reason: "other",
+            os_code: None,
+            message: "the engine's Runs have stopped".to_owned(),
+        };
+        let folder = self.folder(run_id.clone()).await.map_err(|_| stopped())?;
+        let (answer, answered) = oneshot::channel();
+        self.commands
+            .send(Command::Governor(answer))
+            .await
+            .map_err(|_| stopped())?;
+        let governor = answered.await.map_err(|_| stopped())?;
+        let owner = Arc::clone(&self.limits.owner);
+        owner
+            .blocking(move || build_trace_copy(&folder, &run_id, &governor))
+            .await
+    }
+
     /// A reader of the committed state of the Run `run_id`, which never
     /// takes its writer lock: it follows the Run while this engine's writer
     /// works it, and reads what is committed otherwise.
@@ -5747,4 +5784,115 @@ fn replay_cache_mode(identity: &RunIdentity) -> Option<String> {
         })
         .filter(|mode| *mode == goodfetch_protocol::response_cache::CacheMode::Replay)
         .map(|mode| mode.as_str().to_owned())
+}
+
+/// Collects every regular file under `dir`, returning `(relative_posix_path, path)` sorted.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "runs on the Runs TaskOwner blocking policy"
+)]
+fn collect_trace_files(
+    root: &Path,
+    dir: &Path,
+    out: &mut Vec<(String, PathBuf)>,
+) -> std::io::Result<()> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            collect_trace_files(root, &path, out)?;
+        } else if file_type.is_file() {
+            let relative = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/");
+            out.push((relative, path));
+        }
+    }
+    Ok(())
+}
+
+/// Packages `<folder>/trace/` into a deterministic ZIP stored atomically under
+/// `<folder>/trace-copies/<sha256>`, or returns `Ok(None)` when no trace files exist.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "runs on the Runs TaskOwner blocking policy"
+)]
+fn build_trace_copy(
+    folder: &Path,
+    run_id: &RunId,
+    governor: &Governor,
+) -> Result<Option<goodfetch_protocol::run_trace::RunTrace>, KeepError> {
+    use std::io::{Cursor, Write as _};
+
+    let trace_dir = folder.join("trace");
+    let mut files = Vec::new();
+    collect_trace_files(&trace_dir, &trace_dir, &mut files)
+        .map_err(|error| KeepError::io(&error, "read the Run trace folder"))?;
+    if files.is_empty() {
+        return Ok(None);
+    }
+    if governor
+        .storage_at(folder)
+        .is_some_and(|filesystem| filesystem.is_critical())
+    {
+        return Err(KeepError::Storage {
+            reason: "storage_full",
+            os_code: None,
+            message: format!(
+                "the filesystem of `{}` is at the critical storage level",
+                folder.display()
+            ),
+        });
+    }
+    files.sort_by(|(left, _), (right, _)| left.cmp(right));
+    let mut buffer = Cursor::new(Vec::new());
+    {
+        let mut archive = zip::ZipWriter::new(&mut buffer);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .last_modified_time(zip::DateTime::default());
+        for (name, path) in files {
+            let bytes = std::fs::read(&path)
+                .map_err(|error| KeepError::io(&error, "read a Run trace file"))?;
+            archive
+                .start_file(name, options)
+                .map_err(|error| KeepError::Storage {
+                    reason: "other",
+                    os_code: None,
+                    message: format!("could not write the Run trace archive: {error}"),
+                })?;
+            archive
+                .write_all(&bytes)
+                .map_err(|error| KeepError::io(&error, "write the Run trace archive"))?;
+        }
+        archive.finish().map_err(|error| KeepError::Storage {
+            reason: "other",
+            os_code: None,
+            message: format!("could not finish the Run trace archive: {error}"),
+        })?;
+    }
+    let bytes = buffer.into_inner();
+    let mut cursor = Cursor::new(bytes);
+    let (digest, size) = run_files::store_trace(folder, &mut cursor)
+        .map_err(|error| KeepError::io(&error, "write the Run trace copy in the Run's folder"))?;
+    let location = run_files::trace_copy_file(folder, &digest)
+        .expect("invariant: store_trace returns a lowercase hex SHA-256")
+        .display()
+        .to_string();
+    Ok(Some(goodfetch_protocol::run_trace::RunTrace {
+        run_id: run_id.clone(),
+        location,
+        size,
+        digest,
+    }))
 }

@@ -159,6 +159,7 @@ export type CollieWireType =
   | "PluginRun"
   | "PluginSearchResult"
   | "PluginSignerChangedDetails"
+  | "PluginUnitUsage"
   | "PluginUpdateParams"
   | "PluginUpdated"
   | "PressParams"
@@ -423,6 +424,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "PluginRun": { fields: { "confinement_missing": "confinementMissing", "network_level": "networkLevel" } },
     "PluginSearchResult": { fields: { "expires_at": "expiresAt", "index_version": "indexVersion", "plugins": ["plugins", { items: { type: "IndexEntry" } }] } },
     "PluginSignerChangedDetails": { fields: { "found_signer": "foundSigner", "previous_signer": "previousSigner" } },
+    "PluginUnitUsage": { fields: { "from_plugin": "fromPlugin" } },
     "PluginUpdateParams": { fields: { "approve_signer_change": "approveSignerChange" } },
     "PluginUpdated": { fields: { "diff": ["diff", { type: "PermissionDiff" }], "previous_digest": "previousDigest", "previous_signer": "previousSigner", "previous_version": "previousVersion", "signer_changed": "signerChanged" } },
     "PressParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
@@ -476,7 +478,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "RunStopParams": { fields: { "run_id": "runId" } },
     "RunStopping": { fields: { "cause": ["cause", { type: "StopReason" }], "run_id": "runId" } },
     "RunStorage": { fields: { "free_bytes": "freeBytes" } },
-    "RunUsage": { fields: { "browser_time": "browserTime", "limits": ["limits", { items: { type: "AppliedLimit" } }], "model": ["model", { type: "ModelUsage" }], "model_allowance": ["modelAllowance", { items: { type: "ModelAllowance" } }], "other": ["other", { items: { type: "KindUsage" } }], "paid_fetches": "paidFetches", "paid_solves": "paidSolves", "plugin_streams": "pluginStreams", "plugin_units": "pluginUnits", "proxy_bytes": "proxyBytes", "proxy_bytes_by_kind": "proxyBytesByKind", "proxy_price": "proxyPrice" } },
+    "RunUsage": { fields: { "browser_time": "browserTime", "limits": ["limits", { items: { type: "AppliedLimit" } }], "model": ["model", { type: "ModelUsage" }], "model_allowance": ["modelAllowance", { items: { type: "ModelAllowance" } }], "other": ["other", { items: { type: "KindUsage" } }], "paid_fetches": "paidFetches", "paid_solves": "paidSolves", "plugin_streams": "pluginStreams", "plugin_units": ["pluginUnits", { items: { type: "PluginUnitUsage" } }], "proxy_bytes": "proxyBytes", "proxy_bytes_by_kind": "proxyBytesByKind", "proxy_price": "proxyPrice" } },
     "ScheduleCapExceededDetails": { fields: { "policy_version": "policyVersion" } },
     "ScheduleCreateParams": { fields: { "definition": ["definition", { type: "ScheduleDefinition" }] } },
     "ScheduleCreated": { fields: { "schedule_id": "scheduleId" } },

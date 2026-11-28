@@ -279,7 +279,8 @@ async fn clear_approvals(
             let had_approvals = entry.allow.is_some()
                 || entry.digest.is_some()
                 || !entry.approved.is_empty()
-                || !entry.spend.is_empty();
+                || !entry.spend.is_empty()
+                || entry.reduced_confinement;
             if !had_approvals {
                 return Ok(Change::Kept(PluginApprovalsRemoval::Absent));
             }

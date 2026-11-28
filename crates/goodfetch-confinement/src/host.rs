@@ -7,6 +7,8 @@
 //! so one probe explains both refusals. Linux reads it in
 //! `linux::host`; other OSes need no user namespace.
 
+use goodfetch_protocol::plugin::NetworkLevel;
+
 /// The Landlock ABI that scopes signals (kernel 6.12), so that a Plugin is
 /// confined without a namespace of its own.
 pub const SIGNAL_SCOPE_ABI: u8 = 6;
@@ -60,6 +62,41 @@ impl HostFacts {
         !self.wsl1
             && (self.landlock_abi >= SIGNAL_SCOPE_ABI
                 || self.user_namespace == UserNamespace::Created)
+    }
+
+    /// The parts of process-Plugin confinement this host cannot provide for
+    /// `network_level`: empty when the host can fully confine at that level
+    /// (ADR 0033).
+    #[must_use]
+    pub fn missing_confinement(&self, network_level: NetworkLevel) -> Vec<&'static str> {
+        if self.wsl1 {
+            let mut missing = vec!["seccomp", "filesystem", "signal_scope", "user_namespace"];
+            if network_level == NetworkLevel::ProxyTcp {
+                missing.push("network_namespace");
+            }
+            return missing;
+        }
+        let has_userns = self.user_namespace == UserNamespace::Created;
+        let has_fs = self.landlock_abi > 0 || has_userns;
+        let has_signal_scope = self.landlock_abi >= SIGNAL_SCOPE_ABI || has_userns;
+        let has_netns = network_level != NetworkLevel::ProxyTcp || has_userns;
+        if has_fs && has_signal_scope && has_netns {
+            return Vec::new();
+        }
+        let mut missing = Vec::new();
+        if !has_fs {
+            missing.push("filesystem");
+        }
+        if !has_signal_scope {
+            missing.push("signal_scope");
+        }
+        if !has_netns {
+            missing.push("network_namespace");
+        }
+        if !has_userns {
+            missing.push("user_namespace");
+        }
+        missing
     }
 }
 

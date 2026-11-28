@@ -3391,6 +3391,10 @@
                   "description": "The digest the Operator policy pins the Plugin to, `sha256:<hex>`: a Plugin of another digest is refused. Only an Operator policy sets it.",
                   "type": "string"
                 },
+                "reduced_confinement": {
+                  "description": "Whether a first-party Plugin may run with the confinement the host offers when full confinement is unavailable (ADR 0033). Ignored for third-party and Private Plugins. Only an Operator policy sets it.",
+                  "type": "boolean"
+                },
                 "settings": {
                   "description": "The Plugin's settings, which its manifest's `settings_schema` validates.",
                   "type": "object"
@@ -8599,6 +8603,10 @@
                 "digest": {
                   "description": "The digest the Operator policy pins the Plugin to, `sha256:<hex>`: a Plugin of another digest is refused. Only an Operator policy sets it.",
                   "type": "string"
+                },
+                "reduced_confinement": {
+                  "description": "Whether a first-party Plugin may run with the confinement the host offers when full confinement is unavailable (ADR 0033). Ignored for third-party and Private Plugins. Only an Operator policy sets it.",
+                  "type": "boolean"
                 },
                 "settings": {
                   "description": "The Plugin's settings, which its manifest's `settings_schema` validates.",

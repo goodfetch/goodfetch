@@ -623,7 +623,11 @@ fn a_first_party_direct_plugin_runs_by_default_receives_cloud_credentials_as_sec
         report_plugins,
         Some(vec![PluginRun {
             name: "cloud-notify".to_owned(),
+            form: goodfetch_protocol::run::PluginForm::Process,
+            origin: Some(Origin::FirstParty),
+            digest: Some(DIGEST.to_owned()),
             network_level: "direct".to_owned(),
+            confinement: goodfetch_protocol::run::PluginConfinement::Full,
             confinement_missing: Vec::new(),
         }])
     );
@@ -685,8 +689,244 @@ fn an_approved_third_party_direct_plugin_is_marked_in_audit_and_run_report() {
         report_plugins,
         Some(vec![PluginRun {
             name: "pager".to_owned(),
+            form: goodfetch_protocol::run::PluginForm::Process,
+            origin: Some(goodfetch_protocol::plugin::approvals::Origin::ThirdParty),
+            digest: Some(DIGEST.to_owned()),
             network_level: "direct".to_owned(),
+            confinement: goodfetch_protocol::run::PluginConfinement::Full,
             confinement_missing: Vec::new(),
         }])
+    );
+}
+
+fn unconfining_host() -> goodfetch_confinement::host::HostFacts {
+    goodfetch_confinement::host::HostFacts {
+        user_namespace: goodfetch_confinement::host::UserNamespace::Refused(1),
+        seccomp_filtered: true,
+        apparmor_restricts: false,
+        landlock_abi: 4,
+        wsl1: false,
+    }
+}
+
+fn start_on_unconfining_host(
+    env: &TestEnv,
+    home: &Home,
+    audit: &Arc<AuditLog>,
+    owner: &Arc<TaskOwner>,
+    plugin_name: &str,
+    operator_policy: Value,
+) -> (
+    Result<(), StartError>,
+    Vec<goodfetch_protocol::run::PluginRun>,
+) {
+    use goodfetch_confinement::deny_list::Places;
+    use goodfetch_protocol::run::PluginRun;
+
+    struct RecordingPlugins(tokio::sync::Mutex<Vec<PluginRun>>);
+
+    impl super::PluginRunRecorder for RecordingPlugins {
+        fn record(&self, plugin: PluginRun) -> futures_util::future::BoxFuture<'_, ()> {
+            Box::pin(async move {
+                self.0.lock().await.push(plugin);
+            })
+        }
+    }
+
+    let layers = Layers {
+        operator_policy: Policy {
+            settings: Values::read(
+                SettingsLayer::OperatorPolicy,
+                &object(operator_policy),
+                Product::Collie,
+            )
+            .unwrap(),
+            ..Policy::default()
+        },
+        user_configuration: Values::read(
+            SettingsLayer::UserConfiguration,
+            &object(json!({
+                "network": { "resolve": { "notify.example": ["93.184.216.34"] } },
+                "plugins": {
+                    plugin_name: {
+                        "settings": { "endpoint": "https://notify.example/send" }
+                    }
+                }
+            })),
+            Product::Collie,
+        )
+        .unwrap(),
+        ..Layers::default()
+    };
+    let resolved = resolve(&layers, Product::Collie, Product::Collie).unwrap();
+    let probe = SandboxProbe::of(unconfining_host, BTreeMap::new());
+    let places = Arc::new(Places {
+        home: env.folder().to_path_buf(),
+        goodfetch_home: home.root().to_path_buf(),
+        app_data: None,
+        local_app_data: None,
+    });
+    let recorder = Arc::new(RecordingPlugins(tokio::sync::Mutex::new(Vec::new())));
+    let run_id = RunId::parse(&format!("reduced-{plugin_name}")).unwrap();
+    goodfetch_test_support::runtime().block_on(async {
+        let secrets = Secrets::new(
+            Carried {
+                environment: BTreeMap::new(),
+                keychain: Keychain::absent(),
+                home: home.clone(),
+                entropy: Entropy::seeded(env.seed()),
+            },
+            Arc::clone(audit),
+            Arc::clone(owner),
+            Clock::paused(env.start_time()),
+        )
+        .for_run_under(&resolved, Duration::from_secs(30), Redaction::On);
+        let plugins = RunPlugins::new(
+            home,
+            Some(places),
+            Product::Collie,
+            run_id,
+            (Arc::clone(owner), Clock::paused(env.start_time())),
+        )
+        .with_audit((**audit).clone())
+        .with_run_recorder(Arc::clone(&recorder) as Arc<dyn super::PluginRunRecorder>);
+        let started = plugins
+            .notification_channel(plugin_name, "alerts", Some(&resolved), &secrets, &probe)
+            .await
+            .map(drop);
+        let entries = recorder.0.lock().await.clone();
+        (started, entries)
+    })
+}
+
+/// On a host that cannot confine a process Plugin, third-party Plugins are
+/// always refused with `confinement_unavailable` (even with
+/// `reduced_confinement: true`), first-party Plugins are refused by default,
+/// and first-party Plugins with Operator policy `reduced_confinement: true`
+/// start, audit `plugin_reduced_confinement`, and record `confinement: reduced`
+/// with the missing confinement parts in `run_plugins`.
+///
+/// Covers: story:7-25, story:7-21, error:confinement_unavailable
+#[test]
+fn reduced_confinement_allows_only_first_party_and_reports_what_was_not_confined() {
+    use goodfetch_protocol::plugin::approvals::Origin;
+
+    let env = TestEnv::new();
+    let home = Home::new(env.home().to_path_buf());
+    install_direct_plugin(&home, "first-party-reduced");
+    install_direct_plugin(&home, "third-party-reduced");
+    write_index_with_origin(
+        &home,
+        "first-party-reduced",
+        Origin::FirstParty,
+        jiff::Timestamp::try_from(env.start_time()).unwrap(),
+    );
+
+    // Non-policy layer setting `reduced_confinement` is refused on resolve as `setting_not_applicable`.
+    let bad_layers = Layers {
+        user_configuration: Values::read(
+            SettingsLayer::UserConfiguration,
+            &object(json!({
+                "plugins": { "first-party-reduced": { "reduced_confinement": true } }
+            })),
+            Product::Collie,
+        )
+        .unwrap(),
+        ..Layers::default()
+    };
+    assert!(
+        matches!(
+            resolve(&bad_layers, Product::Collie, Product::Collie),
+            Err(crate::settings::SettingsError::NotApplicable { ref key, .. })
+                if key == "plugins.first-party-reduced.reduced_confinement"
+        ),
+        "user configuration must not set reduced_confinement"
+    );
+
+    let owner = Arc::new(TaskOwner::root(BlockingPolicy::Inline));
+    let audit = Arc::new(AuditLog::of(&home, None, Arc::clone(&owner)));
+
+    // 1. Third-party Plugin is refused even if Operator policy sets `reduced_confinement: true`.
+    let (third_started, third_entries) = start_on_unconfining_host(
+        &env,
+        &home,
+        &audit,
+        &owner,
+        "third-party-reduced",
+        json!({
+            "plugins": {
+                "third-party-reduced": {
+                    "allow": true,
+                    "approved": { "direct": true },
+                    "reduced_confinement": true,
+                }
+            }
+        }),
+    );
+    let (code, _) = refusal(third_started);
+    assert_eq!(code, "confinement_unavailable");
+    assert_eq!(third_entries, Vec::new());
+
+    // 2. First-party Plugin is refused by default without `reduced_confinement: true`.
+    let (default_started, default_entries) = start_on_unconfining_host(
+        &env,
+        &home,
+        &audit,
+        &owner,
+        "first-party-reduced",
+        json!({}),
+    );
+    let (code, _) = refusal(default_started);
+    assert_eq!(code, "confinement_unavailable");
+    assert_eq!(default_entries, Vec::new());
+
+    let (allowed_started, allowed_entries) = start_on_unconfining_host(
+        &env,
+        &home,
+        &audit,
+        &owner,
+        "first-party-reduced",
+        json!({ "plugins": { "first-party-reduced": { "reduced_confinement": true } } }),
+    );
+    assert!(allowed_started.is_ok(), "{allowed_started:?}");
+    assert_reduced_confinement_recorded(&audit, &allowed_entries);
+}
+
+fn assert_reduced_confinement_recorded(
+    audit: &AuditLog,
+    allowed_entries: &[goodfetch_protocol::run::PluginRun],
+) {
+    use goodfetch_protocol::plugin::approvals::{Origin, PLUGIN_REDUCED_CONFINEMENT};
+    use goodfetch_protocol::run::{PluginConfinement, PluginForm, PluginRun};
+
+    assert_eq!(
+        allowed_entries,
+        &[PluginRun {
+            name: "first-party-reduced".to_owned(),
+            form: PluginForm::Process,
+            origin: Some(Origin::FirstParty),
+            digest: Some(DIGEST.to_owned()),
+            network_level: "direct".to_owned(),
+            confinement: PluginConfinement::Reduced,
+            confinement_missing: vec!["signal_scope".to_owned(), "user_namespace".to_owned()],
+        }]
+    );
+    let audit_entries: Vec<_> = audit
+        .export()
+        .unwrap()
+        .into_iter()
+        .map(|exported| exported.entry)
+        .filter(|entry| entry.kind == PLUGIN_REDUCED_CONFINEMENT.name)
+        .collect();
+    assert_eq!(audit_entries.len(), 1, "{audit_entries:?}");
+    assert_eq!(
+        audit_entries[0].details,
+        json!({
+            "plugin": "first-party-reduced",
+            "origin": "first_party",
+            "network_level": "direct",
+            "digest": DIGEST,
+            "confinement_missing": ["signal_scope", "user_namespace"],
+        })
     );
 }

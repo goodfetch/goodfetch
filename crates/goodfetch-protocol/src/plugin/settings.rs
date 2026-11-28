@@ -54,12 +54,24 @@ pub struct PluginEntry {
     /// policy sets it.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub spend: BTreeMap<String, SpendOverride>,
+    /// Whether a first-party Plugin may run with reduced confinement on a host
+    /// that cannot provide full confinement (ADR 0033): ignored for
+    /// third-party and Private Plugins, which are always refused. Only an
+    /// Operator policy sets it.
+    #[serde(default, skip_serializing_if = "crate::plugin::approvals::is_false")]
+    pub reduced_confinement: bool,
 }
 
 impl PluginEntry {
     /// The fields only an Operator policy sets, which a nearer layer's
     /// entry for the same Plugin keeps.
-    pub const POLICY_FIELDS: [&'static str; 4] = ["allow", "digest", "approved", "spend"];
+    pub const POLICY_FIELDS: [&'static str; 5] = [
+        "allow",
+        "digest",
+        "approved",
+        "spend",
+        "reduced_confinement",
+    ];
 
     /// The entry `value` gives.
     ///
@@ -133,6 +145,10 @@ pub const PLUGIN_ENTRY_SHAPE: ValueShape = ValueShape {
                         },
                     },
                 },
+                "reduced_confinement": {
+                    "type": "boolean",
+                    "description": "Whether a first-party Plugin may run with the confinement the host offers when full confinement is unavailable (ADR 0033). Ignored for third-party and Private Plugins. Only an Operator policy sets it.",
+                },
             },
         })
     },
@@ -154,6 +170,7 @@ pub const PLUGIN_ENTRY_SHAPE: ValueShape = ValueShape {
                 "spend": {
                     "solves": { "price": "0.005 USD" },
                 },
+                "reduced_confinement": true,
             }),
             json!({ "allow": false }),
             json!({}),

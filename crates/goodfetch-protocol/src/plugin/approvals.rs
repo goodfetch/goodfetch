@@ -304,20 +304,7 @@ impl Approvals {
     }
 }
 
-/// Where a Plugin comes from, which sets whether it loads by default (ADRs
-/// 0033 and 0035).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Origin {
-    /// Shipped in the engine's own release: allowed by default.
-    FirstParty,
-    /// Anyone else's: loads only when the Operator policy allows it.
-    #[default]
-    ThirdParty,
-    /// A Private component, which is never first-party: loads only when the
-    /// Operator policy allows it.
-    Private,
-}
+pub use crate::run::Origin;
 
 /// Why the Operator policy refuses a Plugin.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -495,6 +482,12 @@ pub const PLUGIN_DIRECT_STARTED: SharedTypeValue = kind(
     "A Plugin started at network level `direct`: its name, origin (`first_party`, `third_party` or `private`), digest when known, and Run.",
 );
 
+/// A first-party Plugin started with reduced confinement (ADR 0033, issue 948).
+pub const PLUGIN_REDUCED_CONFINEMENT: SharedTypeValue = kind(
+    "plugin_reduced_confinement",
+    "A first-party Plugin started under `plugins.<name>.reduced_confinement` on a host that could not provide full confinement: its name, digest when known, network level, the confinement parts that were not confined, and the Run.",
+);
+
 /// The module's entries.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -511,6 +504,7 @@ pub const ENTRIES: Entries = Entries {
         PLUGIN_SECRET_VALUE_RELEASED,
         PLUGIN_PERMISSION_USED,
         PLUGIN_DIRECT_STARTED,
+        PLUGIN_REDUCED_CONFINEMENT,
     ],
 };
 

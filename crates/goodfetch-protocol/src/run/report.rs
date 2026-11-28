@@ -377,6 +377,15 @@ pub struct PluginUnitUsage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub price: Option<UsageAmount>,
+    /// Marks that this figure came from a Plugin rather than engine
+    /// measurement (ADRs 0016 and 0033).
+    #[serde(default = "default_true")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub from_plugin: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Opaque stream traffic a Run's Plugins exchanged with one destination
@@ -493,15 +502,159 @@ pub enum PlanStatus {
     Frozen,
 }
 
-/// A Plugin that ran in a Run (ADRs 0016 and 0033).
+/// Where a Plugin comes from, which sets whether it loads by default (ADRs
+/// 0033 and 0035).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Origin {
+    /// Shipped in the engine's own release: allowed by default.
+    FirstParty,
+    /// Anyone else's: loads only when the Operator policy allows it.
+    #[default]
+    ThirdParty,
+    /// A Private component, which is never first-party: loads only when the
+    /// Operator policy allows it.
+    Private,
+}
+
+impl Origin {
+    /// Its name on the wire and in run state.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::FirstParty => "first_party",
+            Self::ThirdParty => "third_party",
+            Self::Private => "private",
+        }
+    }
+
+    /// Reads a stored origin name from run state, returning `None` for an
+    /// unrecognised value.
+    #[must_use]
+    pub fn from_stored(value: &str) -> Option<Self> {
+        match value {
+            "first_party" => Some(Self::FirstParty),
+            "third_party" => Some(Self::ThirdParty),
+            "private" => Some(Self::Private),
+            _ => None,
+        }
+    }
+}
+
+/// The form an implementation of a Plugin kind ran in (ADRs 0033 and 0104).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginForm {
+    /// A confined process Plugin speaking the plugin protocol over stdio.
+    #[default]
+    Process,
+    /// An SDK handler running in the Client's process over JSON-RPC.
+    SdkHandler,
+    /// An in-process Rust trait implementation in an embedded engine.
+    RustTrait,
+    /// A Script Hook running in the engine's Script sandbox.
+    ScriptHook,
+}
+
+impl PluginForm {
+    /// Its name on the wire and in run state.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Process => "process",
+            Self::SdkHandler => "sdk_handler",
+            Self::RustTrait => "rust_trait",
+            Self::ScriptHook => "script_hook",
+        }
+    }
+
+    /// Reads a stored form name from run state, defaulting to `Process` for an
+    /// unrecognised value.
+    #[must_use]
+    pub fn from_stored(value: &str) -> Self {
+        match value {
+            "sdk_handler" => Self::SdkHandler,
+            "rust_trait" => Self::RustTrait,
+            "script_hook" => Self::ScriptHook,
+            _ => Self::Process,
+        }
+    }
+}
+
+/// How a Plugin that ran in a Run was confined (ADRs 0016 and 0033).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginConfinement {
+    /// Full OS confinement for the Plugin's declared network level.
+    #[default]
+    Full,
+    /// Reduced OS confinement for a first-party Plugin, allowed by Operator
+    /// policy (`plugins.<name>.reduced_confinement`): `confinement_missing`
+    /// names the parts the host could not give.
+    Reduced,
+    /// Not confined by the engine: the user's own code (an SDK handler or Rust
+    /// trait implementation).
+    Unconfined,
+    /// Confined by the engine's Script sandbox (a Script Hook).
+    ScriptSandbox,
+}
+
+impl PluginConfinement {
+    /// Its name on the wire and in run state.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::Reduced => "reduced",
+            Self::Unconfined => "unconfined",
+            Self::ScriptSandbox => "script_sandbox",
+        }
+    }
+
+    /// Reads a stored confinement state from run state, defaulting to `Full`
+    /// for an unrecognised value.
+    #[must_use]
+    pub fn from_stored(value: &str) -> Self {
+        match value {
+            "reduced" => Self::Reduced,
+            "unconfined" => Self::Unconfined,
+            "script_sandbox" => Self::ScriptSandbox,
+            _ => Self::Full,
+        }
+    }
+}
+
+/// A Plugin or SDK handler that ran in a Run (ADRs 0016, 0033 and 0104).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct PluginRun {
     /// Its name.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub name: String,
-    /// The network level it ran at.
+    /// The form it ran in (`process`, `sdk_handler`, `rust_trait` or
+    /// `script_hook`).
+    #[serde(default)]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub form: PluginForm,
+    /// Where a process Plugin came from (`first_party`, `third_party` or
+    /// `private`); absent for the user's own code (`sdk_handler`,
+    /// `rust_trait`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub origin: Option<Origin>,
+    /// The Plugin's digest (`sha256:<hex>`), when it ran from an installed
+    /// bundle; absent for SDK handlers and Rust traits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub digest: Option<String>,
+    /// The network level it ran at (`none`, `proxy_tcp`, `direct`, or
+    /// `unconfined` for an SDK handler or Rust trait).
     #[schemars(extend("arrived_in" = "0.1"))]
     pub network_level: String,
+    /// How it was confined (`full`, `reduced`, `script_sandbox` or
+    /// `unconfined`).
+    #[serde(default)]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub confinement: PluginConfinement,
     /// The parts of its confinement the host could not give, under a
     /// reduced confinement the Operator policy allowed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -11194,6 +11194,10 @@
               "description": "The digest the Operator policy pins the Plugin to, `sha256:<hex>`: a Plugin of another digest is refused. Only an Operator policy sets it.",
               "type": "string"
             },
+            "reduced_confinement": {
+              "description": "Whether a first-party Plugin may run with the confinement the host offers when full confinement is unavailable (ADR 0033). Ignored for third-party and Private Plugins. Only an Operator policy sets it.",
+              "type": "boolean"
+            },
             "settings": {
               "description": "The Plugin's settings, which its manifest's `settings_schema` validates.",
               "type": "object"
@@ -16845,6 +16849,13 @@
       "arrived_in": "0.1",
       "description": "A process Plugin crashed three times within 10 minutes of a Run and was quarantined for the rest of the Run: the Plugin, the Run and the crash count.",
       "name": "plugin_quarantined",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A first-party Plugin started under `plugins.<name>.reduced_confinement` on a host that could not provide full confinement: its name, digest when known, network level, the confinement parts that were not confined, and the Run.",
+      "name": "plugin_reduced_confinement",
       "product": "collie",
       "type": "audit_kind"
     },

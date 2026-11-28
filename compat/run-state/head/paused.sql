@@ -313,7 +313,11 @@ CREATE TABLE run_key (
 ) STRICT;
 CREATE TABLE run_plugins (
         name TEXT NOT NULL PRIMARY KEY,
+        form TEXT NOT NULL DEFAULT 'process',
+        origin TEXT,
+        digest TEXT,
         network_level TEXT NOT NULL,
+        confinement TEXT NOT NULL DEFAULT 'full',
         confinement_missing TEXT NOT NULL DEFAULT '[]'
     ) STRICT;
 CREATE TABLE scope (

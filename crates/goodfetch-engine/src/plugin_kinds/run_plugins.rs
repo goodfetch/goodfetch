@@ -29,15 +29,15 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{NOT_IN_PRODUCT, NotInProductDetails, ProductVersion};
 use goodfetch_protocol::egress::EGRESS_OFFLINE;
 use goodfetch_protocol::plugin::approvals::{
-    Origin, PLUGIN_DIRECT_STARTED, PLUGIN_NOT_ALLOWED, Permission, PluginNotAllowedDetails,
-    PluginRefusal, admit, fix,
+    Origin, PLUGIN_DIRECT_STARTED, PLUGIN_NOT_ALLOWED, PLUGIN_REDUCED_CONFINEMENT, Permission,
+    PluginNotAllowedDetails, PluginRefusal, admit, fix,
 };
 use goodfetch_protocol::plugin::index::{PluginIndex, SignerIdentity};
 use goodfetch_protocol::plugin::settings::{PLUGINS, PluginEntry};
 use goodfetch_protocol::plugin::{
     HookStageName, NetworkLevel, PluginKindName, PluginManifest, Runtime,
 };
-use goodfetch_protocol::run::{PluginRun, RunId};
+use goodfetch_protocol::run::{PluginConfinement, PluginForm, PluginRun, RunId};
 use serde_json::{Value, json};
 
 use super::extractor::{ProcessExtractor, unavailable};
@@ -743,20 +743,10 @@ impl RunPlugins {
         let origin = self.check_index(&name, installed.digest.as_deref()).await?;
         let entry = admitted(origin, resolved, &name, &installed, &unavailable_error)?;
         let network_level = installed.manifest.network_level;
-        if network_level == NetworkLevel::Direct
-            && origin != Origin::FirstParty
-            && !entry.approved.covers(&Permission::Direct)
-        {
-            return Err(StartError::Refused(permission_denied(
-                &name,
-                Permission::Direct,
-            )));
-        }
-        let probe = probe.clone();
-        if let Some(refusal) = self.owner.blocking(move || probe.plugin_refusal()).await {
-            tracing::warn!(plugin = %name, %refusal, "this host cannot confine a Plugin");
-            return Err(StartError::Refused(refusal));
-        }
+        check_direct_approval(&name, network_level, origin, &entry)?;
+        let (confinement, confinement_missing, reduced_confinement) = self
+            .check_confinement(&name, network_level, origin, &entry, probe)
+            .await?;
         let (given, layer) = plugin_settings::given(settings, &name);
         let (fetch, effects, environment) = self
             .prepare_gate_and_environment(
@@ -787,6 +777,7 @@ impl RunPlugins {
                     resolved_runtime,
                     &folder,
                     places.as_deref(),
+                    reduced_confinement,
                 )
             })
             .await
@@ -813,36 +804,108 @@ impl RunPlugins {
                 ..InstanceHooks::default()
             },
         );
-        self.record_started(name, network_level, origin, digest, layer, instance.clone())
-            .await;
+        self.record_started(
+            StartedPlugin {
+                name,
+                network_level,
+                origin,
+                digest,
+                confinement,
+                confinement_missing,
+                layer,
+            },
+            instance.clone(),
+        )
+        .await;
         Ok((instance, effects))
     }
 
-    /// Audits a `direct` Plugin start, records the started Plugin for the Run
-    /// report, and tracks the running instance for revocation enforcement.
-    async fn record_started(
+    /// Checks host confinement for `network_level`, permitting reduced
+    /// confinement only for a first-party Plugin whose Operator policy sets
+    /// `plugins.<name>.reduced_confinement = true` (ADR 0033).
+    async fn check_confinement(
         &self,
-        name: String,
+        name: &str,
         network_level: NetworkLevel,
         origin: Origin,
-        digest: Option<String>,
-        layer: Option<goodfetch_protocol::settings::SettingsLayer>,
-        instance: PluginInstance,
-    ) {
-        if network_level == NetworkLevel::Direct {
-            self.audit_direct_start(&name, origin, digest.as_deref(), layer)
-                .await;
+        entry: &PluginEntry,
+        probe: &SandboxProbe,
+    ) -> Result<(PluginConfinement, Vec<String>, bool), StartError> {
+        let probe = probe.clone();
+        match self
+            .owner
+            .blocking(move || probe.plugin_confinement(network_level))
+            .await
+        {
+            Ok(()) => Ok((PluginConfinement::Full, Vec::new(), false)),
+            Err((missing, refusal)) => {
+                if origin == Origin::FirstParty && entry.reduced_confinement {
+                    Ok((PluginConfinement::Reduced, missing, true))
+                } else {
+                    tracing::warn!(plugin = %name, %refusal, "this host cannot confine a Plugin");
+                    Err(StartError::Refused(refusal))
+                }
+            }
+        }
+    }
+
+    /// Audits a `direct` or reduced-confinement Plugin start, records the
+    /// started Plugin for the Run report, and tracks the running instance for
+    /// revocation enforcement.
+    async fn record_started(&self, started: StartedPlugin, instance: PluginInstance) {
+        if started.network_level == NetworkLevel::Direct {
+            self.audit_direct_start(
+                &started.name,
+                started.origin,
+                started.digest.as_deref(),
+                started.layer,
+            )
+            .await;
+        }
+        if started.confinement == PluginConfinement::Reduced {
+            self.audit_reduced_confinement(
+                &started.name,
+                started.network_level,
+                started.digest.as_deref(),
+                &started.confinement_missing,
+                started.layer,
+            )
+            .await;
         }
         if let Some(recorder) = &self.run_recorder {
             recorder
                 .record(PluginRun {
-                    name: name.clone(),
-                    network_level: network_level.as_str().to_owned(),
+                    name: started.name.clone(),
+                    form: PluginForm::Process,
+                    origin: Some(started.origin),
+                    digest: started.digest.clone(),
+                    network_level: started.network_level.as_str().to_owned(),
+                    confinement: started.confinement,
+                    confinement_missing: started.confinement_missing,
+                })
+                .await;
+        }
+        self.track_instance(started.name, started.digest, None, instance)
+            .await;
+    }
+
+    /// Records an SDK handler used by this Run so `RunReport::plugins` lists
+    /// it with form `sdk_handler` and `confinement: unconfined` (ADRs 0016,
+    /// 0033 and 0104).
+    pub async fn record_sdk_handler(&self, name: &str) {
+        if let Some(recorder) = &self.run_recorder {
+            recorder
+                .record(PluginRun {
+                    name: name.to_owned(),
+                    form: PluginForm::SdkHandler,
+                    origin: None,
+                    digest: None,
+                    network_level: "unconfined".to_owned(),
+                    confinement: PluginConfinement::Unconfined,
                     confinement_missing: Vec::new(),
                 })
                 .await;
         }
-        self.track_instance(name, digest, None, instance).await;
     }
 
     /// Validates the Plugin's settings, builds its [`PluginFetch`] gate,
@@ -927,6 +990,45 @@ impl RunPlugins {
             .record(
                 &audit_origin,
                 &PLUGIN_DIRECT_STARTED,
+                details,
+                self.clock.timestamp(),
+            )
+            .await;
+    }
+
+    /// Records `plugin_reduced_confinement` in the Audit log when a first-party
+    /// Plugin starts under Operator-approved reduced confinement (ADR 0033,
+    /// issue 948).
+    async fn audit_reduced_confinement(
+        &self,
+        name: &str,
+        network_level: NetworkLevel,
+        digest: Option<&str>,
+        confinement_missing: &[String],
+        layer: Option<goodfetch_protocol::settings::SettingsLayer>,
+    ) {
+        let Some(audit) = &self.audit else {
+            return;
+        };
+        let mut details = json!({
+            "plugin": name,
+            "origin": Origin::FirstParty,
+            "network_level": network_level.as_str(),
+            "confinement_missing": confinement_missing,
+        });
+        if let Some(digest) = digest {
+            details["digest"] = json!(digest);
+        }
+        let audit_origin = AuditOrigin {
+            actor: Actor::Engine,
+            surface: None,
+            layer,
+            run_id: Some(self.run_id.clone()),
+        };
+        let _ = audit
+            .record(
+                &audit_origin,
+                &PLUGIN_REDUCED_CONFINEMENT,
                 details,
                 self.clock.timestamp(),
             )
@@ -1149,6 +1251,38 @@ fn admitted(
     Ok(entry)
 }
 
+/// Refuses a non-first-party `direct` Plugin whose Operator policy does not
+/// explicitly approve `Permission::Direct` (ADR 0033, issue 855).
+fn check_direct_approval(
+    name: &str,
+    network_level: NetworkLevel,
+    origin: Origin,
+    entry: &PluginEntry,
+) -> Result<(), StartError> {
+    if network_level == NetworkLevel::Direct
+        && origin != Origin::FirstParty
+        && !entry.approved.covers(&Permission::Direct)
+    {
+        return Err(StartError::Refused(permission_denied(
+            name,
+            Permission::Direct,
+        )));
+    }
+    Ok(())
+}
+
+/// Facts about a process Plugin instance that just started, recorded into the
+/// Audit log and `run_plugins`.
+struct StartedPlugin {
+    name: String,
+    network_level: NetworkLevel,
+    origin: Origin,
+    digest: Option<String>,
+    confinement: PluginConfinement,
+    confinement_missing: Vec<String>,
+    layer: Option<goodfetch_protocol::settings::SettingsLayer>,
+}
+
 /// What starts one instance, set up on the blocking policy.
 struct SetUp {
     launcher: PathBuf,
@@ -1169,6 +1303,7 @@ fn set_up(
     resolved_runtime: Option<(PathBuf, PathBuf)>,
     folder: &Path,
     places: Option<&Places>,
+    reduced_confinement: bool,
 ) -> Result<SetUp, String> {
     let places =
         places.ok_or("the engine's environment names no home folder to confine it from")?;
@@ -1209,6 +1344,7 @@ fn set_up(
             args,
             folder,
             proxy_relay: None,
+            reduced_confinement,
         },
         manifest: installed.manifest,
     })

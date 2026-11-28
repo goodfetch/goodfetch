@@ -16,11 +16,14 @@ use std::time::{Duration, SystemTime};
 
 use futures_util::future::BoxFuture;
 use goodfetch_protocol::page::proxy::ProxyKind;
+use goodfetch_protocol::plugin::approvals::Origin;
 use goodfetch_protocol::run::completeness::{FAILED, STOPPED};
+use goodfetch_protocol::run::warning::PLUGIN_FIGURES;
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, KindUsage, Lifecycle,
-    NothingDone, PluginRun, PluginStreamUsage, PluginUnitUsage, PluginUsage, ProxyKindBytes, RunId,
-    RunReport, RunUsage, RunWarning, StopReason, UNCERTAIN_EFFECTS, UsageAmount, Verdict,
+    NothingDone, PluginConfinement, PluginForm, PluginRun, PluginStreamUsage, PluginUnitUsage,
+    PluginUsage, ProxyKindBytes, RunId, RunReport, RunUsage, RunWarning, StopReason,
+    UNCERTAIN_EFFECTS, UsageAmount, Verdict,
 };
 use goodfetch_protocol::settings::{ExplainedSetting, WeakenedSetting};
 use goodfetch_protocol::usage::{
@@ -88,6 +91,19 @@ pub(super) fn assemble(
     report.warnings = warnings(connection)?;
     report.nothing_done = nothing_done(connection)?;
     report.plugins = run_plugins(connection)?;
+    if !report.usage.plugin_units.is_empty()
+        && !report
+            .warnings
+            .iter()
+            .any(|warning| warning.code == PLUGIN_FIGURES)
+    {
+        report.warnings.push(RunWarning {
+            code: PLUGIN_FIGURES.to_owned(),
+            message: "Usage figures come from a Plugin.".to_owned(),
+            sessions: Vec::new(),
+            folder: None,
+        });
+    }
     for part in parts {
         if let Err(error) = part.fill(connection, &mut report) {
             tracing::warn!(%error, run_id = %report.run_id, "a part of the Run's report could not be read; the report goes without it");
@@ -449,6 +465,7 @@ fn plugin_units(connection: &Connection) -> rusqlite::Result<Vec<PluginUnitUsage
             unit,
             quantity,
             price,
+            from_plugin: true,
         })
         .collect())
 }
@@ -698,17 +715,29 @@ fn nothing_done(connection: &Connection) -> rusqlite::Result<Option<NothingDone>
     .transpose()
 }
 
-/// Records a Plugin that ran in the Run's `run_plugins` table (ADRs 0016 and
-/// 0033).
+/// Records a Plugin or SDK handler that ran in the Run's `run_plugins` table
+/// (ADRs 0016, 0033 and 0104).
 fn record_plugin(connection: &Connection, plugin: &PluginRun) -> rusqlite::Result<()> {
     let missing = serde_json::to_string(&plugin.confinement_missing)
         .expect("invariant: confinement_missing encodes");
+    let origin = plugin.origin.map(Origin::as_str);
     connection
         .prepare_cached(
-            "INSERT OR REPLACE INTO run_plugins (name, network_level, confinement_missing) \
-             VALUES (?1, ?2, ?3)",
+            "INSERT OR REPLACE INTO run_plugins \
+             (name, form, origin, digest, network_level, confinement, confinement_missing) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         )
-        .and_then(|mut cached| cached.execute((&plugin.name, &plugin.network_level, missing)))?;
+        .and_then(|mut cached| {
+            cached.execute((
+                &plugin.name,
+                plugin.form.as_str(),
+                origin,
+                &plugin.digest,
+                &plugin.network_level,
+                plugin.confinement.as_str(),
+                missing,
+            ))
+        })?;
     Ok(())
 }
 
@@ -716,14 +745,22 @@ fn record_plugin(connection: &Connection, plugin: &PluginRun) -> rusqlite::Resul
 /// `None` when none ran.
 fn run_plugins(connection: &Connection) -> rusqlite::Result<Option<Vec<PluginRun>>> {
     let mut statement = connection.prepare_cached(
-        "SELECT name, network_level, confinement_missing FROM run_plugins ORDER BY name",
+        "SELECT name, form, origin, digest, network_level, confinement, confinement_missing \
+         FROM run_plugins ORDER BY name",
     )?;
     let rows = statement
         .query_map([], |row| {
-            let missing: String = row.get(2)?;
+            let form: String = row.get(1)?;
+            let origin: Option<String> = row.get(2)?;
+            let confinement: String = row.get(5)?;
+            let missing: String = row.get(6)?;
             Ok(PluginRun {
                 name: row.get(0)?,
-                network_level: row.get(1)?,
+                form: PluginForm::from_stored(&form),
+                origin: origin.as_deref().and_then(Origin::from_stored),
+                digest: row.get(3)?,
+                network_level: row.get(4)?,
+                confinement: PluginConfinement::from_stored(&confinement),
                 confinement_missing: serde_json::from_str(&missing)
                     .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
             })
@@ -761,14 +798,15 @@ impl crate::plugin_kinds::run_plugins::PluginRunRecorder for RunPluginRecorder {
 
 #[cfg(test)]
 mod tests {
-    use goodfetch_protocol::run::PluginRun;
+    use goodfetch_protocol::plugin::approvals::Origin;
+    use goodfetch_protocol::run::{PluginConfinement, PluginForm, PluginRun};
 
     use super::{record_plugin, run_plugins};
 
     /// Recording a Plugin at `direct` in `run_plugins` populates
     /// `RunReport::plugins` in name order when the Run report is assembled.
     ///
-    /// Covers: story:7-56
+    /// Covers: story:7-56, story:7-25
     #[test]
     fn recorded_direct_plugin_appears_in_run_report_plugins() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
@@ -776,7 +814,11 @@ mod tests {
             .execute_batch(
                 "CREATE TABLE run_plugins (
                     name TEXT NOT NULL PRIMARY KEY,
+                    form TEXT NOT NULL DEFAULT 'process',
+                    origin TEXT,
+                    digest TEXT,
                     network_level TEXT NOT NULL,
+                    confinement TEXT NOT NULL DEFAULT 'full',
                     confinement_missing TEXT NOT NULL DEFAULT '[]'
                 ) STRICT",
             )
@@ -785,7 +827,14 @@ mod tests {
 
         let direct = PluginRun {
             name: "pager".to_owned(),
+            form: PluginForm::Process,
+            origin: Some(Origin::ThirdParty),
+            digest: Some(
+                "sha256:0000000000000000000000000000000000000000000000000000000000000001"
+                    .to_owned(),
+            ),
             network_level: "direct".to_owned(),
+            confinement: PluginConfinement::Full,
             confinement_missing: Vec::new(),
         };
         record_plugin(&connection, &direct).unwrap();

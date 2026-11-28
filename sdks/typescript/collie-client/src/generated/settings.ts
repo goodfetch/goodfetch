@@ -433,7 +433,7 @@ export interface Settings {
    *
    * `plugins`.
    */
-  readonly plugins?: { readonly [key: string]: { readonly allow?: boolean; readonly approved?: { readonly browsers?: readonly string[]; readonly direct?: boolean; readonly effects?: readonly string[]; readonly pageScript?: readonly string[]; readonly secretValues?: readonly string[]; readonly secrets?: readonly string[]; readonly sessionCredentials?: readonly string[] }; readonly digest?: string; readonly settings?: { readonly [key: string]: unknown }; readonly spend?: { readonly [key: string]: { readonly price?: string } } } };
+  readonly plugins?: { readonly [key: string]: { readonly allow?: boolean; readonly approved?: { readonly browsers?: readonly string[]; readonly direct?: boolean; readonly effects?: readonly string[]; readonly pageScript?: readonly string[]; readonly secretValues?: readonly string[]; readonly secrets?: readonly string[]; readonly sessionCredentials?: readonly string[] }; readonly digest?: string; readonly reducedConfinement?: boolean; readonly settings?: { readonly [key: string]: unknown }; readonly spend?: { readonly [key: string]: { readonly price?: string } } } };
   readonly politeness?: {
     /**
      * Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.
@@ -1321,7 +1321,7 @@ export interface RunSettings {
    *
    * `plugins`.
    */
-  readonly plugins?: { readonly [key: string]: { readonly allow?: boolean; readonly approved?: { readonly browsers?: readonly string[]; readonly direct?: boolean; readonly effects?: readonly string[]; readonly pageScript?: readonly string[]; readonly secretValues?: readonly string[]; readonly secrets?: readonly string[]; readonly sessionCredentials?: readonly string[] }; readonly digest?: string; readonly settings?: { readonly [key: string]: unknown }; readonly spend?: { readonly [key: string]: { readonly price?: string } } } };
+  readonly plugins?: { readonly [key: string]: { readonly allow?: boolean; readonly approved?: { readonly browsers?: readonly string[]; readonly direct?: boolean; readonly effects?: readonly string[]; readonly pageScript?: readonly string[]; readonly secretValues?: readonly string[]; readonly secrets?: readonly string[]; readonly sessionCredentials?: readonly string[] }; readonly digest?: string; readonly reducedConfinement?: boolean; readonly settings?: { readonly [key: string]: unknown }; readonly spend?: { readonly [key: string]: { readonly price?: string } } } };
   readonly politeness?: {
     /**
      * Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.
@@ -2278,7 +2278,7 @@ const SPELLING: Spelling = {
       url: "url",
     }],
   }],
-  plugins: { setting: "plugins", value: { values: { fields: { "approved": ["approved", { fields: { "page_script": "pageScript", "secret_values": "secretValues", "session_credentials": "sessionCredentials" } }] } } } },
+  plugins: { setting: "plugins", value: { values: { fields: { "approved": ["approved", { fields: { "page_script": "pageScript", "secret_values": "secretValues", "session_credentials": "sessionCredentials" } }], "reduced_confinement": "reducedConfinement" } } } },
   politeness: ["politeness", {
     delegation: "delegation",
     proxy: ["proxy", {

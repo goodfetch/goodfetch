@@ -815,7 +815,7 @@ export interface FoxhoundSettings {
    *
    * `plugins`.
    */
-  readonly plugins?: { readonly [key: string]: { readonly allow?: boolean; readonly approved?: { readonly browsers?: readonly string[]; readonly direct?: boolean; readonly effects?: readonly string[]; readonly pageScript?: readonly string[]; readonly secretValues?: readonly string[]; readonly secrets?: readonly string[]; readonly sessionCredentials?: readonly string[] }; readonly digest?: string; readonly settings?: { readonly [key: string]: unknown }; readonly spend?: { readonly [key: string]: { readonly price?: string } } } };
+  readonly plugins?: { readonly [key: string]: { readonly allow?: boolean; readonly approved?: { readonly browsers?: readonly string[]; readonly direct?: boolean; readonly effects?: readonly string[]; readonly pageScript?: readonly string[]; readonly secretValues?: readonly string[]; readonly secrets?: readonly string[]; readonly sessionCredentials?: readonly string[] }; readonly digest?: string; readonly reducedConfinement?: boolean; readonly settings?: { readonly [key: string]: unknown }; readonly spend?: { readonly [key: string]: { readonly price?: string } } } };
   readonly politeness?: {
     readonly backoff?: {
       /**
@@ -2239,7 +2239,7 @@ export interface CrawlSettings {
    *
    * `plugins`.
    */
-  readonly plugins?: { readonly [key: string]: { readonly allow?: boolean; readonly approved?: { readonly browsers?: readonly string[]; readonly direct?: boolean; readonly effects?: readonly string[]; readonly pageScript?: readonly string[]; readonly secretValues?: readonly string[]; readonly secrets?: readonly string[]; readonly sessionCredentials?: readonly string[] }; readonly digest?: string; readonly settings?: { readonly [key: string]: unknown }; readonly spend?: { readonly [key: string]: { readonly price?: string } } } };
+  readonly plugins?: { readonly [key: string]: { readonly allow?: boolean; readonly approved?: { readonly browsers?: readonly string[]; readonly direct?: boolean; readonly effects?: readonly string[]; readonly pageScript?: readonly string[]; readonly secretValues?: readonly string[]; readonly secrets?: readonly string[]; readonly sessionCredentials?: readonly string[] }; readonly digest?: string; readonly reducedConfinement?: boolean; readonly settings?: { readonly [key: string]: unknown }; readonly spend?: { readonly [key: string]: { readonly price?: string } } } };
   readonly politeness?: {
     readonly backoff?: {
       /**
@@ -3258,7 +3258,7 @@ const SPELLING: Spelling = {
       url: "url",
     }],
   }],
-  plugins: { setting: "plugins", value: { values: { fields: { "approved": ["approved", { fields: { "page_script": "pageScript", "secret_values": "secretValues", "session_credentials": "sessionCredentials" } }] } } } },
+  plugins: { setting: "plugins", value: { values: { fields: { "approved": ["approved", { fields: { "page_script": "pageScript", "secret_values": "secretValues", "session_credentials": "sessionCredentials" } }], "reduced_confinement": "reducedConfinement" } } } },
   politeness: ["politeness", {
     backoff: ["backoff", {
       enabled: "enabled",

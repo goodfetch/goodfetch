@@ -22,8 +22,9 @@ use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
 };
 use goodfetch_protocol::run::{
-    EndingError, NothingDone, PlanReport, PlanStatus, PluginRun, RUN_STOP, RecordingReport, RunId,
-    RunKind, RunReport, RunWarning, StopReason, Tags, UNCERTAIN_EFFECTS, UncertainEffect,
+    EndingError, NothingDone, PlanReport, PlanStatus, PluginConfinement, PluginForm, PluginRun,
+    RUN_STOP, RecordingReport, RunId, RunKind, RunReport, RunWarning, StopReason, Tags,
+    UNCERTAIN_EFFECTS, UncertainEffect,
 };
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
@@ -270,7 +271,11 @@ impl ReportPart for Seeded {
         });
         report.plugins = Some(vec![PluginRun {
             name: "sink-s3".to_owned(),
+            form: PluginForm::Process,
+            origin: None,
+            digest: None,
             network_level: "egress".to_owned(),
+            confinement: PluginConfinement::Reduced,
             confinement_missing: vec!["seccomp".to_owned()],
         }]);
         report.recording = Some(RecordingReport {

@@ -1819,6 +1819,20 @@ export type PluginApprovalsRemoval =
       outcome: "managed";
     };
 /**
+ * How a Plugin that ran in a Run was confined (ADRs 0016 and 0033).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginConfinement".
+ */
+export type PluginConfinement = "full" | "reduced" | "unconfined" | "script_sandbox";
+/**
+ * The form an implementation of a Plugin kind ran in (ADRs 0033 and 0104).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginForm".
+ */
+export type PluginForm = "process" | "sdk_handler" | "rust_trait" | "script_hook";
+/**
  * Which resource limit a process Plugin exceeded (ADR 0033).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -8770,25 +8784,47 @@ export interface PluginRevokedDetails {
   reason: string;
 }
 /**
- * A Plugin that ran in a Run (ADRs 0016 and 0033).
+ * A Plugin or SDK handler that ran in a Run (ADRs 0016, 0033 and 0104).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "PluginRun".
  */
 export interface PluginRun {
   /**
+   * How it was confined (`full`, `reduced`, `script_sandbox` or
+   * `unconfined`).
+   */
+  confinement?: PluginConfinement & string;
+  /**
    * The parts of its confinement the host could not give, under a
    * reduced confinement the Operator policy allowed.
    */
   confinementMissing?: string[];
   /**
+   * The Plugin's digest (`sha256:<hex>`), when it ran from an installed
+   * bundle; absent for SDK handlers and Rust traits.
+   */
+  digest?: string | null;
+  /**
+   * The form it ran in (`process`, `sdk_handler`, `rust_trait` or
+   * `script_hook`).
+   */
+  form?: PluginForm & string;
+  /**
    * Its name.
    */
   name: string;
   /**
-   * The network level it ran at.
+   * The network level it ran at (`none`, `proxy_tcp`, `direct`, or
+   * `unconfined` for an SDK handler or Rust trait).
    */
   networkLevel: string;
+  /**
+   * Where a process Plugin came from (`first_party`, `third_party` or
+   * `private`); absent for the user's own code (`sdk_handler`,
+   * `rust_trait`).
+   */
+  origin?: Origin | null;
 }
 /**
  * What `plugin.search` takes (ADR 0033, issue 919).
@@ -8911,6 +8947,11 @@ export interface PluginStreamUsage {
  * via the `definition` "PluginUnitUsage".
  */
 export interface PluginUnitUsage {
+  /**
+   * Marks that this figure came from a Plugin rather than engine
+   * measurement (ADRs 0016 and 0033).
+   */
+  fromPlugin?: boolean;
   /**
    * The Plugin's name.
    */

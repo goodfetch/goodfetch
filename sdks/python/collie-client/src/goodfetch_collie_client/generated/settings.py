@@ -585,6 +585,9 @@ class PluginsEntry(TypedDict):
     digest: NotRequired[str]
     """The digest the Operator policy pins the Plugin to, `sha256:<hex>`: a Plugin of another digest is refused. Only an Operator policy sets it."""
 
+    reduced_confinement: NotRequired[bool]
+    """Whether a first-party Plugin may run with the confinement the host offers when full confinement is unavailable (ADR 0033). Ignored for third-party and Private Plugins. Only an Operator policy sets it."""
+
     settings: NotRequired[Mapping[str, object]]
     """The Plugin's settings, which its manifest's `settings_schema` validates."""
 

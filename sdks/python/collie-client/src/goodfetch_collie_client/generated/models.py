@@ -3315,6 +3315,26 @@ class PluginApprovalsRemoval(
     """What happened to the Plugin's approvals in the Operator policy on removal."""
 
 
+class PluginConfinement(StrEnum):
+    """How a Plugin that ran in a Run was confined (ADRs 0016 and 0033)."""
+
+    full = "full"
+    """Full OS confinement for the Plugin's declared network level."""
+    reduced = "reduced"
+    """
+    Reduced OS confinement for a first-party Plugin, allowed by Operator
+    policy (`plugins.<name>.reduced_confinement`): `confinement_missing`
+    names the parts the host could not give.
+    """
+    unconfined = "unconfined"
+    """
+    Not confined by the engine: the user's own code (an SDK handler or Rust
+    trait implementation).
+    """
+    script_sandbox = "script_sandbox"
+    """Confined by the engine's Script sandbox (a Script Hook)."""
+
+
 class PluginDigestMismatchDetails(BaseModel):
     """What `plugin_digest_mismatch` details."""
 
@@ -3329,6 +3349,19 @@ class PluginDigestMismatchDetails(BaseModel):
     """The lockfile."""
     name: str
     """The Plugin's name."""
+
+
+class PluginForm(StrEnum):
+    """The form an implementation of a Plugin kind ran in (ADRs 0033 and 0104)."""
+
+    process = "process"
+    """A confined process Plugin speaking the plugin protocol over stdio."""
+    sdk_handler = "sdk_handler"
+    """An SDK handler running in the Client's process over JSON-RPC."""
+    rust_trait = "rust_trait"
+    """An in-process Rust trait implementation in an embedded engine."""
+    script_hook = "script_hook"
+    """A Script Hook running in the engine's Script sandbox."""
 
 
 class PluginIndexImported(BaseModel):
@@ -3468,20 +3501,44 @@ class PluginRevokedDetails(BaseModel):
 
 
 class PluginRun(BaseModel):
-    """A Plugin that ran in a Run (ADRs 0016 and 0033)."""
+    """A Plugin or SDK handler that ran in a Run (ADRs 0016, 0033 and 0104)."""
 
     model_config = ConfigDict(
         extra="allow",
     )
+    confinement: PluginConfinement | None = PluginConfinement.full
+    """
+    How it was confined (`full`, `reduced`, `script_sandbox` or
+    `unconfined`).
+    """
     confinement_missing: list[str] | None = None
     """
     The parts of its confinement the host could not give, under a
     reduced confinement the Operator policy allowed.
     """
+    digest: str | None = None
+    """
+    The Plugin's digest (`sha256:<hex>`), when it ran from an installed
+    bundle; absent for SDK handlers and Rust traits.
+    """
+    form: PluginForm | None = PluginForm.process
+    """
+    The form it ran in (`process`, `sdk_handler`, `rust_trait` or
+    `script_hook`).
+    """
     name: str
     """Its name."""
     network_level: str
-    """The network level it ran at."""
+    """
+    The network level it ran at (`none`, `proxy_tcp`, `direct`, or
+    `unconfined` for an SDK handler or Rust trait).
+    """
+    origin: Origin | None = None
+    """
+    Where a process Plugin came from (`first_party`, `third_party` or
+    `private`); absent for the user's own code (`sdk_handler`,
+    `rust_trait`).
+    """
 
 
 class PluginSearchParams(BaseModel):
@@ -9152,6 +9209,11 @@ class PluginUnitUsage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    from_plugin: bool | None = True
+    """
+    Marks that this figure came from a Plugin rather than engine
+    measurement (ADRs 0016 and 0033).
+    """
     plugin: str
     """The Plugin's name."""
     price: UsageAmount | None = None

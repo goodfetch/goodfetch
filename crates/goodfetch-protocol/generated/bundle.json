@@ -18689,6 +18689,31 @@
       ],
       "type": "object"
     },
+    "PluginConfinement": {
+      "description": "How a Plugin that ran in a Run was confined (ADRs 0016 and 0033).",
+      "oneOf": [
+        {
+          "const": "full",
+          "description": "Full OS confinement for the Plugin's declared network level.",
+          "type": "string"
+        },
+        {
+          "const": "reduced",
+          "description": "Reduced OS confinement for a first-party Plugin, allowed by Operator\npolicy (`plugins.<name>.reduced_confinement`): `confinement_missing`\nnames the parts the host could not give.",
+          "type": "string"
+        },
+        {
+          "const": "unconfined",
+          "description": "Not confined by the engine: the user's own code (an SDK handler or Rust\ntrait implementation).",
+          "type": "string"
+        },
+        {
+          "const": "script_sandbox",
+          "description": "Confined by the engine's Script sandbox (a Script Hook).",
+          "type": "string"
+        }
+      ]
+    },
     "PluginDigestMismatchDetails": {
       "description": "What `plugin_digest_mismatch` details.",
       "properties": {
@@ -18726,6 +18751,31 @@
         "fix"
       ],
       "type": "object"
+    },
+    "PluginForm": {
+      "description": "The form an implementation of a Plugin kind ran in (ADRs 0033 and 0104).",
+      "oneOf": [
+        {
+          "const": "process",
+          "description": "A confined process Plugin speaking the plugin protocol over stdio.",
+          "type": "string"
+        },
+        {
+          "const": "sdk_handler",
+          "description": "An SDK handler running in the Client's process over JSON-RPC.",
+          "type": "string"
+        },
+        {
+          "const": "rust_trait",
+          "description": "An in-process Rust trait implementation in an embedded engine.",
+          "type": "string"
+        },
+        {
+          "const": "script_hook",
+          "description": "A Script Hook running in the engine's Script sandbox.",
+          "type": "string"
+        }
+      ]
     },
     "PluginHelloParams": {
       "description": "What the starter of a Plugin says in its `hello`. A field a newer\nstarter adds is read as absent.",
@@ -19569,8 +19619,14 @@
       "type": "object"
     },
     "PluginRun": {
-      "description": "A Plugin that ran in a Run (ADRs 0016 and 0033).",
+      "description": "A Plugin or SDK handler that ran in a Run (ADRs 0016, 0033 and 0104).",
       "properties": {
+        "confinement": {
+          "$ref": "#/$defs/PluginConfinement",
+          "arrived_in": "0.1",
+          "default": "full",
+          "description": "How it was confined (`full`, `reduced`, `script_sandbox` or\n`unconfined`)."
+        },
         "confinement_missing": {
           "arrived_in": "0.1",
           "description": "The parts of its confinement the host could not give, under a\nreduced confinement the Operator policy allowed.",
@@ -19579,6 +19635,20 @@
           },
           "type": "array"
         },
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's digest (`sha256:<hex>`), when it ran from an installed\nbundle; absent for SDK handlers and Rust traits.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "form": {
+          "$ref": "#/$defs/PluginForm",
+          "arrived_in": "0.1",
+          "default": "process",
+          "description": "The form it ran in (`process`, `sdk_handler`, `rust_trait` or\n`script_hook`)."
+        },
         "name": {
           "arrived_in": "0.1",
           "description": "Its name.",
@@ -19586,8 +19656,20 @@
         },
         "network_level": {
           "arrived_in": "0.1",
-          "description": "The network level it ran at.",
+          "description": "The network level it ran at (`none`, `proxy_tcp`, `direct`, or\n`unconfined` for an SDK handler or Rust trait).",
           "type": "string"
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Origin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Where a process Plugin came from (`first_party`, `third_party` or\n`private`); absent for the user's own code (`sdk_handler`,\n`rust_trait`)."
         }
       },
       "required": [
@@ -19762,6 +19844,12 @@
     "PluginUnitUsage": {
       "description": "What a Run used of one spend unit a Plugin reported, and its price when\npriced (ADR 0033).",
       "properties": {
+        "from_plugin": {
+          "arrived_in": "0.1",
+          "default": true,
+          "description": "Marks that this figure came from a Plugin rather than engine\nmeasurement (ADRs 0016 and 0033).",
+          "type": "boolean"
+        },
         "plugin": {
           "arrived_in": "0.1",
           "description": "The Plugin's name.",
@@ -35019,6 +35107,10 @@
                       "description": "The digest the Operator policy pins the Plugin to, `sha256:<hex>`: a Plugin of another digest is refused. Only an Operator policy sets it.",
                       "type": "string"
                     },
+                    "reduced_confinement": {
+                      "description": "Whether a first-party Plugin may run with the confinement the host offers when full confinement is unavailable (ADR 0033). Ignored for third-party and Private Plugins. Only an Operator policy sets it.",
+                      "type": "boolean"
+                    },
                     "settings": {
                       "description": "The Plugin's settings, which its manifest's `settings_schema` validates.",
                       "type": "object"
@@ -40227,6 +40319,10 @@
                     "digest": {
                       "description": "The digest the Operator policy pins the Plugin to, `sha256:<hex>`: a Plugin of another digest is refused. Only an Operator policy sets it.",
                       "type": "string"
+                    },
+                    "reduced_confinement": {
+                      "description": "Whether a first-party Plugin may run with the confinement the host offers when full confinement is unavailable (ADR 0033). Ignored for third-party and Private Plugins. Only an Operator policy sets it.",
+                      "type": "boolean"
                     },
                     "settings": {
                       "description": "The Plugin's settings, which its manifest's `settings_schema` validates.",
@@ -45452,6 +45548,10 @@
                     "digest": {
                       "description": "The digest the Operator policy pins the Plugin to, `sha256:<hex>`: a Plugin of another digest is refused. Only an Operator policy sets it.",
                       "type": "string"
+                    },
+                    "reduced_confinement": {
+                      "description": "Whether a first-party Plugin may run with the confinement the host offers when full confinement is unavailable (ADR 0033). Ignored for third-party and Private Plugins. Only an Operator policy sets it.",
+                      "type": "boolean"
                     },
                     "settings": {
                       "description": "The Plugin's settings, which its manifest's `settings_schema` validates.",

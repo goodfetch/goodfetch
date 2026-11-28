@@ -374,6 +374,7 @@ fn a_priced_call_reserves_declared_maximum_settles_at_reported_and_refuses_when_
             "unit": "solves",
             "quantity": 5,
             "price": { "currency": "USD", "amount": 10_000 },
+            "from_plugin": true,
         }])
     );
     assert!(
@@ -435,6 +436,7 @@ fn an_unpriced_unit_under_a_currency_limit_fails_with_plugin_price_unknown_and_r
             "plugin": "unpriced-solver",
             "unit": "solves",
             "quantity": 3,
+            "from_plugin": true,
         }])
     );
     assert_eq!(report_free["lifecycle"], json!("finished"));
@@ -468,6 +470,7 @@ fn an_over_maximum_report_is_recorded_in_full_flagged_and_stops_the_run_when_cro
             "unit": "solves",
             "quantity": 7,
             "price": { "currency": "USD", "amount": 14_000 },
+            "from_plugin": true,
         }])
     );
     // Flagged with both plugin_figures and plugin_quantity_above_maximum.
@@ -509,6 +512,7 @@ fn an_over_maximum_report_is_recorded_in_full_flagged_and_stops_the_run_when_cro
             "unit": "solves",
             "quantity": 4,
             "price": { "currency": "USD", "amount": 8_000 },
+            "from_plugin": true,
         }])
     );
     let ok_codes: Vec<&str> = report_ok["warnings"]
@@ -645,6 +649,7 @@ fn an_operator_price_override_replaces_the_declared_price_in_reservation() {
             "unit": "solves",
             "quantity": 2,
             "price": { "currency": "USD", "amount": 10_000 },
+            "from_plugin": true,
         }])
     );
 
@@ -669,6 +674,7 @@ fn an_operator_price_override_replaces_the_declared_price_in_reservation() {
             "unit": "solves",
             "quantity": 1,
             "price": { "currency": "USD", "amount": 5_000 },
+            "from_plugin": true,
         }])
     );
 }
@@ -794,4 +800,304 @@ fn run_stream_accountant_records_bytes_and_time_in_usage_and_destination_in_run_
     assert_eq!(entry["destination"], json!("api.shop.test:443"));
     assert_eq!(entry["bytes"], json!(1_536));
     assert_eq!(entry["duration_ms"], json!(42));
+}
+
+async fn seed_run_report_plugins(parts: &crate::runs::RunParts) {
+    use goodfetch_protocol::plugin::approvals::Origin;
+    use goodfetch_protocol::run::{PluginConfinement, PluginForm, PluginRun};
+
+    let rows = [
+        PluginRun {
+            name: "first-party-notify".to_owned(),
+            form: PluginForm::Process,
+            origin: Some(Origin::FirstParty),
+            digest: Some(
+                "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    .to_owned(),
+            ),
+            network_level: "direct".to_owned(),
+            confinement: PluginConfinement::Full,
+            confinement_missing: Vec::new(),
+        },
+        PluginRun {
+            name: "third-party-extract".to_owned(),
+            form: PluginForm::Process,
+            origin: Some(Origin::ThirdParty),
+            digest: Some(
+                "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                    .to_owned(),
+            ),
+            network_level: "none".to_owned(),
+            confinement: PluginConfinement::Full,
+            confinement_missing: Vec::new(),
+        },
+        PluginRun {
+            name: "reduced-first-party".to_owned(),
+            form: PluginForm::Process,
+            origin: Some(Origin::FirstParty),
+            digest: Some(
+                "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+                    .to_owned(),
+            ),
+            network_level: "none".to_owned(),
+            confinement: PluginConfinement::Reduced,
+            confinement_missing: vec!["signal_scope".to_owned(), "user_namespace".to_owned()],
+        },
+    ];
+    parts
+        .state
+        .write(move |connection| {
+            for plugin in &rows {
+                let missing = serde_json::to_string(&plugin.confinement_missing).unwrap();
+                connection.execute(
+                    "INSERT OR REPLACE INTO run_plugins \
+                     (name, form, origin, digest, network_level, confinement, confinement_missing) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    (
+                        &plugin.name,
+                        plugin.form.as_str(),
+                        plugin.origin.map(Origin::as_str),
+                        &plugin.digest,
+                        &plugin.network_level,
+                        plugin.confinement.as_str(),
+                        missing,
+                    ),
+                )?;
+            }
+            Ok(())
+        })
+        .await
+        .unwrap();
+    parts.plugins.record_sdk_handler("my-sdk-hook").await;
+}
+
+async fn seed_run_report_plugins_and_usage(parts: crate::runs::RunParts) {
+    use crate::plugin_gate::proxy::{StreamAccountant as _, StreamRecord, StreamTransport};
+    use crate::plugin_kinds::{
+        Accounts as _, DeclaredUnit, PluginCall, ReportedSpend, SpendAccountant as _,
+    };
+    use crate::run::accounts::RunAccounts;
+    use crate::runs::{RunSpendAccountant, RunStreamAccountant};
+
+    seed_run_report_plugins(&parts).await;
+
+    let accounts = RunAccounts {
+        identity: &parts.identity,
+        charging: &parts.charging,
+        trace: &parts.trace,
+    };
+    let call_info = PluginCall {
+        kind: "extract",
+        plugin: "third-party-extract",
+        method: "extract.content",
+        class: OperationClass::Read,
+        time: 17,
+        failed: None,
+    };
+    accounts.call_starts(&call_info).await.unwrap();
+    accounts.call_ended(&call_info).await.unwrap();
+
+    let streams = RunStreamAccountant::new(parts.charging.clone(), parts.trace.clone());
+    streams
+        .record(StreamRecord {
+            plugin: "first-party-notify".to_owned(),
+            destination: "hooks.example:443".to_owned(),
+            transport: StreamTransport::NetConnect,
+            bytes: 4_096,
+            duration_ms: 88,
+        })
+        .await;
+
+    let spend = RunSpendAccountant::new(parts.charging.clone(), parts.warnings.clone());
+    let ticket = spend
+        .reserve(
+            "third-party-extract",
+            vec![DeclaredUnit {
+                unit: "pages".to_owned(),
+                max_per_call: 10,
+                price: Some(goodfetch_protocol::catalog::PriceValue {
+                    millionths: 1_000,
+                    currency: "USD".to_owned(),
+                }),
+            }],
+        )
+        .await
+        .unwrap();
+    let mut reported = ReportedSpend::default();
+    reported.units.insert("pages".to_owned(), 3);
+    reported.any = true;
+    ticket.finish(true, reported).await.unwrap();
+}
+
+fn run_report_plugins_contribution() -> Contribution {
+    let op: &'static Operation = Box::leak(Box::new(Operation {
+        name: "test.record_run_plugins",
+        description: "Test-only: records first-party, third-party, reduced-confinement and SDK-handler Plugins plus all Plugin usage kinds on a live Run.",
+        class: OperationClass::Read,
+        kind: OperationKind::RoundTrip,
+        reach: Reach::AllSurfaces,
+        params: schema_of::<Value>,
+        result: schema_of::<Value>,
+        events: &[],
+        cancellable: false,
+        input: None,
+        bound: None,
+        stability: Stability::Experimental,
+        deprecated: None,
+        arrived_in: ProtocolVersion { major: 0, minor: 1 },
+    }));
+    Contribution::new("test-run-report-plugins").with_handler(Handler::new(
+        op,
+        |params: Value, context| async move {
+            let id: RunId = serde_json::from_value(params["run_id"].clone()).unwrap();
+            let parts = context.runs().live(id).await.unwrap();
+            seed_run_report_plugins_and_usage(parts).await;
+            Ok::<_, crate::CallError>(json!({ "ok": true }))
+        },
+    ))
+}
+
+fn assert_run_report_plugin_usage(report: &Value) {
+    assert_eq!(
+        report["usage"]["plugins"],
+        json!([{
+            "plugin": "third-party-extract",
+            "calls": 1,
+            "time": 17,
+        }])
+    );
+    assert_eq!(
+        report["usage"]["plugin_streams"],
+        json!([{
+            "destination": "hooks.example:443",
+            "bytes": 4_096,
+            "time": 88,
+        }])
+    );
+    assert_eq!(
+        report["usage"]["plugin_units"],
+        json!([{
+            "plugin": "third-party-extract",
+            "unit": "pages",
+            "quantity": 3,
+            "price": { "currency": "USD", "amount": 3_000 },
+            "from_plugin": true,
+        }])
+    );
+    assert!(
+        report["usage"].get("other").is_none(),
+        "Plugin usage kinds must not leak into usage.other: {}",
+        report["usage"]
+    );
+    let warning_codes: Vec<&str> = report["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|warning| warning["code"].as_str())
+        .collect();
+    assert!(
+        warning_codes.contains(&PLUGIN_FIGURES),
+        "Plugin-produced figures must also emit `plugin_figures` warning: {warning_codes:?}"
+    );
+}
+
+/// A Run report lists every first-party and third-party Plugin and SDK handler
+/// used with its form, origin, digest, network level and confinement (including
+/// reduced confinement's missing parts), carries `plugin_calls`, `plugin_time`,
+/// `plugin_stream_bytes` and `plugin_units`, and marks Plugin-produced figures
+/// both on the figure (`from_plugin: true`) and in `warnings` (`plugin_figures`).
+///
+/// Covers: story:7-25
+#[test]
+fn run_report_lists_plugins_confinement_usage_and_marks_plugin_produced_figures() {
+    let env = TestEnv::new();
+    let engine = engine_with(Product::Collie, Some(run_report_plugins_contribution()));
+    let report = attached_on(&engine, &env, |mut client| async move {
+        client
+            .send(&[json!({
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "hello",
+                "params": {
+                    "protocol_version": "0.1",
+                    "surface": "cli",
+                    "needs": "collie",
+                    "product_version": "1.4.0",
+                },
+            })])
+            .await;
+        client.next().await.unwrap();
+        let started = call(
+            &mut client,
+            1,
+            "run.start",
+            json!({ "run_id": "plugins-report" }),
+        )
+        .await;
+        assert!(
+            started.get("result").is_some(),
+            "run.start failed: {started}"
+        );
+        let rec = call(
+            &mut client,
+            2,
+            "test.record_run_plugins",
+            json!({ "run_id": "plugins-report" }),
+        )
+        .await;
+        assert!(
+            rec.get("result").is_some(),
+            "test.record_run_plugins failed: {rec}"
+        );
+        let finished = call(
+            &mut client,
+            3,
+            "run.finish",
+            json!({ "run_id": "plugins-report" }),
+        )
+        .await;
+        assert!(
+            finished.get("result").is_some(),
+            "run.finish failed: {finished}"
+        );
+        finished["result"].clone()
+    });
+
+    assert_eq!(
+        report["plugins"],
+        json!([
+            {
+                "name": "first-party-notify",
+                "form": "process",
+                "origin": "first_party",
+                "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "network_level": "direct",
+                "confinement": "full",
+            },
+            {
+                "name": "my-sdk-hook",
+                "form": "sdk_handler",
+                "network_level": "unconfined",
+                "confinement": "unconfined",
+            },
+            {
+                "name": "reduced-first-party",
+                "form": "process",
+                "origin": "first_party",
+                "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+                "network_level": "none",
+                "confinement": "reduced",
+                "confinement_missing": ["signal_scope", "user_namespace"],
+            },
+            {
+                "name": "third-party-extract",
+                "form": "process",
+                "origin": "third_party",
+                "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+                "network_level": "none",
+                "confinement": "full",
+            },
+        ])
+    );
+    assert_run_report_plugin_usage(&report);
 }

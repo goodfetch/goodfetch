@@ -188,6 +188,66 @@ pub(crate) fn confine_self_with_relay(
     Ok((mechanism, relay_port))
 }
 
+/// Applies every confinement layer this host offers for a first-party Plugin
+/// running under Operator-approved `reduced_confinement` (ADR 0033): uses
+/// Landlock when enabled (scoping signals from ABI 6), falls back to a host
+/// loopback relay when a network namespace cannot be created at `proxy_tcp`,
+/// and applies seccomp filters whenever the kernel accepts them.
+pub(crate) fn confine_self_reduced(
+    policy: &Policy,
+    proxy_control_fd: Option<libc::c_int>,
+) -> Result<Option<u16>, ConfineError> {
+    let rules = seccomp::rules(policy.network_level);
+    let programs = if rules.is_empty() {
+        Vec::new()
+    } else {
+        programs(&rules)?
+    };
+    let relay_port = if policy.network_level == NetworkLevel::ProxyTcp
+        && let Some(control_fd) = proxy_control_fd
+    {
+        let bound = match namespaces::enter_network_only(true) {
+            Ok(Some(bound)) => bound,
+            Ok(None) | Err(ConfineError::Unavailable(_)) => {
+                #[expect(
+                    clippy::disallowed_types,
+                    reason = "plugin-shim runs single-threaded outside the engine runtime and binds a local loopback relay socket for proxy_tcp reduced confinement (ADR 0033)"
+                )]
+                let listener = std::net::TcpListener::bind("127.0.0.1:0").map_err(|error| {
+                    ConfineError::Namespace {
+                        call: "bind(127.0.0.1:0)",
+                        error,
+                    }
+                })?;
+                let port = listener
+                    .local_addr()
+                    .map_err(|error| ConfineError::Namespace {
+                        call: "local_addr",
+                        error,
+                    })?
+                    .port();
+                (listener, port)
+            }
+            Err(error) => return Err(error),
+        };
+        relay::spawn_in_netns(control_fd, bound.0).map_err(|error| ConfineError::Namespace {
+            call: "fork(relay)",
+            error,
+        })?;
+        Some(bound.1)
+    } else {
+        None
+    };
+    let abi = kernel_abi();
+    if abi > 0 {
+        let _ = restrict_files(policy, abi >= SIGNAL_SCOPE_ABI);
+    }
+    for program in &programs {
+        let _ = seccompiler::apply_filter(program);
+    }
+    Ok(relay_port)
+}
+
 fn restrict_files(policy: &Policy, scoped: bool) -> Result<Mechanism, ConfineError> {
     let read = AccessFs::ReadFile | AccessFs::ReadDir;
     let start = AccessFs::ReadFile | AccessFs::Execute;

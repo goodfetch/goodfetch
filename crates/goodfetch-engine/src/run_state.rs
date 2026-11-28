@@ -170,11 +170,16 @@ const SCHEMA: &[&str] = &[
         sessions TEXT NOT NULL,
         folder TEXT
     ) STRICT",
-    // Each Plugin that ran in the Run, with its network level and any
-    // confinement parts the host lacked (ADRs 0016 and 0033).
+    // Each Plugin or SDK handler that ran in the Run, with its form, origin,
+    // digest, network level, confinement state and any confinement parts the
+    // host lacked (ADRs 0016, 0033 and 0104).
     "CREATE TABLE IF NOT EXISTS run_plugins (
         name TEXT NOT NULL PRIMARY KEY,
+        form TEXT NOT NULL DEFAULT 'process',
+        origin TEXT,
+        digest TEXT,
         network_level TEXT NOT NULL,
+        confinement TEXT NOT NULL DEFAULT 'full',
         confinement_missing TEXT NOT NULL DEFAULT '[]'
     ) STRICT",
 ];

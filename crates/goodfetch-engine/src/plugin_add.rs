@@ -242,6 +242,7 @@ pub(crate) async fn approve_permissions(
                 digest: Some(digest),
                 approved,
                 spend: existing.spend,
+                reduced_confinement: existing.reduced_confinement,
             };
             let entry = serde_json::to_value(&entry)
                 .expect("invariant: a Plugin's entry serializes to JSON");

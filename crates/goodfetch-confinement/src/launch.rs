@@ -55,6 +55,12 @@ pub struct Launch {
     /// an isolated network namespace to the engine's per-instance proxy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proxy_relay: Option<ProxyRelay>,
+    /// When `true`, apply every confinement layer the host offers instead of
+    /// failing with `Unavailable` when a layer is missing: set only for a
+    /// first-party Plugin whose Operator policy sets
+    /// `plugins.<name>.reduced_confinement = true` (ADR 0033).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reduced_confinement: bool,
 }
 
 impl Launch {
@@ -139,7 +145,9 @@ pub fn shim(launch: Option<&OsStr>) -> LaunchError {
 fn start(launch: &Launch) -> LaunchError {
     use std::os::unix::process::CommandExt as _;
 
-    use crate::linux::{ConfineError, MechanismKind, confine_self_with_relay};
+    use crate::linux::{
+        ConfineError, MechanismKind, confine_self_reduced, confine_self_with_relay,
+    };
 
     if let Err(error) = crate::linux::close_beyond_stdio() {
         return LaunchError::Handles(error);
@@ -153,14 +161,20 @@ fn start(launch: &Launch) -> LaunchError {
         Err(error) => return LaunchError::Folder(error),
     };
     let control_fd = launch.proxy_relay.as_ref().map(|relay| relay.control_fd);
-    let relay_port =
+    let relay_port = if launch.reduced_confinement {
+        match confine_self_reduced(&launch.policy, control_fd) {
+            Ok(port) => port,
+            Err(error) => return LaunchError::Confine(error.to_string()),
+        }
+    } else {
         match confine_self_with_relay(&launch.policy, MechanismKind::of_kernel(), control_fd) {
             Ok((_, port)) => port,
             Err(ConfineError::Unavailable(reason)) => {
                 return LaunchError::Unavailable(reason.to_owned());
             }
             Err(error) => return LaunchError::Confine(error.to_string()),
-        };
+        }
+    };
     match std::env::current_dir() {
         Ok(working) if working == folder => {}
         Ok(working) => {

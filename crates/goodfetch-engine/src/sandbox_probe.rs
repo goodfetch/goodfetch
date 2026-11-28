@@ -41,7 +41,9 @@ use std::sync::{Arc, OnceLock};
 
 use goodfetch_confinement::host::SIGNAL_SCOPE_ABI;
 pub use goodfetch_confinement::host::{HostFacts, UserNamespace};
-use goodfetch_protocol::plugin::{CONFINEMENT_UNAVAILABLE, ConfinementUnavailableDetails};
+use goodfetch_protocol::plugin::{
+    CONFINEMENT_UNAVAILABLE, ConfinementUnavailableDetails, NetworkLevel,
+};
 use goodfetch_protocol::security::{
     BROWSER_SANDBOX_UNAVAILABLE, BrowserSandboxUnavailableDetails, SECURITY_BROWSER_SANDBOX,
     SandboxEnvironment,
@@ -204,6 +206,55 @@ impl Facts {
             },
         ))
     }
+
+    /// Checks whether this host can fully confine a process Plugin at
+    /// `network_level` (ADR 0033). Returns `Ok(())` when every layer is
+    /// available; otherwise returns the missing confinement part names and the
+    /// typed `confinement_unavailable` refusal.
+    pub fn plugin_confinement(
+        &self,
+        network_level: NetworkLevel,
+    ) -> Result<(), (Vec<String>, CallError)> {
+        let missing = self.host.missing_confinement(network_level);
+        if missing.is_empty() {
+            return Ok(());
+        }
+        let missing: Vec<String> = missing.into_iter().map(str::to_owned).collect();
+        if let Some(refusal) = self.plugin_refusal() {
+            return Err((missing, refusal));
+        }
+        let (environment, failure) = match judge(&Self {
+            platform: None,
+            ..*self
+        }) {
+            Probed::Refused {
+                environment,
+                failure,
+            } => (environment, failure),
+            Probed::Restricted => (
+                SandboxEnvironment::ApparmorUserns,
+                "AppArmor restricts unprivileged user namespaces".to_owned(),
+            ),
+            Probed::Unknown { failure } => (SandboxEnvironment::Unknown, failure),
+            Probed::Starts | Probed::NoSandbox(_) => (
+                SandboxEnvironment::Unknown,
+                "a user namespace is required for network isolation".to_owned(),
+            ),
+        };
+        let refusal = CallError::new(
+            &CONFINEMENT_UNAVAILABLE,
+            format!(
+                "this host cannot confine a process Plugin at `{}` ({}): {failure}",
+                network_level.as_str(),
+                serde_name(environment)
+            ),
+            &ConfinementUnavailableDetails {
+                environment,
+                fix: plugin_fix(environment, self.platform),
+            },
+        );
+        Err((missing, refusal))
+    }
 }
 
 /// One engine's probe, which its settings' host defaults and its browser
@@ -248,6 +299,16 @@ impl SandboxProbe {
     /// [`Self::probed`]; it blocks as that does.
     pub fn plugin_refusal(&self) -> Option<CallError> {
         self.answer().0.plugin_refusal()
+    }
+
+    /// Checks whether this host can fully confine a process Plugin at
+    /// `network_level` ([`Facts::plugin_confinement`]), from the same reading
+    /// as [`Self::probed`]; it blocks as that does.
+    pub fn plugin_confinement(
+        &self,
+        network_level: NetworkLevel,
+    ) -> Result<(), (Vec<String>, CallError)> {
+        self.answer().0.plugin_confinement(network_level)
     }
 
     fn answer(&self) -> &(Facts, Probed) {

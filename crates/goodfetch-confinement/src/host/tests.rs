@@ -1,3 +1,4 @@
+use goodfetch_protocol::plugin::NetworkLevel;
 use rstest::rstest;
 
 use super::{HostFacts, UserNamespace, is_wsl1};
@@ -52,4 +53,48 @@ fn a_plugin_is_confined_by_landlock_6_or_a_user_namespace(
 #[case::ubuntu("6.8.0-49-generic", false)]
 fn wsl1_is_told_by_its_kernel_release(#[case] release: &str, #[case] wsl1: bool) {
     assert_eq!(is_wsl1(release), wsl1);
+}
+
+#[rstest]
+#[case::landlock_6_no_userns_none(
+    HostFacts { apparmor_restricts: true, ..host(UserNamespace::Unmapped(EPERM), 6) },
+    NetworkLevel::None,
+    &[]
+)]
+#[case::landlock_6_no_userns_direct(
+    HostFacts { apparmor_restricts: true, ..host(UserNamespace::Unmapped(EPERM), 6) },
+    NetworkLevel::Direct,
+    &[]
+)]
+#[case::landlock_6_no_userns_proxy_tcp(
+    HostFacts { apparmor_restricts: true, ..host(UserNamespace::Unmapped(EPERM), 6) },
+    NetworkLevel::ProxyTcp,
+    &["network_namespace", "user_namespace"]
+)]
+#[case::docker_before_6_12_with_landlock_none(
+    HostFacts { seccomp_filtered: true, ..host(UserNamespace::Refused(EPERM), 4) },
+    NetworkLevel::None,
+    &["signal_scope", "user_namespace"]
+)]
+#[case::docker_before_6_12_no_landlock_none(
+    HostFacts { seccomp_filtered: true, ..host(UserNamespace::Refused(EPERM), 0) },
+    NetworkLevel::None,
+    &["filesystem", "signal_scope", "user_namespace"]
+)]
+#[case::wsl1_none(
+    HostFacts { wsl1: true, ..host(UserNamespace::Refused(EINVAL), 0) },
+    NetworkLevel::None,
+    &["seccomp", "filesystem", "signal_scope", "user_namespace"]
+)]
+#[case::wsl1_proxy_tcp(
+    HostFacts { wsl1: true, ..host(UserNamespace::Refused(EINVAL), 0) },
+    NetworkLevel::ProxyTcp,
+    &["seccomp", "filesystem", "signal_scope", "user_namespace", "network_namespace"]
+)]
+fn missing_confinement_names_unprovided_parts_per_network_level(
+    #[case] facts: HostFacts,
+    #[case] level: NetworkLevel,
+    #[case] expected: &[&str],
+) {
+    assert_eq!(facts.missing_confinement(level), expected);
 }

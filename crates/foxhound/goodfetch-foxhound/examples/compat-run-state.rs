@@ -395,8 +395,11 @@ async fn effects(params: Value, context: CallContext) -> Result<Value, CallError
                 [],
             )?;
             connection.execute(
-                "INSERT OR REPLACE INTO run_plugins (name, network_level, confinement_missing) \
-                 VALUES ('pager', 'direct', '[]')",
+                "INSERT OR REPLACE INTO run_plugins \
+                 (name, form, origin, digest, network_level, confinement, confinement_missing) \
+                 VALUES ('pager', 'process', 'third_party', \
+                 'sha256:0000000000000000000000000000000000000000000000000000000000000001', \
+                 'direct', 'full', '[]')",
                 [],
             )?;
             Ok(())

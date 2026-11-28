@@ -135,6 +135,7 @@ impl Plugin {
             args: vec![played.to_string_lossy().into_owned()],
             folder: layout.instance.clone(),
             proxy_relay: None,
+            reduced_confinement: false,
         };
         Self {
             _root: root,
@@ -801,6 +802,7 @@ fn proxy_tcp_plugin() -> Plugin {
         args: vec![played.to_string_lossy().into_owned()],
         folder: layout.instance.clone(),
         proxy_relay: None,
+        reduced_confinement: false,
     };
     Plugin {
         _root: root,
@@ -975,6 +977,7 @@ fn plugin_with_limits(limits: &Value, script: &Value) -> Plugin {
         args: vec![played.to_string_lossy().into_owned()],
         folder: layout.instance.clone(),
         proxy_relay: None,
+        reduced_confinement: false,
     };
     Plugin {
         _root: root,

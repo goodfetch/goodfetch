@@ -1483,7 +1483,7 @@ class ConnectionRevisitSettings(TypedDict):
     """
 
     on_error: NotRequired[timedelta]
-    """How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (StormCrawler's `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.
+    """How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (`StormCrawler`'s `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.
 
     `revisit.on_error`.
     """
@@ -3663,7 +3663,7 @@ class RunRevisitSettings(TypedDict):
     """
 
     on_error: NotRequired[timedelta]
-    """How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (StormCrawler's `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.
+    """How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (`StormCrawler`'s `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.
 
     `revisit.on_error`.
     """
@@ -4403,7 +4403,7 @@ class LabelRevisitSettings(TypedDict):
     """
 
     on_error: NotRequired[timedelta]
-    """How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (StormCrawler's `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.
+    """How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (`StormCrawler`'s `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.
 
     `revisit.on_error`.
     """

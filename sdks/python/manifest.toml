@@ -2406,6 +2406,14 @@ form = "round_trip"
 [[member]]
 package = "goodfetch_foxhound"
 receiver = "AsyncCrawlRun"
+member = "report_so_far"
+entry = "run.report_so_far"
+words = ["report", "so", "far"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRun"
 member = "progress"
 entry = "run.progress"
 words = ["progress"]
@@ -2597,6 +2605,14 @@ receiver = "CrawlRun"
 member = "report"
 entry = "run.report"
 words = ["report"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRun"
+member = "report_so_far"
+entry = "run.report_so_far"
+words = ["report", "so", "far"]
 form = "round_trip"
 
 [[member]]

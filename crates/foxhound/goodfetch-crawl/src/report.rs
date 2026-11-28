@@ -14,17 +14,92 @@
 //! kind gets none of them.
 
 use std::collections::BTreeMap;
+use std::time::UNIX_EPOCH;
 
+use goodfetch_engine::run::{run_error, through_owner};
 use goodfetch_engine::run_state::run_row;
-use goodfetch_engine::runs::ReportPart;
+use goodfetch_engine::runs::{ReportPart, RunError};
+use goodfetch_engine::{CallContext, CallError, Handler};
+use goodfetch_protocol::foxhound::continuous::CRAWL_CONTINUOUS;
 use goodfetch_protocol::foxhound::frontier::Enqueued;
 use goodfetch_protocol::foxhound::outcomes::{
     CrawlRequestOutcome, DatasetRecords, Ending, OutcomeKind,
 };
-use goodfetch_protocol::foxhound::report::{CountOf, RequestCounts};
+use goodfetch_protocol::foxhound::report::{
+    CountOf, CrawlRunReport, RUN_NOT_CONTINUOUS, RUN_REPORT_SO_FAR, RequestCounts, RunReportSoFar,
+};
 use goodfetch_protocol::foxhound::settings::FETCH_BLOCK_CLASSIFICATION;
-use goodfetch_protocol::run::{AxisReason, Lifecycle, NothingDone, RunKind, RunReport, SeedsKept};
+use goodfetch_protocol::run::{
+    AxisReason, Lifecycle, NothingDone, RunDetails, RunKind, RunParams, RunReport, SeedsKept,
+};
 use rusqlite::{Connection, OptionalExtension as _};
+
+/// The handler of `run.report_so_far` (ADR 0139).
+pub(crate) fn handler() -> Handler {
+    Handler::new(&RUN_REPORT_SO_FAR, report_so_far)
+}
+
+async fn report_so_far(
+    params: RunParams,
+    context: CallContext,
+) -> Result<RunReportSoFar, CallError> {
+    if let Some(answer) =
+        through_owner(&context, &RUN_REPORT_SO_FAR, &params.run_id, &params).await?
+    {
+        return Ok(answer);
+    }
+    let failed = |error: RunError| run_error(error, &context);
+    let mut reader = context
+        .runs()
+        .reader(params.run_id.clone())
+        .await
+        .map_err(failed)?;
+    let continuous = reader
+        .read(
+            |connection| match run_row::fixed_setting_bool(connection, CRAWL_CONTINUOUS.name) {
+                Ok(flag) => Ok(Some(flag)),
+                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                Err(error) => Err(error),
+            },
+        )
+        .await
+        .map_err(failed)?;
+    match continuous {
+        None => return Err(failed(RunError::NotFound(params.run_id))),
+        Some(false) => {
+            return Err(CallError::new(
+                &RUN_NOT_CONTINUOUS,
+                format!(
+                    "The Run `{}` is not a Continuous crawl, so `run.report_so_far` does not apply to it; call `run.report` once it ends.",
+                    params.run_id
+                ),
+                &RunDetails {
+                    run_id: params.run_id,
+                    path: None,
+                },
+            ));
+        }
+        Some(true) => {}
+    }
+    let report = context
+        .runs()
+        .report_snapshot(params.run_id)
+        .await
+        .map_err(failed)?;
+    let encoded = serde_json::to_value(&report).map_err(|error| {
+        CallError::protocol(
+            goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
+            format!("Run report did not encode: {error}"),
+        )
+    })?;
+    let crawl: CrawlRunReport = serde_json::from_value(encoded).map_err(|error| {
+        CallError::protocol(
+            goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
+            format!("Crawl report did not decode: {error}"),
+        )
+    })?;
+    Ok(RunReportSoFar::from_crawl_report(crawl))
+}
 
 /// The crawl's part of its Run's report.
 pub(crate) struct CrawlParts;
@@ -82,6 +157,17 @@ impl ReportPart for CrawlParts {
             report.kind_parts.insert(
                 "revisits_at_min".to_owned(),
                 serde_json::to_value(revisits_at_min).expect("invariant: revisits_at_min encodes"),
+            );
+        }
+        if run_row::fixed_setting_bool(connection, CRAWL_CONTINUOUS.name)? {
+            let now_ms = report
+                .ended_at
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+            let freshness = goodfetch_frontier::revisit::freshness(connection, now_ms)?;
+            report.kind_parts.insert(
+                "freshness".to_owned(),
+                serde_json::to_value(freshness).expect("invariant: freshness encodes"),
             );
         }
         let handled: bool = connection

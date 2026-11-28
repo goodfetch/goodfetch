@@ -3,7 +3,7 @@
 import type { CallOptions, Caller } from "@goodfetch/collie-client/generated";
 import { type EntryMarkers, warnExperimental } from "@goodfetch/collie-client/runtime";
 import type { RunParams } from "@goodfetch/collie-client/generated/types";
-import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, CrawlStarted, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
+import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, CrawlStarted, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunReportSoFar, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
 import { warnDeprecatedSettings } from "./settings.ts";
 
 /** The params and result of each of Foxhound's operations. */
@@ -28,6 +28,7 @@ export interface FoxhoundOperationTypes {
   "run.outcomes": { params: RunOutcomesParams; result: CrawlRequestOutcomes };
   "run.records": { params: RunRecordsParams; result: RecordsRead };
   "run.rejected_records": { params: RunRejectedRecordsParams; result: RejectedRecords };
+  "run.report_so_far": { params: RunParams; result: RunReportSoFar };
   "run.retry_failed": { params: RunRetryFailedParams; result: RetriedFailed };
   "run.seeds": { params: RunSeedsParams; result: RunSeeds };
   "sample.crawl": { params: SampleCrawlParams; result: SampleCrawlResult };
@@ -55,6 +56,7 @@ export const foxhoundOperations: Readonly<Record<keyof FoxhoundOperationTypes, E
   "run.outcomes": { experimental: true, deprecated: undefined },
   "run.records": { experimental: true, deprecated: undefined },
   "run.rejected_records": { experimental: true, deprecated: undefined },
+  "run.report_so_far": { experimental: true, deprecated: undefined },
   "run.retry_failed": { experimental: true, deprecated: undefined },
   "run.seeds": { experimental: true, deprecated: undefined },
   "sample.crawl": { experimental: false, deprecated: undefined },
@@ -82,6 +84,7 @@ export const foxhoundOperationNames: Readonly<Record<keyof FoxhoundOperationType
   "run.outcomes": "run.outcomes",
   "run.records": "run.records",
   "run.rejected_records": "run.rejectedRecords",
+  "run.report_so_far": "run.reportSoFar",
   "run.retry_failed": "run.retryFailed",
   "run.seeds": "run.seeds",
   "sample.crawl": "sample.crawl",
@@ -109,6 +112,7 @@ export const foxhoundOperationClasses: Readonly<Record<keyof FoxhoundOperationTy
   "run.outcomes": "read",
   "run.records": "read",
   "run.rejected_records": "read",
+  "run.report_so_far": "read",
   "run.retry_failed": "effect",
   "run.seeds": "read",
   "sample.crawl": "effect",
@@ -322,6 +326,16 @@ export class FoxhoundOperations {
   runRejectedRecords(params: RunRejectedRecordsParams, options: CallOptions = {}): Promise<RejectedRecords> {
     warnExperimental("run.rejected_records");
     return this.#caller.call("run.rejected_records", params, options);
+  }
+
+  /**
+   * Reads a Continuous crawl's report while it runs: its Lifecycle, Usage, Learned rules, Sinks, warnings and Freshness, built from the same parts as the Run report, with no Verdict and no Completeness. A Run another engine works is read through that engine, and one no engine works from its committed state, never taking its writer lock. On a Run that is not a Continuous crawl, fails with `run_not_continuous`; on a Run ID the Run index does not list, fails with `run_not_found`.
+   *
+   * @experimental
+   */
+  runReportSoFar(params: RunParams, options: CallOptions = {}): Promise<RunReportSoFar> {
+    warnExperimental("run.report_so_far");
+    return this.#caller.call("run.report_so_far", params, options);
   }
 
   /**

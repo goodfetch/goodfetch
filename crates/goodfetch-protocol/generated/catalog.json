@@ -1661,6 +1661,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Run is not a Continuous crawl, so `run.report_so_far` does not apply to it; call `run.report` once it ends. The details name the Run.",
+      "details": {
+        "$ref": "#/$defs/RunDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "run_not_continuous",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "No Run has this Run ID: the Run index does not list it.",
       "details": {
         "$ref": "#/$defs/RunDetails"
@@ -5189,6 +5202,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads a Continuous crawl's report while it runs: its Lifecycle, Usage, Learned rules, Sinks, warnings and Freshness, built from the same parts as the Run report, with no Verdict and no Completeness. A Run another engine works is read through that engine, and one no engine works from its committed state, never taking its writer lock. On a Run that is not a Continuous crawl, fails with `run_not_continuous`; on a Run ID the Run index does not list, fails with `run_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.report_so_far",
+      "params": {
+        "$ref": "#/$defs/RunParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunReportSoFar"
       },
       "stability": "experimental"
     },
@@ -12019,7 +12051,7 @@
       "clearable": false,
       "default": 7200000,
       "deprecated": null,
-      "description": "How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (StormCrawler's `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.",
+      "description": "How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (`StormCrawler`'s `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.",
       "fixed_for_run": false,
       "name": "revisit.on_error",
       "product": "foxhound",

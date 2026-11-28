@@ -6,12 +6,24 @@
 //! Completeness reasons a crawl adds to every Run's (ADRs 0005, 0045,
 //! 0048, 0107, 0118 and 0120), each named by its setting or its cause.
 
+use std::time::{Duration, SystemTime};
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::catalog::{Entries, ProtocolVersion, SharedType, SharedTypeValue};
-use crate::run::RunReport;
+use crate::catalog::{
+    Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
+    ProtocolVersion, Reach, SharedType, SharedTypeValue, Stability, schema_of,
+};
+use crate::clean_up_rules::CleanUpRulesReport;
+use crate::milliseconds::Milliseconds;
+use crate::point_in_time::PointInTime;
 use crate::run::completeness::reason;
+use crate::run::{
+    Checkpoint, EndingError, Lifecycle, NothingDone, PlanReport, PluginRun, RecordingReport, RunId,
+    RunParams, RunReport, RunUsage, RunWarning, StopReason, UncertainEffect,
+};
+use crate::settings::{ExplainedSetting, WeakenedSetting};
 
 use super::crawl::RESPONSE_UNAVAILABLE;
 use super::frontier::{
@@ -120,10 +132,287 @@ pub struct CrawlRunReport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub revisits_at_min: Option<Vec<String>>,
+    /// Freshness metrics of a Continuous crawl: revisits overdue, lag,
+    /// revisit outcome counts and trusted `<lastmod>` hosts, overall and
+    /// per domain (ADR 0139). Absent on a batch crawl.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub freshness: Option<FreshnessReport>,
     /// What every Run's report holds.
     #[serde(flatten)]
     pub report: RunReport,
 }
+
+/// Freshness metrics of a Continuous crawl (ADR 0139): revisits overdue,
+/// median and largest lag across overdue revisits, counts of `unchanged`,
+/// `gone` and changed revisits, and trusted `<lastmod>` hosts, overall
+/// and per domain.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct FreshnessReport {
+    /// How many scheduled revisits are currently overdue.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub overdue: u64,
+    /// Median lag across overdue revisits; absent when none are overdue.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::milliseconds::nullable"
+    )]
+    #[schemars(with = "Option<Milliseconds>", extend("arrived_in" = "0.1"))]
+    pub median_lag: Option<Duration>,
+    /// Largest lag across overdue revisits; absent when none are overdue.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::milliseconds::nullable"
+    )]
+    #[schemars(with = "Option<Milliseconds>", extend("arrived_in" = "0.1"))]
+    pub largest_lag: Option<Duration>,
+    /// How many revisits ended `unchanged`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub unchanged: u64,
+    /// How many URLs ended `gone`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub gone: u64,
+    /// How many revisits observed a change (excluding first visits).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub changed: u64,
+    /// Hosts whose sitemap `<lastmod>` claims are currently trusted, sorted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub trusted_lastmod_hosts: Vec<String>,
+    /// The same Freshness metrics broken down per domain, sorted by domain.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub domains: Vec<DomainFreshness>,
+}
+
+/// Freshness metrics for one domain in a Continuous crawl (ADR 0139).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DomainFreshness {
+    /// The domain key.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub domain: String,
+    /// How many scheduled revisits on this domain are currently overdue.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub overdue: u64,
+    /// Median lag across overdue revisits on this domain; absent when none are overdue.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::milliseconds::nullable"
+    )]
+    #[schemars(with = "Option<Milliseconds>", extend("arrived_in" = "0.1"))]
+    pub median_lag: Option<Duration>,
+    /// Largest lag across overdue revisits on this domain; absent when none are overdue.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::milliseconds::nullable"
+    )]
+    #[schemars(with = "Option<Milliseconds>", extend("arrived_in" = "0.1"))]
+    pub largest_lag: Option<Duration>,
+    /// How many revisits on this domain ended `unchanged`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub unchanged: u64,
+    /// How many URLs on this domain ended `gone`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub gone: u64,
+    /// How many revisits on this domain observed a change (excluding first visits).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub changed: u64,
+    /// Hosts in this domain whose sitemap `<lastmod>` claims are currently trusted, sorted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub trusted_lastmod_hosts: Vec<String>,
+}
+
+// ADR 0139: `RunReportSoFar` carries the same parts as `RunReport` without
+// Verdict, Completeness, or `ended_at`, so `RunReport`'s fields stay required.
+// jscpd:ignore-start
+/// What `run.report_so_far` answers for a Continuous crawl while it runs
+/// (ADR 0139): built from the same parts as the Run report, with no Verdict
+/// and no Completeness.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RunReportSoFar {
+    /// The Run's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// Where it stands in its lifecycle (`running` while live).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lifecycle: Lifecycle,
+    /// Why it stopped, if it already ended stopped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub stop_reason: Option<StopReason>,
+    /// When it started.
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub started_at: SystemTime,
+    /// What it has used so far, as the Usage ledger charged it, with the
+    /// Limits that apply to it (ADR 0101).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub usage: RunUsage,
+    /// Every setting that weakened a safeguard for it (ADR 0028).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub weakened: Vec<WeakenedSetting>,
+    /// What it did with its Plan file (ADR 0091).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub plan: Option<PlanReport>,
+    /// The version of the Operator policy it ran under, when one applied
+    /// (ADR 0031).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub policy_version: Option<String>,
+    /// Each effective value it runs with, when recorded (ADR 0028).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub settings: Option<Vec<ExplainedSetting>>,
+    /// Each Plugin that ran (ADRs 0016 and 0033).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub plugins: Option<Vec<PluginRun>>,
+    /// What the areas warn of so far, each with a code and a message.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub warnings: Vec<RunWarning>,
+    /// What it did with the Response recording its start named (ADR 0105).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub recording: Option<RecordingReport>,
+    /// The Clean-up rules version and publication date the Run holds to, and
+    /// any switches adopted under `clean_up.follow_latest` (ADRs 0047 and
+    /// 0139).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub clean_up_rules: Option<CleanUpRulesReport>,
+    /// The last Checkpoint written of it in this engine, when one was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub checkpoint: Option<Checkpoint>,
+    /// Why the Run did nothing, if applicable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub nothing_done: Option<NothingDone>,
+    /// Each Effect left uncertain so far (ADR 0106).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub uncertain_effects: Option<Vec<UncertainEffect>>,
+    /// The error that ended it, if it already ended failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub error: Option<EndingError>,
+    /// How its requests ended so far.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub requests: Option<RequestCounts>,
+    /// Its Records so far, per Dataset (ADR 0103).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub records: Option<Vec<DatasetRecords>>,
+    /// Each Sink that applies to it (ADRs 0026 and 0103).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub sinks: Option<Vec<SinkReport>>,
+    /// Its Frontier's learned URL rules so far (ADR 0005).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub learned_rules: Option<Vec<LearnedRule>>,
+    /// Each sitemap seed's sitemaps so far.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub sitemaps: Option<Vec<SitemapReport>>,
+    /// Each syndication source's reads, failures and entry counts so far (ADR 0139).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub sources: Option<Vec<SourceReport>>,
+    /// URLs changing faster than their Revisit policy's `min` interval allows (ADR 0139).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub revisits_at_min: Option<Vec<String>>,
+    /// Freshness metrics overall and per domain (ADR 0139).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub freshness: Option<FreshnessReport>,
+}
+// jscpd:ignore-end
+
+impl RunReportSoFar {
+    /// Projects a [`CrawlRunReport`] assembled from a Continuous crawl's
+    /// state into a [`RunReportSoFar`], dropping Verdict, Completeness and
+    /// `ended_at`.
+    #[must_use]
+    pub fn from_crawl_report(crawl: CrawlRunReport) -> Self {
+        let CrawlRunReport {
+            requests,
+            records,
+            sinks,
+            learned_rules,
+            sitemaps,
+            sources,
+            revisits_at_min,
+            freshness,
+            report,
+        } = crawl;
+        Self {
+            run_id: report.run_id,
+            lifecycle: report.lifecycle,
+            stop_reason: report.stop_reason,
+            started_at: report.started_at,
+            usage: report.usage,
+            weakened: report.weakened,
+            plan: report.plan,
+            policy_version: report.policy_version,
+            settings: report.settings,
+            plugins: report.plugins,
+            warnings: report.warnings,
+            recording: report.recording,
+            clean_up_rules: report.clean_up_rules,
+            checkpoint: report.checkpoint,
+            nothing_done: report.nothing_done,
+            uncertain_effects: report.uncertain_effects,
+            error: report.error,
+            requests,
+            records,
+            sinks,
+            learned_rules,
+            sitemaps,
+            sources,
+            revisits_at_min,
+            freshness,
+        }
+    }
+}
+
+/// `run.report_so_far` (ADR 0139).
+pub const RUN_REPORT_SO_FAR: Operation = Operation {
+    name: "run.report_so_far",
+    description: "Reads a Continuous crawl's report while it runs: its Lifecycle, Usage, Learned rules, Sinks, warnings and Freshness, built from the same parts as the Run report, with no Verdict and no Completeness. A Run another engine works is read through that engine, and one no engine works from its committed state, never taking its writer lock. On a Run that is not a Continuous crawl, fails with `run_not_continuous`; on a Run ID the Run index does not list, fails with `run_not_found`.",
+    class: OperationClass::Read,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<RunParams>,
+    result: schema_of::<RunReportSoFar>,
+    events: &[],
+    cancellable: true,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `run_not_continuous` (ADR 0139).
+pub const RUN_NOT_CONTINUOUS: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "run_not_continuous",
+    description: "The Run is not a Continuous crawl, so `run.report_so_far` does not apply to it; call `run.report` once it ends. The details name the Run.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
 
 #[expect(
     clippy::trivially_copy_pass_by_ref,
@@ -419,10 +708,10 @@ pub struct SourceFailure {
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[],
+    operations: &[RUN_REPORT_SO_FAR],
     events: &[],
     handler_requests: &[],
-    error_codes: &[],
+    error_codes: &[RUN_NOT_CONTINUOUS],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[],

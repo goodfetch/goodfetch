@@ -16,6 +16,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use goodfetch_engine::retry_after::{self, RetryAfter};
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_protocol::foxhound::continuous::RevisitPolicy;
+use goodfetch_protocol::foxhound::report::{DomainFreshness, FreshnessReport};
 use rusqlite::{Connection, OptionalExtension as _, params};
 
 /// Default bounded window of due revisit rows read per domain queue fill
@@ -618,6 +619,111 @@ pub fn has_any(connection: &Connection) -> rusqlite::Result<bool> {
     connection
         .prepare_cached("SELECT EXISTS (SELECT 1 FROM revisits LIMIT 1)")
         .and_then(|mut cached| cached.query_row([], |row| row.get(0)))
+}
+
+/// Computes the Freshness block of a Continuous crawl's report from committed
+/// state at wall-clock `now_ms`, overall and per domain (ADR 0139).
+///
+/// # Errors
+///
+/// Returns SQLite errors from reading `revisits` and `work_items`.
+pub fn freshness(connection: &Connection, now_ms: u64) -> rusqlite::Result<FreshnessReport> {
+    #[derive(Default)]
+    struct Accum {
+        overdue: u64,
+        lags: Vec<u64>,
+        unchanged: u64,
+        gone: u64,
+        changed: u64,
+    }
+
+    let mut overall = Accum::default();
+    let mut by_domain: BTreeMap<String, Accum> = BTreeMap::new();
+
+    let mut statement = connection.prepare_cached(
+        "SELECT r.domain_key, r.next_visit_at, r.visits, r.changes, w.status
+         FROM revisits r
+         LEFT JOIN work_items w ON w.id = r.work_item",
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<i64>>(1)?.map(i64_to_u64),
+            i64_to_u64(row.get::<_, i64>(2)?),
+            i64_to_u64(row.get::<_, i64>(3)?),
+            row.get::<_, Option<String>>(4)?,
+        ))
+    })?;
+    for row in rows {
+        let (domain_key, next_visit_at, visits, changes, status) = row?;
+        let domain = by_domain.entry(domain_key).or_default();
+        if let Some(due) = next_visit_at
+            && due <= now_ms
+        {
+            let lag = now_ms - due;
+            overall.overdue += 1;
+            overall.lags.push(lag);
+            domain.overdue += 1;
+            domain.lags.push(lag);
+        }
+        let revisit_unchanged = visits.saturating_sub(changes);
+        let revisit_changes = changes.saturating_sub(1);
+        overall.unchanged = overall.unchanged.saturating_add(revisit_unchanged);
+        overall.changed = overall.changed.saturating_add(revisit_changes);
+        domain.unchanged = domain.unchanged.saturating_add(revisit_unchanged);
+        domain.changed = domain.changed.saturating_add(revisit_changes);
+        if status.as_deref() == Some("gone") {
+            overall.gone += 1;
+            domain.gone += 1;
+        }
+    }
+
+    let (median_lag, largest_lag) = lag_stats(&mut overall.lags);
+    let domains = by_domain
+        .into_iter()
+        .map(|(domain, mut accum)| {
+            let (median_lag, largest_lag) = lag_stats(&mut accum.lags);
+            DomainFreshness {
+                domain,
+                overdue: accum.overdue,
+                median_lag,
+                largest_lag,
+                unchanged: accum.unchanged,
+                gone: accum.gone,
+                changed: accum.changed,
+                trusted_lastmod_hosts: Vec::new(),
+            }
+        })
+        .collect();
+
+    Ok(FreshnessReport {
+        overdue: overall.overdue,
+        median_lag,
+        largest_lag,
+        unchanged: overall.unchanged,
+        gone: overall.gone,
+        changed: overall.changed,
+        trusted_lastmod_hosts: Vec::new(),
+        domains,
+    })
+}
+
+fn lag_stats(lags: &mut [u64]) -> (Option<Duration>, Option<Duration>) {
+    if lags.is_empty() {
+        return (None, None);
+    }
+    lags.sort_unstable();
+    let len = lags.len();
+    let median_ms = if len % 2 == 1 {
+        lags[len / 2]
+    } else {
+        lags[len / 2 - 1].midpoint(lags[len / 2])
+    };
+    let largest_ms = lags[len - 1];
+    (
+        Some(Duration::from_millis(median_ms)),
+        Some(Duration::from_millis(largest_ms)),
+    )
 }
 
 fn decode_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RevisitRow> {

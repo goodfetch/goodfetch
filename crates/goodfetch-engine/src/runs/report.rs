@@ -105,6 +105,97 @@ pub(super) fn assemble(
     Ok(report)
 }
 
+/// Reads a snapshot of a Run's report from its committed state without ending
+/// it, or returns its stored report if it already ended (ADR 0139).
+///
+/// # Errors
+///
+/// When the Run's state cannot be read or decoded.
+pub(super) fn snapshot(
+    connection: &Connection,
+    run_id: RunId,
+    now: SystemTime,
+    checkpoint: Option<Checkpoint>,
+    limits: Vec<AppliedLimit>,
+    parts: &[Arc<dyn ReportPart>],
+    masks: &Masks,
+) -> rusqlite::Result<Option<RunReport>> {
+    let row = connection
+        .prepare_cached(
+            "SELECT lifecycle, stop_reason, started_at, policy_version, weakened, report FROM run",
+        )?
+        .query_row([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, crate::StoredTime>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })
+        .optional()?;
+    let Some((
+        lifecycle_raw,
+        stop_reason_raw,
+        crate::StoredTime(started_at),
+        policy_version,
+        weakened_raw,
+        stored_report,
+    )) = row
+    else {
+        return Ok(None);
+    };
+    if let Some(stored) = stored_report {
+        let report: RunReport = serde_json::from_str(&stored).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                5,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })?;
+        return Ok(Some(report));
+    }
+    let lifecycle: Lifecycle =
+        serde_json::from_str(&format!("\"{lifecycle_raw}\"")).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })?;
+    let stop_reason: Option<StopReason> = stop_reason_raw
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()
+        .map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                1,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })?;
+    let weakened: Vec<WeakenedSetting> = serde_json::from_str(&weakened_raw).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, Box::new(error))
+    })?;
+    let facts = EndFacts {
+        run_id,
+        lifecycle,
+        stop_reason,
+        started_at,
+        ended_at: now,
+        policy_version,
+        weakened,
+        settings: None,
+        checkpoint,
+        limits,
+        error: None,
+        finished: Vec::new(),
+    };
+    let report = assemble(connection, &facts, parts)?;
+    Ok(Some(masked(report, masks)))
+}
+
 impl EndFacts {
     /// The report its facts alone give, with nothing read from the Run's
     /// state: what is answered when its end could not be written.

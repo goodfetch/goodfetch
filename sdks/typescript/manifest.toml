@@ -606,6 +606,14 @@ form = "round_trip"
 [[member]]
 package = "@goodfetch/foxhound"
 receiver = "CrawlRun"
+member = "reportSoFar"
+entry = "run.report_so_far"
+words = ["report", "so", "far"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
 member = "progress"
 entry = "run.progress"
 words = ["progress"]

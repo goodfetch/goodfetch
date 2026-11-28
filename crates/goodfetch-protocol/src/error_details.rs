@@ -82,6 +82,7 @@ impl ErrorDetails for crate::run::RunDetails {
         ErrorCode::RUN_LIVE,
         ErrorCode::RUN_STATE_UNAVAILABLE,
         ErrorCode::RUN_ENDED,
+        foxhound::RUN_NOT_CONTINUOUS,
     ];
 }
 

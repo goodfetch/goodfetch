@@ -865,7 +865,7 @@
             "additionalProperties": false,
             "properties": {
               "on_error": {
-                "description": "How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (StormCrawler's `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.",
+                "description": "How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (`StormCrawler`'s `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.",
                 "minimum": 0,
                 "type": "integer"
               }
@@ -4095,7 +4095,7 @@
                 "type": "integer"
               },
               "on_error": {
-                "description": "How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (StormCrawler's `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.",
+                "description": "How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (`StormCrawler`'s `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.",
                 "minimum": 0,
                 "type": "integer"
               },
@@ -9640,7 +9640,7 @@
                 "type": "integer"
               },
               "on_error": {
-                "description": "How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (StormCrawler's `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.",
+                "description": "How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (`StormCrawler`'s `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.",
                 "minimum": 0,
                 "type": "integer"
               },

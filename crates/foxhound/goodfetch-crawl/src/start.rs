@@ -138,6 +138,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
         .with_handler(read_failed_requests)
         .with_handler(retry::handler(retrying, redeclared_retry))
         .with_handler(crate::dataset_list::handler())
+        .with_handler(crate::report::handler())
         .with_run_state_tables(work_items::TABLES)
         .with_run_state_tables(labels::TABLES)
         .with_run_state_tables(code_free::TABLES)

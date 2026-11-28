@@ -18,7 +18,7 @@ use goodfetch_protocol::foxhound::export::ExportFormat;
 use goodfetch_protocol::foxhound::frontier::{Enqueued, EnqueuedLinks, HttpMethod};
 use goodfetch_protocol::foxhound::progress::CrawlRunProgress;
 use goodfetch_protocol::foxhound::rejections::RejectedRecord;
-use goodfetch_protocol::foxhound::report::CrawlRunReport;
+use goodfetch_protocol::foxhound::report::{CrawlRunReport, RUN_REPORT_SO_FAR, RunReportSoFar};
 use goodfetch_protocol::run::{RunFinishParams, RunId, RunParams, RunStopParams, Tags};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -856,6 +856,29 @@ impl CrawlRun {
     /// Once sent, as [`crate::CrawlRun::report`].
     pub fn report(&self) -> Call<Answer<CrawlRunReport>, RunParams> {
         self.run.report().typed()
+    }
+
+    /// Reads a Continuous crawl's report while it runs: its Lifecycle, Usage,
+    /// Learned rules, Sinks, warnings and Freshness, built from the same parts
+    /// as the Run report, with no Verdict and no Completeness. A Run another
+    /// engine works is read through that engine, and one no engine works from
+    /// its committed state, never taking its writer lock. On a Run that is not
+    /// a Continuous crawl, fails with `run_not_continuous`; on a Run ID the Run
+    /// index does not list, fails with `run_not_found`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, fails with `run_not_continuous` on any Run that is not a
+    /// Continuous crawl, or `run_not_found` if the Run does not exist.
+    pub fn report_so_far(&self) -> Call<Answer<RunReportSoFar>> {
+        self.connection.call(
+            RUN_REPORT_SO_FAR.name,
+            &RunParams {
+                run_id: self.id().clone(),
+            },
+        )
     }
 
     /// Reads a Run's progress: what it does and why it waits. Without `after`,

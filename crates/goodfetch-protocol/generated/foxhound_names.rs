@@ -2,10 +2,10 @@
 // command lines; never edit by hand.
 
 /// The commands only Foxhound carries.
-pub const COMMANDS: &[&str] = &["crawl.start", "dataset.erase", "dataset.list", "dataset.page", "dataset.query", "dataset.search", "record.search", "run.add-seed", "run.add-seeds", "run.export", "run.failed-requests", "run.outcomes", "run.records", "run.rejected-records", "run.retry-failed", "run.seeds", "sample.crawl"];
+pub const COMMANDS: &[&str] = &["crawl.start", "dataset.erase", "dataset.list", "dataset.page", "dataset.query", "dataset.search", "record.search", "run.add-seed", "run.add-seeds", "run.export", "run.failed-requests", "run.outcomes", "run.records", "run.rejected-records", "run.report-so-far", "run.retry-failed", "run.seeds", "sample.crawl"];
 
 /// The error codes only Foxhound carries.
-pub const ERROR_CODES: &[&str] = &["attempt_ended", "browser_required", "client_gone", "crawl_not_importable", "dataset_duplicate", "dataset_key_invalid", "dataset_unknown", "effect_staging_refused", "handler_failed", "handler_lost", "hook_duplicate", "hook_ineffective", "hook_undeclared", "hook_unknown", "label_duplicate", "label_unhandled", "label_unknown", "lease_lost", "payload_invalid", "payload_schema_changed", "query_failed", "query_invalid", "query_memory_exceeded", "record_invalid", "response_not_document", "response_not_ok", "response_unavailable", "retry_requested", "sample_crawl_refused", "sheet_capacity_exceeded", "staging_full"];
+pub const ERROR_CODES: &[&str] = &["attempt_ended", "browser_required", "client_gone", "crawl_not_importable", "dataset_duplicate", "dataset_key_invalid", "dataset_unknown", "effect_staging_refused", "handler_failed", "handler_lost", "hook_duplicate", "hook_ineffective", "hook_undeclared", "hook_unknown", "label_duplicate", "label_unhandled", "label_unknown", "lease_lost", "payload_invalid", "payload_schema_changed", "query_failed", "query_invalid", "query_memory_exceeded", "record_invalid", "response_not_document", "response_not_ok", "response_unavailable", "retry_requested", "run_not_continuous", "sample_crawl_refused", "sheet_capacity_exceeded", "staging_full"];
 
 /// The error groups only Foxhound carries.
 pub const ERROR_GROUPS: &[&str] = &[];
@@ -29,7 +29,7 @@ pub const KIND_PARTS: &[&str] = &["run.progress"];
 pub const METRICS: &[&str] = &["goodfetch.sample.crawled_pages", "goodfetch.work_item.leased", "goodfetch.work_item.queued", "goodfetch.work_item.retried"];
 
 /// The operations only Foxhound carries.
-pub const OPERATIONS: &[&str] = &["crawl.serve", "crawl.start", "crawl_request.enqueue", "crawl_request.enqueue_links", "crawl_request.links", "crawl_request.push", "dataset.erase", "dataset.list", "dataset.page", "dataset.query", "dataset.search", "export.save_as", "export.stream", "record.search", "run.add_seed", "run.add_seeds", "run.export", "run.failed_requests", "run.outcomes", "run.records", "run.rejected_records", "run.retry_failed", "run.seeds", "sample.crawl"];
+pub const OPERATIONS: &[&str] = &["crawl.serve", "crawl.start", "crawl_request.enqueue", "crawl_request.enqueue_links", "crawl_request.links", "crawl_request.push", "dataset.erase", "dataset.list", "dataset.page", "dataset.query", "dataset.search", "export.save_as", "export.stream", "record.search", "run.add_seed", "run.add_seeds", "run.export", "run.failed_requests", "run.outcomes", "run.records", "run.rejected_records", "run.report_so_far", "run.retry_failed", "run.seeds", "sample.crawl"];
 
 /// The plugin kinds only Foxhound carries.
 pub const PLUGIN_KINDS: &[&str] = &["sample_page_filter"];

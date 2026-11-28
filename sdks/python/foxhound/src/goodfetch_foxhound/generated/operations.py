@@ -12,7 +12,7 @@ from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 from goodfetch_collie_client.markers import warn_deprecated_settings, warn_experimental
 
 from goodfetch_collie_client.generated.models import RunParams
-from .models import CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, CrawlStarted, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult
+from .models import CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, CrawlStarted, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunReportSoFar, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult
 from .settings import DEPRECATED_SETTINGS
 
 
@@ -184,6 +184,14 @@ class AsyncFoxhoundOperations:
         """
         warn_experimental("run.rejected_records")
         return result_of(RejectedRecords, await self._caller.call("run.rejected_records", params))
+
+    async def run_report_so_far(self, params: RunParams) -> RunReportSoFar:
+        """Reads a Continuous crawl's report while it runs: its Lifecycle, Usage, Learned rules, Sinks, warnings and Freshness, built from the same parts as the Run report, with no Verdict and no Completeness. A Run another engine works is read through that engine, and one no engine works from its committed state, never taking its writer lock. On a Run that is not a Continuous crawl, fails with `run_not_continuous`; on a Run ID the Run index does not list, fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("run.report_so_far")
+        return result_of(RunReportSoFar, await self._caller.call("run.report_so_far", params))
 
     async def run_retry_failed(self, params: RunRetryFailedParams) -> RetriedFailed:
         """Re-admits, in the same Run and its Datasets, every request of a crawl whose latest outcome is `failed`, and with `blocked` also `blocked`: exactly those `run.failed_requests` lists with the same option. Each keeps its ID, Label, Payload and depth; its attempts count on, with a fresh `crawl.retry.max`. A skip is a decision and is never re-admitted. It answers how many it re-admitted, 0 when there was nothing to retry. On a crawl this engine runs, the requests join its work at once, unless the crawl is already ending its Run: the call then waits for that end and re-admits them as on an ended Run. On an ended Run with requests to retry, the Run returns to `running` under `settings`, as a resume does, its Verdict and Completeness given anew when it ends, and the calling Connection serves its handlers. A Run with no writer that has not ended fails with `run_interrupted`: resume it first. A request to retry whose Label the crawl no longer declares, which a resume may drop, fails the call with `label_unknown`, naming that Label and those declared, and nothing is re-admitted: on an ended Run, against the Labels its latest start declared, before the Run returns to `running`. It is not sent again after a lost Connection, which fails it with `connection_lost`: `run.failed_requests` then lists the requests still to retry.
@@ -376,6 +384,14 @@ class FoxhoundOperations:
         warn_experimental("run.rejected_records")
         return result_of(RejectedRecords, self._caller.call("run.rejected_records", params))
 
+    def run_report_so_far(self, params: RunParams) -> RunReportSoFar:
+        """Reads a Continuous crawl's report while it runs: its Lifecycle, Usage, Learned rules, Sinks, warnings and Freshness, built from the same parts as the Run report, with no Verdict and no Completeness. A Run another engine works is read through that engine, and one no engine works from its committed state, never taking its writer lock. On a Run that is not a Continuous crawl, fails with `run_not_continuous`; on a Run ID the Run index does not list, fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("run.report_so_far")
+        return result_of(RunReportSoFar, self._caller.call("run.report_so_far", params))
+
     def run_retry_failed(self, params: RunRetryFailedParams) -> RetriedFailed:
         """Re-admits, in the same Run and its Datasets, every request of a crawl whose latest outcome is `failed`, and with `blocked` also `blocked`: exactly those `run.failed_requests` lists with the same option. Each keeps its ID, Label, Payload and depth; its attempts count on, with a fresh `crawl.retry.max`. A skip is a decision and is never re-admitted. It answers how many it re-admitted, 0 when there was nothing to retry. On a crawl this engine runs, the requests join its work at once, unless the crawl is already ending its Run: the call then waits for that end and re-admits them as on an ended Run. On an ended Run with requests to retry, the Run returns to `running` under `settings`, as a resume does, its Verdict and Completeness given anew when it ends, and the calling Connection serves its handlers. A Run with no writer that has not ended fails with `run_interrupted`: resume it first. A request to retry whose Label the crawl no longer declares, which a resume may drop, fails the call with `label_unknown`, naming that Label and those declared, and nothing is re-admitted: on an ended Run, against the Labels its latest start declared, before the Run returns to `running`. It is not sent again after a lost Connection, which fails it with `connection_lost`: `run.failed_requests` then lists the requests still to retry.
 
@@ -418,6 +434,7 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "run.outcomes",
     "run.records",
     "run.rejected_records",
+    "run.report_so_far",
     "run.retry_failed",
     "run.seeds",
 })
@@ -448,6 +465,7 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "run.outcomes": "read",
     "run.records": "read",
     "run.rejected_records": "read",
+    "run.report_so_far": "read",
     "run.retry_failed": "effect",
     "run.seeds": "read",
     "sample.crawl": "effect",

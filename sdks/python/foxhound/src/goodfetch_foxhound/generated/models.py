@@ -8,6 +8,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
+from goodfetch_collie_client.duration import Duration
 from goodfetch_collie_client.generated.models import (
     AllowanceSource,
     AxisReason,
@@ -507,6 +508,31 @@ class DeclaredExtract(BaseModel):
     """Its named fields, by name, each a value field, a list or rows."""
 
 
+class DomainFreshness(BaseModel):
+    """Freshness metrics for one domain in a Continuous crawl (ADR 0139)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    changed: Annotated[int, Field(ge=0)]
+    """How many revisits on this domain observed a change (excluding first visits)."""
+    domain: str
+    """The domain key."""
+    gone: Annotated[int, Field(ge=0)]
+    """How many URLs on this domain ended `gone`."""
+    largest_lag: Duration | None = None
+    """Largest lag across overdue revisits on this domain; absent when none are overdue."""
+    median_lag: Duration | None = None
+    """Median lag across overdue revisits on this domain; absent when none are overdue."""
+    overdue: Annotated[int, Field(ge=0)]
+    """How many scheduled revisits on this domain are currently overdue."""
+    trusted_lastmod_hosts: list[str] | None = None
+    """Hosts in this domain whose sitemap `<lastmod>` claims are currently trusted, sorted."""
+    unchanged: Annotated[int, Field(ge=0)]
+    """How many revisits on this domain ended `unchanged`."""
+
+
 class EncodingSource(StrEnum):
     """
     Where a document's encoding came from, in the order the tiers look
@@ -928,6 +954,36 @@ class FoundRecord(BaseModel):
     """The run that returned it."""
     value: Any
     """The Record, as JSON."""
+
+
+class FreshnessReport(BaseModel):
+    """
+    Freshness metrics of a Continuous crawl (ADR 0139): revisits overdue,
+    median and largest lag across overdue revisits, counts of `unchanged`,
+    `gone` and changed revisits, and trusted `<lastmod>` hosts, overall
+    and per domain.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    changed: Annotated[int, Field(ge=0)]
+    """How many revisits observed a change (excluding first visits)."""
+    domains: list[DomainFreshness] | None = None
+    """The same Freshness metrics broken down per domain, sorted by domain."""
+    gone: Annotated[int, Field(ge=0)]
+    """How many URLs ended `gone`."""
+    largest_lag: Duration | None = None
+    """Largest lag across overdue revisits; absent when none are overdue."""
+    median_lag: Duration | None = None
+    """Median lag across overdue revisits; absent when none are overdue."""
+    overdue: Annotated[int, Field(ge=0)]
+    """How many scheduled revisits are currently overdue."""
+    trusted_lastmod_hosts: list[str] | None = None
+    """Hosts whose sitemap `<lastmod>` claims are currently trusted, sorted."""
+    unchanged: Annotated[int, Field(ge=0)]
+    """How many revisits ended `unchanged`."""
 
 
 class GuaranteeClass(StrEnum):
@@ -3299,6 +3355,12 @@ class CrawlRunReport(RunReport):
     `failed` Run, or a write at its end that failed, such as its Plan
     file's (ADR 0116).
     """
+    freshness: FreshnessReport | None = None
+    """
+    Freshness metrics of a Continuous crawl: revisits overdue, lag,
+    revisit outcome counts and trusted `<lastmod>` hosts, overall and
+    per domain (ADR 0139). Absent on a batch crawl.
+    """
     learned_rules: list[LearnedRule] | None = None
     """Its Frontier's learned URL rules (ADR 0005)."""
     lifecycle: Lifecycle
@@ -3552,6 +3614,79 @@ class RunAddSeedParams(BaseModel):
     """The crawl's Run."""
     seed: Seed
     """The seed."""
+
+
+class RunReportSoFar(BaseModel):
+    """
+    What `run.report_so_far` answers for a Continuous crawl while it runs
+    (ADR 0139): built from the same parts as the Run report, with no Verdict
+    and no Completeness.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    checkpoint: Checkpoint | None = None
+    """The last Checkpoint written of it in this engine, when one was."""
+    clean_up_rules: CleanUpRulesReport | None = None
+    """
+    The Clean-up rules version and publication date the Run holds to, and
+    any switches adopted under `clean_up.follow_latest` (ADRs 0047 and
+    0139).
+    """
+    error: EndingError | None = None
+    """The error that ended it, if it already ended failed."""
+    freshness: FreshnessReport | None = None
+    """Freshness metrics overall and per domain (ADR 0139)."""
+    learned_rules: list[LearnedRule] | None = None
+    """Its Frontier's learned URL rules so far (ADR 0005)."""
+    lifecycle: Lifecycle
+    """Where it stands in its lifecycle (`running` while live)."""
+    nothing_done: NothingDone | None = None
+    """Why the Run did nothing, if applicable."""
+    plan: PlanReport | None = None
+    """What it did with its Plan file (ADR 0091)."""
+    plugins: list[PluginRun] | None = None
+    """Each Plugin that ran (ADRs 0016 and 0033)."""
+    policy_version: str | None = None
+    """
+    The version of the Operator policy it ran under, when one applied
+    (ADR 0031).
+    """
+    recording: RecordingReport | None = None
+    """What it did with the Response recording its start named (ADR 0105)."""
+    records: list[DatasetRecords] | None = None
+    """Its Records so far, per Dataset (ADR 0103)."""
+    requests: RequestCounts | None = None
+    """How its requests ended so far."""
+    revisits_at_min: list[str] | None = None
+    """URLs changing faster than their Revisit policy's `min` interval allows (ADR 0139)."""
+    run_id: RunId
+    """The Run's ID."""
+    settings: list[ExplainedSetting] | None = None
+    """Each effective value it runs with, when recorded (ADR 0028)."""
+    sinks: list[SinkReport] | None = None
+    """Each Sink that applies to it (ADRs 0026 and 0103)."""
+    sitemaps: list[SitemapReport] | None = None
+    """Each sitemap seed's sitemaps so far."""
+    sources: list[SourceReport] | None = None
+    """Each syndication source's reads, failures and entry counts so far (ADR 0139)."""
+    started_at: PointInTime
+    """When it started."""
+    stop_reason: StopReason | None = None
+    """Why it stopped, if it already ended stopped."""
+    uncertain_effects: list[UncertainEffect] | None = None
+    """Each Effect left uncertain so far (ADR 0106)."""
+    usage: RunUsage
+    """
+    What it has used so far, as the Usage ledger charged it, with the
+    Limits that apply to it (ADR 0101).
+    """
+    warnings: list[RunWarning] | None = None
+    """What the areas warn of so far, each with a code and a message."""
+    weakened: list[WeakenedSetting] | None = None
+    """Every setting that weakened a safeguard for it (ADR 0028)."""
 
 
 class DatasetRecord(BaseModel):

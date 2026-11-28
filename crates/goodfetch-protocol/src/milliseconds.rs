@@ -52,5 +52,39 @@ pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Duratio
     u64::deserialize(deserializer).map(Duration::from_millis)
 }
 
+/// A nullable duration in milliseconds: `null` is `None`. A field that may be
+/// left out takes `#[serde(default)]` too.
+pub mod nullable {
+    use std::time::Duration;
+
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    /// Writes `duration` as whole milliseconds, or `null`.
+    ///
+    /// # Errors
+    ///
+    /// As [`super::serialize`].
+    pub fn serialize<S: Serializer>(
+        duration: &Option<Duration>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        match duration {
+            Some(duration) => super::serialize(duration, serializer),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    /// Reads a duration in milliseconds, or `null` as `None`.
+    ///
+    /// # Errors
+    ///
+    /// As [`super::deserialize`].
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<Duration>, D::Error> {
+        Option::<u64>::deserialize(deserializer).map(|ms| ms.map(Duration::from_millis))
+    }
+}
+
 #[cfg(test)]
 mod tests;

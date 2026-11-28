@@ -140,6 +140,11 @@ pub const RESPONSE_UNAVAILABLE: ErrorCode = ErrorCode::from_static("response_una
 /// The handler asked for its attempt to run again, with `ctx.retry(message)`, whose message this is; the attempt committed nothing, and its request is retried under `crawl.retry.max`. When the retries run out, the request ends `failed` with this error.
 pub const RETRY_REQUESTED: ErrorCode = ErrorCode::from_static("retry_requested");
 
+/// `run_not_continuous`, in the `program` group, not retryable.
+///
+/// The Run is not a Continuous crawl, so `run.report_so_far` does not apply to it; call `run.report` once it ends. The details name the Run.
+pub const RUN_NOT_CONTINUOUS: ErrorCode = ErrorCode::from_static("run_not_continuous");
+
 /// `sample_crawl_refused`, in the `refused` group, retryable.
 ///
 /// The sample crawl refused its pages.
@@ -156,4 +161,4 @@ pub const SHEET_CAPACITY_EXCEEDED: ErrorCode = ErrorCode::from_static("sheet_cap
 pub const STAGING_FULL: ErrorCode = ErrorCode::from_static("staging_full");
 
 /// Every Error code only Foxhound's catalog carries, in the catalog's order.
-pub const ALL: &[ErrorCode] = &[ATTEMPT_ENDED, BROWSER_REQUIRED, CLIENT_GONE, CRAWL_NOT_IMPORTABLE, DATASET_DUPLICATE, DATASET_KEY_INVALID, DATASET_UNKNOWN, EFFECT_STAGING_REFUSED, HANDLER_FAILED, HANDLER_LOST, HOOK_DUPLICATE, HOOK_INEFFECTIVE, HOOK_UNDECLARED, HOOK_UNKNOWN, LABEL_DUPLICATE, LABEL_UNHANDLED, LABEL_UNKNOWN, LEASE_LOST, PAYLOAD_INVALID, PAYLOAD_SCHEMA_CHANGED, QUERY_FAILED, QUERY_INVALID, QUERY_MEMORY_EXCEEDED, RECORD_INVALID, RESPONSE_NOT_DOCUMENT, RESPONSE_NOT_OK, RESPONSE_UNAVAILABLE, RETRY_REQUESTED, SAMPLE_CRAWL_REFUSED, SHEET_CAPACITY_EXCEEDED, STAGING_FULL];
+pub const ALL: &[ErrorCode] = &[ATTEMPT_ENDED, BROWSER_REQUIRED, CLIENT_GONE, CRAWL_NOT_IMPORTABLE, DATASET_DUPLICATE, DATASET_KEY_INVALID, DATASET_UNKNOWN, EFFECT_STAGING_REFUSED, HANDLER_FAILED, HANDLER_LOST, HOOK_DUPLICATE, HOOK_INEFFECTIVE, HOOK_UNDECLARED, HOOK_UNKNOWN, LABEL_DUPLICATE, LABEL_UNHANDLED, LABEL_UNKNOWN, LEASE_LOST, PAYLOAD_INVALID, PAYLOAD_SCHEMA_CHANGED, QUERY_FAILED, QUERY_INVALID, QUERY_MEMORY_EXCEEDED, RECORD_INVALID, RESPONSE_NOT_DOCUMENT, RESPONSE_NOT_OK, RESPONSE_UNAVAILABLE, RETRY_REQUESTED, RUN_NOT_CONTINUOUS, SAMPLE_CRAWL_REFUSED, SHEET_CAPACITY_EXCEEDED, STAGING_FULL];

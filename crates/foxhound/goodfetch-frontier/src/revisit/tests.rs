@@ -678,3 +678,81 @@ fn site_hints_from_headers_parses_each_header_and_respects_switches() {
     );
     assert_eq!(exp_zero.floor_at_ms, None);
 }
+
+#[test]
+fn freshness_aggregates_overdue_lags_outcomes_overall_and_per_domain() {
+    use std::time::Duration;
+    let conn = Connection::open_in_memory().unwrap();
+    for stmt in TABLES.statements {
+        conn.execute_batch(stmt).unwrap();
+    }
+    conn.execute_batch(
+        "CREATE TABLE work_items (id TEXT NOT NULL PRIMARY KEY, status TEXT NOT NULL) STRICT;",
+    )
+    .unwrap();
+
+    let now_ms = 1_700_000_000_000_u64;
+    let insert = |id: &str,
+                  domain: &str,
+                  next_visit_at: Option<u64>,
+                  visits: u64,
+                  changes: u64,
+                  status: &str| {
+        conn.prepare_cached("INSERT INTO work_items (id, status) VALUES (?1, ?2)")
+            .unwrap()
+            .execute(rusqlite::params![id, status])
+            .unwrap();
+        upsert(
+            &conn,
+            &RevisitRow {
+                work_item: id.to_owned(),
+                identity: format!("https://{domain}/{id}"),
+                domain_key: domain.to_owned(),
+                next_visit_at,
+                visits,
+                changes,
+                ..RevisitRow::default()
+            },
+        )
+        .unwrap();
+    };
+
+    // a.example: 2 overdue (lag 1000ms, 3000ms => median 2000ms, max 3000ms),
+    // 1 not overdue, 1 gone.
+    insert("a1", "a.example", Some(now_ms - 1_000), 3, 1, "unchanged"); // 2 unchanged, 0 changed
+    insert("a2", "a.example", Some(now_ms - 3_000), 4, 3, "succeeded"); // 1 unchanged, 2 changed
+    insert("a3", "a.example", Some(now_ms + 5_000), 1, 1, "succeeded"); // 0 unchanged, 0 changed
+    insert("a4", "a.example", None, 2, 1, "gone"); // 1 unchanged, 0 changed, 1 gone
+
+    // b.example: 1 overdue (lag 9000ms => median 9000ms, max 9000ms).
+    insert("b1", "b.example", Some(now_ms - 9_000), 2, 2, "succeeded"); // 0 unchanged, 1 changed
+
+    let report = super::freshness(&conn, now_ms).unwrap();
+    // Overall lags: [1000, 3000, 9000] => median 3000ms, largest 9000ms.
+    assert_eq!(report.overdue, 3);
+    assert_eq!(report.median_lag, Some(Duration::from_millis(3_000)));
+    assert_eq!(report.largest_lag, Some(Duration::from_millis(9_000)));
+    assert_eq!(report.unchanged, 4);
+    assert_eq!(report.changed, 3);
+    assert_eq!(report.gone, 1);
+    assert_eq!(report.trusted_lastmod_hosts, Vec::<String>::new());
+    assert_eq!(report.domains.len(), 2);
+
+    let a = &report.domains[0];
+    assert_eq!(a.domain, "a.example");
+    assert_eq!(a.overdue, 2);
+    assert_eq!(a.median_lag, Some(Duration::from_millis(2_000)));
+    assert_eq!(a.largest_lag, Some(Duration::from_millis(3_000)));
+    assert_eq!(a.unchanged, 4);
+    assert_eq!(a.changed, 2);
+    assert_eq!(a.gone, 1);
+
+    let b = &report.domains[1];
+    assert_eq!(b.domain, "b.example");
+    assert_eq!(b.overdue, 1);
+    assert_eq!(b.median_lag, Some(Duration::from_millis(9_000)));
+    assert_eq!(b.largest_lag, Some(Duration::from_millis(9_000)));
+    assert_eq!(b.unchanged, 0);
+    assert_eq!(b.changed, 1);
+    assert_eq!(b.gone, 0);
+}

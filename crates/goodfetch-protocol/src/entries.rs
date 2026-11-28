@@ -537,6 +537,7 @@ mod tests {
                     "run.failed_requests",
                     "run.retry_failed",
                     "run.rejected_records",
+                    "run.report_so_far",
                     "dataset.query",
                     "dataset.search",
                     "record.search",

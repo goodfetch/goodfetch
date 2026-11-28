@@ -91,6 +91,7 @@ import {
   type RejectedRecords,
   type RunExportParams,
   type RunOutcomesParams,
+  type RunReportSoFar,
   type RunRetryFailedParams,
   type Seed,
   type SeedAttempt,
@@ -785,6 +786,29 @@ export class CrawlRun extends Run {
   ): Promise<CrawlRunReport> {
     // A crawl's Run reads `run.report`'s answer as a crawl's report (`crawlRunHost`).
     return super.report(options);
+  }
+
+  /**
+   * Reads a Continuous crawl's report while it runs: its Lifecycle, Usage,
+   * Learned rules, Sinks, warnings and Freshness, built from the same parts
+   * as the Run report, with no Verdict and no Completeness. A Run another
+   * engine works is read through that engine, and one no engine works from
+   * its committed state, never taking its writer lock. On a Run that is not
+   * a Continuous crawl, fails with `run_not_continuous`; on a Run ID the Run
+   * index does not list, fails with `run_not_found`.
+   *
+   * @experimental
+   */
+  async reportSoFar(
+    options: { readonly signal?: AbortSignal | undefined } = {},
+  ): Promise<RunReportSoFar> {
+    warnEntry(foxhoundOperations, "run.report_so_far");
+    ensureRunOpen(this, "run.report_so_far");
+    return await this.#crawlHost.calls.call(
+      "run.report_so_far",
+      { runId: this.id() },
+      { signal: options.signal },
+    );
   }
 
   /**

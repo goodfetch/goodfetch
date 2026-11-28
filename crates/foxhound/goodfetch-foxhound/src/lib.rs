@@ -87,7 +87,9 @@ pub use goodfetch_protocol::foxhound::outcomes::{
 pub use goodfetch_protocol::foxhound::progress::{CrawlRunProgress, RequestProgress};
 pub use goodfetch_protocol::foxhound::provenance::RecordProvenance;
 pub use goodfetch_protocol::foxhound::rejections::RejectedRecord;
-pub use goodfetch_protocol::foxhound::report::{CrawlRunReport, RequestCounts};
+pub use goodfetch_protocol::foxhound::report::{
+    CrawlRunReport, DomainFreshness, FreshnessReport, RequestCounts, RunReportSoFar,
+};
 pub use goodfetch_protocol::notifications::{
     FullNotification, NotificationData, NotificationEvent, NotificationPayload, ThinNotification,
     WebhookInvalidDetails, WebhookInvalidReason,

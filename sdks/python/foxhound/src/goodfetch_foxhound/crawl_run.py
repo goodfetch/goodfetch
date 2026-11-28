@@ -107,6 +107,7 @@ from goodfetch_foxhound.generated.models import (
     RunFailedRequestsParams,
     RunOutcomesParams,
     RunRejectedRecordsParams,
+    RunReportSoFar,
     RunRetryFailedParams,
     SeedAttempt,
 )
@@ -879,6 +880,25 @@ class AsyncCrawlRun(AsyncRun):
         params = RunParams(run_id=self._host.id)
         return result_of(CrawlRunReport, await self._host.call("run.report", params))
 
+    async def report_so_far(self) -> RunReportSoFar:
+        """Reads a Continuous crawl's report while it runs.
+
+        Reads a Continuous crawl's report while it runs: its Lifecycle, Usage,
+        Learned rules, Sinks, warnings and Freshness, built from the same parts as
+        the Run report, with no Verdict and no Completeness. A Run another engine
+        works is read through that engine, and one no engine works from its
+        committed state, never taking its writer lock. On a Run that is not a
+        Continuous crawl, fails with `run_not_continuous`; on a Run ID the Run
+        index does not list, fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_entry("run.report_so_far", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        params = RunParams(run_id=self._host.id)
+        return result_of(
+            RunReportSoFar, await self._host.call("run.report_so_far", params)
+        )
+
     def progress(self) -> AsyncSequence[CrawlRunProgress]:
         """Follows the crawl's progress, a crawl's (ADR 0120), read with `async for`.
 
@@ -1530,6 +1550,23 @@ class CrawlRun(Run):
         warn_experimental("run.report")
         params = RunParams(run_id=self._host.id)
         return result_of(CrawlRunReport, self._host.call("run.report", params))
+
+    def report_so_far(self) -> RunReportSoFar:
+        """Reads a Continuous crawl's report while it runs, as the async Run's.
+
+        Reads a Continuous crawl's report while it runs: its Lifecycle, Usage,
+        Learned rules, Sinks, warnings and Freshness, built from the same parts as
+        the Run report, with no Verdict and no Completeness. A Run another engine
+        works is read through that engine, and one no engine works from its
+        committed state, never taking its writer lock. On a Run that is not a
+        Continuous crawl, fails with `run_not_continuous`; on a Run ID the Run
+        index does not list, fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_entry("run.report_so_far", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        params = RunParams(run_id=self._host.id)
+        return result_of(RunReportSoFar, self._host.call("run.report_so_far", params))
 
     def progress(self) -> Sequence[CrawlRunProgress]:
         """Follows the crawl's progress, read with `for`, as the async Run's.

@@ -2,6 +2,7 @@
 
 import { PageError, ProgramError, RefusedError, UnavailableError, detailsOf, isCollieError, isGoodfetchError, retryAfterOf } from "@goodfetch/collie-client/generated";
 import type { CollieError, ErrorClass, ErrorFields } from "@goodfetch/collie-client/generated";
+import type { RunDetails } from "@goodfetch/collie-client/generated/types";
 import type { BrowserRequiredDetails, CrawlNotImportableDetails, DatasetDuplicateDetails, DatasetKeyInvalidDetails, DatasetUnknownDetails, HandlerFailedDetails, HookDuplicateDetails, HookIneffectiveDetails, HookUndeclaredDetails, HookUnknownDetails, LabelUnknownDetails, PayloadInvalidDetails, PayloadSchemaChangedDetails, QueryInvalidDetails, QueryMemoryExceededDetails, RecordInvalidDetails, ResponseNotDocumentDetails, ResponseUnavailableDetails, SheetCapacityExceededDetails, StagingFullDetails } from "./types.ts";
 import { foxhoundWire } from "./wire.ts";
 
@@ -392,6 +393,22 @@ export class RetryRequestedError extends PageError<"retry_requested"> {
 }
 
 /**
+ * The Run is not a Continuous crawl, so `run.report_so_far` does not apply to it; call `run.report` once it ends. The details name the Run.
+ */
+export class RunNotContinuousError extends ProgramError<"run_not_continuous"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<RunDetails> | undefined;
+
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "RunNotContinuousError", code: "run_not_continuous", group: "program", retryable: false });
+    this.typedDetails = detailsOf<RunDetails>(fields.details, []);
+  }
+}
+
+/**
  * The sample crawl refused its pages.
  */
 export class SampleCrawlRefusedError extends RefusedError<"sample_crawl_refused"> {
@@ -462,6 +479,7 @@ export const foxhoundErrorClasses: Readonly<Record<string, ErrorClass>> = {
   response_not_ok: ResponseNotOKError,
   response_unavailable: ResponseUnavailableError,
   retry_requested: RetryRequestedError,
+  run_not_continuous: RunNotContinuousError,
   sample_crawl_refused: SampleCrawlRefusedError,
   sheet_capacity_exceeded: SheetCapacityExceededError,
   staging_full: StagingFullError,
@@ -497,11 +515,12 @@ export type FoxhoundErrorCode =
   | "response_not_ok"
   | "response_unavailable"
   | "retry_requested"
+  | "run_not_continuous"
   | "sample_crawl_refused"
   | "sheet_capacity_exceeded"
   | "staging_full";
 
-const foxhoundErrorCodes: ReadonlySet<string> = new Set<FoxhoundErrorCode>(["attempt_ended", "browser_required", "client_gone", "crawl_not_importable", "dataset_duplicate", "dataset_key_invalid", "dataset_unknown", "effect_staging_refused", "handler_failed", "handler_lost", "hook_duplicate", "hook_ineffective", "hook_undeclared", "hook_unknown", "label_duplicate", "label_unhandled", "label_unknown", "lease_lost", "payload_invalid", "payload_schema_changed", "query_failed", "query_invalid", "query_memory_exceeded", "record_invalid", "response_not_document", "response_not_ok", "response_unavailable", "retry_requested", "sample_crawl_refused", "sheet_capacity_exceeded", "staging_full"]);
+const foxhoundErrorCodes: ReadonlySet<string> = new Set<FoxhoundErrorCode>(["attempt_ended", "browser_required", "client_gone", "crawl_not_importable", "dataset_duplicate", "dataset_key_invalid", "dataset_unknown", "effect_staging_refused", "handler_failed", "handler_lost", "hook_duplicate", "hook_ineffective", "hook_undeclared", "hook_unknown", "label_duplicate", "label_unhandled", "label_unknown", "lease_lost", "payload_invalid", "payload_schema_changed", "query_failed", "query_invalid", "query_memory_exceeded", "record_invalid", "response_not_document", "response_not_ok", "response_unavailable", "retry_requested", "run_not_continuous", "sample_crawl_refused", "sheet_capacity_exceeded", "staging_full"]);
 
 /** An error with one of the Error codes Foxhound raises, which its `code` narrows to the code's class. */
 export type FoxhoundError =
@@ -534,6 +553,7 @@ export type FoxhoundError =
   | ResponseNotOKError
   | ResponseUnavailableError
   | RetryRequestedError
+  | RunNotContinuousError
   | SampleCrawlRefusedError
   | SheetCapacityExceededError
   | StagingFullError;

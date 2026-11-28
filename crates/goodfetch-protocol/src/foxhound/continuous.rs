@@ -809,7 +809,7 @@ pub const CRAWL_REVISIT_DOMAIN_SHARE_YIELDS_TO_BATCH: Yielding = Yielding {
 /// `revisit.on_error` (ADR 0139).
 pub const REVISIT_ON_ERROR: Setting = Setting {
     name: "revisit.on_error",
-    description: "How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (StormCrawler's `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.",
+    description: "How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (`StormCrawler`'s `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.",
     kind: ValueKind::Duration,
     default: default_revisit_on_error,
     clearable: false,

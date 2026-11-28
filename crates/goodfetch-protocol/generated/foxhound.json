@@ -3877,6 +3877,18 @@
           "arrived_in": "0.1",
           "description": "The error the call that ends it raises: the one that failed a\n`failed` Run, or a write at its end that failed, such as its Plan\nfile's (ADR 0116)."
         },
+        "freshness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FreshnessReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Freshness metrics of a Continuous crawl: revisits overdue, lag,\nrevisit outcome counts and trusted `<lastmod>` hosts, overall and\nper domain (ADR 0139). Absent on a batch crawl."
+        },
         "learned_rules": {
           "arrived_in": "0.1",
           "description": "Its Frontier's learned URL rules (ADR 0005).",
@@ -5432,6 +5444,84 @@
     },
     "DialogsEnded": {
       "description": "What `page.on_dialog` answers when its page closes.",
+      "type": "object"
+    },
+    "DomainFreshness": {
+      "description": "Freshness metrics for one domain in a Continuous crawl (ADR 0139).",
+      "properties": {
+        "changed": {
+          "arrived_in": "0.1",
+          "description": "How many revisits on this domain observed a change (excluding first visits).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The domain key.",
+          "type": "string"
+        },
+        "gone": {
+          "arrived_in": "0.1",
+          "description": "How many URLs on this domain ended `gone`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "largest_lag": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Milliseconds"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Largest lag across overdue revisits on this domain; absent when none are overdue."
+        },
+        "median_lag": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Milliseconds"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Median lag across overdue revisits on this domain; absent when none are overdue."
+        },
+        "overdue": {
+          "arrived_in": "0.1",
+          "description": "How many scheduled revisits on this domain are currently overdue.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "trusted_lastmod_hosts": {
+          "arrived_in": "0.1",
+          "description": "Hosts in this domain whose sitemap `<lastmod>` claims are currently trusted, sorted.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "unchanged": {
+          "arrived_in": "0.1",
+          "description": "How many revisits on this domain ended `unchanged`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "domain",
+        "overdue",
+        "unchanged",
+        "gone",
+        "changed"
+      ],
       "type": "object"
     },
     "DownloadId": {
@@ -7678,6 +7768,86 @@
         "dataset",
         "number",
         "value"
+      ],
+      "type": "object"
+    },
+    "FreshnessReport": {
+      "description": "Freshness metrics of a Continuous crawl (ADR 0139): revisits overdue,\nmedian and largest lag across overdue revisits, counts of `unchanged`,\n`gone` and changed revisits, and trusted `<lastmod>` hosts, overall\nand per domain.",
+      "properties": {
+        "changed": {
+          "arrived_in": "0.1",
+          "description": "How many revisits observed a change (excluding first visits).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "domains": {
+          "arrived_in": "0.1",
+          "description": "The same Freshness metrics broken down per domain, sorted by domain.",
+          "items": {
+            "$ref": "#/$defs/DomainFreshness"
+          },
+          "type": "array"
+        },
+        "gone": {
+          "arrived_in": "0.1",
+          "description": "How many URLs ended `gone`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "largest_lag": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Milliseconds"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Largest lag across overdue revisits; absent when none are overdue."
+        },
+        "median_lag": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Milliseconds"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Median lag across overdue revisits; absent when none are overdue."
+        },
+        "overdue": {
+          "arrived_in": "0.1",
+          "description": "How many scheduled revisits are currently overdue.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "trusted_lastmod_hosts": {
+          "arrived_in": "0.1",
+          "description": "Hosts whose sitemap `<lastmod>` claims are currently trusted, sorted.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "unchanged": {
+          "arrived_in": "0.1",
+          "description": "How many revisits ended `unchanged`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "overdue",
+        "unchanged",
+        "gone",
+        "changed"
       ],
       "type": "object"
     },
@@ -17411,6 +17581,269 @@
       ],
       "type": "object"
     },
+    "RunReportSoFar": {
+      "description": "What `run.report_so_far` answers for a Continuous crawl while it runs\n(ADR 0139): built from the same parts as the Run report, with no Verdict\nand no Completeness.",
+      "properties": {
+        "checkpoint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Checkpoint"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The last Checkpoint written of it in this engine, when one was."
+        },
+        "clean_up_rules": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CleanUpRulesReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Clean-up rules version and publication date the Run holds to, and\nany switches adopted under `clean_up.follow_latest` (ADRs 0047 and\n0139)."
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EndingError"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The error that ended it, if it already ended failed."
+        },
+        "freshness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FreshnessReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Freshness metrics overall and per domain (ADR 0139)."
+        },
+        "learned_rules": {
+          "arrived_in": "0.1",
+          "description": "Its Frontier's learned URL rules so far (ADR 0005).",
+          "items": {
+            "$ref": "#/$defs/LearnedRule"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/Lifecycle",
+          "arrived_in": "0.1",
+          "description": "Where it stands in its lifecycle (`running` while live)."
+        },
+        "nothing_done": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NothingDone"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Why the Run did nothing, if applicable."
+        },
+        "plan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlanReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "What it did with its Plan file (ADR 0091)."
+        },
+        "plugins": {
+          "arrived_in": "0.1",
+          "description": "Each Plugin that ran (ADRs 0016 and 0033).",
+          "items": {
+            "$ref": "#/$defs/PluginRun"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "policy_version": {
+          "arrived_in": "0.1",
+          "description": "The version of the Operator policy it ran under, when one applied\n(ADR 0031).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recording": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RecordingReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "What it did with the Response recording its start named (ADR 0105)."
+        },
+        "records": {
+          "arrived_in": "0.1",
+          "description": "Its Records so far, per Dataset (ADR 0103).",
+          "items": {
+            "$ref": "#/$defs/DatasetRecords"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "requests": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RequestCounts"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "How its requests ended so far."
+        },
+        "revisits_at_min": {
+          "arrived_in": "0.1",
+          "description": "URLs changing faster than their Revisit policy's `min` interval allows (ADR 0139).",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        },
+        "settings": {
+          "arrived_in": "0.1",
+          "description": "Each effective value it runs with, when recorded (ADR 0028).",
+          "items": {
+            "$ref": "#/$defs/ExplainedSetting"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "sinks": {
+          "arrived_in": "0.1",
+          "description": "Each Sink that applies to it (ADRs 0026 and 0103).",
+          "items": {
+            "$ref": "#/$defs/SinkReport"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "sitemaps": {
+          "arrived_in": "0.1",
+          "description": "Each sitemap seed's sitemaps so far.",
+          "items": {
+            "$ref": "#/$defs/SitemapReport"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "sources": {
+          "arrived_in": "0.1",
+          "description": "Each syndication source's reads, failures and entry counts so far (ADR 0139).",
+          "items": {
+            "$ref": "#/$defs/SourceReport"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "started_at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When it started."
+        },
+        "stop_reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StopReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Why it stopped, if it already ended stopped."
+        },
+        "uncertain_effects": {
+          "arrived_in": "0.1",
+          "description": "Each Effect left uncertain so far (ADR 0106).",
+          "items": {
+            "$ref": "#/$defs/UncertainEffect"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "usage": {
+          "$ref": "#/$defs/RunUsage",
+          "arrived_in": "0.1",
+          "description": "What it has used so far, as the Usage ledger charged it, with the\nLimits that apply to it (ADR 0101)."
+        },
+        "warnings": {
+          "arrived_in": "0.1",
+          "description": "What the areas warn of so far, each with a code and a message.",
+          "items": {
+            "$ref": "#/$defs/RunWarning"
+          },
+          "type": "array"
+        },
+        "weakened": {
+          "arrived_in": "0.1",
+          "description": "Every setting that weakened a safeguard for it (ADR 0028).",
+          "items": {
+            "$ref": "#/$defs/WeakenedSetting"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "run_id",
+        "lifecycle",
+        "started_at",
+        "usage"
+      ],
+      "type": "object"
+    },
     "RunResumeParams": {
       "additionalProperties": false,
       "description": "What `run.resume` takes.",
@@ -24810,6 +25243,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Run is not a Continuous crawl, so `run.report_so_far` does not apply to it; call `run.report` once it ends. The details name the Run.",
+      "details": {
+        "$ref": "#/$defs/RunDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "run_not_continuous",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "No Run has this Run ID: the Run index does not list it.",
       "details": {
         "$ref": "#/$defs/RunDetails"
@@ -28338,6 +28784,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads a Continuous crawl's report while it runs: its Lifecycle, Usage, Learned rules, Sinks, warnings and Freshness, built from the same parts as the Run report, with no Verdict and no Completeness. A Run another engine works is read through that engine, and one no engine works from its committed state, never taking its writer lock. On a Run that is not a Continuous crawl, fails with `run_not_continuous`; on a Run ID the Run index does not list, fails with `run_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.report_so_far",
+      "params": {
+        "$ref": "#/$defs/RunParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunReportSoFar"
       },
       "stability": "experimental"
     },
@@ -35168,7 +35633,7 @@
       "clearable": false,
       "default": 7200000,
       "deprecated": null,
-      "description": "How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (StormCrawler's `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.",
+      "description": "How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (`StormCrawler`'s `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.",
       "fixed_for_run": false,
       "name": "revisit.on_error",
       "product": "foxhound",

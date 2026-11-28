@@ -1097,6 +1097,17 @@ struct Followed {
     clock: Clock,
 }
 
+/// What a report snapshot of a live or ended Run reads from committed state
+/// without taking its writer lock (ADR 0139).
+struct ReportSnapshot {
+    reader: RunReader,
+    parts: Vec<Arc<dyn ReportPart>>,
+    charging: Option<RunCharging>,
+    checkpoint: Option<Checkpoint>,
+    masks: Masks,
+    clock: Clock,
+}
+
 /// Where a read of a Run this engine does not run looks for the engine
 /// that does (ADR 0102).
 struct Located {
@@ -1277,6 +1288,7 @@ enum Command {
     ),
     Reader(RunId, oneshot::Sender<Result<RunReader, RunError>>),
     Progress(RunId, oneshot::Sender<Result<Followed, RunError>>),
+    ReportSnapshot(RunId, oneshot::Sender<Result<ReportSnapshot, RunError>>),
     Locate(RunId, oneshot::Sender<Result<Option<Located>, RunError>>),
     Index(oneshot::Sender<RunIndex>),
     Discard(RunId, oneshot::Sender<Result<(), RunError>>),
@@ -1320,6 +1332,7 @@ impl Command {
             | Self::SafeStop(run_id, ..)
             | Self::Reader(run_id, _)
             | Self::Progress(run_id, _)
+            | Self::ReportSnapshot(run_id, _)
             | Self::Locate(run_id, _)
             | Self::Discard(run_id, _)
             | Self::Edit(run_id, _) => Reach::Run(run_id.clone()),
@@ -2652,6 +2665,53 @@ impl Runs {
         }
     }
 
+    /// Assembles a snapshot of the Run's report from its committed state while
+    /// it runs, without ending it or taking its writer lock, or returns its
+    /// stored report if it already ended (ADR 0139).
+    ///
+    /// # Errors
+    ///
+    /// `NotFound` when no Run has this Run ID here, `Unavailable` when its
+    /// state cannot be read.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future only stops waiting.
+    pub async fn report_snapshot(&self, run_id: RunId) -> Result<RunReport, RunError> {
+        let (answer, answered) = oneshot::channel();
+        self.commands
+            .send(Command::ReportSnapshot(run_id.clone(), answer))
+            .await
+            .map_err(|_| RunError::Stopped)?;
+        let ReportSnapshot {
+            mut reader,
+            parts,
+            charging,
+            checkpoint,
+            masks,
+            clock,
+        } = answered.await.map_err(|_| RunError::Stopped)??;
+        let limits = match charging {
+            Some(charging) => charging.applied().await.unwrap_or_default(),
+            None => Vec::new(),
+        };
+        let id = run_id.clone();
+        reader
+            .read(move |connection| {
+                report::snapshot(
+                    connection,
+                    id,
+                    clock.point_in_time(),
+                    checkpoint,
+                    limits,
+                    &parts,
+                    &masks,
+                )
+            })
+            .await?
+            .ok_or(RunError::NotFound(run_id))
+    }
+
     /// Reads `method` with `params` of the Run `run_id` through the engine
     /// that works it (ADR 0102), when that is another engine, the owner
     /// the Run index names while a reader's test finds its writer lock
@@ -3596,6 +3656,9 @@ impl Registry {
             }
             Command::Reader(run_id, answer) => _ = answer.send(Ok(self.reader(&run_id))),
             Command::Progress(run_id, answer) => _ = answer.send(Ok(self.followed(&run_id))),
+            Command::ReportSnapshot(run_id, answer) => {
+                _ = answer.send(Ok(self.report_snapshot(&run_id)));
+            }
             Command::Locate(run_id, answer) => _ = answer.send(Ok(self.locate(&run_id))),
             Command::Index(answer) => _ = answer.send(self.setup.engine.run_index().clone()),
             Command::Discard(run_id, answer) => self.discard(run_id, answer),
@@ -4048,6 +4111,20 @@ impl Registry {
         }
     }
 
+    /// What a report snapshot of the Run `run_id` reads.
+    fn report_snapshot(&self, run_id: &RunId) -> ReportSnapshot {
+        let live = self.live.get(run_id);
+        ReportSnapshot {
+            reader: self.reader(run_id),
+            parts: self.setup.report_parts.clone(),
+            charging: live
+                .and_then(|live| live.run.as_ref().map(|run| run.shared.charging.clone())),
+            checkpoint: live.and_then(|live| live.checkpoint.clone()),
+            masks: self.setup.masks.clone(),
+            clock: self.setup.engine.clock(),
+        }
+    }
+
     /// Where a read of the Run `run_id` that this engine does not run
     /// looks for the engine that does; `None` when this engine runs it.
     fn locate(&self, run_id: &RunId) -> Option<Located> {
@@ -4163,6 +4240,7 @@ impl Registry {
             | Command::StoredKey(run_id, ..)
             | Command::Reader(run_id, _)
             | Command::Progress(run_id, _)
+            | Command::ReportSnapshot(run_id, _)
             | Command::Locate(run_id, _)
             | Command::Edit(run_id, _) => Some(run_id),
             _ => None,
@@ -4193,6 +4271,7 @@ impl Registry {
             Command::StoredKey(_, _, answer) => _ = answer.send(Err(refused())),
             Command::Reader(_, answer) => _ = answer.send(Err(refused())),
             Command::Progress(_, answer) => _ = answer.send(Err(refused())),
+            Command::ReportSnapshot(_, answer) => _ = answer.send(Err(refused())),
             Command::Locate(_, answer) => _ = answer.send(Err(refused())),
             Command::Edit(_, answer) => _ = answer.send(Err(refused())),
             other => return Some(other),

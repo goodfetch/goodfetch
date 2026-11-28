@@ -159,6 +159,31 @@ pub fn epoch(connection: &Connection) -> rusqlite::Result<u64> {
     })
 }
 
+/// Reads one key from the Run's `fixed_settings` JSON object, if present.
+///
+/// # Errors
+///
+/// SQLite's, `QueryReturnedNoRows` for a file that holds no Run, or a JSON
+/// decode failure.
+pub fn fixed_setting(connection: &Connection, key: &str) -> rusqlite::Result<Option<Value>> {
+    let raw = text(connection, "SELECT fixed_settings FROM run")?;
+    let map: serde_json::Map<String, Value> = serde_json::from_str(&raw).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(error))
+    })?;
+    Ok(map.get(key).cloned())
+}
+
+/// Reads a boolean key from the Run's `fixed_settings` JSON object, returning
+/// `false` when absent or not `true`.
+///
+/// # Errors
+///
+/// SQLite's, `QueryReturnedNoRows` for a file that holds no Run, or a JSON
+/// decode failure.
+pub fn fixed_setting_bool(connection: &Connection, key: &str) -> rusqlite::Result<bool> {
+    Ok(fixed_setting(connection, key)?.and_then(|v| v.as_bool()) == Some(true))
+}
+
 /// The one text column `statement` reads of the Run's row.
 fn text(connection: &Connection, statement: &str) -> rusqlite::Result<String> {
     connection

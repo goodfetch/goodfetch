@@ -2618,3 +2618,242 @@ fn continuous_crawl_rereads_sitemaps_as_standing_sources_and_honors_changefreq()
         "entry older than max_entry_age must not be admitted: {map:?}"
     );
 }
+
+/// Issue #1860: `run.report_so_far` answers `RunReportSoFar` while a
+/// Continuous crawl runs (no Verdict, no Completeness, with Freshness),
+/// `run.report_so_far` refuses a batch Run with `run_not_continuous`,
+/// the end's `run.report` carries `freshness` on a Continuous crawl, and
+/// `run.report` on a batch Run keeps its shape (no `freshness`) and waits
+/// for the Run to end.
+/// Covers: operation:run.report_so_far, error:run_not_continuous
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end test covers live report_so_far, ended report freshness, batch refusal, and batch report shape"
+)]
+fn report_so_far_answers_live_continuous_crawl_with_freshness_and_refuses_batch() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let env = TestEnv::new();
+    let hits = Arc::new(AtomicUsize::new(0));
+    let hits_for_server = Arc::clone(&hits);
+    let site = Arc::new(ScriptedSite {
+        recorded: std::sync::Mutex::new(Vec::new()),
+        respond: Box::new(move |hop| {
+            if hop.url.path() == "/robots.txt" {
+                return (
+                    200,
+                    vec![("content-type".to_owned(), "text/plain".to_owned())],
+                    String::new(),
+                );
+            }
+            if hop.url.path() == "/batch" {
+                return (
+                    200,
+                    vec![("content-type".to_owned(), "text/html".to_owned())],
+                    "<html><body>batch</body></html>".to_owned(),
+                );
+            }
+            let n = hits_for_server.fetch_add(1, Ordering::SeqCst);
+            let body = if n == 0 || n == 1 {
+                "<html><head><title>v1</title></head><body><h1>v1</h1></body></html>"
+            } else {
+                "<html><head><title>v2</title></head><body><h1>v2</h1></body></html>"
+            };
+            (
+                200,
+                vec![(
+                    "content-type".to_owned(),
+                    "text/html; charset=utf-8".to_owned(),
+                )],
+                body.to_owned(),
+            )
+        }),
+    });
+    let engine = engine_with_site(Arc::clone(&site));
+    let mut handler = |_: &Value| Reply::Records(Vec::new());
+
+    let (so_far_live, ended_continuous, batch_refusal, batch_report) = super::crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            // 1. Start a Continuous crawl.
+            let started = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "cont-report-so-far",
+                        "seeds": [{ "url": "https://fresh.test/page", "label": "default" }],
+                        "labels": { "default": {} },
+                        "settings": {
+                            "crawl": { "continuous": { "enabled": true } },
+                            "revisit": {
+                                "policy": { "kind": "every", "interval": 10_000 },
+                                "change_check": "signature"
+                            }
+                        }
+                    }),
+                    &mut handler,
+                )
+                .await;
+            assert!(started["result"].is_object(), "start failed: {started}");
+
+            // First visit completes -> idle.
+            let _ = progress_matching(
+                client,
+                "cont-report-so-far",
+                |p| p["idle"] == json!(true),
+                &mut handler,
+            )
+            .await;
+
+            // Advance for 1 unchanged revisit, then 1 changed revisit.
+            advance(Duration::from_secs(12)).await;
+            let _ = progress_matching(
+                client,
+                "cont-report-so-far",
+                |p| p["idle"] == json!(true),
+                &mut handler,
+            )
+            .await;
+            advance(Duration::from_secs(12)).await;
+            let _ = progress_matching(
+                client,
+                "cont-report-so-far",
+                |p| p["idle"] == json!(true),
+                &mut handler,
+            )
+            .await;
+
+            // Read report_so_far while still running!
+            let so_far_live = client
+                .call(
+                    "run.report_so_far",
+                    json!({ "run_id": "cont-report-so-far" }),
+                    &mut handler,
+                )
+                .await;
+
+            // Finish the continuous crawl and read its final run.report.
+            let ended_continuous = client
+                .call(
+                    "run.finish",
+                    json!({ "run_id": "cont-report-so-far" }),
+                    &mut handler,
+                )
+                .await;
+
+            // 2. Start a batch crawl (with keep_alive so it stays live until finish).
+            let batch_started = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "batch-report-check",
+                        "seeds": [{ "url": "https://fresh.test/batch", "label": "default" }],
+                        "labels": { "default": {} },
+                        "settings": { "crawl": { "keep_alive": true } }
+                    }),
+                    &mut handler,
+                )
+                .await;
+            assert!(
+                batch_started["result"].is_object(),
+                "batch start failed: {batch_started}"
+            );
+            let _ = progress_matching(
+                client,
+                "batch-report-check",
+                |p| p["idle"] == json!(true),
+                &mut handler,
+            )
+            .await;
+
+            // Calling run.report_so_far on a batch crawl fails with run_not_continuous.
+            let batch_refusal = client
+                .call(
+                    "run.report_so_far",
+                    json!({ "run_id": "batch-report-check" }),
+                    &mut handler,
+                )
+                .await;
+
+            // Finish the batch crawl and read run.report (shape unchanged: no freshness, has verdict & completeness).
+            let _ = client
+                .call(
+                    "run.finish",
+                    json!({ "run_id": "batch-report-check" }),
+                    &mut handler,
+                )
+                .await;
+            let batch_report = client
+                .call(
+                    "run.report",
+                    json!({ "run_id": "batch-report-check" }),
+                    &mut handler,
+                )
+                .await;
+
+            (so_far_live, ended_continuous, batch_refusal, batch_report)
+        },
+    )
+    .0;
+
+    // 1. Live report_so_far assertions:
+    let live = &so_far_live["result"];
+    assert_eq!(live["lifecycle"], "running", "{so_far_live}");
+    assert!(live.get("verdict").is_none(), "no verdict: {so_far_live}");
+    assert!(
+        live.get("completeness").is_none(),
+        "no completeness: {so_far_live}"
+    );
+    assert!(live.get("ended_at").is_none(), "no ended_at: {so_far_live}");
+    assert!(live["usage"].is_object(), "has usage: {so_far_live}");
+    assert!(
+        live["learned_rules"].is_array(),
+        "has learned_rules: {so_far_live}"
+    );
+    let live_freshness = &live["freshness"];
+    assert!(
+        live_freshness.is_object(),
+        "live report_so_far must include freshness: {so_far_live}"
+    );
+    assert_eq!(live_freshness["unchanged"], 1, "{live_freshness}");
+    assert_eq!(live_freshness["changed"], 1, "{live_freshness}");
+    assert_eq!(live_freshness["gone"], 0, "{live_freshness}");
+    assert_eq!(
+        live_freshness["domains"].as_array().map(Vec::len),
+        Some(1),
+        "{live_freshness}"
+    );
+
+    // 2. End's Run report carries freshness too:
+    let ended = &ended_continuous["result"];
+    assert_eq!(ended["lifecycle"], "finished", "{ended_continuous}");
+    assert!(
+        ended["freshness"].is_object(),
+        "ended continuous report must include freshness: {ended_continuous}"
+    );
+    assert_eq!(ended["freshness"]["unchanged"], 1, "{ended}");
+    assert_eq!(ended["freshness"]["changed"], 1, "{ended}");
+
+    // 3. Batch refusal:
+    assert_eq!(
+        batch_refusal["error"]["data"]["code"], "run_not_continuous",
+        "{batch_refusal}"
+    );
+    assert_eq!(
+        batch_refusal["error"]["data"]["retryable"], false,
+        "{batch_refusal}"
+    );
+
+    // 4. Batch run.report keeps its shape (verdict & completeness present, no freshness):
+    let batch = &batch_report["result"];
+    assert_eq!(batch["lifecycle"], "finished", "{batch_report}");
+    assert_eq!(batch["verdict"], "verified", "{batch_report}");
+    assert_eq!(batch["completeness"], "complete", "{batch_report}");
+    assert!(
+        batch.get("freshness").is_none(),
+        "batch Run report must not carry freshness: {batch_report}"
+    );
+}

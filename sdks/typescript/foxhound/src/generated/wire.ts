@@ -32,6 +32,7 @@ export type FoxhoundWireType =
   | "DatasetSearchParams"
   | "DeclaredExtract"
   | "DeclaredLabel"
+  | "DomainFreshness"
   | "Export"
   | "ExportSaveAsParams"
   | "ExportSaved"
@@ -39,6 +40,7 @@ export type FoxhoundWireType =
   | "ExportStreamed"
   | "FailedRequests"
   | "FoundRecord"
+  | "FreshnessReport"
   | "HandlerFailedDetails"
   | "HeldDomain"
   | "InFlightRequest"
@@ -62,6 +64,7 @@ export type FoxhoundWireType =
   | "RunOutcomesParams"
   | "RunRecordsParams"
   | "RunRejectedRecordsParams"
+  | "RunReportSoFar"
   | "RunRetryFailedParams"
   | "RunSeedsAdded"
   | "RunSeedsParams"
@@ -91,7 +94,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "CrawlRequestOutcomes": { fields: { "outcomes": ["outcomes", { items: { type: "CrawlRequestOutcome" } }] } },
     "CrawlRequestPushParams": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch", "run_id": "runId" } },
     "CrawlRunProgress": { fields: { "at": ["at", "time"], "checkpoint_at": ["checkpointAt", "time"], "concurrency": ["concurrency", { type: "CrawlConcurrency" }], "in_flight": ["inFlight", { items: { type: "InFlightRequest" } }], "next_due_at": ["nextDueAt", "time"], "pauses": ["pauses", { items: { type: "HumanPause" } }], "requests": ["requests", { type: "RequestProgress" }], "run_id": "runId", "sitemaps": ["sitemaps", { items: { type: "SitemapReport" } }], "sources": ["sources", { items: { type: "SourceReport" } }], "stop_reason": ["stopReason", { type: "StopReason" }], "storage": ["storage", { type: "RunStorage" }], "waiting": ["waiting", { items: { type: "WaitGroup" } }] } },
-    "CrawlRunReport": { fields: { "checkpoint": ["checkpoint", { type: "Checkpoint" }], "clean_up_rules": ["cleanUpRules", { type: "CleanUpRulesReport" }], "completeness_reasons": ["completenessReasons", { items: { type: "AxisReason" } }], "ended_at": ["endedAt", "time"], "learned_rules": "learnedRules", "nothing_done": ["nothingDone", { type: "NothingDone" }], "plan": ["plan", { type: "PlanReport" }], "plugins": ["plugins", { items: { type: "PluginRun" } }], "policy_version": "policyVersion", "recording": ["recording", { type: "RecordingReport" }], "requests": ["requests", { type: "RequestCounts" }], "revisits_at_min": "revisitsAtMin", "run_id": "runId", "settings": ["settings", { items: { type: "ExplainedSetting" } }], "sinks": ["sinks", { items: { type: "SinkReport" } }], "sitemaps": ["sitemaps", { items: { type: "SitemapReport" } }], "sources": ["sources", { items: { type: "SourceReport" } }], "started_at": ["startedAt", "time"], "stop_reason": ["stopReason", { type: "StopReason" }], "uncertain_effects": ["uncertainEffects", { items: { type: "UncertainEffect" } }], "usage": ["usage", { type: "RunUsage" }], "verdict_reasons": ["verdictReasons", { items: { type: "AxisReason" } }] } },
+    "CrawlRunReport": { fields: { "checkpoint": ["checkpoint", { type: "Checkpoint" }], "clean_up_rules": ["cleanUpRules", { type: "CleanUpRulesReport" }], "completeness_reasons": ["completenessReasons", { items: { type: "AxisReason" } }], "ended_at": ["endedAt", "time"], "freshness": ["freshness", { type: "FreshnessReport" }], "learned_rules": "learnedRules", "nothing_done": ["nothingDone", { type: "NothingDone" }], "plan": ["plan", { type: "PlanReport" }], "plugins": ["plugins", { items: { type: "PluginRun" } }], "policy_version": "policyVersion", "recording": ["recording", { type: "RecordingReport" }], "requests": ["requests", { type: "RequestCounts" }], "revisits_at_min": "revisitsAtMin", "run_id": "runId", "settings": ["settings", { items: { type: "ExplainedSetting" } }], "sinks": ["sinks", { items: { type: "SinkReport" } }], "sitemaps": ["sitemaps", { items: { type: "SitemapReport" } }], "sources": ["sources", { items: { type: "SourceReport" } }], "started_at": ["startedAt", "time"], "stop_reason": ["stopReason", { type: "StopReason" }], "uncertain_effects": ["uncertainEffects", { items: { type: "UncertainEffect" } }], "usage": ["usage", { type: "RunUsage" }], "verdict_reasons": ["verdictReasons", { items: { type: "AxisReason" } }] } },
     "CrawlStartParams": { fields: { "declaration": ["declaration", { type: "CrawlDeclaration" }], "extraction": ["extraction", { type: "CrawlExtraction" }], "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId" } },
     "CrawlStarted": { fields: { "run_id": "runId", "started_as": "startedAs" } },
     "DatasetKeyInvalidDetails": { fields: { "began_with": "beganWith" } },
@@ -103,6 +106,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "DatasetSearchParams": { fields: { "run_id": "runId" } },
     "DeclaredExtract": { fields: { "fields": ["fields", { values: { type: "PageField" } }] } },
     "DeclaredLabel": { fields: { "extract": ["extract", { items: { type: "DeclaredExtract" } }], "payload_schema": "payloadSchema" } },
+    "DomainFreshness": { fields: { "largest_lag": "largestLag", "median_lag": "medianLag", "trusted_lastmod_hosts": "trustedLastmodHosts" } },
     "Export": { fields: { "export_id": "exportId", "last_number": "lastNumber", "run_epoch": "runEpoch" } },
     "ExportSaveAsParams": { fields: { "export_id": "exportId" } },
     "ExportSaved": { fields: { "run_epoch": "runEpoch" } },
@@ -110,6 +114,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "ExportStreamed": { fields: { "run_epoch": "runEpoch" } },
     "FailedRequests": { fields: { "requests": ["requests", { items: { type: "CrawlRequestOutcome" } }] } },
     "FoundRecord": { fields: { "run_id": "runId" } },
+    "FreshnessReport": { fields: { "domains": ["domains", { items: { type: "DomainFreshness" } }], "largest_lag": "largestLag", "median_lag": "medianLag", "trusted_lastmod_hosts": "trustedLastmodHosts" } },
     "HandlerFailedDetails": { fields: { "exception_message": "exceptionMessage", "exception_stack": "exceptionStack", "exception_type": "exceptionType" } },
     "HeldDomain": { fields: { "next_admitted_at": ["nextAdmittedAt", "time"] } },
     "InFlightRequest": { fields: { "request_id": "requestId", "started_at": ["startedAt", "time"] } },
@@ -133,6 +138,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "RunOutcomesParams": { fields: { "run_id": "runId" } },
     "RunRecordsParams": { fields: { "run_id": "runId" } },
     "RunRejectedRecordsParams": { fields: { "run_id": "runId" } },
+    "RunReportSoFar": { fields: { "checkpoint": ["checkpoint", { type: "Checkpoint" }], "clean_up_rules": ["cleanUpRules", { type: "CleanUpRulesReport" }], "freshness": ["freshness", { type: "FreshnessReport" }], "learned_rules": "learnedRules", "nothing_done": ["nothingDone", { type: "NothingDone" }], "plan": ["plan", { type: "PlanReport" }], "plugins": ["plugins", { items: { type: "PluginRun" } }], "policy_version": "policyVersion", "recording": ["recording", { type: "RecordingReport" }], "requests": ["requests", { type: "RequestCounts" }], "revisits_at_min": "revisitsAtMin", "run_id": "runId", "settings": ["settings", { items: { type: "ExplainedSetting" } }], "sinks": ["sinks", { items: { type: "SinkReport" } }], "sitemaps": ["sitemaps", { items: { type: "SitemapReport" } }], "sources": ["sources", { items: { type: "SourceReport" } }], "started_at": ["startedAt", "time"], "stop_reason": ["stopReason", { type: "StopReason" }], "uncertain_effects": ["uncertainEffects", { items: { type: "UncertainEffect" } }], "usage": ["usage", { type: "RunUsage" }] } },
     "RunRetryFailedParams": { fields: { "run_id": "runId" } },
     "RunSeedsAdded": { fields: { "not_added": "notAdded" } },
     "RunSeedsParams": { fields: { "run_id": "runId" } },
@@ -164,6 +170,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "run.outcomes": { type: "RunOutcomesParams" },
     "run.records": { type: "RunRecordsParams" },
     "run.rejected_records": { type: "RunRejectedRecordsParams" },
+    "run.report_so_far": { type: "RunParams" },
     "run.retry_failed": { type: "RunRetryFailedParams" },
     "run.seeds": { type: "RunSeedsParams" },
   },
@@ -180,6 +187,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "run.failed_requests": { type: "FailedRequests" },
     "run.outcomes": { type: "CrawlRequestOutcomes" },
     "run.rejected_records": { type: "RejectedRecords" },
+    "run.report_so_far": { type: "RunReportSoFar" },
   },
   events: {
   },

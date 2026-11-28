@@ -12,6 +12,7 @@ from typing import Final, Unpack
 from goodfetch_collie_client.generated.errors import PageError, ProgramError, RefusedError, UnavailableError
 from goodfetch_collie_client.goodfetch_error import BaseGoodfetchError, ErrorClass, ErrorFields, retry_after_of
 from goodfetch_collie_client.caller import details_of
+from goodfetch_collie_client.generated.models import RunDetails
 from .models import BrowserRequiredDetails, CrawlNotImportableDetails, DatasetDuplicateDetails, DatasetKeyInvalidDetails, DatasetUnknownDetails, HandlerFailedDetails, HookDuplicateDetails, HookIneffectiveDetails, HookUndeclaredDetails, HookUnknownDetails, LabelUnknownDetails, PayloadInvalidDetails, PayloadSchemaChangedDetails, QueryInvalidDetails, QueryMemoryExceededDetails, RecordInvalidDetails, ResponseNotDocumentDetails, ResponseUnavailableDetails, SheetCapacityExceededDetails, StagingFullDetails
 
 
@@ -318,6 +319,18 @@ class RetryRequestedError(PageError):
         super().__init__(message, code="retry_requested", group="page", retryable=True, **fields)
 
 
+class RunNotContinuousError(ProgramError):
+    """The Run is not a Continuous crawl, so `run.report_so_far` does not apply to it; call `run.report` once it ends. The details name the Run."""
+
+    typed_details: RunDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="run_not_continuous", group="program", retryable=False, **fields)
+        self.typed_details = details_of(RunDetails, self.details)
+
+
 class SampleCrawlRefusedError(RefusedError):
     """The sample crawl refused its pages."""
 
@@ -379,6 +392,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "response_not_ok": ResponseNotOKError,
     "response_unavailable": ResponseUnavailableError,
     "retry_requested": RetryRequestedError,
+    "run_not_continuous": RunNotContinuousError,
     "sample_crawl_refused": SampleCrawlRefusedError,
     "sheet_capacity_exceeded": SheetCapacityExceededError,
     "staging_full": StagingFullError,

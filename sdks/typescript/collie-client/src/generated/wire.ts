@@ -23,6 +23,8 @@ export type CollieWireType =
   | "CacheVerified"
   | "CatalogRunStartParams"
   | "CatalogTarget"
+  | "CdpEndpointCloseParams"
+  | "CdpEndpointOpened"
   | "CdpSessionCloseParams"
   | "CdpSessionEvent"
   | "CdpSessionOnParams"
@@ -138,6 +140,7 @@ export type CollieWireType =
   | "PageField"
   | "PageFired"
   | "PageFormats"
+  | "PageLendParams"
   | "PageMemoryExceededDetails"
   | "PageNavigatedDuringCallDetails"
   | "PageNewCdpSessionParams"
@@ -228,6 +231,7 @@ export type CollieWireType =
   | "SessionOnParams"
   | "SessionOpened"
   | "SessionParams"
+  | "SessionReservedDetails"
   | "SessionRouteParams"
   | "SessionSource"
   | "SetLogLevelParams"
@@ -281,6 +285,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "CacheVerified": { fields: { "damaged": ["damaged", { items: { type: "CacheDamage" } }] } },
     "CatalogRunStartParams": { fields: { "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId", "target": ["target", { type: "CatalogTarget" }] } },
     "CatalogTarget": { fields: { "max_steps": "maxSteps" } },
+    "CdpEndpointCloseParams": { fields: { "cdp_endpoint_id": "cdpEndpointId" } },
+    "CdpEndpointOpened": { fields: { "cdp_endpoint_id": "cdpEndpointId" } },
     "CdpSessionCloseParams": { fields: { "cdp_session_id": "cdpSessionId" } },
     "CdpSessionEvent": { fields: { "cdp_session_id": "cdpSessionId" } },
     "CdpSessionOnParams": { fields: { "cdp_session_id": "cdpSessionId" } },
@@ -396,6 +402,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "PageField": { fields: { "fields": ["fields", { values: { type: "ValueField" } }], "list": ["list", { type: "ValueField" }], "transform": ["transform", { type: "FieldTransform" }] } },
     "PageFired": { fields: { "page_id": "pageId" } },
     "PageFormats": { fields: { "base_url": "baseURL", "main_content": "mainContent", "metadata": ["metadata", { type: "Metadata" }], "tables": ["tables", { items: { type: "Table" } }] } },
+    "PageLendParams": { fields: { "page_id": "pageId" } },
     "PageMemoryExceededDetails": { fields: { "page_id": "pageId" } },
     "PageNavigatedDuringCallDetails": { fields: { "navigated_to": "navigatedTo" } },
     "PageNewCdpSessionParams": { fields: { "page_id": "pageId" } },
@@ -486,6 +493,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "SessionOnParams": { fields: { "session_id": "sessionId" } },
     "SessionOpened": { fields: { "session_id": "sessionId" } },
     "SessionParams": { fields: { "session_id": "sessionId" } },
+    "SessionReservedDetails": { fields: { "session_id": "sessionId" } },
     "SessionRouteParams": { fields: { "session_id": "sessionId" } },
     "SessionSource": { fields: { "chromium_profile": "chromiumProfile" } },
     "SetLogLevelParams": { fields: { "log_level": "logLevel" } },
@@ -522,6 +530,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
   params: {
     "cache.clear": { type: "CacheClearParams" },
     "catalog_run.start": { type: "CatalogRunStartParams" },
+    "cdp_endpoint.close": { type: "CdpEndpointCloseParams" },
     "cdp_session.close": { type: "CdpSessionCloseParams" },
     "cdp_session.on": { type: "CdpSessionOnParams" },
     "cdp_session.send": { type: "CdpSessionSendParams" },
@@ -560,6 +569,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "page.keyboard.press": { type: "KeyboardPressParams" },
     "page.keyboard.type": { type: "KeyboardTypeParams" },
     "page.keyboard.up": { type: "KeyboardKeyParams" },
+    "page.lend": { type: "PageLendParams" },
     "page.mouse.click": { type: "MouseClickParams" },
     "page.mouse.dblclick": { type: "MouseDblclickParams" },
     "page.mouse.down": { type: "MouseButtonParams" },
@@ -638,6 +648,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "page.go_back": { type: "Navigated" },
     "page.go_forward": { type: "Navigated" },
     "page.goto": { type: "Navigated" },
+    "page.lend": { type: "CdpEndpointOpened" },
     "page.new_cdp_session": { type: "CdpSessionOpened" },
     "page.pause": { type: "HumanPauseResult" },
     "page.reload": { type: "Navigated" },

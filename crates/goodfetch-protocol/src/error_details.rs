@@ -180,6 +180,7 @@ details! {
     crate::page::ai_work::PageNavigatedDuringCallDetails => ErrorCode::PAGE_NAVIGATED_DURING_CALL,
     crate::page::TooManyRedirectsDetails => ErrorCode::TOO_MANY_REDIRECTS,
     crate::page::cdp_session::CdpCommandRefusedDetails => ErrorCode::CDP_COMMAND_REFUSED,
+    crate::page::lend::SessionReservedDetails => ErrorCode::SESSION_RESERVED,
     crate::page::cdp_url::CdpUrlNotBrowserDetails => ErrorCode::CDP_URL_NOT_BROWSER,
     crate::page::cdp_url::CdpUrlUnauthorizedDetails => ErrorCode::CDP_URL_UNAUTHORIZED,
     crate::page::cdp_url::CdpUrlUnreachableDetails => ErrorCode::CDP_URL_UNREACHABLE,

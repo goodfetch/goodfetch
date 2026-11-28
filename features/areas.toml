@@ -1234,6 +1234,22 @@ number = 5
 kind = "error"
 prefix = "cdp_command_refused"
 
+# Lending a page to a third-party CDP library (page.lend(), #749, ADR 0089).
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.lend"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "cdp_endpoint."
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "session_reserved"
+
 # A Block cause on a Session a program or an Agent opened (#711, ADRs 0088
 # and 0092).
 [[area]]

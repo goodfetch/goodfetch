@@ -2099,6 +2099,62 @@
       ],
       "type": "object"
     },
+    "CdpEndpointCloseParams": {
+      "additionalProperties": false,
+      "description": "What `cdp_endpoint.close` takes: the lending endpoint to close.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "cdp_endpoint_id": {
+          "$ref": "#/$defs/CdpEndpointId",
+          "arrived_in": "0.1",
+          "description": "The lending endpoint."
+        }
+      },
+      "required": [
+        "cdp_endpoint_id"
+      ],
+      "type": "object"
+    },
+    "CdpEndpointClosed": {
+      "description": "What `cdp_endpoint.close` answers once the lending endpoint is closed and\nthe Session's state is re-applied.",
+      "type": "object"
+    },
+    "CdpEndpointId": {
+      "description": "A lending endpoint opened on a page via `page.lend`.",
+      "type": "string"
+    },
+    "CdpEndpointOpened": {
+      "description": "What `page.lend` answers: the lending endpoint's handle ID, WebSocket URL,\nand authentication headers carrying its per-attach token (ADR 0089).",
+      "properties": {
+        "cdp_endpoint_id": {
+          "$ref": "#/$defs/CdpEndpointId",
+          "arrived_in": "0.1",
+          "description": "The opened lending endpoint."
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "The HTTP headers carrying the per-attach token that the library must\nsend on its WebSocket handshake.",
+          "type": "object"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The WebSocket CDP address the library connects to (loopback by default).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cdp_endpoint_id",
+        "url",
+        "headers"
+      ],
+      "type": "object"
+    },
     "CdpSessionAnswer": {
       "description": "What `cdp_session.send` answers: the browser's raw JSON result.",
       "properties": {
@@ -16660,6 +16716,25 @@
       "description": "A page of a Run, named by the engine when it opens it.",
       "type": "string"
     },
+    "PageLendParams": {
+      "additionalProperties": false,
+      "description": "What `page.lend` takes: the page to lend.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page to lend."
+        }
+      },
+      "required": [
+        "page_id"
+      ],
+      "type": "object"
+    },
     "PageMemoryExceededDetails": {
       "description": "What `page_memory_exceeded` details.",
       "properties": {
@@ -25920,6 +25995,20 @@
           "$ref": "#/$defs/SessionId",
           "arrived_in": "0.1",
           "description": "The Session."
+        }
+      },
+      "required": [
+        "session_id"
+      ],
+      "type": "object"
+    },
+    "SessionReservedDetails": {
+      "description": "What `session_reserved` details: the Session that already has an active\nlending attach.",
+      "properties": {
+        "session_id": {
+          "$ref": "#/$defs/SessionId",
+          "arrived_in": "0.1",
+          "description": "The Session that is already reserved by an open attach."
         }
       },
       "required": [

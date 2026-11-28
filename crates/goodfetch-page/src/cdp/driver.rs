@@ -1188,23 +1188,11 @@ impl<B: Connect> SessionDriver<B> {
         not(test),
         expect(
             dead_code,
-            reason = "called by the Lent page attach driver once A05-55 wires it"
+            reason = "called by emulation tests; production callers reach PageDriver::reapply_after_attach through Seat"
         )
     )]
     pub(crate) async fn reapply_after_attach(&self, page: &PageDriver) -> Result<(), CallError> {
-        if self.emulation.is_borrowed() {
-            return Ok(());
-        }
-        let call = page.browser.opening();
-        page.browser
-            .reset_and_grant_permissions(&page.context, &self.emulation, &call)
-            .await?;
-        page.browser
-            .apply_identity_locale(&page.session, &self.emulation, &call, true)
-            .await?;
-        page.browser
-            .apply_emulation(&page.session, &self.emulation, &call, true)
-            .await
+        page.reapply_after_attach(&self.emulation).await
     }
 
     /// Closes the Session's browser context, and with it every page in it,
@@ -1567,6 +1555,56 @@ impl PageDriver {
     ) -> Result<serde_json::Value, CallError> {
         self.browser
             .send_raw(Some(&self.session), method, params, call)
+            .await
+    }
+
+    /// Sends a raw CDP command on `session` (the browser connection when
+    /// `None`) through `goodfetch-cdp`'s connection (`send_raw`), never a
+    /// second socket or pipe to the browser (ADRs 0089 and 0140, ticket #749).
+    pub(crate) async fn send_raw_cdp_on(
+        &self,
+        session: Option<&str>,
+        method: String,
+        params: serde_json::Value,
+        call: &Call,
+    ) -> Result<serde_json::Value, CallError> {
+        let target_session = session.map(|id| TargetSession(id.to_owned()));
+        self.browser
+            .send_raw(target_session.as_ref(), method, params, call)
+            .await
+    }
+
+    /// Subscribes to raw CDP events on `session` (browser-level events when
+    /// `None`) over `goodfetch-cdp`'s connection (ADR 0089, ticket #749).
+    pub(crate) fn subscribe_raw_cdp(&self, session: Option<&str>) -> Subscription {
+        let target_session = session.map(|id| TargetSession(id.to_owned()));
+        self.browser.connection.subscribe(target_session.as_ref())
+    }
+
+    /// The browser context ID of this page's Session.
+    pub(crate) fn browser_context_id(&self) -> &str {
+        &self.context
+    }
+
+    /// Re-applies `emulation` (permissions, identity locale, device emulation,
+    /// network throttling) to this page after a Lent page's attach ends
+    /// (ADRs 0083 and 0089).
+    pub(crate) async fn reapply_after_attach(
+        &self,
+        emulation: &SessionEmulation,
+    ) -> Result<(), CallError> {
+        if emulation.is_borrowed() {
+            return Ok(());
+        }
+        let call = self.browser.opening();
+        self.browser
+            .reset_and_grant_permissions(&self.context, emulation, &call)
+            .await?;
+        self.browser
+            .apply_identity_locale(&self.session, emulation, &call, true)
+            .await?;
+        self.browser
+            .apply_emulation(&self.session, emulation, &call, true)
             .await
     }
 

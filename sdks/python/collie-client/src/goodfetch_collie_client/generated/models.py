@@ -488,6 +488,42 @@ class CdpCommandRefusedDetails(BaseModel):
     """Why the command was refused."""
 
 
+class CdpEndpointClosed(BaseModel):
+    """
+    What `cdp_endpoint.close` answers once the lending endpoint is closed and
+    the Session's state is re-applied.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class CdpEndpointId(RootModel[str]):
+    root: str
+    """A lending endpoint opened on a page via `page.lend`."""
+
+
+class CdpEndpointOpened(BaseModel):
+    """
+    What `page.lend` answers: the lending endpoint's handle ID, WebSocket URL,
+    and authentication headers carrying its per-attach token (ADR 0089).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    cdp_endpoint_id: CdpEndpointId
+    """The opened lending endpoint."""
+    headers: dict[str, str]
+    """
+    The HTTP headers carrying the per-attach token that the library must
+    send on its WebSocket handshake.
+    """
+    url: str
+    """The WebSocket CDP address the library connects to (loopback by default)."""
+
+
 class CdpSessionAnswer(BaseModel):
     """What `cdp_session.send` answers: the browser's raw JSON result."""
 
@@ -2561,6 +2597,16 @@ class PageHandlerFailedDetails(BaseModel):
 class PageId(RootModel[str]):
     root: str
     """A page of a Run, named by the engine when it opens it."""
+
+
+class PageLendParams(BaseModel):
+    """What `page.lend` takes: the page to lend."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page to lend."""
 
 
 class PageMemoryExceededDetails(BaseModel):
@@ -4815,6 +4861,19 @@ class SessionParams(BaseModel):
     """The Session."""
 
 
+class SessionReservedDetails(BaseModel):
+    """
+    What `session_reserved` details: the Session that already has an active
+    lending attach.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    session_id: SessionId
+    """The Session that is already reserved by an open attach."""
+
+
 class SessionSource1(BaseModel):
     """A Saved identity, by its name."""
 
@@ -6376,6 +6435,16 @@ class CapabilityUnavailableDetails(BaseModel):
     """What it asks for, such as a Session source's kind."""
     layer: SettingsLayer
     """The layer that set it."""
+
+
+class CdpEndpointCloseParams(BaseModel):
+    """What `cdp_endpoint.close` takes: the lending endpoint to close."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cdp_endpoint_id: CdpEndpointId
+    """The lending endpoint."""
 
 
 class CdpSessionCloseParams(BaseModel):

@@ -61,6 +61,7 @@ pub mod emulation;
 pub mod events;
 pub mod functions;
 pub mod input;
+pub mod lend;
 pub mod pause;
 pub mod proxy;
 pub mod read;
@@ -2045,6 +2046,8 @@ pub const ENTRIES: Entries = Entries {
         cdp_session::CDP_SESSION_SEND,
         cdp_session::CDP_SESSION_CLOSE,
         cdp_session::CDP_SESSION_ON,
+        lend::PAGE_LEND,
+        lend::CDP_ENDPOINT_CLOSE,
     ],
     events: &[
         PAGE_DOWNLOAD,
@@ -2101,6 +2104,7 @@ pub const ENTRIES: Entries = Entries {
         session::PROFILE_DIRECTORY_NEWER_THAN_BROWSER,
         session::SESSION_NOT_SAVABLE,
         cdp_session::CDP_COMMAND_REFUSED,
+        lend::SESSION_RESERVED,
     ],
     plugin_kinds: &[],
     metrics: &[],

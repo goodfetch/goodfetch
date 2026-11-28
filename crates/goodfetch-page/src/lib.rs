@@ -37,6 +37,7 @@ mod init_scripts;
 mod input;
 mod interception;
 pub mod kept_tree;
+mod lending;
 #[cfg(test)]
 mod live_run;
 pub mod noindex;

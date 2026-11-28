@@ -135,6 +135,7 @@ mod blocking_off;
 mod cdp_session;
 mod clean_up;
 mod input;
+mod lend;
 mod pause;
 mod plugin_extractor;
 mod scroll_collect;
@@ -184,6 +185,7 @@ pub fn contribution_with(
         dialogs,
         pauses: pause::ActivePauses::default(),
         cdp_sessions: cdp_session::CdpSessions::default(),
+        lends: lend::ActiveLends::default(),
         product: handler_pages,
         blocks,
     };
@@ -208,6 +210,7 @@ pub fn contribution_with(
     let contribution = waits::with_wait_handlers(contribution, &pages);
     let contribution = pause::with_pause_handlers(contribution, &pages);
     let contribution = cdp_session::with_cdp_session_handlers(contribution, &pages);
+    let contribution = lend::with_lend_handlers(contribution, &pages);
     let contribution = scroll_collect::with_scroll_collect_handler(contribution, &pages);
     let contribution = with_request_handler(contribution, &pages);
     pages.product.opened(Arc::new(Opener {
@@ -1299,6 +1302,8 @@ struct Pages {
     pauses: pause::ActivePauses,
     /// The open raw CDP sessions (`page.new_cdp_session`).
     cdp_sessions: cdp_session::CdpSessions,
+    /// The open lending endpoints (`page.lend`).
+    lends: lend::ActiveLends,
     /// The Product's seam that sets what its handlers' pages carry, which
     /// also serves the pages its fetch tiers opened from a document.
     product: Arc<dyn HandlerPages>,

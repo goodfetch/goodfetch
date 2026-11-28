@@ -437,6 +437,13 @@ export type CatalogTarget =
       plan: string;
     };
 /**
+ * A lending endpoint opened on a page via `page.lend`.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CdpEndpointId".
+ */
+export type CdpEndpointId = string;
+/**
  * A raw CDP session opened on a page via `page.new_cdp_session`.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -2927,6 +2934,50 @@ export interface CdpCommandRefusedDetails {
    * Why the command was refused.
    */
   reason: string;
+}
+/**
+ * What `cdp_endpoint.close` takes: the lending endpoint to close.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CdpEndpointCloseParams".
+ */
+export interface CdpEndpointCloseParams {
+  /**
+   * The lending endpoint.
+   */
+  cdpEndpointId: CdpEndpointId;
+}
+/**
+ * What `cdp_endpoint.close` answers once the lending endpoint is closed and
+ * the Session's state is re-applied.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CdpEndpointClosed".
+ */
+export interface CdpEndpointClosed {}
+/**
+ * What `page.lend` answers: the lending endpoint's handle ID, WebSocket URL,
+ * and authentication headers carrying its per-attach token (ADR 0089).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CdpEndpointOpened".
+ */
+export interface CdpEndpointOpened {
+  /**
+   * The opened lending endpoint.
+   */
+  cdpEndpointId: CdpEndpointId;
+  /**
+   * The HTTP headers carrying the per-attach token that the library must
+   * send on its WebSocket handshake.
+   */
+  headers: {
+    [k: string]: string;
+  };
+  /**
+   * The WebSocket CDP address the library connects to (loopback by default).
+   */
+  url: string;
 }
 /**
  * What `cdp_session.send` answers: the browser's raw JSON result.
@@ -7715,6 +7766,18 @@ export interface PageHandlerFailedDetails {
   handler: PageHandler;
 }
 /**
+ * What `page.lend` takes: the page to lend.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageLendParams".
+ */
+export interface PageLendParams {
+  /**
+   * The page to lend.
+   */
+  pageId: PageId;
+}
+/**
  * What `page_memory_exceeded` details.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -10810,6 +10873,19 @@ export interface SessionPages {
 export interface SessionParams {
   /**
    * The Session.
+   */
+  sessionId: SessionId;
+}
+/**
+ * What `session_reserved` details: the Session that already has an active
+ * lending attach.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SessionReservedDetails".
+ */
+export interface SessionReservedDetails {
+  /**
+   * The Session that is already reserved by an open attach.
    */
   sessionId: SessionId;
 }

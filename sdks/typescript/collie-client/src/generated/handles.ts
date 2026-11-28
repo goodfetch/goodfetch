@@ -662,6 +662,16 @@ export class Page extends Handle implements AsyncDisposable {
   }
 
   /**
+   * Opens a scoped WebSocket CDP endpoint for a third-party automation library (Playwright, Puppeteer, Browser Use) showing only the lent page's Session (ADR 0089). Checks `Host`, `Origin` and a per-attach header token, marks the Session `Lent` (refusing a second lend on the Session with `session_reserved`), marks program results unguarded, stops Secret typing while attached, and re-applies Session state when the attach ends. Raises `capability_unavailable` on Firefox, WebKit, or a `stealth` Session without `stealth.allow_runtime`.
+   *
+   * @experimental
+   */
+  async lend(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<types.CdpEndpointOpened> {
+    warnExperimental("page.lend");
+    return this.#host.call("page.lend", { pageId: this.#host.id }, { signal: options.signal });
+  }
+
+  /**
    * Opens a raw CDP session on the page over the program's own connection, reaching only its page's target (ADR 0085). Marks results unguarded, records the attach in the Audit log, stops Secret typing while open, holds the page for the browser pool, and binds to a handler's lease check. Raises `capability_unavailable` on Firefox and WebKit.
    *
    * @experimental

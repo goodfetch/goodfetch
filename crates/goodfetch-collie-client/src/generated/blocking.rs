@@ -733,6 +733,22 @@ impl Page {
         )
     }
 
+    /// Opens a scoped WebSocket CDP endpoint for a third-party automation library (Playwright, Puppeteer, Browser Use) showing only the lent page's Session (ADR 0089). Checks `Host`, `Origin` and a per-attach header token, marks the Session `Lent` (refusing a second lend on the Session with `session_reserved`), marks program results unguarded, stops Secret typing while attached, and re-applies Session state when the attach ends. Raises `capability_unavailable` on Firefox, WebKit, or a `stealth` Session without `stealth.allow_runtime`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn lend(
+        &self,
+    ) -> crate::blocking::Call<
+        crate::Answer<::goodfetch_protocol::page::lend::CdpEndpointOpened>,
+        ::goodfetch_protocol::page::lend::PageLendParams,
+    > {
+        crate::blocking::Call::new(self.inner.lend(), self.inner.host.connection())
+    }
+
     /// Opens a raw CDP session on the page over the program's own connection, reaching only its page's target (ADR 0085). Marks results unguarded, records the attach in the Audit log, stops Secret typing while open, holds the page for the browser pool, and binds to a handler's lease check. Raises `capability_unavailable` on Firefox and WebKit.
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).

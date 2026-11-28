@@ -382,7 +382,7 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 123] = [
+    const COLLIE: [&str; 125] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -462,6 +462,8 @@ mod tests {
         "cdp_session.send",
         "cdp_session.close",
         "cdp_session.on",
+        "page.lend",
+        "cdp_endpoint.close",
         "signing_key.create",
         "signing_key.directory",
         "run.start",

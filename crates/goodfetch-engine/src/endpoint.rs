@@ -144,7 +144,7 @@ impl Authorities {
     }
 
     /// Whether `host`, a request's `Host`, is one of these names.
-    pub(crate) fn admits_host(&self, host: &str) -> bool {
+    pub fn admits_host(&self, host: &str) -> bool {
         self.names
             .iter()
             .any(|name| name.eq_ignore_ascii_case(host))
@@ -152,7 +152,7 @@ impl Authorities {
 
     /// Whether `origin`, a request's `Origin`, is one of these names over
     /// its scheme.
-    fn admits_origin(&self, origin: &str) -> bool {
+    pub fn admits_origin(&self, origin: &str) -> bool {
         origin
             .strip_prefix(self.origin_scheme)
             .is_some_and(|authority| self.admits_host(authority))

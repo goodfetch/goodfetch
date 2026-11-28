@@ -21,6 +21,7 @@ mod handler_page;
 mod human_pause;
 mod input_no_target;
 mod installed_browser;
+mod lending;
 mod listener_arming;
 mod locator_fill;
 mod navigation_gate;

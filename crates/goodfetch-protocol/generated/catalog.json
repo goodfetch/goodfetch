@@ -1926,6 +1926,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Session already has an open lending attach (`page.lend()`): a second lend on the same Session is refused until the active attach ends so one attach's end never restores state under another (ADR 0089).",
+      "details": {
+        "$ref": "#/$defs/SessionReservedDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "session_reserved",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A value of the wrong type or out of the setting's own range, an empty or unparsable deployment variable, or a settings file that does not parse.",
       "details": {
         "$ref": "#/$defs/SettingInvalidDetails"
@@ -3379,6 +3392,25 @@
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
+      "description": "Ends a Lent page's attach, revokes its token, closes pages the library created, re-applies the Session's state, and returns the Session to `Open`; closing an already-closed endpoint succeeds (ADR 0089).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "cdp_endpoint.close",
+      "params": {
+        "$ref": "#/$defs/CdpEndpointCloseParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/CdpEndpointClosed"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
       "description": "Closes the raw CDP session, releasing its page hold and external-reader mark; closing an already-closed CDP session succeeds.",
       "events": [],
       "kind": "round_trip",
@@ -4642,6 +4674,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Opens a scoped WebSocket CDP endpoint for a third-party automation library (Playwright, Puppeteer, Browser Use) showing only the lent page's Session (ADR 0089). Checks `Host`, `Origin` and a per-attach header token, marks the Session `Lent` (refusing a second lend on the Session with `session_reserved`), marks program results unguarded, stops Secret typing while attached, and re-applies Session state when the attach ends. Raises `capability_unavailable` on Firefox, WebKit, or a `stealth` Session without `stealth.allow_runtime`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.lend",
+      "params": {
+        "$ref": "#/$defs/PageLendParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/CdpEndpointOpened"
       },
       "stability": "experimental"
     },

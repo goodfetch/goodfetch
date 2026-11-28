@@ -1458,6 +1458,41 @@ impl Sessions {
             .map_or_else(|| page_closed(page_id), |(_, life)| life.crashed()))
     }
 
+    /// Transitions `session` from `Open` to `Lent` for `page.lend()` (ADR 0089).
+    /// Refuses a `stealth` Session without `stealth.allow_runtime` with
+    /// `capability_unavailable` and a second concurrent lend on the same
+    /// Session with `session_reserved`.
+    pub(crate) fn begin_lend(&self, session: &SessionId) -> Result<(), CallError> {
+        let open = self
+            .index
+            .session(session)
+            .ok_or_else(|| session_closed(session))?;
+        if let Some(refusal) = open
+            .fingerprint
+            .as_ref()
+            .and_then(FingerprintPlan::runtime_refusal)
+        {
+            return Err(refusal);
+        }
+        open.life.apply(SessionEvent::Lend, None).map(drop)
+    }
+
+    /// Re-applies `session`'s state to `page` and transitions `session` back
+    /// from `Lent` to `Open` when its attach ends (ADR 0089).
+    pub(crate) async fn end_lend(&self, session: &SessionId, page: &PageDriver) {
+        let Some(open) = self.index.session(session) else {
+            return;
+        };
+        if let Err(error) = open.seat.reapply_after_attach(page).await {
+            tracing::debug!(
+                %error,
+                session_id = %session.0,
+                "could not re-apply Session state after lend ended"
+            );
+        }
+        let _ = open.life.apply(SessionEvent::AttachEnded, None);
+    }
+
     /// The open Session `session`, reaching its Run first when this engine
     /// has not yet; `closed` when it is closed or its Run is not live.
     async fn session(

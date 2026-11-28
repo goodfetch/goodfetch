@@ -836,6 +836,20 @@ impl SessionLife {
                 .get()
                 .cloned()
                 .unwrap_or_else(|| browser_crashed(None)),
+            Refusal::Program(code)
+                if code == goodfetch_protocol::page::lend::SESSION_RESERVED.name =>
+            {
+                CallError::new(
+                    &goodfetch_protocol::page::lend::SESSION_RESERVED,
+                    format!(
+                        "session `{}` already has an open lending attach",
+                        self.shared.session.0
+                    ),
+                    &goodfetch_protocol::page::lend::SessionReservedDetails {
+                        session_id: self.shared.session.clone(),
+                    },
+                )
+            }
             Refusal::Program(_) | Refusal::Internal => invalid_transition(
                 "session",
                 &format!("{:?}", invalid.state),

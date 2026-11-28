@@ -3024,6 +3024,17 @@
       ]
     },
     {
+      "id": "error:session_reserved",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:setting_invalid",
       "kind": "error",
       "area": 3,
@@ -4033,6 +4044,17 @@
       ]
     },
     {
+      "id": "operation:cdp_endpoint.close",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:cdp_session.close",
       "kind": "operation",
       "area": 5,
@@ -4736,6 +4758,17 @@
     },
     {
       "id": "operation:page.keyboard.up",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:page.lend",
       "kind": "operation",
       "area": 5,
       "milestone": null,

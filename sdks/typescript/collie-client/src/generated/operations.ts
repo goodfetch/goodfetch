@@ -2,7 +2,7 @@
 
 import type { CallOptions, Caller } from "../caller.ts";
 import { type EntryMarkers, warnDeprecated, warnExperimental } from "../markers.ts";
-import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CdpSessionAnswer, CdpSessionCloseParams, CdpSessionClosed, CdpSessionOnEnded, CdpSessionOnParams, CdpSessionOpened, CdpSessionSendParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, HumanPauseResult, IdentitySaved, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, KeyboardInsertTextParams, KeyboardKeyParams, KeyboardPressParams, KeyboardTypeParams, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, MouseButtonParams, MouseClickParams, MouseDblclickParams, MouseMoveParams, MouseWheelParams, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageNewCdpSessionParams, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PagePauseParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SaveIdentityParams, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScrollCollected, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TouchscreenTapParams, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
+import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CdpEndpointCloseParams, CdpEndpointClosed, CdpEndpointOpened, CdpSessionAnswer, CdpSessionCloseParams, CdpSessionClosed, CdpSessionOnEnded, CdpSessionOnParams, CdpSessionOpened, CdpSessionSendParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, HumanPauseResult, IdentitySaved, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, KeyboardInsertTextParams, KeyboardKeyParams, KeyboardPressParams, KeyboardTypeParams, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, MouseButtonParams, MouseClickParams, MouseDblclickParams, MouseMoveParams, MouseWheelParams, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageLendParams, PageNewCdpSessionParams, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PagePauseParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SaveIdentityParams, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScrollCollected, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TouchscreenTapParams, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
 import { warnDeprecatedSettings } from "./settings.ts";
 
 export type { CallOptions, Caller, OperationTypes } from "../caller.ts";
@@ -15,6 +15,7 @@ export interface CollieOperationTypes {
   "cache.stats": { params: CacheStatsParams; result: CacheStats };
   "cache.verify": { params: CacheVerifyParams; result: CacheVerified };
   "catalog_run.start": { params: CatalogRunStartParams; result: RunStarted };
+  "cdp_endpoint.close": { params: CdpEndpointCloseParams; result: CdpEndpointClosed };
   "cdp_session.close": { params: CdpSessionCloseParams; result: CdpSessionClosed };
   "cdp_session.on": { params: CdpSessionOnParams; result: CdpSessionOnEnded };
   "cdp_session.send": { params: CdpSessionSendParams; result: CdpSessionAnswer };
@@ -60,6 +61,7 @@ export interface CollieOperationTypes {
   "page.keyboard.press": { params: KeyboardPressParams; result: Acted };
   "page.keyboard.type": { params: KeyboardTypeParams; result: Acted };
   "page.keyboard.up": { params: KeyboardKeyParams; result: Acted };
+  "page.lend": { params: PageLendParams; result: CdpEndpointOpened };
   "page.mouse.click": { params: MouseClickParams; result: Acted };
   "page.mouse.dblclick": { params: MouseDblclickParams; result: Acted };
   "page.mouse.down": { params: MouseButtonParams; result: Acted };
@@ -132,6 +134,7 @@ export const collieOperations: Readonly<Record<keyof CollieOperationTypes, Entry
   "cache.stats": { experimental: true, deprecated: undefined },
   "cache.verify": { experimental: true, deprecated: undefined },
   "catalog_run.start": { experimental: true, deprecated: undefined },
+  "cdp_endpoint.close": { experimental: true, deprecated: undefined },
   "cdp_session.close": { experimental: true, deprecated: undefined },
   "cdp_session.on": { experimental: true, deprecated: undefined },
   "cdp_session.send": { experimental: true, deprecated: undefined },
@@ -177,6 +180,7 @@ export const collieOperations: Readonly<Record<keyof CollieOperationTypes, Entry
   "page.keyboard.press": { experimental: true, deprecated: undefined },
   "page.keyboard.type": { experimental: true, deprecated: undefined },
   "page.keyboard.up": { experimental: true, deprecated: undefined },
+  "page.lend": { experimental: true, deprecated: undefined },
   "page.mouse.click": { experimental: true, deprecated: undefined },
   "page.mouse.dblclick": { experimental: true, deprecated: undefined },
   "page.mouse.down": { experimental: true, deprecated: undefined },
@@ -249,6 +253,7 @@ export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, s
   "cache.stats": "cache.stats",
   "cache.verify": "cache.verify",
   "catalog_run.start": "catalogRun.start",
+  "cdp_endpoint.close": "cdpEndpoint.close",
   "cdp_session.close": "cdpSession.close",
   "cdp_session.on": "cdpSession.on",
   "cdp_session.send": "cdpSession.send",
@@ -294,6 +299,7 @@ export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, s
   "page.keyboard.press": "page.keyboard.press",
   "page.keyboard.type": "page.keyboard.type",
   "page.keyboard.up": "page.keyboard.up",
+  "page.lend": "page.lend",
   "page.mouse.click": "page.mouse.click",
   "page.mouse.dblclick": "page.mouse.dblclick",
   "page.mouse.down": "page.mouse.down",
@@ -366,6 +372,7 @@ export const collieOperationClasses: Readonly<Record<keyof CollieOperationTypes,
   "cache.stats": "read",
   "cache.verify": "read",
   "catalog_run.start": "idempotent_write",
+  "cdp_endpoint.close": "idempotent_write",
   "cdp_session.close": "idempotent_write",
   "cdp_session.on": "read",
   "cdp_session.send": "effect",
@@ -411,6 +418,7 @@ export const collieOperationClasses: Readonly<Record<keyof CollieOperationTypes,
   "page.keyboard.press": "effect",
   "page.keyboard.type": "effect",
   "page.keyboard.up": "effect",
+  "page.lend": "effect",
   "page.mouse.click": "effect",
   "page.mouse.dblclick": "effect",
   "page.mouse.down": "effect",
@@ -542,6 +550,16 @@ export class CollieOperations {
     warnExperimental("catalog_run.start");
     warnDeprecatedSettings(params.settings);
     return this.#caller.call("catalog_run.start", params, {});
+  }
+
+  /**
+   * Ends a Lent page's attach, revokes its token, closes pages the library created, re-applies the Session's state, and returns the Session to `Open`; closing an already-closed endpoint succeeds (ADR 0089).
+   *
+   * @experimental
+   */
+  cdpEndpointClose(params: CdpEndpointCloseParams, options: CallOptions = {}): Promise<CdpEndpointClosed> {
+    warnExperimental("cdp_endpoint.close");
+    return this.#caller.call("cdp_endpoint.close", params, options);
   }
 
   /**
@@ -978,6 +996,16 @@ export class CollieOperations {
   pageKeyboardUp(params: KeyboardKeyParams, options: CallOptions = {}): Promise<Acted> {
     warnExperimental("page.keyboard.up");
     return this.#caller.call("page.keyboard.up", params, options);
+  }
+
+  /**
+   * Opens a scoped WebSocket CDP endpoint for a third-party automation library (Playwright, Puppeteer, Browser Use) showing only the lent page's Session (ADR 0089). Checks `Host`, `Origin` and a per-attach header token, marks the Session `Lent` (refusing a second lend on the Session with `session_reserved`), marks program results unguarded, stops Secret typing while attached, and re-applies Session state when the attach ends. Raises `capability_unavailable` on Firefox, WebKit, or a `stealth` Session without `stealth.allow_runtime`.
+   *
+   * @experimental
+   */
+  pageLend(params: PageLendParams, options: CallOptions = {}): Promise<CdpEndpointOpened> {
+    warnExperimental("page.lend");
+    return this.#caller.call("page.lend", params, options);
   }
 
   /**

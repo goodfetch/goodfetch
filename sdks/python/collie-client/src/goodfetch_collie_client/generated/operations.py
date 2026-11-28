@@ -13,7 +13,7 @@ from typing_extensions import deprecated
 from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 from goodfetch_collie_client.markers import warn_deprecated, warn_deprecated_settings, warn_experimental
 
-from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CdpSessionAnswer, CdpSessionCloseParams, CdpSessionClosed, CdpSessionOnEnded, CdpSessionOnParams, CdpSessionOpened, CdpSessionSendParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, HumanPauseResult, IdentitySaved, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, KeyboardInsertTextParams, KeyboardKeyParams, KeyboardPressParams, KeyboardTypeParams, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, MouseButtonParams, MouseClickParams, MouseDblclickParams, MouseMoveParams, MouseWheelParams, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageNewCdpSessionParams, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PagePauseParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SaveIdentityParams, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScrollCollected, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TouchscreenTapParams, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
+from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CdpEndpointCloseParams, CdpEndpointClosed, CdpEndpointOpened, CdpSessionAnswer, CdpSessionCloseParams, CdpSessionClosed, CdpSessionOnEnded, CdpSessionOnParams, CdpSessionOpened, CdpSessionSendParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, HumanPauseResult, IdentitySaved, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, KeyboardInsertTextParams, KeyboardKeyParams, KeyboardPressParams, KeyboardTypeParams, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, MouseButtonParams, MouseClickParams, MouseDblclickParams, MouseMoveParams, MouseWheelParams, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageLendParams, PageNewCdpSessionParams, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PagePauseParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SaveIdentityParams, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScrollCollected, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TouchscreenTapParams, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
 from .settings import DEPRECATED_SETTINGS
 
 
@@ -72,6 +72,14 @@ class AsyncCollieOperations:
         warn_experimental("catalog_run.start")
         warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(RunStarted, await self._caller.call("catalog_run.start", params))
+
+    async def cdp_endpoint_close(self, params: CdpEndpointCloseParams) -> CdpEndpointClosed:
+        """Ends a Lent page's attach, revokes its token, closes pages the library created, re-applies the Session's state, and returns the Session to `Open`; closing an already-closed endpoint succeeds (ADR 0089).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("cdp_endpoint.close")
+        return result_of(CdpEndpointClosed, await self._caller.call("cdp_endpoint.close", params))
 
     async def cdp_session_close(self, params: CdpSessionCloseParams) -> CdpSessionClosed:
         """Closes the raw CDP session, releasing its page hold and external-reader mark; closing an already-closed CDP session succeeds.
@@ -413,6 +421,14 @@ class AsyncCollieOperations:
         """
         warn_experimental("page.keyboard.up")
         return result_of(Acted, await self._caller.call("page.keyboard.up", params))
+
+    async def page_lend(self, params: PageLendParams) -> CdpEndpointOpened:
+        """Opens a scoped WebSocket CDP endpoint for a third-party automation library (Playwright, Puppeteer, Browser Use) showing only the lent page's Session (ADR 0089). Checks `Host`, `Origin` and a per-attach header token, marks the Session `Lent` (refusing a second lend on the Session with `session_reserved`), marks program results unguarded, stops Secret typing while attached, and re-applies Session state when the attach ends. Raises `capability_unavailable` on Firefox, WebKit, or a `stealth` Session without `stealth.allow_runtime`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.lend")
+        return result_of(CdpEndpointOpened, await self._caller.call("page.lend", params))
 
     async def page_mouse_click(self, params: MouseClickParams) -> Acted:
         """Moves the mouse to a point of the page's viewport and clicks there: the button goes down and up `click_count` times. Marked unguarded in Provenance: no element is checked (ADR 0085).
@@ -969,6 +985,14 @@ class CollieOperations:
         warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(RunStarted, self._caller.call("catalog_run.start", params))
 
+    def cdp_endpoint_close(self, params: CdpEndpointCloseParams) -> CdpEndpointClosed:
+        """Ends a Lent page's attach, revokes its token, closes pages the library created, re-applies the Session's state, and returns the Session to `Open`; closing an already-closed endpoint succeeds (ADR 0089).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("cdp_endpoint.close")
+        return result_of(CdpEndpointClosed, self._caller.call("cdp_endpoint.close", params))
+
     def cdp_session_close(self, params: CdpSessionCloseParams) -> CdpSessionClosed:
         """Closes the raw CDP session, releasing its page hold and external-reader mark; closing an already-closed CDP session succeeds.
 
@@ -1309,6 +1333,14 @@ class CollieOperations:
         """
         warn_experimental("page.keyboard.up")
         return result_of(Acted, self._caller.call("page.keyboard.up", params))
+
+    def page_lend(self, params: PageLendParams) -> CdpEndpointOpened:
+        """Opens a scoped WebSocket CDP endpoint for a third-party automation library (Playwright, Puppeteer, Browser Use) showing only the lent page's Session (ADR 0089). Checks `Host`, `Origin` and a per-attach header token, marks the Session `Lent` (refusing a second lend on the Session with `session_reserved`), marks program results unguarded, stops Secret typing while attached, and re-applies Session state when the attach ends. Raises `capability_unavailable` on Firefox, WebKit, or a `stealth` Session without `stealth.allow_runtime`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.lend")
+        return result_of(CdpEndpointOpened, self._caller.call("page.lend", params))
 
     def page_mouse_click(self, params: MouseClickParams) -> Acted:
         """Moves the mouse to a point of the page's viewport and clicks there: the button goes down and up `click_count` times. Marked unguarded in Provenance: no element is checked (ADR 0085).
@@ -1815,6 +1847,7 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "cache.stats",
     "cache.verify",
     "catalog_run.start",
+    "cdp_endpoint.close",
     "cdp_session.close",
     "cdp_session.on",
     "cdp_session.send",
@@ -1855,6 +1888,7 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "page.keyboard.press",
     "page.keyboard.type",
     "page.keyboard.up",
+    "page.lend",
     "page.mouse.click",
     "page.mouse.dblclick",
     "page.mouse.down",
@@ -1932,6 +1966,7 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "cache.stats": "read",
     "cache.verify": "read",
     "catalog_run.start": "idempotent_write",
+    "cdp_endpoint.close": "idempotent_write",
     "cdp_session.close": "idempotent_write",
     "cdp_session.on": "read",
     "cdp_session.send": "effect",
@@ -1977,6 +2012,7 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "page.keyboard.press": "effect",
     "page.keyboard.type": "effect",
     "page.keyboard.up": "effect",
+    "page.lend": "effect",
     "page.mouse.click": "effect",
     "page.mouse.dblclick": "effect",
     "page.mouse.down": "effect",

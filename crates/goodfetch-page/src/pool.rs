@@ -1280,6 +1280,12 @@ impl Seat {
         answered.await.unwrap_or(false)
     }
 
+    /// Re-applies this Session's device emulation, permissions, and identity
+    /// overrides to `page` after a Lent page's attach ends (ADR 0089).
+    pub(crate) async fn reapply_after_attach(&self, page: &PageDriver) -> Result<(), CallError> {
+        page.reapply_after_attach(&self.shared.emulation).await
+    }
+
     /// Closes the Session's browser contexts, and with them every page in
     /// them; its browsers stay, for the Run's other Sessions.
     pub(crate) async fn close(&self) {

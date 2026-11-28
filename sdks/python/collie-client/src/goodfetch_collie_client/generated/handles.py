@@ -519,6 +519,14 @@ class AsyncPage(AsyncHandle):
         response = result_of(models.Navigated, await self._host.call("page.goto", params, timeout_setting="timeout.navigation")).response
         return None if response is None else AsyncResponse(self._host, response)
 
+    async def lend(self) -> models.CdpEndpointOpened:
+        """Opens a scoped WebSocket CDP endpoint for a third-party automation library (Playwright, Puppeteer, Browser Use) showing only the lent page's Session (ADR 0089). Checks `Host`, `Origin` and a per-attach header token, marks the Session `Lent` (refusing a second lend on the Session with `session_reserved`), marks program results unguarded, stops Secret typing while attached, and re-applies Session state when the attach ends. Raises `capability_unavailable` on Firefox, WebKit, or a `stealth` Session without `stealth.allow_runtime`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.lend")
+        return result_of(models.CdpEndpointOpened, await self._host.call("page.lend", models.PageLendParams(page_id=self._host.id)))
+
     async def new_cdp_session(self) -> AsyncCDPSession:
         """Opens a raw CDP session on the page over the program's own connection, reaching only its page's target (ADR 0085). Marks results unguarded, records the attach in the Audit log, stops Secret typing while open, holds the page for the browser pool, and binds to a handler's lease check. Raises `capability_unavailable` on Firefox and WebKit.
 
@@ -1409,6 +1417,14 @@ class Page(Handle):
             params.wait_until = None if wait_until is None else models.WaitUntil(wait_until)
         response = result_of(models.Navigated, self._host.call("page.goto", params, timeout_setting="timeout.navigation")).response
         return None if response is None else Response(self._host, response)
+
+    def lend(self) -> models.CdpEndpointOpened:
+        """Opens a scoped WebSocket CDP endpoint for a third-party automation library (Playwright, Puppeteer, Browser Use) showing only the lent page's Session (ADR 0089). Checks `Host`, `Origin` and a per-attach header token, marks the Session `Lent` (refusing a second lend on the Session with `session_reserved`), marks program results unguarded, stops Secret typing while attached, and re-applies Session state when the attach ends. Raises `capability_unavailable` on Firefox, WebKit, or a `stealth` Session without `stealth.allow_runtime`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.lend")
+        return result_of(models.CdpEndpointOpened, self._host.call("page.lend", models.PageLendParams(page_id=self._host.id)))
 
     def new_cdp_session(self) -> CDPSession:
         """Opens a raw CDP session on the page over the program's own connection, reaching only its page's target (ADR 0085). Marks results unguarded, records the attach in the Audit log, stops Secret typing while open, holds the page for the browser pool, and binds to a handler's lease check. Raises `capability_unavailable` on Firefox and WebKit.

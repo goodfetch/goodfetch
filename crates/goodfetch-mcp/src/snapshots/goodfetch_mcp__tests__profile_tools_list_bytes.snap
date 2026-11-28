@@ -6,45 +6,45 @@ expression: "serde_json::to_string_pretty(&Value::Object(profile_sizes)).unwrap(
   "collie": {
     "agent": {
       "tool_count": 19,
-      "tools_list_bytes": 55273
+      "tools_list_bytes": 56847
     },
     "browser": {
       "tool_count": 19,
-      "tools_list_bytes": 55273
+      "tools_list_bytes": 56847
     },
     "code": {
       "tool_count": 0,
       "tools_list_bytes": 36
     },
     "full": {
-      "tool_count": 59,
-      "tools_list_bytes": 151837
+      "tool_count": 65,
+      "tools_list_bytes": 163165
     },
     "run": {
       "tool_count": 22,
-      "tools_list_bytes": 73056
+      "tools_list_bytes": 75750
     }
   },
   "foxhound": {
     "agent": {
       "tool_count": 19,
-      "tools_list_bytes": 55273
+      "tools_list_bytes": 56847
     },
     "browser": {
       "tool_count": 19,
-      "tools_list_bytes": 55273
+      "tools_list_bytes": 56847
     },
     "code": {
       "tool_count": 0,
       "tools_list_bytes": 36
     },
     "full": {
-      "tool_count": 76,
-      "tools_list_bytes": 241066
+      "tool_count": 82,
+      "tools_list_bytes": 253734
     },
     "run": {
       "tool_count": 22,
-      "tools_list_bytes": 73056
+      "tools_list_bytes": 75750
     }
   }
 }

@@ -3690,7 +3690,7 @@
       "type": "object"
     },
     "CrawlRequestRef": {
-      "description": "A crawl request named by an uncertain Effect (ADRs 0106 and 0118).",
+      "description": "A crawl request named by an uncertain Effect (ADR 0106).",
       "properties": {
         "id": {
           "arrived_in": "0.1",

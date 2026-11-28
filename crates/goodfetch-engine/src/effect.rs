@@ -212,7 +212,7 @@ impl Book {
         let Some(at) = self
             .bodies
             .iter()
-            .position(|body| body.namespace == namespace && body.key == key)
+            .position(|body| body.namespace() == namespace && body.key == key)
         else {
             return KeyCheck::Free;
         };
@@ -237,7 +237,6 @@ enum KeyCheck {
 /// A body that runs.
 struct Body {
     entry: i64,
-    namespace: String,
     request: Option<CrawlRequestRef>,
     key: String,
     repeatable: bool,
@@ -249,6 +248,15 @@ struct Body {
 }
 
 impl Body {
+    /// Its Effect namespace: the crawl request's ID in a crawl, or `""` on a
+    /// Collie Run, derived from `request` so in-memory keys and the journal's
+    /// `namespace` column share one invariant.
+    fn namespace(&self) -> &str {
+        self.request
+            .as_ref()
+            .map_or("", |request| request.id.as_str())
+    }
+
     /// Its state in the transition table.
     fn state(&self) -> EffectState {
         match (self.sent.is_some(), self.repeatable) {
@@ -424,31 +432,45 @@ impl Effects {
                 None => None,
             },
         };
-        let namespace = owner
+        let requested_namespace = owner
             .attempt
             .as_ref()
-            .map_or_else(String::new, |attempt| attempt.id.crawl_request_id.clone());
+            .map_or("", |attempt| attempt.id.crawl_request_id.as_str());
         let run_shelf = self.shelf(&run_id).await;
         let identity = &run.identity;
         let mut book = run_shelf
-            .free_key(identity, &namespace, &key, &owner, context)
+            .free_key(identity, requested_namespace, &key, &owner, context)
             .await?;
         let request = match &owner.attempt {
-            Some(attempt) => Some(
-                attempt
+            Some(attempt) => {
+                let request = attempt
                     .writes
                     .begin_effect(&attempt.id.crawl_request_id, attempt.id.lease_epoch)
-                    .map_err(unstaged)?,
-            ),
+                    .map_err(unstaged)?;
+                if request.id.is_empty() || request.id != attempt.id.crawl_request_id {
+                    owner.end_effect();
+                    return Err(CallError::protocol(
+                        ProtocolFailure::InternalError,
+                        format!(
+                            "attempt staging returned crawl request `{}` for attempt `{}`",
+                            request.id, attempt.id.crawl_request_id
+                        ),
+                    ));
+                }
+                Some(request)
+            }
             None => None,
         };
+        let namespace = request
+            .as_ref()
+            .map_or("", |request| request.id.as_str())
+            .to_owned();
         let declaring = (identity, &run.state);
         let answer = match declared(declaring, request.as_ref(), &key, repeatable, context).await {
             Ok(Declared::Perform { entry, secret }) => {
                 let idempotency_key = idempotency_key(&secret, &namespace, &key);
                 book.push_body(Body {
                     entry,
-                    namespace,
                     request,
                     key,
                     repeatable,
@@ -552,7 +574,8 @@ impl Effects {
         };
         body.owner.end_effect();
         if matches!(judged, Ok(EffectClosed::Done { .. })) {
-            book.record_answered(body.namespace, body.key, body.owner);
+            let namespace = body.namespace().to_owned();
+            book.record_answered(namespace, body.key, body.owner);
         }
         run_shelf.judged.notify_waiters();
         judged

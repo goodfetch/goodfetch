@@ -3537,7 +3537,7 @@ export interface CpuReading {
   tokioBusy: number;
 }
 /**
- * A crawl request named by an uncertain Effect (ADRs 0106 and 0118).
+ * A crawl request named by an uncertain Effect (ADR 0106).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "CrawlRequestRef".

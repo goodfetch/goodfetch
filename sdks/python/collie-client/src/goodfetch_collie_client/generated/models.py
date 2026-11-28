@@ -683,7 +683,7 @@ class CpuReading(BaseModel):
 
 
 class CrawlRequestRef(BaseModel):
-    """A crawl request named by an uncertain Effect (ADRs 0106 and 0118)."""
+    """A crawl request named by an uncertain Effect (ADR 0106)."""
 
     model_config = ConfigDict(
         extra="allow",

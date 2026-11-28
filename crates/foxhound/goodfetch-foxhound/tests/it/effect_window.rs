@@ -30,14 +30,35 @@ fn declared(inside: &mut Inside<'_>, handle: &Value, key: &str) -> Value {
     )
 }
 
-/// Each body's key, state and first command in the Run `run_id`, in the
-/// order declared.
-fn journal(env: &TestEnv, run_id: &str) -> Vec<(String, String, Option<String>)> {
+/// Each body's key, state, first command and crawl request reference in the
+/// Run `run_id`, in the order declared.
+type JournalRow = (
+    String,
+    String,
+    Option<String>,
+    String,
+    Option<String>,
+    Option<String>,
+);
+
+fn journal(env: &TestEnv, run_id: &str) -> Vec<JournalRow> {
     Connection::open(HomeLayout::of(env.home()).run_file(run_id))
         .unwrap()
-        .prepare("SELECT key, state, first_command FROM effect_journal ORDER BY entry")
+        .prepare(
+            "SELECT key, state, first_command, namespace, request_url, request_label \
+             FROM effect_journal ORDER BY entry",
+        )
         .unwrap()
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+            ))
+        })
         .unwrap()
         .map(Result::unwrap)
         .collect()
@@ -46,7 +67,8 @@ fn journal(env: &TestEnv, run_id: &str) -> Vec<(String, String, Option<String>)>
 /// The first attempt declares `other` and answers; the second declares
 /// `order`, then navigates its served page, whose fetch hop marks `order`
 /// sent and leaves `other` open: at the Run's end, `order` is left
-/// `uncertain` with its first command, and `other`, never sent, is dropped.
+/// `uncertain` with its first command and crawl request reference, and
+/// `other`, never sent, is dropped.
 ///
 /// Covers: operation:effect.open, operation:page.goto
 #[test]
@@ -61,10 +83,19 @@ fn an_attempts_fetch_hop_marks_its_own_body_sent_and_not_another_attempts() {
     let mut engine = site.engine(&env);
 
     let mut replies = Vec::new();
+    let mut second_request: Option<(String, String, String)> = None;
     crawl(&mut engine, "window", &seeds, &mut |inside, handle| {
         if replies.is_empty() {
             replies.push(declared(inside, handle, "other"));
         } else {
+            second_request = Some((
+                handle["crawl_request"]["id"].as_str().unwrap().to_owned(),
+                handle["crawl_request"]["url"].as_str().unwrap().to_owned(),
+                handle["crawl_request"]["label"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+            ));
             replies.push(declared(inside, handle, "order"));
             replies.push(inside.call(
                 "page.goto",
@@ -75,6 +106,7 @@ fn an_attempts_fetch_hop_marks_its_own_body_sent_and_not_another_attempts() {
     });
     assert!(engine.finished());
 
+    let (request_id, request_url, request_label) = second_request.unwrap();
     assert!(
         replies.len() == 3 && replies.iter().all(|reply| reply.get("result").is_some()),
         "{replies:?}"
@@ -84,7 +116,10 @@ fn an_attempts_fetch_hop_marks_its_own_body_sent_and_not_another_attempts() {
         vec![(
             "order".to_owned(),
             "uncertain".to_owned(),
-            Some("page.goto".to_owned())
+            Some("page.goto".to_owned()),
+            request_id,
+            Some(request_url),
+            Some(request_label),
         )]
     );
 }

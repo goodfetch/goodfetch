@@ -1,5 +1,5 @@
 {
-  "description": "`run/complete-error-details.json` played by a Collie Daemon: the same steps, the Client's hello carrying the Daemon's token. A Run started and a page opened in it (ADRs 0092 and 0114): a fill of the `shop_totp` placeholder fails with `secret_unavailable`, `failure: \"no_code\"`, and a click with `page_navigated_during_call`, naming both documents and the fix, which no call of this protocol sends yet, so a click carries it; then two navigations fail with `blocked`, one for `rate_limit` with the site's time and one for a cause no catalog names; the Run then finishes. The `complete-error-details` client conformance case, played as a Daemon.",
+  "description": "`run/complete-error-details.json` played by a Collie Daemon: the same steps, the Client's hello carrying the Daemon's token. Covers `secret_unavailable` (`failure: \"no_code\"`), `page_navigated_during_call`, `blocked` (`rate_limit` with point-in-time `retry_after`, and unknown `geo_block`), `model_unavailable` (duration `retry_after`), `effect_uncertain` (`request: null`), `artifact_unavailable_offline` (`pinned_by` list, `limit`, `fix`), and `too_many_redirects` (`hops` and browser `limit`). The `complete-error-details` client conformance case, played as a Daemon.",
   "steps": [
     {
       "expect": {

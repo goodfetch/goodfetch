@@ -231,6 +231,12 @@ def check_played(client_case: ClientCaseRecord, answered: Played) -> None:
             artifact_offline.group,
             artifact_offline.retryable,
         ) == ("artifact_unavailable_offline", "refused", False)
+        assert artifact_offline.limit is not None
+        assert artifact_offline.limit.model_dump(mode="json", exclude_none=True) == {
+            "key": "offline",
+            "value": True,
+            "layer": "run",
+        }
         assert (
             artifact_offline.fix
             == "Run `collie browser install` where the cache is writable."
@@ -276,7 +282,12 @@ async def test_reads_every_detail_each_failures_code_declares(
     product: ToolProduct,
     client_case: ClientCaseRecord,
 ) -> None:
-    """`no_code`, both documents of a navigation it did not start, and `blocked`."""
+    """All complete-error-details failures across the suite.
+
+    Covers `no_code`, `page_navigated_during_call`, `blocked`,
+    `model_unavailable`, `effect_uncertain`, `artifact_unavailable_offline`,
+    and `too_many_redirects`.
+    """
     env = scripted_engine_env(
         test_env, product, "sdk-python/run/complete-error-details.json"
     )

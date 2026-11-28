@@ -14,8 +14,10 @@ use std::time::Duration;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::lease::{LeaseCheck as _, LeaseEnded};
+use goodfetch_engine::staging::AttemptWrites as _;
 use goodfetch_protocol::connection::WaitedFor;
-use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, TIMEOUT_HANDLER};
+use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, CrawlRequest, TIMEOUT_HANDLER};
+use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::run::CrawlRequestRef;
 use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_ACTION};
@@ -24,7 +26,8 @@ use serde_json::{Value, json};
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 
-use super::{Lease, Leases};
+use super::{Lease, Leases, request_ref};
+use crate::staging::Staging;
 
 fn request(id: &str) -> CrawlRequestRef {
     CrawlRequestRef {
@@ -104,6 +107,38 @@ fn a_default_lease_ends_seventy_seconds_after_its_grant() {
             (ended, clock.now().duration_since(start), lease.check()),
             (LeaseEnded::Lost, DEFAULT_LEASE, Err(LeaseEnded::Lost))
         );
+    });
+}
+
+#[test]
+fn request_ref_maps_id_url_and_label_and_restage_preserves_it_for_begin_effect() {
+    let crawl_request = CrawlRequest {
+        id: "req-42".to_owned(),
+        url: "https://shop.test/items/42".to_owned(),
+        label: "product".to_owned(),
+        payload: None,
+        method: HttpMethod::get(),
+        headers: std::collections::BTreeMap::new(),
+        body: None,
+    };
+    let expected = CrawlRequestRef {
+        id: "req-42".to_owned(),
+        url: "https://shop.test/items/42".to_owned(),
+        label: "product".to_owned(),
+    };
+    assert_eq!(request_ref(&crawl_request), expected);
+
+    on_paused_clock(async |leases, _clock| {
+        let staging = Staging::default();
+        let leases = leases.staging_in(staging.clone());
+        let lease = leases.grant(request_ref(&crawl_request), 3, DEFAULT_LEASE);
+        let _ = lease.restage();
+        assert_eq!(
+            staging.begin_effect("req-42", 3).unwrap(),
+            expected,
+            "restage keeps the attempt's CrawlRequestRef for begin_effect"
+        );
+        staging.end_effect("req-42", 3);
     });
 }
 

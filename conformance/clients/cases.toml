@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "68"
+version = "69"
 
 [[capability]]
 name = "lifecycle"
@@ -510,7 +510,6 @@ covers = [
   "block-cause:rate_limit",
 ]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
-modes = { sdk-rust = ["daemon"] }
 
 # Unknown values from a newer engine (ADR 0079; issue 3011): each value a
 # Client reads that no catalog of its package has is kept as received and

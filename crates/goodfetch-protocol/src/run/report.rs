@@ -580,7 +580,7 @@ pub struct SeedsKept {
     pub count: u64,
 }
 
-/// A crawl request named by an uncertain Effect (ADRs 0106 and 0118).
+/// A crawl request named by an uncertain Effect (ADR 0106).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CrawlRequestRef {
     /// The crawl request's ID.

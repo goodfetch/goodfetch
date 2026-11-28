@@ -101,7 +101,7 @@ struct Admitted {
 /// What one attempt staged so far.
 struct Entry {
     /// The crawl request the attempt serves.
-    request: CrawlRequestRef,
+    request: Arc<CrawlRequestRef>,
     admitted: Vec<Admitted>,
     /// What its admissions did beside the run file, the Frontier
     /// identities of the requests they added among it, which its later
@@ -119,7 +119,7 @@ struct Entry {
 }
 
 impl Entry {
-    fn new(request: CrawlRequestRef) -> Self {
+    fn new(request: Arc<CrawlRequestRef>) -> Self {
         Self {
             request,
             admitted: Vec::new(),
@@ -334,7 +334,8 @@ impl Staging {
 
     /// Opens the staging of the attempt of `request` under `lease_epoch`,
     /// as its lease is granted.
-    pub(crate) fn open(&self, request: CrawlRequestRef, lease_epoch: u64) {
+    pub(crate) fn open(&self, request: impl Into<Arc<CrawlRequestRef>>, lease_epoch: u64) {
+        let request = request.into();
         let key = AttemptKey::of(&request.id, lease_epoch);
         self.entries().insert(key, Entry::new(request));
     }
@@ -371,7 +372,7 @@ impl Staging {
     pub(crate) fn set_aside(&self, attempt: AttemptKey<&str>) -> Option<SetAside> {
         let mut entries = self.entries();
         let entry = entries.get_mut(&attempt.owned())?;
-        let request = entry.request.clone();
+        let request = Arc::clone(&entry.request);
         Some(SetAside(std::mem::replace(entry, Entry::new(request))))
     }
 
@@ -682,7 +683,7 @@ impl AttemptWrites for Staging {
             .get_mut(&attempt.owned())
             .map(|entry| {
                 entry.effects += 1;
-                entry.request.clone()
+                (*entry.request).clone()
             })
             .ok_or_else(|| ended(attempt))?;
         self.declaring().insert(crawl_request_id.to_owned());

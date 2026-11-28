@@ -217,6 +217,20 @@ fn an_enqueue_or_a_write_inside_an_effects_body_fails_with_effect_staging_refuse
     };
 
     assert_eq!(staging.begin_effect("1", 1).unwrap(), request("1"));
+    staging.end_effect("1", 1);
+    let saved = staging.set_aside(AttemptKey::new("1", 1)).unwrap();
+    assert_eq!(
+        staging.begin_effect("1", 1).unwrap(),
+        request("1"),
+        "set_aside keeps the attempt's CrawlRequestRef"
+    );
+    staging.end_effect("1", 1);
+    staging.put_back(AttemptKey::new("1", 1), saved);
+    assert_eq!(
+        staging.begin_effect("1", 1).unwrap(),
+        request("1"),
+        "put_back restores the attempt's CrawlRequestRef"
+    );
     let enqueued = staging
         .admit(&connection, "1", 1, enqueue("https://shop.test/b"))
         .unwrap()

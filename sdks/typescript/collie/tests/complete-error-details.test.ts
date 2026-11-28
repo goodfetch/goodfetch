@@ -202,6 +202,7 @@ async function checkPlayed(clientCase: ClientCaseRecord, answered: Played): Prom
         code: "artifact_unavailable_offline",
         group: "refused",
         retryable: false,
+        limit: { key: "offline", value: true, layer: "run" },
         fix: "Run `collie browser install` where the cache is writable.",
         typedDetails: {
           artifact: {

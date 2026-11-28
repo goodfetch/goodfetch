@@ -174,6 +174,8 @@ INSERT INTO "record_search_data" VALUES(1,X'');
 INSERT INTO "record_search_data" VALUES(10,X'00000000FF000001000000');
 CREATE TABLE 'record_search_docsize'(id INTEGER PRIMARY KEY, sz BLOB, origin INTEGER);
 CREATE TABLE 'record_search_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID;
+CREATE TABLE recorded_responses ( position INTEGER PRIMARY KEY AUTOINCREMENT, recorded_at TEXT NOT NULL, method TEXT NOT NULL, url TEXT NOT NULL, request_headers TEXT NOT NULL, request_body BLOB NOT NULL, status INTEGER NOT NULL, response_headers TEXT NOT NULL, response_body BLOB NOT NULL, truncated INTEGER NOT NULL CHECK (truncated IN (0, 1)) ) STRICT;
+INSERT INTO "recorded_responses" VALUES(1,'2026-01-05T09:00:00Z','GET','https://shop.test/','[["accept","text/html"]]',X'',200,'[["content-type","text/html"]]',X'3C68313E6F6B3C2F68313E',0);
 CREATE TABLE records (
             dataset TEXT NOT NULL,
             number INTEGER NOT NULL,
@@ -338,6 +340,34 @@ CREATE TABLE seeds (
             position INTEGER NOT NULL PRIMARY KEY,
             answer TEXT NOT NULL
         ) STRICT;
+CREATE TABLE sink_dead_letters (
+            sink TEXT NOT NULL,
+            delivery_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            run_epoch INTEGER NOT NULL,
+            dataset TEXT NOT NULL,
+            record_number INTEGER NOT NULL,
+            committed_at TEXT NOT NULL,
+            record TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            attempts INTEGER NOT NULL,
+            PRIMARY KEY (sink, delivery_id)
+        ) STRICT, WITHOUT ROWID;
+CREATE TABLE sink_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sink TEXT NOT NULL,
+            event TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            occurred_at TEXT NOT NULL
+        ) STRICT;
+CREATE TABLE sink_state (
+            sink TEXT NOT NULL PRIMARY KEY,
+            guarantee_class TEXT NOT NULL,
+            status TEXT NOT NULL,
+            paused_reason TEXT,
+            outside_dedup_window INTEGER NOT NULL,
+            undeclared_datasets TEXT NOT NULL
+        ) STRICT, WITHOUT ROWID;
 CREATE TABLE sitemap_entries (
             work_item TEXT NOT NULL,
             reason TEXT NOT NULL,

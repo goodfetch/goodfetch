@@ -158,6 +158,11 @@ croner = { version = "5.0.1", default-features = false, features = ["std"] }
 arrow-array = { version = "60.0.0", default-features = false }
 arrow-ipc = { version = "60.0.0", default-features = false }
 arrow-schema = { version = "60.0.0", default-features = false }
+# MySQL and MariaDB Sink (ADR 0026; issue 1163).
+mysql_async = { version = "0.37.1", default-features = false, features = ["minimal-rust", "rustls-tls", "ring"] }
+# Object-store Sinks in Files mode (ADR 0026; issues 1152 and 1156): S3,
+# GCS and Azure Blob through `object_store` over reqwest + rustls.
+object_store = { version = "0.14.2", default-features = false }
 parquet = { version = "60.0.0", default-features = false, features = ["arrow", "snap", "zstd"] }
 # The Avro reader the Avro Exports are read back with in tests (spec #582).
 apache-avro = { version = "0.22.0", default-features = false }
@@ -238,6 +243,8 @@ goodfetch-session-pool = { path = "crates/foxhound/goodfetch-session-pool" }
 # under `--cfg tokio_unstable`; a test adapter: only ever a dev-dependency
 # (ADRs 0060 and 0125).
 goodfetch-simulation = { path = "crates/goodfetch-simulation" }
+# Foxhound's Sinks; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
+goodfetch-sink = { path = "crates/foxhound/goodfetch-sink" }
 # Foxhound's SQL tab, DuckDB's read path; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
 goodfetch-sql-tab = { path = "crates/foxhound/goodfetch-sql-tab" }
 # The protocol-aware test helpers; only ever a dev-dependency (ADR 0062's note
@@ -352,6 +359,10 @@ tokio-rustls = { version = "0.26.4", default-features = false }
 mail-builder = { version = "2.0.1", default-features = false }
 mail-send = { version = "0.7.0", default-features = false }
 smtp-proto = { version = "0.2.5", default-features = false }
+# SFTP and FTP Files-mode Sinks (ADR 0026; issue 1159).
+russh = { version = "0.65.4", default-features = false, features = ["ring"] }
+russh-sftp = { version = "4.0.0", default-features = false }
+suppaftp = { version = "13.0.0", default-features = false, features = ["rustls-ring"] }
 # The Proving ground's identity site verifies Web Bot Auth signatures with
 # Cloudflare's own verifier, as the lab's did with its npm package (#162).
 web-bot-auth = { version = "0.7.0", default-features = false }
@@ -454,6 +465,9 @@ thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 # clock.
 time = { version = "0.3.55", default-features = false, features = ["std"] }
 tokio = { version = "1.53.3", default-features = false }
+# PostgreSQL and Supabase Sinks (ADR 0026; issue 1162).
+tokio-postgres = { version = "0.7.18", default-features = false, features = ["runtime", "with-serde_json-1"] }
+tokio-postgres-rustls = { version = "0.14.0", default-features = false }
 tokio-util = { version = "0.7.20", default-features = false }
 # The Simulation's hosts and network (ADR 0060), pinned to one version: its
 # main branch is splitting into crates and warns that its API will change.

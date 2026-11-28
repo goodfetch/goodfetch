@@ -3,7 +3,7 @@
 import type { CallOptions, Caller } from "@goodfetch/collie-client/generated";
 import { type EntryMarkers, warnExperimental } from "@goodfetch/collie-client/runtime";
 import type { RunParams } from "@goodfetch/collie-client/generated/types";
-import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, CrawlStarted, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
+import type { CrawlRequestEnqueueLinksByClickingElementsParams, CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, CrawlStarted, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, EnqueuedLinksByClickingElements, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult, SinkDeliver, SinkDeliverParams, SinkList, SinkListParams, SinkProbe, SinkProbeParams } from "./types.ts";
 import { warnDeprecatedSettings } from "./settings.ts";
 
 /** The params and result of each of Foxhound's operations. */
@@ -12,6 +12,7 @@ export interface FoxhoundOperationTypes {
   "crawl.start": { params: CrawlStartParams; result: CrawlStarted };
   "crawl_request.enqueue": { params: CrawlRequestEnqueueParams; result: Enqueued };
   "crawl_request.enqueue_links": { params: CrawlRequestEnqueueLinksParams; result: EnqueuedLinks };
+  "crawl_request.enqueue_links_by_clicking_elements": { params: CrawlRequestEnqueueLinksByClickingElementsParams; result: EnqueuedLinksByClickingElements };
   "crawl_request.links": { params: CrawlRequestLinksParams; result: CrawlRequestLinks };
   "crawl_request.push": { params: CrawlRequestPushParams; result: CrawlRequestPushed };
   "dataset.list": { params: DatasetListParams; result: DatasetList };
@@ -31,6 +32,9 @@ export interface FoxhoundOperationTypes {
   "run.retry_failed": { params: RunRetryFailedParams; result: RetriedFailed };
   "run.seeds": { params: RunSeedsParams; result: RunSeeds };
   "sample.crawl": { params: SampleCrawlParams; result: SampleCrawlResult };
+  "sink.deliver": { params: SinkDeliverParams; result: SinkDeliver };
+  "sink.list": { params: SinkListParams; result: SinkList };
+  "sink.probe": { params: SinkProbeParams; result: SinkProbe };
 }
 
 /** The registry of Foxhound's operations, with their markers, which a hand-written member serving one warns of through `warnEntry` (ADR 0099). */
@@ -39,6 +43,7 @@ export const foxhoundOperations: Readonly<Record<keyof FoxhoundOperationTypes, E
   "crawl.start": { experimental: true, deprecated: undefined },
   "crawl_request.enqueue": { experimental: true, deprecated: undefined },
   "crawl_request.enqueue_links": { experimental: true, deprecated: undefined },
+  "crawl_request.enqueue_links_by_clicking_elements": { experimental: true, deprecated: undefined },
   "crawl_request.links": { experimental: true, deprecated: undefined },
   "crawl_request.push": { experimental: true, deprecated: undefined },
   "dataset.list": { experimental: true, deprecated: undefined },
@@ -58,6 +63,9 @@ export const foxhoundOperations: Readonly<Record<keyof FoxhoundOperationTypes, E
   "run.retry_failed": { experimental: true, deprecated: undefined },
   "run.seeds": { experimental: true, deprecated: undefined },
   "sample.crawl": { experimental: false, deprecated: undefined },
+  "sink.deliver": { experimental: true, deprecated: undefined },
+  "sink.list": { experimental: true, deprecated: undefined },
+  "sink.probe": { experimental: true, deprecated: undefined },
 };
 
 /** The name of each of Foxhound's operations in TypeScript form, which the runtime's own errors head a call with (ADR 0079's note of 2026-11-19). */
@@ -66,6 +74,7 @@ export const foxhoundOperationNames: Readonly<Record<keyof FoxhoundOperationType
   "crawl.start": "crawl.start",
   "crawl_request.enqueue": "crawlRequest.enqueue",
   "crawl_request.enqueue_links": "crawlRequest.enqueueLinks",
+  "crawl_request.enqueue_links_by_clicking_elements": "crawlRequest.enqueueLinksByClickingElements",
   "crawl_request.links": "crawlRequest.links",
   "crawl_request.push": "crawlRequest.push",
   "dataset.list": "dataset.list",
@@ -85,6 +94,9 @@ export const foxhoundOperationNames: Readonly<Record<keyof FoxhoundOperationType
   "run.retry_failed": "run.retryFailed",
   "run.seeds": "run.seeds",
   "sample.crawl": "sample.crawl",
+  "sink.deliver": "sink.deliver",
+  "sink.list": "sink.list",
+  "sink.probe": "sink.probe",
 };
 
 /** The class of each of Foxhound's operations (ADR 0011): after a reconnect, a call in flight is sent again only when it is a read or an idempotent write (ADR 0079). */
@@ -93,6 +105,7 @@ export const foxhoundOperationClasses: Readonly<Record<keyof FoxhoundOperationTy
   "crawl.start": "idempotent_write",
   "crawl_request.enqueue": "idempotent_write",
   "crawl_request.enqueue_links": "idempotent_write",
+  "crawl_request.enqueue_links_by_clicking_elements": "idempotent_write",
   "crawl_request.links": "read",
   "crawl_request.push": "idempotent_write",
   "dataset.list": "read",
@@ -112,6 +125,9 @@ export const foxhoundOperationClasses: Readonly<Record<keyof FoxhoundOperationTy
   "run.retry_failed": "effect",
   "run.seeds": "read",
   "sample.crawl": "effect",
+  "sink.deliver": "idempotent_write",
+  "sink.list": "read",
+  "sink.probe": "idempotent_write",
 };
 
 /** Foxhound's operations that send a message, each an async method. */
@@ -161,6 +177,16 @@ export class FoxhoundOperations {
   crawlRequestEnqueueLinks(params: CrawlRequestEnqueueLinksParams): Promise<EnqueuedLinks> {
     warnExperimental("crawl_request.enqueue_links");
     return this.#caller.call("crawl_request.enqueue_links", params, {});
+  }
+
+  /**
+   * Finds links that exist only in scripts by clicking each element a locator matches on the attempt's browser page in document order through the guard (a handler context's `enqueueLinksByClickingElements`). Main-frame navigations and popup first requests started by each click are recorded and aborted before leaving the browser, History API URL changes (`pushState`/`replaceState`) are recorded, and any request with a method other than `GET`, `HEAD` or `OPTIONS` is aborted unsent and reported as `unsafe_request_aborted` with its method and URL. Each recorded URL is admitted as an enqueue under `label`, `payload`, `include`, `exclude`, `limit` and `priority`; a guard refusal stops that click and is reported in `refused`. On a non-browser tier it escalates under `fetch.tier: auto` and fails with `browser_required` under a forced tier. Because clicks change the page's state, call it last in a handler.
+   *
+   * @experimental
+   */
+  crawlRequestEnqueueLinksByClickingElements(params: CrawlRequestEnqueueLinksByClickingElementsParams): Promise<EnqueuedLinksByClickingElements> {
+    warnExperimental("crawl_request.enqueue_links_by_clicking_elements");
+    return this.#caller.call("crawl_request.enqueue_links_by_clicking_elements", params, {});
   }
 
   /**
@@ -350,5 +376,38 @@ export class FoxhoundOperations {
    */
   sampleCrawl(params: SampleCrawlParams): Promise<SampleCrawlResult> {
     return this.#caller.call("sample.crawl", params, {});
+  }
+
+  /**
+   * Delivers committed Records or dead letters of a Run to a configured Sink after the Run (ADR 0026): `redeliver` resends one delivery by its `delivery_id`, `recover` retries dead letters committed since an RFC 3339 timestamp, `replay` delivers Records not yet at the destination, and `backfill` delivers every committed Record of a past Run to any Sink (including one configured after the Run ended).
+   *
+   * @experimental
+   */
+  sinkDeliver(params: SinkDeliverParams): Promise<SinkDeliver> {
+    warnExperimental("sink.deliver");
+    warnDeprecatedSettings(params.settings);
+    return this.#caller.call("sink.deliver", params, {});
+  }
+
+  /**
+   * Lists each Sink with its Guarantee class, its dead-letter count and its deliveries outside the destination's deduplication window (ADR 0026). With `run_id`, reads the Sinks that applied to that Run; without `run_id`, resolves `sinks` from the connection's and call's settings, probes each deliverable Sink and aggregates its dead letters and late deliveries across Runs.
+   *
+   * @experimental
+   */
+  sinkList(params: SinkListParams): Promise<SinkList> {
+    warnExperimental("sink.list");
+    warnDeprecatedSettings(params.settings);
+    return this.#caller.call("sink.list", params, {});
+  }
+
+  /**
+   * Probes one Sink now, by its name among the `sinks` the connection's settings and the call's `settings` resolve to, as a crawl's Run would, and answers the Guarantee class its destination proves: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). A probe may create what the Sink writes to, such as a SQLite Sink's table. A probe that fails answers `failed` with its cause, such as a destination that did not resolve or open; a Sink the settings do not name answers `failed` naming those they do. A Sink this engine does not deliver to yet fails with `capability_unavailable`. A crawl's Run probes each of its Sinks again at its start.
+   *
+   * @experimental
+   */
+  sinkProbe(params: SinkProbeParams): Promise<SinkProbe> {
+    warnExperimental("sink.probe");
+    warnDeprecatedSettings(params.settings);
+    return this.#caller.call("sink.probe", params, {});
   }
 }

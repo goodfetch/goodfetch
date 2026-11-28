@@ -3584,18 +3584,6 @@ class ResponseNotRecordedDetails(BaseModel):
     """The Response recording's path, as the start named it."""
 
 
-class ResponseOrigin1(BaseModel):
-    """The Response cache (ADR 0046)."""
-
-    model_config = ConfigDict(
-        extra="allow",
-        arbitrary_types_allowed=True,
-    )
-    fetched_at: PointInTime
-    """When the cached response was fetched."""
-    kind: Literal["response_cache"]
-
-
 class ResponseOrigin2(BaseModel):
     """A Response recording (ADR 0105)."""
 
@@ -3606,11 +3594,6 @@ class ResponseOrigin2(BaseModel):
     kind: Literal["response_recording"]
     recorded_at: PointInTime
     """When the recorded response was received."""
-
-
-class ResponseOrigin(RootModel[ResponseOrigin1 | ResponseOrigin2]):
-    root: ResponseOrigin1 | ResponseOrigin2
-    """What answered a Record's request in place of the network."""
 
 
 class ResponseTruncatedDetails(BaseModel):
@@ -4514,6 +4497,16 @@ class SecretInputRefusedReason(StrEnum):
     """
 
 
+class SecretResolved(BaseModel):
+    """What `resolveSecret` answers: the value. Its `Debug` leaves it out."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    value: str
+    """The value."""
+
+
 class SecretUnavailableDetails(BaseModel):
     """What `secret_unavailable` details."""
 
@@ -4543,6 +4536,20 @@ class SecretUnboundDetails(BaseModel):
     """The placeholders the scopes bind, never a value."""
     placeholder: str
     """The placeholder no scope binds."""
+
+
+class SecretsResolveParams(BaseModel):
+    """What `secrets.resolve` gives the program's `resolveSecret`."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    domain: str | None = None
+    """The host the value is sent to, where the use has one."""
+    name: str
+    """The reference's name, what follows `caller:`."""
+    run_id: RunId
+    """The Run that uses it, which this Connection opened."""
 
 
 class SeedsKept(BaseModel):
@@ -8252,6 +8259,25 @@ class RefetchDomainRemoved(BaseModel):
     """
 
 
+class ResponseOrigin1(BaseModel):
+    """The Response cache (ADR 0046)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    fetched_at: PointInTime
+    """When the cached response was fetched."""
+    kind: Literal["response_cache"]
+    run_id: RunId | None = None
+    """The Run that fetched the cached response, when fetched in a Run."""
+
+
+class ResponseOrigin(RootModel[ResponseOrigin1 | ResponseOrigin2]):
+    root: ResponseOrigin1 | ResponseOrigin2
+    """What answered a Record's request in place of the network."""
+
+
 class RouteAbortParams(BaseModel):
     """What `route.abort` takes: the request, and the error its page sees."""
 
@@ -10210,6 +10236,11 @@ class RunUsage(BaseModel):
     )
     browser_time: Duration
     """How long it held a browser."""
+    cache_hits: Annotated[int | None, Field(ge=0)] = None
+    """
+    The requests answered from the Response cache, counted apart from
+    `requests` (ADR 0046).
+    """
     limits: list[AppliedLimit] | None = None
     """Each Limit that applies to it, with what is left of it."""
     model: ModelUsage
@@ -10366,6 +10397,11 @@ class RunReport(BaseModel):
         extra="allow",
         arbitrary_types_allowed=True,
     )
+    cache_mode: str | None = None
+    """
+    Set to `"replay"` when the Run used `cache.mode: "replay"` (ADR 0046);
+    absent otherwise.
+    """
     checkpoint: Checkpoint | None = None
     """The last Checkpoint written of it in this engine, when one was."""
     completeness: Completeness

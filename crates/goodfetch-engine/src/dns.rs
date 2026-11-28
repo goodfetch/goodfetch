@@ -109,6 +109,33 @@ impl HostMapping {
             .map(|(name, addresses)| (name.as_str(), addresses.as_slice()))
     }
 
+    /// Whether the mapping holds no entries.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Whether `network.resolve` explicitly maps `name` to loopback addresses
+    /// alone (ADR 0105): a replaying Run reaches such hosts live once
+    /// loopback is allowlisted, while every other host is answered from the
+    /// recording before any DNS lookup.
+    pub fn maps_to_loopback(&self, name: &str) -> bool {
+        self.addresses(name).is_some_and(|addresses| {
+            !addresses.is_empty() && addresses.iter().all(IpAddr::is_loopback)
+        })
+    }
+
+    /// Every mapped host name (as [`host_name::lookup_key`] keys it) whose
+    /// addresses are all loopback.
+    pub fn loopback_hosts(&self) -> Vec<String> {
+        self.0
+            .iter()
+            .filter(|(_, addresses)| {
+                !addresses.is_empty() && addresses.iter().all(IpAddr::is_loopback)
+            })
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
     fn addresses(&self, name: &str) -> Option<&[IpAddr]> {
         self.0.get(&host_name::lookup_key(name)).map(Vec::as_slice)
     }

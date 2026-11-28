@@ -1,0 +1,6 @@
+{
+  "name": "warc",
+  "schema": true,
+  "storage": "warc",
+  "version": "0.1"
+}

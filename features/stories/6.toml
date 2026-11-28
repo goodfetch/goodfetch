@@ -830,6 +830,24 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 234
+title = "As a crawl developer, I want `enqueueLinksByClickingElements` on the browser tier to click matched elements through the guard and record script-only navigations, popups and History API URL changes without navigating away, escalating from `http` under `auto`, so that pages whose links exist only in scripts are crawled whole (CO-06, pitfall U14)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 235
+title = "As a crawl developer, I want discovery clicks to abort any request whose method is not `GET`, `HEAD` or `OPTIONS` before it leaves the browser and report it as `unsafe_request_aborted` with its method and URL, and report guard refusals, so that discovering links never mutates a site or places an order (ADRs 0010, 0014, 0106)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 236
 title = "As a crawl developer, I want enqueues, seeds, Records and Key-value store writes an attempt staged to commit together or be discarded together, so that a failed attempt leaves no stray link (ADR 0093)."
 milestone = "M1 Core"
@@ -1187,8 +1205,133 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 282
+title = "As a crawl developer, I want Sinks as `sinks.<name>.*` settings on a connection or a crawl's Run, from code, the project file, the CLI or a Recipe, so that where data goes changes per deployment while the crawl stays the same (ADR 0103)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 283
+title = "As an operator, I want each Sink probed when configured and at Run start, and given the Guarantee class it proves (Fenced, Record-fenced, Keyed or At-least-once), so that a destination's name never promises what it cannot do (ADR 0026)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 284
+title = "As a crawl developer, I want a Run that sets `crawl.min_sink_guarantee` refused at its start with `sink_guarantee_unmet` when one of its Sinks cannot meet that class, so that a crawl that needs fencing never runs without it (ADR 0026) **(shape)**."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 285
 title = "As a crawl developer, I want every delivery to carry its delivery ID, the Record's Dataset and number, and the run epoch, a stale epoch refused where the destination can compare and set, so that a zombie copy never overwrites the current run (ADRs 0003, 0008)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 286
+title = "As a crawl developer, I want a Sink's write mode (`append`, `upsert`, `insert_only`, `replace` or `history`) keyed on the Sink's own `key` or each Dataset's, a keyed Sink without a key refused at its start with `setting_invalid`, so that the same product collected twice is one row (ADRs 0026, 0103)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 287
+title = "As a crawl developer, I want Files mode to roll numbered Export parts by count (`files.part.max_records`), size (`files.part.max_bytes`) and age (`files.part.max_age`) with a final part at run end, each part's key carrying its delivery ID and run epoch and never visible half-written, so that object stores receive valid Exports in number order (ADR 0026)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 288
+title = "As a crawl developer, I want the declared schema first, else an inferred one; columns only added and widened or split into `<field>__v_<type>`; contracts `evolve`, `freeze`, `discard_row` or `discard_value`; snake_case names; nested data as the destination's JSON type; and the `_goodfetch_*` system columns, so that schema drift never loses data silently (ADR 0026)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 289
+title = "As an operator, I want a rejected batch split until the bad Records are isolated, those sent to a per-Sink dead-letter list with the destination's reason and retried on later Runs, so that one bad Record never blocks a Sink (ADR 0026)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 290
+title = "As an operator, I want retries on the Standard Webhooks schedule for 408, 429 and 5xx with `Retry-After` honoured, a 410 pausing the Sink, three days of failure pausing it with a Notification, and its status `complete`, `complete_with_rejections`, `behind` or `failed` in the Run report, so that delivery problems are visible and bounded (ADR 0026)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 291
+title = "As a crawl developer, I want collection to go on when a Sink fails unless the Run opts in with `crawl.on_sink_failure: stop`, so that a destination's outage never stops a crawl unasked (ADR 0026's `on_sink_failure`, its key's family)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 292
+title = "As an operator, I want a Daemon to keep delivering a finished Run's backlog, and `sink deliver` to redeliver a delivery, recover failures since a date, replay what was never attempted, or backfill a past Run to any Sink, so that delivery outlives the Run (ADR 0026)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 293
+title = "As an operator, I want each Sink rate-limited by a token bucket preset to its destination's quotas, batched for its API, with adaptive concurrency and a quota exhaustion reported as `behind`, so that a Sink never trips its destination's limits (ADR 0026)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 296
+title = "As a crawl developer, I want webhook Sinks signed under Standard Webhooks, sending batches capped at 256 KB or a thin shape with a record range and a fetch URL, so that receivers verify and dedup (ADRs 0008, 0026)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 298
+title = "As an operator, I want each Sink's class, dead letters and deliveries outside the dedup window in `sink list`, the Run report and any Client, so that what a destination guaranteed is reported per Run (ADRs 0026, 0102)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 299
+title = "As a user of both Products, I want `sinks.*` on a Collie engine refused with `not_in_product`, inactive for a Collie Run on a Foxhound engine, and listed as Foxhound's by `config explain`, so that one project file serves both Products (ADRs 0087, 0103)."
 milestone = "M4 Everything else"
 journey = false
 not_journey = "part"

@@ -21,6 +21,8 @@ goodfetch-fetch-tier.workspace = true
 goodfetch-frontier.workspace = true
 goodfetch-protocol.workspace = true
 goodfetch-session-pool.workspace = true
+# The Sinks a crawl's Run delivers its Records to (ADR 0026).
+goodfetch-sink.workspace = true
 icu_normalizer.workspace = true
 rusqlite.workspace = true
 serde.workspace = true

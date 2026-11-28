@@ -50,6 +50,8 @@ fn state_of(session: &SessionInterception, failure: Option<LeftFailure>) -> Page
                 work: goodfetch_counted_work::CountedWork::default(),
             },
             signing: None,
+            caching: None,
+            trace: None,
         },
         pending: Arc::clone(&session.pending),
         navigation: PendingNavigation::default(),
@@ -58,10 +60,14 @@ fn state_of(session: &SessionInterception, failure: Option<LeftFailure>) -> Page
         own: Mutex::new(None),
         lists_on: false,
         retrying: AtomicBool::new(false),
+        navigation_cache_hit: AtomicBool::new(false),
         lists_blocked: std::sync::atomic::AtomicU64::new(0),
         learned: Arc::new(Learned::default()),
         on_document: None,
+        discovery: Mutex::new(None),
         caching: None,
+        pending_cache: Mutex::new(None),
+        set_cookie_headers: Mutex::new(std::collections::BTreeMap::new()),
         blocks: Arc::new(crate::blocks::NoBlocks),
     }
 }

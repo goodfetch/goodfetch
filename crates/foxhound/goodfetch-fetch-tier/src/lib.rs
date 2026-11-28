@@ -53,6 +53,7 @@ mod untouched;
 mod use_signals;
 mod xpath;
 
+pub use cached::over as cached_transport;
 pub use chain::{Following, Gating, HopGate, Redirected, Skip, Stop, Unfollowed, follow};
 #[doc(hidden)]
 pub use charset::fuzz_prescan;
@@ -72,6 +73,7 @@ pub use gate::{
 };
 pub use goodfetch_extractor::BuiltIn;
 pub use goodfetch_page::BrowserRun;
+pub use goodfetch_page::page_value::DiscoveredByClicking;
 pub use goodfetch_page::page_value::{HeldPlace, PooledSession};
 pub use http_profile::HttpProfile;
 pub use light_browser::{

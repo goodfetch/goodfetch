@@ -435,6 +435,7 @@ pub(crate) fn interception_run(run: &BrowserRun) -> RunPowers {
         run.keys.secrets().clone(),
         run.governor.clone(),
     )
+    .with_charging(run.charging.clone())
 }
 
 /// The identity and the powers of `run` a Session's egress relay takes
@@ -612,7 +613,7 @@ impl Sessions {
         let seed = IdentitySeed(run.entropy.fork().await.next_u64());
         let fingerprint = fingerprint_of(&run, &settings, &identity, seed, context).await?;
         let borrowed = opening_source(named)?;
-        no_local_address_on(&run, source_of(borrowed.as_ref()))?;
+        no_local_address_on(&run, &settings, source_of(borrowed.as_ref()))?;
         let signing = open_signing(&run, identity.signing.as_ref(), context).await?;
         self.reach(&run, context).await?;
         let (position, pool, human_cell) = taken(&mut *self.state.lock().await, &run)?;
@@ -622,6 +623,7 @@ impl Sessions {
         no_proxy_under(borrowed.as_ref(), proxy.as_deref())?;
         let relay = open_relay(
             (&run, &owner),
+            &settings,
             proxy.as_ref(),
             borrowed.is_some(),
             &pool,
@@ -636,14 +638,6 @@ impl Sessions {
         let (session, life, open) = {
             let mut state = self.state.lock().await;
             let runs = reached(&mut state, &run.identity)?;
-            let seat = seat_for(
-                &runs.pool,
-                borrowed.as_ref(),
-                placement(&run, fingerprint.as_ref()),
-                egress(proxy.as_ref(), relay.as_ref()),
-                emulation,
-                TaskStarter::clone(&owner),
-            );
             let session = session_id(run.identity.id(), position);
             let life = SessionLife::new(session.clone(), attributes, SessionState::Opening);
             let interception = session_interception(
@@ -651,6 +645,15 @@ impl Sessions {
                 borrowed.as_ref(),
                 (relay.is_some(), proxy.is_some()),
                 signing,
+                (proxy.as_deref(), fingerprint.as_ref(), &emulation),
+            );
+            let seat = seat_for(
+                &runs.pool,
+                borrowed.as_ref(),
+                placement(&run, fingerprint.as_ref()),
+                egress(proxy.as_ref(), relay.as_ref()),
+                emulation,
+                TaskStarter::clone(&owner),
             );
             let open = Arc::new(Session {
                 owner,
@@ -759,14 +762,15 @@ impl Sessions {
         opener: Opener,
         context: &CallContext,
     ) -> Result<u32, CallError> {
-        no_local_address_on(run, source_of(borrowed))?;
+        let default_settings = Values::default();
+        no_local_address_on(run, &default_settings, source_of(borrowed))?;
         let signing = open_signing(run, identity.signing.as_ref(), context).await?;
         let seed = IdentitySeed(run.entropy.fork().await.next_u64());
-        let fingerprint = fingerprint_of(run, &Values::default(), identity, seed, context).await?;
+        let fingerprint = fingerprint_of(run, &default_settings, identity, seed, context).await?;
         let (position, pool, human_cell) = taken(&mut *self.state.lock().await, run)?;
         let human_input = human_input_of(&human_cell, run, identity, context).await;
         let owner = run.identity.owner().child();
-        let proxy = open_proxy((run, &owner), &Values::default(), context, position).await?;
+        let proxy = open_proxy((run, &owner), &default_settings, context, position).await?;
         no_proxy_under(borrowed, proxy.as_deref())?;
         // A pool Session's relay binds the position its pool gave it, which
         // its HTTP requests leave from too (ADR 0044's #682 note).
@@ -778,6 +782,7 @@ impl Sessions {
         };
         let relay = open_relay(
             (run, &owner),
+            &default_settings,
             proxy.as_ref(),
             borrowed.is_some(),
             &pool,
@@ -819,6 +824,7 @@ impl Sessions {
             borrowed,
             (relay.is_some(), proxy.is_some()),
             signing,
+            (proxy.as_deref(), fingerprint.as_ref(), emulation),
         );
         let held = Arc::new(Session {
             owner,
@@ -1903,6 +1909,13 @@ async fn reopened_session(
         emulation,
     } = reopened;
     let session = session_id(run.identity.id(), position);
+    let interception = session_interception(
+        (&session, run),
+        borrowed.as_ref(),
+        (relay.is_some(), proxy.is_some()),
+        signing,
+        (proxy.as_deref(), fingerprint.as_ref(), &emulation),
+    );
     let (seat, attributes) = match &borrowed {
         Some(cdp_url) => (
             pool.borrowed_seat(cdp_url.clone(), TaskStarter::clone(&owner)),
@@ -1918,12 +1931,6 @@ async fn reopened_session(
             FRESH,
         ),
     };
-    let interception = session_interception(
-        (&session, run),
-        borrowed.as_ref(),
-        (relay.is_some(), proxy.is_some()),
-        signing,
-    );
     Ok(Session {
         owner,
         pages: HeldPages::default(),
@@ -2291,6 +2298,7 @@ async fn reopened_egress(
     };
     match open_relay(
         (run, tasks),
+        settings,
         proxy.as_ref(),
         false,
         pool,
@@ -2418,26 +2426,59 @@ fn session_interception(
     borrowed: Option<&CdpUrl>,
     (relayed, proxied): (bool, bool),
     signing: Option<Arc<RequestSigner>>,
+    (proxy, fingerprint, emulation): (
+        Option<&SessionProxy>,
+        Option<&FingerprintPlan>,
+        &SessionEmulation,
+    ),
 ) -> Arc<SessionInterception> {
-    let lookups = held_browser(borrowed, relayed, proxied).map(|browser| {
-        Lookups::new(
-            resolve_of(run.identity.settings().map(RunSettings::resolved)),
-            browser,
-        )
-    });
+    let resolve = resolve_of(run.identity.settings().map(RunSettings::resolved));
+    let replay_script = run
+        .engine
+        .recordings()
+        .replay_init_script(run.identity.id(), &resolve);
+    let lookups =
+        held_browser(borrowed, relayed, proxied).map(|browser| Lookups::new(resolve, browser));
     // Its requests are answered from its Run's sources, as the HTTP tier's
     // are, so an entry either stored serves the other where the key
-    // matches (ADR 0046).
+    // matches (ADR 0046). The partition is built once per Session from its
+    // keeper, proxy exit country, Identity profile language (or locale
+    // override) and device class.
+    let country = proxy.and_then(SessionProxy::country);
+    let language = fingerprint
+        .and_then(FingerprintPlan::language)
+        .or(emulation.locale.as_deref());
+    let device = fingerprint
+        .and_then(FingerprintPlan::device)
+        .or_else(|| emulation.is_mobile.then_some("mobile"));
     let caching = run.identity.settings().and_then(|settings| {
         Caching::of(
-            run.engine.response_source(settings.resolved()),
+            run.engine
+                .response_source_for(run.identity.id(), settings.resolved())
+                .active_effects(run.send_window.active_bodies()),
             CALLER,
             run.identity.id().clone(),
             run.identity.clock(),
         )
-        .map(|caching| caching.of_session(session))
+        .map(|caching| {
+            caching
+                .with_masks(run.keys.secrets().mask().masks().clone())
+                .of_session_partition(
+                    goodfetch_engine::response_cache::Keeper::Session {
+                        run_id: run.identity.id().clone(),
+                        session_id: session.clone(),
+                    },
+                    country,
+                    language,
+                    device,
+                )
+        })
     });
-    Arc::new(SessionInterception::new(session.clone(), lookups, signing).with_caching(caching))
+    Arc::new(
+        SessionInterception::new(session.clone(), lookups, signing)
+            .with_caching(caching)
+            .with_replay_script(replay_script),
+    )
 }
 
 /// Forgets what `open`, the Session `session` that ended, kept in its own
@@ -2489,6 +2530,7 @@ fn egress(proxy: Option<&Arc<SessionProxy>>, relay: Option<&Arc<EgressRelay>>) -
 /// failing.
 async fn open_relay(
     (run, tasks): (&Arc<BrowserRun>, &TaskStarter),
+    settings: &Values,
     proxy: Option<&Arc<SessionProxy>>,
     borrowed: bool,
     pool: &Pool,
@@ -2498,7 +2540,7 @@ async fn open_relay(
     if borrowed {
         return Ok(None);
     }
-    let local = match pool.local(address_ordinal).await {
+    let local = match pool.local(settings, address_ordinal).await {
         Ok(local) => local,
         Err(LocalFailure::Unavailable(unavailable)) => return Err(unavailable.into()),
         Err(LocalFailure::Unreadable(error)) => return Err(unavailable(run, &error, context)),
@@ -2519,6 +2561,7 @@ async fn open_relay(
             None if local.is_some() => {
                 return Err(local_address_refused(
                     run,
+                    settings,
                     LocalAddressFailure::ProxyNotRelayed,
                 ));
             }
@@ -2545,34 +2588,46 @@ fn source_of(borrowed: Option<&CdpUrl>) -> Source {
 /// browser, a third-party CDP browser or a Browser host's, with
 /// `local_address_unavailable`: an address of this machine is never claimed
 /// for another (ADRs 0044 and 0056).
-fn no_local_address_on(run: &Arc<BrowserRun>, source: Source) -> Result<(), CallError> {
-    if source.launched_here() || local_addresses_of(run).is_none() {
+fn no_local_address_on(
+    run: &Arc<BrowserRun>,
+    own: &Values,
+    source: Source,
+) -> Result<(), CallError> {
+    if source.launched_here() || local_addresses_of(run, own).is_none() {
         return Ok(());
     }
     Err(local_address_refused(
         run,
+        own,
         LocalAddressFailure::NotLaunchedHere,
     ))
 }
 
-/// `local_address_unavailable` for `run`'s `egress.local_addresses`, for
-/// `failure`.
-fn local_address_refused(run: &Arc<BrowserRun>, failure: LocalAddressFailure) -> CallError {
+/// `local_address_unavailable` for `run`'s or `own`'s `egress.local_addresses`,
+/// for `failure`.
+fn local_address_refused(
+    run: &Arc<BrowserRun>,
+    own: &Values,
+    failure: LocalAddressFailure,
+) -> CallError {
     Unavailable {
-        entry: local_addresses_of(run).unwrap_or_default(),
+        entry: local_addresses_of(run, own).unwrap_or_default(),
         failure,
     }
     .into()
 }
 
-/// `run`'s `egress.local_addresses` as its value writes it, when it sets
-/// one: an interface or a prefix as it is, a list as JSON.
-fn local_addresses_of(run: &Arc<BrowserRun>) -> Option<String> {
-    let value = run
-        .identity
-        .settings()?
-        .resolved()
-        .value(&EGRESS_LOCAL_ADDRESSES);
+/// `own`'s `egress.local_addresses`, else `run`'s, as its value writes it,
+/// when set: an interface or a prefix as it is, a list as JSON.
+fn local_addresses_of(run: &Arc<BrowserRun>, own: &Values) -> Option<String> {
+    let value = match own.get(EGRESS_LOCAL_ADDRESSES.name) {
+        Some(value) => value,
+        None => run
+            .identity
+            .settings()?
+            .resolved()
+            .value(&EGRESS_LOCAL_ADDRESSES),
+    };
     match value {
         Value::Null => None,
         Value::String(text) => Some(text.clone()),

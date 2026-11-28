@@ -3613,6 +3613,10 @@ entries = ["sample.echo", "sample.crawl"]
 reason = "The engine's sample operations, which tests and benchmarks call; no Product member serves them."
 
 [[unreached]]
+entries = ["sink.probe", "sink.list", "sink.deliver"]
+reason = "Operator Sink operations (issues 1128, 1146 and 1149); CLI and SDK views belong to area 11."
+
+[[unreached]]
 entries = ["connection.set_log_level"]
 reason = "The Connection sends it itself, following the `goodfetch.engine` logger's effective level (ADR 0078); no member sets it."
 
@@ -3736,6 +3740,9 @@ form = "round_trip"
 entries = ["dataset.list", "dataset.page", "dataset.query", "dataset.search", "record.search"]
 reason = "No member reads a Run's Datasets yet."
 
+[[unreached]]
+entries = ["crawl_request.enqueue_links_by_clicking_elements"]
+reason = "Issue 1087 builds the engine operation; Foxhound's SDK surface adds `enqueue_links_by_clicking_elements` in area 11."
 [[logger]]
 package = "goodfetch-collie-client"
 name = "goodfetch"

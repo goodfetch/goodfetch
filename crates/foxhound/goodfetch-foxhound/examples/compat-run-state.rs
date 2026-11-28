@@ -502,11 +502,60 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
                 "the learned rule merges the seed"
             );
             link_cursors(connection, &invariants, &policy)?;
-            read_sitemap(connection)
+            read_sitemap(connection)?;
+            record_dead_letter(connection)
         })
         .await
         .expect("the pages are learned from");
     Ok(json!({ "learned": true }))
+}
+
+/// Records one dead-letter row, one Sink state row, and one Sink Notification
+/// row on `crawl` so `compat/run-state` covers every column of
+/// `sink_dead_letters`, `sink_state`, and `sink_notifications` (ADRs 0026 and
+/// 0066).
+fn record_dead_letter(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
+    let masks = goodfetch_engine::mask::Masks::new();
+    goodfetch_sink::dead_letters::record(
+        connection,
+        &goodfetch_sink::dead_letters::DeadLetter {
+            sink: "warehouse".to_owned(),
+            delivery_id: goodfetch_sink::DeliveryId::new("crawl", "warehouse", "links", 1),
+            run: goodfetch_sink::RunCopy {
+                run_id: "crawl".to_owned(),
+                run_epoch: 1,
+            },
+            dataset: "links".to_owned(),
+            number: 1,
+            committed_at: "2026-01-05T09:00:01Z".to_owned(),
+            value: json!({ "href": "https://shop.test/broken" }),
+            reason: "check constraint failed".to_owned(),
+            attempts: 1,
+        },
+        &masks,
+    )?;
+    goodfetch_sink::report::record_state(
+        connection,
+        &goodfetch_sink::SinkStateRow {
+            sink: "warehouse".to_owned(),
+            guarantee_class: goodfetch_sink::GuaranteeClass::Fenced,
+            status: goodfetch_protocol::foxhound::report::SinkStatus::CompleteWithRejections,
+            paused_reason: Some(goodfetch_sink::PauseReason::ThreeDaysFailing),
+            outside_dedup_window: 0,
+            undeclared_datasets: Vec::new(),
+        },
+    )?;
+    goodfetch_sink::report::record_notification(
+        connection,
+        &goodfetch_sink::SinkNotification {
+            sink: "warehouse".to_owned(),
+            run_id: "crawl".to_owned(),
+            event: goodfetch_sink::SinkNotificationEvent::Paused,
+            reason: "three days failing".to_owned(),
+            occurred_at: std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_767_603_601),
+        },
+        &masks,
+    )
 }
 
 /// Hands the Frontier the guide of `list.test`: it redirects to its slashed
@@ -733,6 +782,41 @@ fn bound() -> Contribution {
         .with_handler(Handler::new(&BOUND, bind))
 }
 
+/// Inserts the deterministic sample rows kept in the paused Run's state.
+fn seed_paused_rows(
+    connection: &rusqlite::Connection,
+    sealed_source: &[u8],
+) -> rusqlite::Result<()> {
+    connection
+        .execute(
+            r#"INSERT INTO page_sessions (position, is_default, closed, settings, identity_seed, source) VALUES (1, 1, 0, '{}', 6178731391398722387, NULL), (2, 0, 1, '{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}', -2937466112876520115, NULL), (3, 0, 1, '{}', 4417291851073961183, ?1)"#,
+            [sealed_source],
+        )
+        .map(drop)?;
+    // What a Label learned on a domain (#926): a split Label, one segment on
+    // `http`, one still sampled.
+    connection
+        .execute(
+            r#"INSERT INTO tier_choices (label, domain_key, unit) VALUES ('home', 'shop.test', '{"kind":"split","segments":[{"name":"products","matched":3,"tier":"http"},{"name":"blog","matched":0,"tier":"browser"},{"name":"mixed","matched":1,"tier":null}],"since":1790000000000}')"#,
+            [],
+        )
+        .map(drop)?;
+    // A recorded response kept in the run file until the Run ends (ADR 0105, issue 800).
+    connection
+        .execute(
+            r#"INSERT INTO recorded_responses (recorded_at, method, url, request_headers, request_body, status, response_headers, response_body, truncated) VALUES ('2026-01-05T09:00:00Z', 'GET', 'https://shop.test/', '[["accept","text/html"]]', X'', 200, '[["content-type","text/html"]]', X'3c68313e6f6b3c2f68313e', 0)"#,
+            [],
+        )
+        .map(drop)?;
+    // A request added through a link its served document's markup hides (#1153).
+    goodfetch_frontier::trap_links::suspect(
+        connection,
+        None,
+        "2",
+        goodfetch_frontier::trap_links::Mark::Hidden,
+    )
+}
+
 /// Starts the Run `paused` as [`BOUND`] says, with what its owners and its
 /// program left in it.
 async fn bind(_: Value, context: CallContext) -> Result<Value, CallError> {
@@ -819,30 +903,7 @@ async fn bind(_: Value, context: CallContext) -> Result<Value, CallError> {
             .chain((0..24 + 90 + 16).map(|byte: u8| byte.wrapping_mul(53)))
             .collect();
         run.state
-            .write(move |connection| {
-                connection
-                    .execute(
-                        r#"INSERT INTO page_sessions (position, is_default, closed, settings, identity_seed, source) VALUES (1, 1, 0, '{}', 6178731391398722387, NULL), (2, 0, 1, '{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}', -2937466112876520115, NULL), (3, 0, 1, '{}', 4417291851073961183, ?1)"#,
-                        [sealed_source],
-                    )
-                    .map(drop)?;
-                // What a Label learned on a domain (#926): a split
-                // Label, one segment on `http`, one still sampled.
-                connection
-                    .execute(
-                        r#"INSERT INTO tier_choices (label, domain_key, unit) VALUES ('home', 'shop.test', '{"kind":"split","segments":[{"name":"products","matched":3,"tier":"http"},{"name":"blog","matched":0,"tier":"browser"},{"name":"mixed","matched":1,"tier":null}],"since":1790000000000}')"#,
-                        [],
-                    )
-                    .map(drop)?;
-                // A request added through a link its served
-                // document's markup hides (#1153).
-                goodfetch_frontier::trap_links::suspect(
-                    connection,
-                    None,
-                    "2",
-                    goodfetch_frontier::trap_links::Mark::Hidden,
-                )
-            })
+            .write(move |connection| seed_paused_rows(connection, &sealed_source))
             .await
             .expect("the Sessions, a tier choice and a suspected trap link are kept");
     }

@@ -166,7 +166,7 @@ impl Datasets {
                 )
             })?;
             validators.push(Some(validator));
-            let required = required(schema);
+            let required = required_fields(schema);
             if let Some(field) = declaration
                 .key
                 .iter()
@@ -265,6 +265,21 @@ impl Datasets {
     /// The declarations, in the order declared.
     pub fn declarations(&self) -> &[DatasetDeclaration] {
         &self.0.declarations
+    }
+
+    /// Each declared Dataset whose JSON Schema marks one or more fields with
+    /// `"x-goodfetch-personal": true` (ADR 0016), in declaration order, paired
+    /// with its sorted personal field paths.
+    pub fn personal_fields(&self) -> Vec<(String, Vec<String>)> {
+        self.0
+            .declarations
+            .iter()
+            .filter_map(|declaration| {
+                let schema = declaration.schema.as_ref()?;
+                let fields = goodfetch_protocol::site_preferences::personal_fields(schema);
+                (!fields.is_empty()).then(|| (declaration.name.clone(), fields))
+            })
+            .collect()
     }
 
     /// The declarations the run file `connection` holds, each schema's
@@ -587,8 +602,10 @@ fn record_message(name: &str, issues: &[RecordIssue]) -> String {
     )
 }
 
-/// The top-level fields `schema` requires.
-fn required(schema: &Value) -> Vec<&str> {
+/// The top-level fields `schema` requires: those a key may name (ADR
+/// 0103).
+#[must_use]
+pub fn required_fields(schema: &Value) -> Vec<&str> {
     schema
         .get("required")
         .and_then(Value::as_array)

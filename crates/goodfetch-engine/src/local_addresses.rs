@@ -20,6 +20,7 @@
     reason = "a Run's count of the Sessions it bound, an atomic counter nothing else synchronizes on, which no loom test reaches"
 )]
 
+mod device;
 mod host;
 
 use std::collections::BTreeMap;
@@ -32,6 +33,7 @@ use goodfetch_protocol::egress::{
 };
 pub use goodfetch_protocol::egress::{Ipv6Prefix, LocalAddresses};
 
+pub use self::device::Device;
 pub use self::host::System;
 use crate::settings::Resolved;
 use crate::{CallError, named};
@@ -174,6 +176,16 @@ impl Rotation {
             addresses,
             blocks,
             sessions: AtomicU64::new(0),
+        }
+    }
+
+    /// The network interface name `egress.local_addresses` names, when it
+    /// names an interface; none for an address list or an IPv6 prefix.
+    #[must_use]
+    pub fn interface(&self) -> Option<&str> {
+        match &self.addresses {
+            LocalAddresses::Interface(name) => Some(name.as_str()),
+            LocalAddresses::Addresses(_) | LocalAddresses::Prefix(_) => None,
         }
     }
 

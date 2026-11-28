@@ -202,11 +202,11 @@ reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to
 
 [[announced]]
 entry = "typescript @goodfetch/foxhound FoxhoundError"
-reason = "An Error code joins Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678): a switch over every Foxhound error needs its case."
+reason = "Two Error codes join Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678) and `sink_guarantee_unmet` (issue 1128): a switch over every Foxhound error needs their cases."
 
 [[announced]]
 entry = "typescript @goodfetch/foxhound FoxhoundErrorCode"
-reason = "An Error code joins Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678): a switch over every code needs its case."
+reason = "Two Error codes join Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678) and `sink_guarantee_unmet` (issue 1128): a switch over every code needs their cases."
 
 [[announced]]
 entry = "typescript @goodfetch/foxhound FoxhoundSettings"
@@ -226,11 +226,11 @@ reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to
 
 [[announced]]
 entry = "typescript @goodfetch/foxhound/generated FoxhoundError"
-reason = "An Error code joins Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678): a switch over every Foxhound error needs its case."
+reason = "Two Error codes join Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678) and `sink_guarantee_unmet` (issue 1128): a switch over every Foxhound error needs their cases."
 
 [[announced]]
 entry = "typescript @goodfetch/foxhound/generated FoxhoundErrorCode"
-reason = "An Error code joins Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678): a switch over every code needs its case."
+reason = "Two Error codes join Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678) and `sink_guarantee_unmet` (issue 1128): a switch over every code needs their cases."
 
 [[announced]]
 entry = "typescript @goodfetch/foxhound/generated FoxhoundSettings"
@@ -405,6 +405,10 @@ entry = "typescript @goodfetch/foxhound DatasetRecord"
 reason = "`CrawlRun.records()` reads each Record as its Dataset's own output type (issue 1487, ADR 0103): `DatasetRecord` is generic in its value's type, `DatasetRecord<O>`, keeping the wire Record's members, and its `value` is read-only; the default `O` is the wire's JSON object, so a program that names `DatasetRecord` alone reads the same members."
 
 [[announced]]
+entry = "typescript @goodfetch/foxhound/generated AuditKind"
+reason = "`politeness_weakened` joined Collie's `AuditKind` so Collie records a weakened `politeness.sharing` (ADR 0086, issue 643): Foxhound's `AuditKind` inherits it through `CollieAuditKind` instead of repeating the literal, keeping the same values."
+
+[[announced]]
 entry = "foxhound settings politeness.domain.concurrency"
 reason = "Foxhound's per-domain concurrency defaults to 1 (ADR 0086, issue 1499), replacing the temporary `null` placeholder; values above 1 or `null` press harder and are reported in `weakened`."
 
@@ -419,3 +423,15 @@ reason = "The Daemon's HTTP JSON-RPC listener joins the `Surface` union as `http
 [[announced]]
 entry = "typescript @goodfetch/collie-client/generated/types Surface"
 reason = "The Daemon's HTTP JSON-RPC listener joins the `Surface` union as `http_listener` (ADR 0027, issue 1400): a switch over every surface gains that member."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated ResponseOrigin"
+reason = "`ResponseOrigin::ResponseCache` carries the optional `runId` of the Run that originally fetched the cached entry (ADR 0046, issue 803)."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated/types ResponseOrigin"
+reason = "`ResponseOrigin::ResponseCache` carries the optional `runId` of the Run that originally fetched the cached entry (ADR 0046, issue 803)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/generated ResponseOrigin"
+reason = "`ResponseOrigin::ResponseCache` carries the optional `runId` of the Run that originally fetched the cached entry (ADR 0046, issue 803)."

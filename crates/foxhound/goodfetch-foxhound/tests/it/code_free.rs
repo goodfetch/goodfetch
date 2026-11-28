@@ -79,7 +79,7 @@ fn crawl(
 
 /// As [`crawl`], answering each Record of `pages` as `run.records` reads
 /// it: its value, its Provenance and the rest.
-fn crawl_read(
+pub(crate) fn crawl_read(
     engine: &mut Attached,
     proving_ground: &ProvingGround,
     (run_id, seeds): (&str, &[Value]),

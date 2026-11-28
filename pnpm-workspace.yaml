@@ -37,6 +37,13 @@ overrides:
   # Remove once its pin is 11.0.1 or later.
   "@microsoft/api-extractor>minimatch": 11.0.3
   "typed-rest-client>qs": 6.17.1
+  # Docusaurus 3.10.2 (`website/`, issue 149) pulls in older transitive versions
+  # of minimatch (via serve-handler), serialize-javascript (via webpack plugins),
+  # tinypool, and uuid with OSV advisories. Remove once Docusaurus upgrades them.
+  "serve-handler>minimatch": 11.0.3
+  "serialize-javascript@<7.0.3": 7.1.4
+  "@docusaurus/core>tinypool": 2.2.0
+  "uuid@<14.0.0": 14.0.3
 
 # One version of each shared tool for every package. Playwright's entry is
 # shared by Playwright Test and Vitest's browser provider (ADR 0068).
@@ -60,3 +67,13 @@ catalog:
 # dependency for the host.
 allowBuilds:
   esbuild: false
+  # Docusaurus's core-js (website/) only prints a funding notice.
+  core-js: false
+
+# Fixes to dependencies, each upstreamable; remove one once a release has it.
+# The local search (website/src/search.ts) builds a section's index with the
+# root pages, and matches a section in its version (ADR 0097); its search bar
+# and search page pass axe (ADR 0073).
+patchedDependencies:
+  "@easyops-cn/autocomplete.js@0.38.1": patches/@easyops-cn__autocomplete.js@0.38.1.patch
+  "@easyops-cn/docusaurus-search-local@0.55.3": patches/@easyops-cn__docusaurus-search-local@0.55.3.patch

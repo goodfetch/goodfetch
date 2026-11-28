@@ -303,6 +303,13 @@ pub(crate) enum InterceptionEvent {
     NavigationScheduled { frame: String, url: String },
     /// A request failed.
     LoadingFailed(LoadingFailed),
+    /// A response carried `Set-Cookie` headers (which Chromium omits from
+    /// `Fetch.requestPaused.responseHeaders` and delivers only on
+    /// `Network.responseReceivedExtraInfo`).
+    ResponseSetCookie {
+        network_id: String,
+        values: Vec<String>,
+    },
     /// The page opened a WebSocket to `url`.
     WebSocketCreated { url: String },
     /// A request was challenged.
@@ -353,6 +360,24 @@ impl InterceptionEvents {
             }
             if let Some(failed) = event.read::<network::LoadingFailedEvent>() {
                 return Some(InterceptionEvent::LoadingFailed(LoadingFailed(failed)));
+            }
+            if let Some(extra) = event.read::<network::ResponseReceivedExtraInfoEvent>() {
+                let values: Vec<String> = extra
+                    .headers
+                    .iter()
+                    .filter(|(name, _)| name.eq_ignore_ascii_case("set-cookie"))
+                    .filter_map(|(_, value)| value.as_str())
+                    .flat_map(|value| value.lines())
+                    .map(str::trim)
+                    .filter(|line| !line.is_empty())
+                    .map(str::to_owned)
+                    .collect();
+                if !values.is_empty() {
+                    return Some(InterceptionEvent::ResponseSetCookie {
+                        network_id: extra.request_id,
+                        values,
+                    });
+                }
             }
             if let Some(created) = event.read::<network::WebSocketCreatedEvent>() {
                 return Some(InterceptionEvent::WebSocketCreated { url: created.url });

@@ -7,6 +7,24 @@
     reason = "test code, where STYLE.md allows unwrap; Clippy's test exemption does not reach integration-test helpers"
 )]
 
+mod cloud_stores;
 mod conformance;
+mod containers;
+mod dead_letters;
 mod faults;
+mod files;
+mod model;
+mod mysql_duckdb_smtp;
+mod outlive;
+mod postgres;
+mod retries;
 mod run_files;
+mod schema_drift;
+mod sftp_ftp;
+// The Simulation's scenarios (ADR 0060), built only under `--cfg
+// tokio_unstable` by `just simulate` and `just simulation`.
+#[cfg(tokio_unstable)]
+mod simulation;
+mod throughput;
+mod webhook;
+mod write_modes;

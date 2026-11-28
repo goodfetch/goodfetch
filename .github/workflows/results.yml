@@ -21,11 +21,13 @@
 name: results ingest
 
 # `workflow_run` is what follows a finished run. The runs it follows start only
-# on schedule, by hand or after such a run, never from a fork's pull request,
-# and the ingest reads their JUnit files as data, never as code.
+# on schedule, by hand, on a push to `main` (the docs site's deploy) or after
+# such a run, never from a fork's pull request, and the ingest reads their
+# JUnit files as data, never as code.
 on: # zizmor: ignore[dangerous-triggers]
   workflow_run:
-    workflows: [test health, diagnostic, release suite, coverage, nightly, live]
+    workflows:
+      [test health, diagnostic, release suite, coverage, docs, nightly, live, clean-up-rules-daily]
     types: [completed]
   schedule:
     - cron: "53 4 * * *"

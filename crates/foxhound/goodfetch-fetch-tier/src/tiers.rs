@@ -66,8 +66,8 @@ use goodfetch_extractor::fields::Found;
 use goodfetch_page::blocks::Block;
 use goodfetch_page::document_request::{DocumentRequest, Unread};
 use goodfetch_page::page_value::{
-    BrowserPages, HandlerPages, KeptFrom, KeptTree, Observer, OwnFetch, PageValue, PooledSession,
-    ProgramPages, Reader, ServedDocument, ServedFormatsAhead,
+    BrowserPages, DiscoveredByClicking, HandlerPages, KeptFrom, KeptTree, Observer, OwnFetch,
+    PageValue, PooledSession, ProgramPages, Reader, ServedDocument, ServedFormatsAhead,
 };
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::Setting;
@@ -91,7 +91,7 @@ use goodfetch_protocol::foxhound::report::BROWSER_VERSION_UNREAD;
 use goodfetch_protocol::foxhound::session_pool::SESSION_POOL_MAX_SIZE;
 use goodfetch_protocol::foxhound::settings::FETCH_BLOCK_CLASSIFICATION;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::page::proxy::{PROXY_KIND, PROXY_PROVIDER, PROXY_SERVER};
+use goodfetch_protocol::page::proxy::{PROXY_COUNTRY, PROXY_KIND, PROXY_PROVIDER, PROXY_SERVER};
 use goodfetch_protocol::page::read::PageField;
 use goodfetch_protocol::page::{
     BLOCKED, BlockedDetails, BodyHandle, FormatsRequest, Navigated, PageFormats, PageId,
@@ -307,12 +307,18 @@ struct ServedPage {
     /// The invalid-certificate exception its document's host was reached
     /// through (ADR 0042).
     certificate_exception: Option<CertificateExceptionMark>,
+    /// The Response recording or Response cache that answered in place of
+    /// the network (ADRs 0046 and 0105, issue 802).
+    origin: Option<goodfetch_protocol::foxhound::provenance::ResponseOrigin>,
     /// What the attempt it belongs to handed over: the navigation gate and
     /// the lease its navigations and `page.request`s go through.
     hand_over: Arc<HandOver>,
     /// Each redirect hop its crawl request's chain followed to its
     /// document, in order, which the Frontier learns from (ADR 0120).
     redirects: Arc<[Redirected]>,
+    /// Deferred Response cache entries held until Block classification and
+    /// Page check pass (ADRs 0006 and 0046, issue 795).
+    pending_cache: cached::DeferredStores,
 }
 
 impl ServedPage {
@@ -350,6 +356,9 @@ pub struct PageFacts {
     /// through, as Provenance marks it (ADR 0042, pitfall H03); `None`
     /// when its certificate verified.
     pub certificate_exception: Option<CertificateExceptionMark>,
+    /// The Response recording or Response cache that answered in place of
+    /// the network, as Provenance marks it (ADRs 0046 and 0105, issue 802).
+    pub origin: Option<goodfetch_protocol::foxhound::provenance::ResponseOrigin>,
     /// The AI-use signals its response carried.
     pub use_signals: UseSignals,
     /// The call that escalated it to the browser, the first its tier could
@@ -1161,16 +1170,26 @@ impl FetchTiers {
             None => (Arc::new(reqwest), None),
         };
         let caching = Caching::of(
-            engine.response_source(settings),
+            engine
+                .response_source_for(run.identity.id(), settings)
+                .active_effects(run.send_window.active_bodies()),
             CALLER,
             run.identity.id().clone(),
             run.identity.clock(),
-        );
+        )
+        .map(|caching| {
+            let caching = caching.with_masks(run.keys.secrets().mask().masks().clone());
+            match settings.value(&PROXY_COUNTRY).as_str() {
+                Some(country) if !country.is_empty() => caching.with_country(country),
+                _ => caching,
+            }
+        });
         Ok(HttpTier {
             addresses,
             transport: answering(caching.as_ref(), &transport),
             uncached: transport,
             caching,
+            jar: None,
             proxies,
             egress,
             bounds: FetchBounds::of(settings),
@@ -1283,14 +1302,16 @@ impl FetchTiers {
             encoding: hand_over.encoding,
             readers: Some(&hand_over.untouched),
         };
+        let (serve_transport, deferred_cache) = tier.deferred_transport();
         let fetched = follow_reading(hop, &tier.following, &gate, on, |hop| {
             let lead = std::mem::replace(&mut first, false);
             let clock = &clock;
+            let serve_transport = Arc::clone(&serve_transport);
             async move {
                 if lead {
                     tier.redundant
                         .fetch(
-                            tier.transport.as_ref(),
+                            serve_transport.as_ref(),
                             &tier.bounds,
                             OfRun {
                                 identity: &run.identity,
@@ -1304,7 +1325,7 @@ impl FetchTiers {
                         .await
                 } else {
                     fetch_accepting(
-                        tier.transport.as_ref(),
+                        serve_transport.as_ref(),
                         &hop,
                         &tier.bounds,
                         clock,
@@ -1336,7 +1357,7 @@ impl FetchTiers {
             run,
             choice,
             followed,
-            (hand_over, hand_over.encoding, ahead),
+            (hand_over, hand_over.encoding, ahead, deferred_cache),
         )
         .await
         .map_err(Unfollowed::from)
@@ -1394,7 +1415,12 @@ impl FetchTiers {
             read: opened,
             redirects,
         }: Followed<Opened>,
-        (hand_over, forced, ahead): (&Arc<HandOver>, Option<&'static Encoding>, ReadAhead),
+        (hand_over, forced, ahead, deferred_cache): (
+            &Arc<HandOver>,
+            Option<&'static Encoding>,
+            ReadAhead,
+            cached::DeferredStores,
+        ),
     ) -> Result<PageId, Stop> {
         let status = fetched.status;
         let (url, headers, body) = (
@@ -1403,6 +1429,7 @@ impl FetchTiers {
             fetched.body.clone(),
         );
         let certificate_exception = fetched.certificate_exception.as_ref().map(mark);
+        let origin = fetched.origin.clone();
         // The document is decoded and streamed on the page's own task, and
         // parsed and read on the CPU pool, in one hand-off, never on an
         // async worker (STYLE.md; ADR 0138; issue 2189).
@@ -1476,8 +1503,10 @@ impl FetchTiers {
                 classified: opened.classified.clone(),
                 own: Some((response, body)),
                 certificate_exception,
+                origin,
                 hand_over: Arc::clone(hand_over),
                 redirects: redirects.into(),
+                pending_cache: deferred_cache,
             }),
         );
         pages.opened(&page_id, opened);
@@ -1583,6 +1612,7 @@ impl FetchTiers {
             // which relays them unread: no `tls.accept_invalid_certs`
             // exception is taken on this tier.
             certificate_exception: None,
+            origin: None,
             text: None,
             pass: None,
         };
@@ -1593,8 +1623,14 @@ impl FetchTiers {
             redirects: Vec::new(),
         };
         let ahead = self.read_ahead(run, hand_over).await;
-        self.open_served(tier, run, choice, followed, (hand_over, None, ahead))
-            .await
+        self.open_served(
+            tier,
+            run,
+            choice,
+            followed,
+            (hand_over, None, ahead, cached::DeferredStores::default()),
+        )
+        .await
     }
 
     /// Whether a Run's resolved `settings` let its crawl take the
@@ -1615,6 +1651,7 @@ impl FetchTiers {
             not_document: page.not_document.clone(),
             encoding: page.encoding(),
             certificate_exception: page.certificate_exception.clone(),
+            origin: page.origin.clone(),
             use_signals: pages.use_signals.get(page_id).cloned().unwrap_or_default(),
             escalated: page.escalated,
         })
@@ -1979,6 +2016,9 @@ impl FetchTiers {
                 })
                 .await
         };
+        if !matches!(verdict, Verdict::Expected) {
+            page.pending_cache.keep_out();
+        }
         Some(match verdict {
             Verdict::Expected => Judged::Passed,
             Verdict::LoginPage => Judged::Failed(expected_page::logged_out(&url, status)),
@@ -2011,15 +2051,30 @@ impl FetchTiers {
         }
         let response = page.own.as_ref().map(|(response, _)| response.clone())?;
         let run = Arc::clone(&page.document.run);
-        // Its document's hand-off classified it, when it took one.
-        if let Classified::Read(classified) = &page.classified {
+        let found = if let Classified::Read(classified) = &page.classified {
             let received = run.identity.clock().wall();
-            return classified
+            classified
                 .clone()
-                .map(|block| (block.clone(), blocked(block, &response, received)));
+                .map(|block| (block.clone(), blocked(block, &response, received)))
+        } else {
+            self.classified(&run.identity, response, Arc::clone(&page.document))
+                .await
+        };
+        if found.is_some() {
+            page.pending_cache.keep_out();
         }
-        self.classified(&run.identity, response, Arc::clone(&page.document))
-            .await
+        found
+    }
+
+    /// Commits any deferred Response cache entries of the served page
+    /// `page_id` once Block classification and Page check passed; discards
+    /// them if either check marked the page kept out (ADRs 0006 and 0046,
+    /// issue 795).
+    pub async fn commit_cached(&self, page_id: &PageId) {
+        let Some(page) = self.served_page(page_id) else {
+            return;
+        };
+        page.pending_cache.commit().await;
     }
 
     /// The Block cause of `document`, which `response` answered for
@@ -2090,6 +2145,7 @@ impl FetchTiers {
             response: page.own.map(|(response, _)| response),
             not_document: page.not_document,
             certificate_exception: page.certificate_exception,
+            origin: page.origin,
             use_signals,
             escalated: page.escalated,
         })
@@ -2137,6 +2193,81 @@ impl FetchTiers {
         request: &CrawlRequest,
         context: &CallContext,
     ) -> Result<(PageId, Navigated), CallError> {
+        self.browser_opening(hand_over, pooled, request, context, false)
+            .await
+    }
+
+    /// Clicks every element matching `locator` on its page in document order
+    /// through the guard to discover script-only links (issue 1087): on a
+    /// non-browser tier it escalates under `fetch.tier: auto` and fails with
+    /// `browser_required` under a forced tier.
+    ///
+    /// # Errors
+    ///
+    /// `attempt_ended` (escalated) or `browser_required` on a non-browser tier,
+    /// `invalid_params` for an invalid CSS selector, `closed` when the page is
+    /// closed, or the browser's error.
+    ///
+    /// # Cancel safety
+    ///
+    /// Not cancel-safe once a click has been dispatched: dropping the future
+    /// disarms discovery interception via RAII drop guard, though already-sent
+    /// click inputs on the page remain applied.
+    pub async fn discover_links_by_clicking(
+        &self,
+        locator: &goodfetch_protocol::page::Locator,
+        context: &CallContext,
+    ) -> Result<DiscoveredByClicking, CallError> {
+        let is_document_tier = lock(&self.served.pages).open.contains_key(&locator.page_id);
+        if is_document_tier {
+            return Err(self.unserved(
+                &locator.page_id,
+                goodfetch_protocol::foxhound::frontier::CRAWL_REQUEST_ENQUEUE_LINKS_BY_CLICKING_ELEMENTS.name,
+                false,
+            ));
+        }
+        let Some(pages) = self.served.browser.get() else {
+            return Err(CallError::protocol(
+                ProtocolFailure::InternalError,
+                "the engine's composition handed the fetch tiers no browser pages",
+            ));
+        };
+        pages
+            .discover_links_by_clicking(&locator.page_id, &locator.selector, context)
+            .await
+    }
+
+    /// As [`FetchTiers::browser`], bypassing the Session's HTTP cache for the
+    /// navigation so a tier race's navigation does not wait in Chrome's HTTP
+    /// cache lock behind its in-flight browser-fetch (ADR 0040; issue 1630).
+    ///
+    /// # Errors
+    ///
+    /// As [`FetchTiers::browser`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`FetchTiers::browser`]: dropping the future cancels the navigation
+    /// and closes any newly opened page.
+    pub async fn browser_raced(
+        &self,
+        hand_over: &Arc<HandOver>,
+        pooled: &PooledSession,
+        request: &CrawlRequest,
+        context: &CallContext,
+    ) -> Result<(PageId, Navigated), CallError> {
+        self.browser_opening(hand_over, pooled, request, context, true)
+            .await
+    }
+
+    async fn browser_opening(
+        &self,
+        hand_over: &Arc<HandOver>,
+        pooled: &PooledSession,
+        request: &CrawlRequest,
+        context: &CallContext,
+        bypass_cache: bool,
+    ) -> Result<(PageId, Navigated), CallError> {
         let Some(pages) = self.served.browser.get() else {
             return Err(CallError::protocol(
                 ProtocolFailure::InternalError,
@@ -2149,6 +2280,7 @@ impl FetchTiers {
             method: request.method.as_str(),
             headers: (!request.headers.is_empty()).then_some(&request.headers),
             body: request.body.as_ref().map(HttpBody::bytes),
+            bypass_cache,
         };
         OPENING
             .scope(
@@ -2515,6 +2647,9 @@ pub struct HttpTier {
     /// What its transports answer from before they send, unless the Run
     /// only sends (ADR 0046).
     caching: Option<Arc<Caching>>,
+    /// The Session's cookie jar when [`HttpTier::keeping_cookies_of`] wrapped
+    /// the transport, kept so [`HttpTier::deferred_transport`] preserves it.
+    jar: Option<Arc<crate::cookies::Jar>>,
 }
 
 /// The reqwest transport of each local source a Session of the Run sends
@@ -2665,13 +2800,39 @@ impl HttpTier {
             .caching
             .as_ref()
             .map(|caching| caching.of_session(session));
+        let jar = self.jars.of(session);
         HttpTier {
             transport: Arc::new(WithJar {
                 transport: answering(own.as_ref(), &self.uncached),
-                jar: self.jars.of(session),
+                jar: Arc::clone(&jar),
             }),
+            caching: own,
+            jar: Some(jar),
             ..self.clone()
         }
+    }
+
+    /// A transport for one served document fetch whose cache stores wait in
+    /// the returned [`cached::DeferredStores`] until Block classification and
+    /// Page check pass (ADRs 0006 and 0046, issue 795).
+    fn deferred_transport(&self) -> (Arc<dyn Transport>, cached::DeferredStores) {
+        let Some(caching) = &self.caching else {
+            return (
+                Arc::clone(&self.transport),
+                cached::DeferredStores::default(),
+            );
+        };
+        let deferred = cached::DeferredStores::default();
+        let cached_transport =
+            cached::over_deferred(caching, Arc::clone(&self.uncached), deferred.clone());
+        let transport: Arc<dyn Transport> = match &self.jar {
+            Some(jar) => Arc::new(WithJar {
+                transport: cached_transport,
+                jar: Arc::clone(jar),
+            }),
+            None => cached_transport,
+        };
+        (transport, deferred)
     }
 
     /// The tier Provenance names for a document this tier fetched under
@@ -2710,6 +2871,13 @@ impl HttpTier {
         if let Some(proxy) = proxy {
             proxy.warn_if_outlived().await;
         }
+    }
+
+    /// Whether this Run replays a Response recording (ADR 0105).
+    pub fn replaying(&self) -> bool {
+        self.caching
+            .as_ref()
+            .is_some_and(|caching| caching.replaying())
     }
 
     /// The address check of the tier's connections, which judges a crawl
@@ -2768,6 +2936,16 @@ impl HttpTier {
             {
                 Ok(fetched) => fetched,
                 Err(failure) => {
+                    if failure.error().code() == goodfetch_protocol::run::RESPONSE_NOT_RECORDED.name
+                    {
+                        // Under replay, a robots.txt the recording lacks is
+                        // already listed as a miss and reads as no rules
+                        // (ADR 0105).
+                        return Answer::Response {
+                            status: 404,
+                            body: Vec::new(),
+                        };
+                    }
                     return Answer::Unreachable(failure.error().message().to_owned());
                 }
             };
@@ -2861,6 +3039,7 @@ pub async fn record_tier(
     label: &str,
     tier: &TierProvenance,
     encoding: Option<EncodingProvenance>,
+    origin: Option<&goodfetch_protocol::foxhound::provenance::ResponseOrigin>,
 ) -> Option<EncodingProvenance> {
     // The browser reads a document only a guess decodes with its own
     // detector (ADR 0119).
@@ -2872,6 +3051,9 @@ pub async fn record_tier(
     } else {
         encoding
     };
+    if !trace.logs_provenance() {
+        return encoding;
+    }
     let mut entry = serde_json::json!({
         "action": FETCH_TIER_ACTION,
         "crawl_request_id": request_id,
@@ -2896,6 +3078,9 @@ pub async fn record_tier(
     }
     if let Some(calls_sent_on) = tier.calls_sent_on {
         entry["calls_sent_on"] = serde_json::json!(calls_sent_on);
+    }
+    if let Some(origin) = origin {
+        entry["origin"] = serde_json::json!(origin);
     }
     provenance(trace, entry).await;
     encoding

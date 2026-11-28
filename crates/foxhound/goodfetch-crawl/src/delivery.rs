@@ -261,7 +261,7 @@ pub(crate) async fn drive(
         // choice: the Run cannot go on.
         Err(error) => {
             tracing::error!(%error, run_id = %run.identity.id(), "the crawl's HTTP tier could not be built");
-            run.end.end(failed(&run.identity, &error)).await;
+            run.end(failed(&run.identity, &error)).await;
             crawls.close(run.identity.id()).await;
             return;
         }
@@ -433,13 +433,22 @@ impl Read {
     }
 }
 
+/// Why the delivery loop stops admitting work and ends once nothing is in
+/// flight.
+enum Halt {
+    /// A stop requested of the Run (pause, abort, limit, timeout, drain).
+    Stop(StopReason),
+    /// A Sink failed under `crawl.on_sink_failure: stop` (ADR 0026).
+    SinkFailed(String),
+}
+
 /// What the delivery's loop does once no page is open and no settlement
 /// is being written.
 enum Idled {
     /// The Run ended: the loop returns.
     Ended,
     /// The loop looks for work again, stopping for the reason it holds.
-    Again(Option<StopReason>),
+    Again(Option<Halt>),
     /// The loop waits for its next event.
     Waits,
 }
@@ -451,15 +460,22 @@ async fn idled(
     (run, resolved): (&CrawlRun, &Resolved),
     (admission, state): (&mut Admission, &mut RunState),
     (servers, arrivals, in_flight): (&mut Vec<Serving>, &mut Opened, &SharedInFlight),
-    (stop, starved): (Option<StopReason>, bool),
+    (halt, starved): (Option<Halt>, bool),
 ) -> Idled {
-    if let Some(reason) = stop {
-        end(run, admission, Ending::Stopped(reason)).await;
-        return Idled::Ended;
+    match halt {
+        Some(Halt::Stop(reason)) => {
+            end(run, admission, Ending::Stopped(reason)).await;
+            return Idled::Ended;
+        }
+        Some(Halt::SinkFailed(reason)) => {
+            end(run, admission, failed(&run.identity, &reason)).await;
+            return Idled::Ended;
+        }
+        None => {}
     }
     let again = |waited| match waited {
         Waited::Ended => Idled::Ended,
-        Waited::Stop(reason) => Idled::Again(Some(reason)),
+        Waited::Stop(reason) => Idled::Again(Some(Halt::Stop(reason))),
         Waited::Again => Idled::Again(None),
     };
     if !servers.iter_mut().any(Serving::serves) {
@@ -501,7 +517,10 @@ async fn deliver(
     if fetching.hooks.before_request() {
         admission.permit_after_hooks();
     }
-    let (in_flight, mut stop) = (&fetching.in_flight, None::<StopReason>);
+    let (in_flight, mut halt) = (
+        &fetching.in_flight,
+        run.sink_failure_reason().map(Halt::SinkFailed),
+    );
     show_counted(run, &state, in_flight, []).await;
     let run_leases = leases_of(run, arrivals, &admission);
     let mut wakes = admission.wakes();
@@ -513,7 +532,7 @@ async fn deliver(
     // (ADR 0138).
     let (resolved, read) = (settings.resolved(), Read::of(settings.resolved()));
     loop {
-        if stop.is_none()
+        if halt.is_none()
             && let Err(error) = lease_to_servers(
                 run,
                 &run_leases,
@@ -536,27 +555,27 @@ async fn deliver(
         // crawl from idling, unless it stops: then it goes back to pending
         // uncounted, as the program's own stop counts nothing (#2178).
         let undrawn = state.undrawn() > 0;
-        if pages.idle() && settling.is_empty() && (stop.is_some() || !undrawn) {
+        if pages.idle() && settling.is_empty() && (halt.is_some() || !undrawn) {
             if undrawn {
                 release(run, state.stored()).await;
             }
             let state = (&mut admission, &mut state);
             let serving = (&mut *servers, &mut *arrivals, in_flight);
-            match idled((run, resolved), state, serving, (stop.take(), starved)).await {
+            match idled((run, resolved), state, serving, (halt.take(), starved)).await {
                 Idled::Ended => return,
                 Idled::Again(reason) => {
-                    stop = reason;
+                    halt = reason;
                     continue;
                 }
                 Idled::Waits => {}
             }
         }
-        let free = stop.is_none() && has_room(servers, read.policy);
+        let free = halt.is_none() && has_room(servers, read.policy);
         let wake = (free && !starved)
             .then(|| admission.ready_at(run.identity.clock().now()))
             .flatten();
         let shown = (resolved, read.policy);
-        let room = [stop.is_some(), free, starved];
+        let room = [halt.is_some(), free, starved];
         show(run, &mut admission, shown, servers, room);
         let settles = !settling.is_empty();
         tokio::select! {
@@ -568,9 +587,8 @@ async fn deliver(
                 release(run, state.stored()).await;
                 return;
             }
-            reason = run.identity.stopping(), if stop.is_none() => {
-                stop = Some(reason);
-            }
+            reason = run.identity.stopping(), if halt.is_none() => halt = Some(Halt::Stop(reason)),
+            reason = run.sink_failed(), if halt.is_none() => halt = Some(Halt::SinkFailed(reason)),
             Some(server) = arrivals.joined.recv() => {
                 servers.push(Serving::joined(server));
             }
@@ -709,7 +727,7 @@ pub(crate) fn failed(run: &RunIdentity, error: &dyn std::fmt::Display) -> Ending
 /// Ends the Run as `ending` says, once its admission gave back what it held.
 async fn end(run: &CrawlRun, admission: &mut Admission, ending: Ending) {
     admission.close().await;
-    run.end.end(ending).await;
+    run.end(ending).await;
 }
 
 /// The next key of the Run that a Permit given back woke, `None` for every
@@ -782,7 +800,7 @@ pub(crate) async fn resume(
     let (labels, choices, (code_free, datasets, invariants)) = match left {
         Err(error) => {
             tracing::error!(%error, run_id = %run.identity.id(), "the resumed crawl's work items could not be recovered");
-            run.end.end(failed(&run.identity, &error)).await;
+            run.end(failed(&run.identity, &error)).await;
             return;
         }
         Ok((0, labels)) => {
@@ -1557,13 +1575,22 @@ fn scored(
             servers[attempt.server].gone = true;
         }
         let waiting = attempt.leased.waiting.clone();
-        let domain = domain_ending(
-            &attempt.answer,
-            attempt.document.as_ref(),
-            read.proxied,
-            run.identity.clock().now(),
-            run.identity.clock().wall(),
-        );
+        let replaying = run
+            .browser
+            .engine
+            .recordings()
+            .is_replaying(run.identity.id());
+        let domain = if replaying {
+            goodfetch_engine::admission::Ended::Done
+        } else {
+            domain_ending(
+                &attempt.answer,
+                attempt.document.as_ref(),
+                read.proxied,
+                run.identity.clock().now(),
+                run.identity.clock().wall(),
+            )
+        };
         if attempt.moved {
             pool.moved_to_browser(&waiting.key);
         }
@@ -1599,13 +1626,17 @@ fn scored(
         if let Some(reader) = &attempt.site_files {
             pool.settle(reader, &waiting.key, Effect::Neutral, &read.pool);
         }
-        let held = held_past_bound(
-            &attempt.answer,
-            attempt
-                .handed_at
-                .unwrap_or_else(|| run.identity.clock().wall()),
-            read.longest_wait,
-        );
+        let held = if replaying {
+            None
+        } else {
+            held_past_bound(
+                &attempt.answer,
+                attempt
+                    .handed_at
+                    .unwrap_or_else(|| run.identity.clock().wall()),
+                read.longest_wait,
+            )
+        };
         settlings.push(Settling {
             server: attempt.server,
             waiting,
@@ -1676,7 +1707,7 @@ async fn opened(
         }
         Err(error) => {
             tracing::error!(%error, run_id = %run.identity.id(), "the crawl's admission could not open");
-            run.end.end(failed(&run.identity, &error)).await;
+            run.end(failed(&run.identity, &error)).await;
             None
         }
     }
@@ -1710,7 +1741,8 @@ async fn open(
         within,
         (admission.keys(), run.identity.clock()),
         run.identity.metrics(),
-    );
+    )
+    .with_recorder(run.browser.engine.recordings().recorder(run.identity.id()));
     stored
         .fill_memory()
         .await

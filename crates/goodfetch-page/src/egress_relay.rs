@@ -137,10 +137,13 @@ pub(crate) struct EgressRelay {
 }
 
 /// A Session's local addresses at its relay (ADR 0044): the address of
-/// each family its connections bind, and the engine's resolution, whose
-/// queries the relay sends from them.
+/// each family its connections bind, the network device its sockets bind when
+/// `egress.local_addresses` names an interface (resolved once on a blocking
+/// thread), and the engine's resolution, whose queries the relay sends from
+/// them.
 pub(crate) struct Local {
     pub(crate) addresses: SessionAddresses,
+    pub(crate) device: goodfetch_engine::local_addresses::Device,
     pub(crate) dns: Dns,
 }
 
@@ -435,7 +438,7 @@ impl EgressRelay {
             upstream: address,
             upstream_tls,
             judged,
-            local: local.map(|local| LocalBinding::new(local.addresses, &local.dns)),
+            local: local.map(|local| LocalBinding::new(local.addresses, local.device, &local.dns)),
         };
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
         let address = listener.local_addr()?;
@@ -542,6 +545,15 @@ impl EgressRelay {
         self.terminating
             .as_deref()
             .is_some_and(|terminating| terminating.exceptions.covers(host))
+    }
+
+    /// Whether the relay terminates `host`'s connections under a custom TLS
+    /// policy (`tls.accept_invalid_certs` or `tls.trusted_cas`), whose
+    /// responses the Response cache never stores (ADR 0046).
+    pub(crate) fn custom_tls(&self, host: &str) -> bool {
+        self.terminating.as_deref().is_some_and(|terminating| {
+            terminating.exceptions.covers(host) || terminating.trust.scope_of(host).is_some()
+        })
     }
 
     /// How the certificate of `url`'s host fails the engine's per-host

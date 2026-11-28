@@ -27,14 +27,15 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::home::RUN_TRACE_REQUESTS;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
-    Answer, BROWSERS_PATH_VARIABLE, Family, Outcome, ProvingGround, Refusal, Runner, SsrfCase,
-    SsrfTable, TestEnv, browser_cache,
+    Answer, BROWSERS_PATH_VARIABLE, Outcome, ProvingGround, Refusal, Runner, SsrfCase, SsrfTable,
+    TestEnv, browser_cache,
 };
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
 use crate::COLLIE;
 use crate::page::{BROWSER_DEADLINE, opened};
+use crate::proxy::PASSWORD_VARIABLE;
 use goodfetch_test_client::{Attached, hello};
 
 /// The Proving ground's own seed for these tests.
@@ -67,8 +68,20 @@ struct Program {
 
 impl Program {
     fn start(env: &TestEnv, cache: &Path, proving_ground: &ProvingGround) -> Self {
+        Self::start_with_env(env, cache, proving_ground, &[])
+    }
+
+    fn start_with_env(
+        env: &TestEnv,
+        cache: &Path,
+        proving_ground: &ProvingGround,
+        extra_env: &[(&str, &str)],
+    ) -> Self {
         let mut engine = Attached::start_with(env, COLLIE, BROWSER_DEADLINE, |command| {
             command.env(BROWSERS_PATH_VARIABLE, cache);
+            for (name, value) in extra_env {
+                command.env(name, value);
+            }
         });
         engine.send(&hello(Product::Collie));
         let _ = engine.next();
@@ -95,8 +108,14 @@ impl Program {
     }
 
     /// Starts the Run `run_id`, whose domain policy allows the pages' hosts
-    /// and, when `open`, [`REFUSED`] too, and opens its page.
-    fn page_of_run(&mut self, run_id: &str, open: bool) -> String {
+    /// and, when `open`, [`REFUSED`] too, and opens its page (in a Session
+    /// carrying `session_settings` when given).
+    fn page_of_run_with_session(
+        &mut self,
+        run_id: &str,
+        open: bool,
+        session_settings: Option<&Value>,
+    ) -> String {
         let mut allowed = vec![PAGES, FRAME];
         if open {
             allowed.push(REFUSED);
@@ -116,9 +135,21 @@ impl Program {
             &json!({ "run_id": run_id, "settings": settings }),
         );
         assert!(started.get("result").is_some(), "{started}");
-        opened(&self.call("run.new_page", &json!({ "run_id": run_id })))
-            .page_id
-            .0
+        if let Some(session_settings) = session_settings {
+            let session = self.call(
+                "run.new_session",
+                &json!({ "run_id": run_id, "settings": session_settings }),
+            );
+            assert!(session.get("result").is_some(), "{session}");
+            let session_id = session["result"]["session_id"].clone();
+            opened(&self.call("session.new_page", &json!({ "session_id": session_id })))
+                .page_id
+                .0
+        } else {
+            opened(&self.call("run.new_page", &json!({ "run_id": run_id })))
+                .page_id
+                .0
+        }
     }
 
     /// The Run settings an SSRF case's requests go under: its domain policy,
@@ -230,33 +261,6 @@ fn arrives(arrived: impl Fn() -> bool) -> bool {
     arrived()
 }
 
-/// The Error codes of the Run trace's `page.request_failed` lines whose
-/// URL is on `host`, of the Run `run_id`.
-fn refusals_recorded(env: &TestEnv, run_id: &str, host: &str) -> Vec<Value> {
-    let file = HomeLayout::of(env.home()).run_trace(run_id, RUN_TRACE_REQUESTS);
-    std::fs::read_to_string(file)
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .filter(|line| line["event"] == json!("page.request_failed"))
-        .filter(|line| {
-            line["data"]["url"]
-                .as_str()
-                .and_then(|url| url.split_once("://"))
-                .is_some_and(|(_, rest)| rest.split(['/', ':', '?']).next() == Some(host))
-        })
-        .map(|line| {
-            // A page's request carries its failure's error; the engine's
-            // own record of a request no page reports is the error itself.
-            let failure = &line["data"]["failure"];
-            failure["error"]["code"]
-                .as_str()
-                .or_else(|| failure["code"].as_str())
-                .map_or(Value::Null, Value::from)
-        })
-        .collect()
-}
-
 /// What became of one kind's request in a held Run and an open one.
 #[derive(Debug, PartialEq, Eq)]
 struct Attempts {
@@ -264,8 +268,30 @@ struct Attempts {
     held: usize,
     /// Whether one reached it from the open Run.
     open: bool,
-    /// The Error codes the held Run's trace recorded for it.
-    refusals: Vec<Value>,
+    /// The `(Error code, rule)` pairs the held Run's trace recorded for it.
+    refusals: Vec<(Value, Value)>,
+    /// Upstream proxy relays to [`REFUSED`] recorded during the held Run.
+    held_relays: Vec<String>,
+    /// Upstream proxy relays to [`REFUSED`] recorded during the open Run.
+    open_relays: Vec<String>,
+}
+
+/// Names of Proving ground proxies that relayed a connection whose destination
+/// host is [`REFUSED`] (matching authority `host:port` or URL host, never query
+/// parameters of the page URL).
+fn relayed_to_refused(proving_ground: &ProvingGround) -> Vec<String> {
+    let authority_prefix = format!("{REFUSED}:");
+    proving_ground.observations().unwrap()["relays"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|relay| {
+            relay["target"].as_str().is_some_and(|target| {
+                target.starts_with(&authority_prefix) || host_of(target).as_deref() == Some(REFUSED)
+            })
+        })
+        .filter_map(|relay| relay["proxy"].as_str().map(str::to_owned))
+        .collect()
 }
 
 /// Opens the page `path` gives on `host` in a held Run, then in an open
@@ -275,25 +301,52 @@ fn attempt(
     path: impl Fn(&ProvingGround) -> String,
     reached: impl Fn(&ProvingGround) -> usize,
 ) -> Attempts {
+    attempt_with_session(host, path, reached, |_| (Vec::new(), None))
+}
+
+/// Like [`attempt`], configuring each Session's own settings and extra
+/// engine environment variables from the Proving ground's fixtures.
+fn attempt_with_session(
+    host: &str,
+    path: impl Fn(&ProvingGround) -> String,
+    reached: impl Fn(&ProvingGround) -> usize,
+    session: impl FnOnce(&ProvingGround) -> (Vec<(String, String)>, Option<Value>),
+) -> Attempts {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut program = Program::start(&env, &cache, &proving_ground);
+    let (extra_env, session_settings) = session(&proving_ground);
+    let env_refs: Vec<(&str, &str)> = extra_env
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let mut program = Program::start_with_env(&env, &cache, &proving_ground, &env_refs);
     let url = proving_ground.url(host, &path(&proving_ground));
 
-    let held = program.page_of_run("held", false);
+    let held = program.page_of_run_with_session("held", false, session_settings.as_ref());
     let _ = program.call("page.goto", &json!({ "page_id": held, "url": url }));
     program.settle(&held);
     let held_reached = reached(&proving_ground);
-    let open = program.page_of_run("open", true);
+    let held_relays = relayed_to_refused(&proving_ground);
+    let open = program.page_of_run_with_session("open", true, session_settings.as_ref());
     let _ = program.call("page.goto", &json!({ "page_id": open, "url": url }));
     let open_reached = arrives(|| reached(&proving_ground) > held_reached);
+    let open_relays = relayed_to_refused(&proving_ground);
     program.finish(&["held", "open"]);
+
+    let (_, recorded) = refusals_from(&env, "held", 0);
+    let refusals = recorded
+        .into_iter()
+        .filter(|(recorded_host, _, _)| recorded_host == REFUSED)
+        .map(|(_, code, rule)| (code, rule))
+        .collect();
 
     Attempts {
         held: held_reached,
         open: open_reached,
-        refusals: refusals_recorded(&env, "held", REFUSED),
+        refusals,
+        held_relays,
+        open_relays,
     }
 }
 
@@ -313,13 +366,19 @@ fn reached_target(kind: &str) -> impl Fn(&ProvingGround) -> usize {
     move |proving_ground| received(proving_ground, REFUSED, &target)
 }
 
-/// What one kind's attempts should be: none held, one open, and the held
-/// Run's trace recording the refusal once.
-fn refused_and_recorded() -> Attempts {
-    Attempts {
-        held: 0,
-        open: true,
-        refusals: vec![json!("egress_refused")],
+/// Checks that the held Run reached nothing and recorded only
+/// `egress_refused` / `domain_policy` refusals, while the paired open Run
+/// reached the target.
+fn assert_refused_and_recorded(attempts: &Attempts, exact_one: bool) {
+    let expected = (json!("egress_refused"), json!("domain_policy"));
+    assert_eq!((attempts.held, attempts.open), (0, true), "{attempts:?}");
+    if exact_one {
+        assert_eq!(attempts.refusals, vec![expected], "{attempts:?}");
+    } else {
+        assert!(
+            !attempts.refusals.is_empty() && attempts.refusals.iter().all(|r| *r == expected),
+            "{attempts:?}"
+        );
     }
 }
 
@@ -328,19 +387,70 @@ fn refused_and_recorded() -> Attempts {
 fn a_navigation_the_page_sends_itself_to_a_refused_host_is_refused() {
     let attempts = attempt(PAGES, kind_page("navigation"), reached_target("navigation"));
 
-    assert_eq!(attempts, refused_and_recorded());
+    assert_refused_and_recorded(&attempts, true);
 }
 
 /// A peer connection's TURN server over TCP: no interception sees it, so
-/// the browser holds it to the domain policy where it connects, and sends
-/// no UDP a policy could not judge.
+/// the egress relay holds it to the domain policy where it connects,
+/// records the refusal as `page.request_failed` with `egress_refused` and
+/// `rule: "domain_policy"`, and sends no UDP a policy could not judge
+/// (ticket 2366).
 ///
-/// Covers: story:4-1, operation:page.goto
+/// Covers: story:4-1, error:egress_refused, operation:page.goto
 #[test]
 fn a_webrtc_connection_to_a_refused_host_reaches_nothing() {
     let attempts = attempt(PAGES, kind_page("webrtc"), target_connections);
 
-    assert_eq!((attempts.held, attempts.open), (0, true));
+    assert_refused_and_recorded(&attempts, false);
+}
+
+/// A Session with its own HTTP or SOCKS5 proxy still chains through the
+/// egress relay, which holds its WebSocket and WebRTC TURN-over-TCP
+/// connections to the domain policy and records each refusal as
+/// `page.request_failed` with `egress_refused` and `rule: "domain_policy"`,
+/// while the paired open Run reaches the Proving ground through that proxy
+/// (ticket 2366).
+///
+/// Covers: story:4-1, error:egress_refused, setting:proxy.server, operation:run.new_session, operation:page.goto
+#[cfg(unix)]
+#[rstest]
+#[case::http_websocket("http", "open", false, "websocket")]
+#[case::http_webrtc("http", "open", false, "webrtc")]
+/// Covers: setting:proxy.username, setting:proxy.password
+#[case::socks5_websocket("socks5", "socks5", true, "websocket")]
+/// Covers: setting:proxy.username, setting:proxy.password
+#[case::socks5_webrtc("socks5", "socks5", true, "webrtc")]
+fn a_session_with_its_own_proxy_holds_websocket_and_webrtc_to_the_domain_policy(
+    #[case] scheme: &str,
+    #[case] proxy_name: &str,
+    #[case] credentials: bool,
+    #[case] kind: &'static str,
+) {
+    let oracle: fn(&ProvingGround) -> usize = match kind {
+        "webrtc" => target_connections,
+        _ => |pg| received(pg, REFUSED, "/request-kinds/reached?kind=websocket"),
+    };
+    let attempts = attempt_with_session(PAGES, kind_page(kind), oracle, |proving_ground| {
+        let fixtures = &proving_ground.description().fixtures;
+        let mut proxy = json!({ "server": format!("{scheme}://{}", fixtures.proxies[proxy_name]) });
+        let mut extra_env = Vec::new();
+        if credentials {
+            proxy["username"] = json!(fixtures.proxy_credentials.username);
+            proxy["password"] = json!(format!("env:{PASSWORD_VARIABLE}"));
+            extra_env.push((
+                PASSWORD_VARIABLE.to_owned(),
+                fixtures.proxy_credentials.password.clone(),
+            ));
+        }
+        (extra_env, Some(json!({ "proxy": proxy })))
+    });
+
+    assert_refused_and_recorded(&attempts, kind == "websocket");
+    assert!(attempts.held_relays.is_empty(), "{attempts:?}");
+    assert!(
+        attempts.open_relays.iter().any(|name| name == proxy_name),
+        "{attempts:?}"
+    );
 }
 
 /// The value of the first `rule` field in `value`, at any depth.
@@ -377,7 +487,11 @@ fn refusals_from(env: &TestEnv, run_id: &str, from: usize) -> (usize, Vec<(Strin
     let refusals = lines
         .iter()
         .skip(from)
-        .filter(|line| line["event"] == json!("page.request_failed"))
+        .filter(|line| {
+            line["event"] == json!("page.request_failed")
+                || (line["event"] == json!("service_worker.request")
+                    && !line["data"]["failure"].is_null())
+        })
         .filter_map(|line| {
             let host = host_of(line["data"]["url"].as_str()?)?;
             let failure = &line["data"]["failure"];
@@ -424,9 +538,9 @@ fn reached_from(proving_ground: &ProvingGround, kind: &str, from: usize) -> (usi
 #[rstest]
 #[case::subresource("fetch", PAGES, Unjudged::Unspecified)]
 #[case::out_of_process_frame("frame", PAGES, Unjudged::Unparsed)]
-#[case::dedicated_worker("dedicated_worker", PAGES, Unjudged::UnspecifiedAndPolicy)]
+#[case::dedicated_worker("dedicated_worker", PAGES, Unjudged::Unspecified)]
 #[case::shared_worker("shared_worker", PAGES, Unjudged::Unspecified)]
-#[case::service_worker("service_worker", FRAME, Unjudged::Policy)]
+#[case::service_worker("service_worker", FRAME, Unjudged::Unparsed)]
 #[case::websocket("websocket", PAGES, Unjudged::Unparsed)]
 fn every_address_case_of_the_ssrf_table_is_refused_for_each_kind_of_request_on_chromium(
     #[case] kind: &str,
@@ -558,14 +672,6 @@ enum Unjudged {
     /// `fetch` itself, before its proxy, the Session's egress relay, sees
     /// the request.
     Unspecified,
-    /// The URLs the WHATWG parser refuses, and the domain policy's cases:
-    /// interception refuses a service worker's request, but no record sees
-    /// the refusal (#632's gap).
-    Policy,
-    /// The unspecified addresses too, and the domain policy's cases, which
-    /// interception refuses for a dedicated worker but no record sees
-    /// (#632's gap).
-    UnspecifiedAndPolicy,
 }
 
 impl Unjudged {
@@ -575,12 +681,9 @@ impl Unjudged {
         let unspecified = case
             .target_address(PUBLIC_STAND_IN)
             .is_some_and(|target| target.to_canonical().is_unspecified());
-        let policy = case.family == Family::DomainPolicy;
         match self {
             Self::Unparsed => unparsed,
             Self::Unspecified => unparsed || unspecified,
-            Self::Policy => unparsed || policy,
-            Self::UnspecifiedAndPolicy => unparsed || unspecified || policy,
         }
     }
 }

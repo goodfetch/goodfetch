@@ -193,6 +193,9 @@ pub(crate) fn respond(seed: u64, request: &Request<'_>) -> Reply {
     if path == "/shell" {
         return Reply::html(SHELL_PAGE.to_owned());
     }
+    if path == "/clock-random" {
+        return Reply::html(CLOCK_RANDOM_PAGE.to_owned());
+    }
     if let Some(page) = path.strip_prefix("/api/feed/") {
         return match canonical_number(page).filter(|page| (1..=FEED_PAGES).contains(page)) {
             Some(page) => feed_data(seed, page),
@@ -231,6 +234,11 @@ pub(crate) fn respond(seed: u64, request: &Request<'_>) -> Reply {
 /// `#app` before the page loads, so a browser shows it at `load` and the
 /// HTML alone never does.
 const SHELL_PAGE: &str = "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>Shell</title></head>\n<body>\n<main id=\"app\"></main>\n<script>\ndocument.getElementById(\"app\").innerHTML = \"<h1 class=\\\"title\\\">Rendered shell</h1><p>Written by its script.</p>\";\n</script>\n</body>\n</html>\n";
+
+/// A page whose inline script prints the current UTC date, epoch milliseconds,
+/// and two draws from `Math.random()` so replayed time and randomness can be
+/// checked across replays (ADR 0105, issue 801).
+const CLOCK_RANDOM_PAGE: &str = "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>Clock and Random</title></head>\n<body>\n<main>\n<p id=\"date\"></p>\n<p id=\"epoch\"></p>\n<p id=\"random\"></p>\n<p id=\"random2\"></p>\n</main>\n<script>\nconst now = new Date();\ndocument.getElementById(\"date\").textContent = now.toISOString().slice(0, 10);\ndocument.getElementById(\"epoch\").textContent = String(now.getTime());\ndocument.getElementById(\"random\").textContent = String(Math.random());\ndocument.getElementById(\"random2\").textContent = String(Math.random());\n</script>\n</body>\n</html>\n";
 
 fn feed_page() -> String {
     format!(

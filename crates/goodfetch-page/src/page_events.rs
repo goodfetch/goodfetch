@@ -1,8 +1,9 @@
 //! A page's events and the bodies of its responses (spec #577's `network`;
 //! ADRs 0081, 0085, 0118 and 0121). Each open page has one reader of its
-//! target's events, and one of each out-of-process frame's, which follow
-//! every request through its hops, response, bytes and end, and send an
-//! event of the page to each `page.on` call that listens to it: on that
+//! target's events, and one of each out-of-process frame's and dedicated
+//! worker's, which follow every request through its hops, response, bytes and
+//! end, and send an event of the page to each `page.on` call that listens to
+//! it: on that
 //! call alone, so only the Connection that armed it gets the page's
 //! traffic, under the credits its Client grants it (ADR 0024), lossless
 //! (`LISTENER_LIMIT` unsent at most, past which the call raises
@@ -582,30 +583,31 @@ impl PageEvents {
         Self { shared }
     }
 
-    /// What the page's events do with each of its out-of-process frames,
-    /// which `page_children::follow` hands over: each one's network is
-    /// read from before it runs, so its requests count in the page's
-    /// `networkidle` and reach its waiters and events, their bodies read on
-    /// the frame's session, and a document request the page started ends
-    /// when the frame finishes it, on the frame's own session; its console
-    /// and uncaught exceptions too, once a call listens to them.
+    /// What the page's events do with each of its out-of-process frames and
+    /// dedicated workers, which `page_children::follow` hands over: each
+    /// child's network is read from before it runs, so its requests count in
+    /// the page's `networkidle`, reach its waiters and events, and carry
+    /// interception refusals into the Run trace (`page.request_failed`),
+    /// their bodies read on the child's session, and a document request the
+    /// page started ends when the frame finishes it, on the frame's own
+    /// session; an out-of-process frame's console and uncaught exceptions
+    /// too, once a call listens to them.
     pub(crate) fn frames(&self) -> OnChild {
         let shared = Arc::clone(&self.shared);
         Arc::new(move |child: &Child| {
             let shared = Arc::clone(&shared);
             let (kind, session, gone) = (child.kind, child.session.clone(), child.gone.clone());
             Box::pin(async move {
-                if kind != ChildKind::Frame {
-                    return true;
-                }
                 let events = shared.cdp.frame_events(&session);
                 // Listed before its console is asked for, so a call that
                 // listens from now turns it on here, or finds it on.
-                let console = {
+                let console = if kind == ChildKind::Frame {
                     let mut state = lock(&shared.state);
                     state.frames.retain(|(_, gone)| !gone.is_cancelled());
                     state.frames.push((session.clone(), gone.clone()));
                     state.runtime_since.is_some()
+                } else {
+                    false
                 };
                 match shared.cdp.follow_frame_network(&session).await {
                     Ok(()) => {
@@ -617,7 +619,7 @@ impl PageEvents {
                         shared.spawn(read_frame(events, gone, session, Arc::clone(&shared)));
                     }
                     Err(failure) => {
-                        tracing::debug!(%failure, "an out-of-process frame went before its network was read");
+                        tracing::debug!(%failure, ?kind, "a page child went before its network was read");
                     }
                 }
                 true
@@ -1221,10 +1223,11 @@ async fn read(mut followed: FollowedEvents, shared: Arc<Shared>) {
     }
 }
 
-/// Reads the network events, console and uncaught exceptions of one of the
-/// page's out-of-process frames, on its `session`, until its target goes
-/// (`gone`), as the page's own: a document request the page started and
-/// the frame finished ends there.
+/// Reads the network events (and, for out-of-process frames, console and
+/// uncaught exceptions) of one of the page's out-of-process frames or
+/// dedicated workers, on its `session`, until its target goes (`gone`), as
+/// the page's own: a document request the page started and the frame finished
+/// ends there.
 async fn read_frame(
     mut followed: FollowedEvents,
     gone: CancellationToken,

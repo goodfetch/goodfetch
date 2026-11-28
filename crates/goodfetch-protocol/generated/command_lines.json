@@ -1020,6 +1020,23 @@
         "commands": [
           {
             "commands": [],
+            "name": "probe"
+          },
+          {
+            "commands": [],
+            "name": "list"
+          },
+          {
+            "commands": [],
+            "name": "deliver"
+          }
+        ],
+        "name": "sink"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
             "name": "search"
           }
         ],

@@ -61,6 +61,8 @@ impl Transport for Endless {
                 reused: false,
                 decoded: false,
                 certificate_exception: None,
+                custom_tls: false,
+                origin: None,
             })
         })
     }

@@ -143,6 +143,13 @@ impl TransportProxy {
             .map_or_else(|| self.proxy.transport_route(), relay_route)
     }
 
+    /// The exit country the Proxy provider declared for this proxy, if any
+    /// (ADR 0046).
+    #[must_use]
+    pub fn country(&self) -> Option<&str> {
+        self.proxy.country()
+    }
+
     /// Whether a hop to `url` goes around the proxy, as `proxy.bypass`
     /// says.
     #[must_use]

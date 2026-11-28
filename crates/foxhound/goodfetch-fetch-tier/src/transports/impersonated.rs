@@ -435,10 +435,13 @@ impl Wreq {
             .await
             .map_err(TransportFailure::CertificateChanged)?;
         let presenting = self.presenting_for(host).await?;
+        let trusted_ca = self.trust.scope_of(host).is_some();
         for _ in 0..DECISIONS {
             let presented = match self.send_on(presenting.as_deref(), hop, reuse).await {
                 Ok(mut sent) => {
                     sent.certificate_exception = self.decision.exception(host);
+                    sent.custom_tls =
+                        sent.certificate_exception.is_some() || presenting.is_some() || trusted_ca;
                     return Ok(sent);
                 }
                 Err((failure, None)) => return Err(failure),
@@ -556,6 +559,8 @@ impl Wreq {
                 reused,
                 decoded: false,
                 certificate_exception: None,
+                custom_tls: false,
+                origin: None,
             })
         }
     }

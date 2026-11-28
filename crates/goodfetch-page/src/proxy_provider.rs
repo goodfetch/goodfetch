@@ -294,10 +294,17 @@ impl ProxyDriver {
             country: wanted.country.as_ref(),
             lifetime: lifetime.map(|lifetime| self.provider.format_lifetime(lifetime)),
         });
+        let country = wanted
+            .country
+            .clone()
+            .or_else(|| match endpoint.countries.as_deref() {
+                Some([only]) => Some(only.clone()),
+                _ => None,
+            });
         Ok(Chosen {
             server: endpoint.server.clone(),
             kind,
-            country: wanted.country.clone(),
+            country,
             username,
             lifetime,
         })

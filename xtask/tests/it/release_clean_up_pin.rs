@@ -3,16 +3,11 @@
 //! network downloads, notice inventory coverage, and nightly asset/notes wiring
 //! (ADRs 0030, 0032 and 0047; issue 207).
 
-#[cfg(target_os = "linux")]
 use std::fmt::Write as _;
 use std::path::Path;
-#[cfg(target_os = "linux")]
 use std::process::Command;
 
-use serde_json::Value;
-#[cfg(target_os = "linux")]
-use serde_json::json;
-#[cfg(target_os = "linux")]
+use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
 use crate::workspace::Workspace;
@@ -23,7 +18,6 @@ fn repo_root() -> &'static Path {
         .expect("workspace root")
 }
 
-#[cfg(target_os = "linux")]
 fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);

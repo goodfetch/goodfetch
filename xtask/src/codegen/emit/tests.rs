@@ -70,6 +70,14 @@ fn file_formats() -> serde_json::Value {
         stored_format("plugin-protocol", "transcript", "lower_minor", "Message"),
         stored_format("plugin-manifest", "json", "default", "PluginManifest"),
         stored_format("notification-payload", "json", "frozen_major", "NotificationPayload"),
+        {
+            "name": "warc",
+            "version": "0.1",
+            "storage": "warc",
+            "rule": "default",
+            "hello_from": [],
+            "schema": true,
+        },
         stored_format("published-catalog", "json", "default", "PublishedCatalog"),
     ])
 }

@@ -16,7 +16,9 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use goodfetch_counted_work::CountedWork;
-use goodfetch_engine::response_cache::{CacheRequest, Partition, ResponseCache, ResponseHead};
+use goodfetch_engine::response_cache::{
+    CacheRequest, EntryScope, Partition, ResponseCache, ResponseHead,
+};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::run::RunId;
 
@@ -35,6 +37,15 @@ fn os_user() -> Partition {
     Partition {
         person: "os_user".to_owned(),
         ..Partition::default()
+    }
+}
+
+/// Non-empty approval scope exercised by the `head/` compatibility fixture.
+fn example_scope() -> EntryScope {
+    EntryScope {
+        wall_domain: Some("cache.test".to_owned()),
+        wall_refetch: true,
+        consent_domain: Some("cache.test".to_owned()),
     }
 }
 
@@ -79,7 +90,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .await;
         let by_a_run = cache
-            .store(
+            .store_scoped(
                 &Partition {
                     person: "grace".to_owned(),
                     country: "FR".to_owned(),
@@ -98,6 +109,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     headers: pairs(&[("cache-control", "max-age=3600")]),
                 },
                 Bytes::from_static(b"fresh for an hour"),
+                &example_scope(),
                 Some(&RunId::parse("filled-the-cache")?),
                 start,
             )

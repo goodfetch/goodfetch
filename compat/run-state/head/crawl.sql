@@ -255,6 +255,7 @@ INSERT INTO "record_search_idx" VALUES(5,X'',2);
 INSERT INTO "record_search_idx" VALUES(6,X'',2);
 INSERT INTO "record_search_idx" VALUES(7,X'',2);
 INSERT INTO "record_search_idx" VALUES(8,X'',2);
+CREATE TABLE recorded_responses ( position INTEGER PRIMARY KEY AUTOINCREMENT, recorded_at TEXT NOT NULL, method TEXT NOT NULL, url TEXT NOT NULL, request_headers TEXT NOT NULL, request_body BLOB NOT NULL, status INTEGER NOT NULL, response_headers TEXT NOT NULL, response_body BLOB NOT NULL, truncated INTEGER NOT NULL CHECK (truncated IN (0, 1)) ) STRICT;
 CREATE TABLE records (
             dataset TEXT NOT NULL,
             number INTEGER NOT NULL,

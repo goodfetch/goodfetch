@@ -79,6 +79,7 @@ impl On<'_> {
             request == Request::Sitemap && goodfetch_frontier::sitemap::is_robots_txt(url);
         if robots_seed
             && !reads
+            && !of_run.replaying()
             && let Some(settings) = run.identity.settings()
         {
             // A crawl that reads no robots.txt for its requests did not
@@ -124,7 +125,8 @@ impl On<'_> {
         let spacing = of_run
             .domain_delay
             .max(allowed.crawl_delay.unwrap_or_default());
-        if let Some(read) = &reading
+        if !of_run.replaying()
+            && let Some(read) = &reading
             && let AfterRobotsTxt::At(start) = read
                 .start_after(of_run.politeness.as_ref(), &run.identity, key, spacing)
                 .await

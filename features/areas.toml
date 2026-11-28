@@ -837,6 +837,11 @@ number = 6
 kind = "format"
 prefix = "response-cache"
 
+[[area]]
+number = 6
+kind = "format"
+prefix = "warc"
+
 # The tier that fetches a crawl request's document (spec #579, #759).
 [[area]]
 number = 5

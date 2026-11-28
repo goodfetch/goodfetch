@@ -18,7 +18,10 @@ use goodfetch_protocol::response_cache::CacheMode;
 use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv};
 use rstest::rstest;
 
-use super::{KeptOut, Recording, Replaying, ResponseSource, Served, Source};
+use super::{
+    KeptOut, NotRecorded, Recorded as RecordingAnswer, Recording, Replaying, ResponseSource,
+    Served, Source,
+};
 use crate::response_cache::{CacheRequest, Partition, ResponseCache, ResponseHead};
 use crate::sync::Mutex;
 use crate::tasks::{BlockingPolicy, TaskOwner};
@@ -110,15 +113,37 @@ impl Recording for Recorded {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(request.url.clone());
-        Box::pin(async { Some(served("recording")) })
+        Box::pin(async {
+            RecordingAnswer::Answered {
+                served: Arc::new(served("recording")),
+                recorded_at: None,
+            }
+        })
+    }
+}
+
+/// A recording stand-in that misses every request.
+#[derive(Debug)]
+struct Missing;
+
+impl Recording for Missing {
+    fn recorded<'a>(&'a self, request: &'a CacheRequest) -> Replaying<'a> {
+        let miss = NotRecorded {
+            method: request.method.clone(),
+            url: request.url.clone(),
+            recording: "missing.warc".to_owned(),
+            nearest: vec!["https://cache.test/page?a=1".to_owned()],
+        };
+        Box::pin(async move { RecordingAnswer::Missed(miss) })
     }
 }
 
 fn body(source: &Source) -> Option<&[u8]> {
     match source {
-        Source::Routed(served) | Source::Recorded(served) => Some(&served.body),
+        Source::Routed(served) => Some(&served.body),
+        Source::Recorded { served, .. } | Source::RecordedCut(served) => Some(&served.body),
         Source::Fresh(hit) => Some(&hit.body),
-        Source::Stale(_) | Source::Network => None,
+        Source::NotRecorded(_) | Source::Stale(_) | Source::Network => None,
     }
 }
 
@@ -156,7 +181,7 @@ async fn a_route_then_the_recording_then_the_cache_then_the_network_answers() {
 
     assert_eq!(body(&routed), Some(&b"<p>route</p>"[..]));
     assert_eq!((asked_after_route, lookups_after_route), (0, 0));
-    assert!(matches!(replayed, Source::Recorded(_)));
+    assert!(matches!(replayed, Source::Recorded { .. }));
     assert_eq!(body(&replayed), Some(&b"<p>recording</p>"[..]));
     assert_eq!(lookups_after_recording, 0);
     assert!(matches!(from_cache, Source::Fresh(_)));
@@ -343,8 +368,10 @@ async fn revalidate_and_replay_never_answer_each_other() {
 #[case::paid(CacheMode::Revalidate, KeptOut::Paid)]
 #[case::resolved_secret(CacheMode::Revalidate, KeptOut::ResolvedSecret)]
 #[case::certificate_exception(CacheMode::Revalidate, KeptOut::CertificateException)]
+#[case::effect(CacheMode::Revalidate, KeptOut::Effect)]
 #[case::replayed_block(CacheMode::Replay, KeptOut::Blocked)]
 #[case::replayed_resolved_secret(CacheMode::Replay, KeptOut::ResolvedSecret)]
+#[case::replayed_effect(CacheMode::Replay, KeptOut::Effect)]
 #[tokio::test]
 async fn a_response_its_outcome_keeps_out_is_never_stored(
     #[case] mode: CacheMode,
@@ -521,4 +548,189 @@ fn a_request_is_asked_about_only_where_its_method_may_be_answered(
     };
 
     assert_eq!(source.takes(method), asked);
+}
+
+/// While replaying a Response recording, a miss returns `Source::NotRecorded`
+/// without consulting the cache or falling through to the network, and
+/// nothing is stored into the cache.
+#[tokio::test]
+async fn a_recording_miss_never_falls_through_to_the_cache_or_network() {
+    let env = TestEnv::new();
+    let work = CountedWork::default();
+    let cache = cache(&env, &work);
+    let cached = served("cache");
+    assert!(
+        cache
+            .store(
+                &ada(),
+                &page(),
+                &cached.head,
+                cached.body.clone(),
+                None,
+                start()
+            )
+            .await
+    );
+    let replaying = ResponseSource::of(&cache, CacheMode::Revalidate).recording(Arc::new(Missing));
+    let now = start() + Duration::from_secs(1);
+
+    let answer = replaying.source(None, &ada(), &page(), None, now).await;
+
+    assert!(replaying.replaying());
+    assert!(!replaying.may_store(&page(), None));
+    assert!(!replaying.stores(&ada(), &page(), &cached.head, None));
+    assert_eq!(work.read(Row::CacheLookups), 0);
+    assert_eq!(
+        answer,
+        Source::NotRecorded(NotRecorded {
+            method: "GET".to_owned(),
+            url: "https://cache.test/page".to_owned(),
+            recording: "missing.warc".to_owned(),
+            nearest: vec!["https://cache.test/page?a=1".to_owned()],
+        })
+    );
+}
+
+#[derive(Debug, Default)]
+struct NoopCapture;
+
+impl super::Capture for NoopCapture {
+    fn capture(
+        &self,
+        _request: CacheRequest,
+        _head: ResponseHead,
+        _body: Bytes,
+        _truncated: bool,
+        _now: SystemTime,
+    ) -> super::Capturing<'_> {
+        Box::pin(async { 1 })
+    }
+
+    fn mark_truncated(&self, _sequence: u64) {}
+}
+
+/// A `record` Run reads no cache entry (even when fresh or under `replay`)
+/// while still allowing the cache to store what it fetched (ADR 0105).
+#[rstest]
+#[case::revalidate(CacheMode::Revalidate)]
+#[case::replay(CacheMode::Replay)]
+#[tokio::test]
+async fn a_record_run_reads_no_cache_entry_but_may_store_into_the_cache(#[case] mode: CacheMode) {
+    let env = TestEnv::new();
+    let work = CountedWork::default();
+    let cache = cache(&env, &work);
+    let cached = served("from-cache");
+    assert!(
+        cache
+            .store(
+                &ada(),
+                &page(),
+                &cached.head,
+                cached.body.clone(),
+                None,
+                start()
+            )
+            .await
+    );
+    let recording = ResponseSource::of(&cache, mode).capturing(Arc::new(NoopCapture));
+    let now = start() + Duration::from_secs(1);
+
+    let answer = recording.source(None, &ada(), &page(), None, now).await;
+
+    assert!(recording.recording_live());
+    assert!(!recording.replaying());
+    assert_eq!(answer, Source::Network);
+    assert_eq!(work.read(Row::CacheLookups), 0);
+    assert!(recording.may_store(&page(), None));
+    assert!(recording.stores(&ada(), &page(), &cached.head, None));
+    let fresh = served("fresh-from-site");
+    assert!(
+        recording
+            .store(
+                &ada(),
+                &page(),
+                &fresh.head,
+                fresh.body.clone(),
+                None,
+                None,
+                now
+            )
+            .await
+    );
+}
+
+/// Under `cache.mode: replay`, a request sent while a declared Effect's body
+/// runs is neither served from nor stored in the cache, and checking whether
+/// a body runs uses the Run's in-memory counter with zero cache lookups, file
+/// opens or spawns (`C5.file_opens`, `C5.spawns`, ADRs 0046, 0106, 0140).
+/// Covers: story:6-40
+#[tokio::test]
+async fn an_active_effect_body_bypasses_replay_cache_and_never_stores_with_zero_counted_work() {
+    use crate::runs::ActiveEffects;
+
+    let env = TestEnv::new();
+    let work = CountedWork::default();
+    let cache = cache(&env, &work);
+    let cached = served("seeded");
+    let seeded_req = page();
+    assert!(
+        cache
+            .store_replayed(
+                &ada(),
+                &seeded_req,
+                &cached.head,
+                cached.body.clone(),
+                None,
+                start(),
+            )
+            .await
+    );
+    let active = ActiveEffects::default();
+    active.set(1);
+    let source = ResponseSource::of(&cache, CacheMode::Replay).active_effects(active.clone());
+    let now = start() + Duration::from_secs(1);
+
+    let lookups_before = work.read(Row::CacheLookups);
+    let answer = source.source(None, &ada(), &seeded_req, None, now).await;
+    assert_eq!(answer, Source::Network);
+    assert_eq!(
+        work.read(Row::CacheLookups),
+        lookups_before,
+        "checking active Effect bodies must not touch the cache index"
+    );
+
+    let effect_req = CacheRequest::new(
+        "POST",
+        &url::Url::parse("https://cache.test/charge").unwrap(),
+        &[],
+        Bytes::from_static(b"{}"),
+    );
+    assert!(!source.may_store(&effect_req, None));
+    assert!(!source.stores(&ada(), &effect_req, &cached.head, None));
+    assert!(
+        !source
+            .store(
+                &ada(),
+                &effect_req,
+                &cached.head,
+                Bytes::from_static(b"charged"),
+                None,
+                None,
+                now,
+            )
+            .await
+    );
+    assert_eq!(
+        cache.stats("ada").await.unwrap().entries,
+        1,
+        "the Effect request must not enter the cache index"
+    );
+
+    // Once the Effect body finishes, replay serving and storing resume.
+    active.set(0);
+    assert!(matches!(
+        source.source(None, &ada(), &seeded_req, None, now).await,
+        Source::Fresh(_)
+    ));
+    assert!(source.may_store(&effect_req, None));
 }

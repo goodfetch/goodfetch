@@ -45,6 +45,7 @@ pub async fn of_run(
     entropy: &RunEntropy,
     politeness: &RunPoliteness,
     settings: &Resolved,
+    replaying: bool,
 ) -> Result<Option<Admission>, AdmissionError> {
     let Some(gates) = gates.cloned() else {
         return Ok(None);
@@ -56,6 +57,11 @@ pub async fn of_run(
         .read(move |connection| gates.open(&opening, connection, wall, now, entropy))
         .await?;
     let admission = Admission::new(gate, settings);
+    if replaying {
+        // Replayed requests reach no site and take no Politeness permit,
+        // delay or backoff, leaving shared Politeness untouched (ADR 0105).
+        return Ok(Some(admission));
+    }
     if !admission.shares(settings) {
         // A Politeness of its own that its other code opened, for its
         // robots.txt copy, is served by an actor instead.

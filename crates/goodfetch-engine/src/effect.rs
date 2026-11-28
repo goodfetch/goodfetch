@@ -17,6 +17,10 @@
 //! The idempotency key a body sends is derived from a per-Run secret kept
 //! in the journal's own table, so it is the same on every attempt and
 //! resume, and a Checkpoint carries it.
+//!
+//! Size: `Effects`, `effect.open`, `effect.close`, `SendWindow` and
+//! `reconcile` are one concern sharing the private `Shelf`/`Book` lock and
+//! the in-memory `ActiveEffects` counter.
 
 mod journal;
 pub mod lifecycle;
@@ -27,7 +31,7 @@ pub use journal::{Report, TABLES};
 
 use std::collections::HashMap;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError, Weak};
 use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::audit::Actor;
@@ -58,9 +62,10 @@ use crate::mask::Scope;
 use crate::run::{run_error, state_unavailable, unwritten};
 use crate::run_identity::RunIdentity;
 use crate::run_state::{RunState, RunStateError, Syncing};
-use crate::runs::{RunError, RunParts, SendWindow};
+use crate::runs::{ActiveEffects, RunError, RunParts, SendWindow};
 use crate::settings::{RunSettings, get_or_default};
 use crate::staging::{AttemptWrites, Unstaged};
+use crate::sync::AtomicU64;
 
 /// How often a declaration that waits for another attempt's body checks
 /// whether that attempt still holds.
@@ -72,22 +77,56 @@ const HOLD_CHECK: Duration = Duration::from_secs(1);
 #[derive(Clone, Default)]
 pub struct Effects {
     shelves: Arc<Mutex<HashMap<RunId, Arc<Shelf>>>>,
+    #[expect(
+        clippy::disallowed_types,
+        reason = "locks only to look up or insert a Weak<AtomicU64> per RunId, never across an `.await` or under another lock, so there is no lock order to test under loom (ADR 0060)"
+    )]
+    active: Arc<std::sync::Mutex<HashMap<RunId, Weak<AtomicU64>>>>,
 }
 
 /// One Run's bodies and answers, and the signal that a body was judged.
-#[derive(Default)]
 struct Shelf {
     book: Mutex<Book>,
     judged: Notify,
 }
 
-#[derive(Default)]
+impl Shelf {
+    fn new(active: ActiveEffects) -> Self {
+        Self {
+            book: Mutex::new(Book::new(active)),
+            judged: Notify::new(),
+        }
+    }
+}
+
 struct Book {
     bodies: Vec<Body>,
     answered: Vec<Answered>,
+    /// Live count of `bodies.len()`, read in memory by the Response cache
+    /// stage without locking `book` or touching run state (ADR 0140).
+    active: ActiveEffects,
 }
 
 impl Book {
+    fn new(active: ActiveEffects) -> Self {
+        Self {
+            bodies: Vec::new(),
+            answered: Vec::new(),
+            active,
+        }
+    }
+
+    fn push_body(&mut self, body: Body) {
+        self.bodies.push(body);
+        self.active.set(self.bodies.len());
+    }
+
+    fn remove_body(&mut self, at: usize) -> Body {
+        let body = self.bodies.swap_remove(at);
+        self.active.set(self.bodies.len());
+        body
+    }
+
     /// Whether it holds nothing a live caller needs.
     fn idle(&self) -> bool {
         self.bodies.is_empty()
@@ -125,8 +164,74 @@ impl Book {
             .into_iter()
             .partition(|body| entries.contains(&body.entry));
         self.bodies = kept;
+        self.active.set(self.bodies.len());
         judged
     }
+
+    fn record_answered(&mut self, namespace: String, key: String, owner: Owner) {
+        self.answered.push(Answered {
+            namespace,
+            key,
+            owner,
+        });
+    }
+
+    fn unsent_for(&self, attempt: Option<&EffectAttempt>) -> Vec<(usize, i64)> {
+        self.bodies
+            .iter()
+            .enumerate()
+            .filter(|(_, body)| {
+                body.owner.declares_through(attempt)
+                    && matches!(apply(body.state(), EffectEvent::Send), Ok(Next::To(_)))
+            })
+            .map(|(at, body)| (at, body.entry))
+            .collect()
+    }
+
+    fn mark_sent_at(&mut self, indices: &[usize], command: &str, since: SystemTime) {
+        for &at in indices {
+            self.bodies[at].sent = Some((command.to_owned(), since));
+        }
+    }
+
+    fn has_live_body(&self) -> bool {
+        self.bodies.iter().any(|body| body.owner.is_alive())
+    }
+
+    fn has_entry(&self, entry: i64) -> bool {
+        self.bodies.iter().any(|body| body.entry == entry)
+    }
+
+    fn check_key(&mut self, namespace: &str, key: &str, owner: &Owner) -> KeyCheck {
+        self.answered.retain(|answered| answered.owner.is_alive());
+        if self.answered.iter().any(|answered| {
+            answered.namespace == namespace && answered.key == key && answered.owner.is(owner)
+        }) {
+            return KeyCheck::Reused;
+        }
+        let Some(at) = self
+            .bodies
+            .iter()
+            .position(|body| body.namespace == namespace && body.key == key)
+        else {
+            return KeyCheck::Free;
+        };
+        if self.bodies[at].owner.is(owner) {
+            return KeyCheck::Reused;
+        }
+        if !self.bodies[at].owner.is_alive() {
+            let gone = self.remove_body(at);
+            return KeyCheck::DroppedDead(gone.owner);
+        }
+        KeyCheck::Running(self.bodies[at].owner.client.clone())
+    }
+}
+
+enum KeyCheck {
+    Free,
+    Reused,
+    DroppedDead(Owner),
+    Running(Client),
 }
 
 /// A body that runs.
@@ -255,6 +360,19 @@ pub enum Reconciled {
 }
 
 impl Effects {
+    /// The in-memory active-body counter for `run_id`, created on first ask
+    /// and shared between the Run's [`RunSendWindow`] and its [`Shelf`].
+    fn active_counter(&self, run_id: &RunId) -> ActiveEffects {
+        let mut active = self.active.lock().unwrap_or_else(PoisonError::into_inner);
+        active.retain(|kept, weak| kept == run_id || weak.strong_count() > 0);
+        if let Some(counter) = active.get(run_id).and_then(ActiveEffects::upgrade) {
+            return counter;
+        }
+        let counter = ActiveEffects::default();
+        active.insert(run_id.clone(), counter.downgrade());
+        counter
+    }
+
     /// The shelf of the Run `run_id`, made when it has none; shelves no
     /// live caller needs are dropped.
     async fn shelf(&self, run_id: &RunId) -> Arc<Shelf> {
@@ -262,7 +380,11 @@ impl Effects {
         shelves.retain(|kept, shelf| {
             kept == run_id || !shelf.book.try_lock().is_ok_and(|book| book.idle())
         });
-        Arc::clone(shelves.entry(run_id.clone()).or_default())
+        Arc::clone(
+            shelves
+                .entry(run_id.clone())
+                .or_insert_with(|| Arc::new(Shelf::new(self.active_counter(run_id)))),
+        )
     }
 
     /// The shelf of the Run `run_id`, if it has one.
@@ -320,7 +442,7 @@ impl Effects {
         let answer = match declared(declaring, &namespace, &key, repeatable, context).await {
             Ok(Declared::Perform { entry, secret }) => {
                 let idempotency_key = idempotency_key(&secret, &namespace, &key);
-                book.bodies.push(Body {
+                book.push_body(Body {
                     entry,
                     namespace,
                     key,
@@ -339,11 +461,7 @@ impl Effects {
         };
         owner.end_effect();
         if answer.is_ok() {
-            book.answered.push(Answered {
-                namespace,
-                key,
-                owner,
-            });
+            book.record_answered(namespace, key, owner);
         }
         answer
     }
@@ -383,7 +501,7 @@ impl Effects {
             &EFFECT_OUTPUT_MAX_SIZE,
         );
         let (event, output, oversized) = ended(outcome, limit);
-        let body = book.bodies.swap_remove(at);
+        let body = book.remove_body(at);
         let judged = match apply(body.state(), event) {
             Ok(Next::To(EffectState::Done)) => {
                 let performed_at = identity.point_in_time();
@@ -429,11 +547,7 @@ impl Effects {
         };
         body.owner.end_effect();
         if matches!(judged, Ok(EffectClosed::Done { .. })) {
-            book.answered.push(Answered {
-                namespace: body.namespace,
-                key: body.key,
-                owner: body.owner,
-            });
+            book.record_answered(body.namespace, body.key, body.owner);
         }
         run_shelf.judged.notify_waiters();
         judged
@@ -459,30 +573,20 @@ impl Effects {
         };
         let attempt = lease.and_then(LeaseCheck::effect_attempt);
         let mut book = run_shelf.book.lock().await;
-        let marked: Vec<usize> = book
-            .bodies
-            .iter()
-            .enumerate()
-            .filter(|(_, body)| {
-                body.owner.declares_through(attempt.as_ref())
-                    && matches!(apply(body.state(), EffectEvent::Send), Ok(Next::To(_)))
-            })
-            .map(|(at, _)| at)
-            .collect();
-        if marked.is_empty() {
+        let unsent = book.unsent_for(attempt.as_ref());
+        if unsent.is_empty() {
             return Ok(());
         }
         let since = run.point_in_time();
-        let entries: Vec<i64> = marked.iter().map(|&at| book.bodies[at].entry).collect();
+        let indices: Vec<usize> = unsent.iter().map(|&(at, _)| at).collect();
+        let entries: Vec<i64> = unsent.iter().map(|&(_, entry)| entry).collect();
         let first_command = command.to_owned();
         state
             .write_with(Syncing::Sent, move |connection| {
                 mark_sent(connection, &entries, &first_command, since)
             })
             .await?;
-        for at in marked {
-            book.bodies[at].sent = Some((command.to_owned(), since));
-        }
+        book.mark_sent_at(&indices, command, since);
         Ok(())
     }
 
@@ -507,14 +611,7 @@ impl Effects {
             let judged = run_shelf.judged.notified();
             tokio::pin!(judged);
             judged.as_mut().enable();
-            if !run_shelf
-                .book
-                .lock()
-                .await
-                .bodies
-                .iter()
-                .any(|body| body.owner.is_alive())
-            {
+            if !run_shelf.book.lock().await.has_live_body() {
                 break;
             }
             tokio::select! {
@@ -566,7 +663,7 @@ impl Effects {
         };
         let run_shelf = self.shelf(run.id()).await;
         let book = run_shelf.book.lock().await;
-        if book.bodies.iter().any(|body| body.entry == number) {
+        if book.has_entry(number) {
             return Ok(Reconciled::NotUncertain);
         }
         let by = context.person();
@@ -635,6 +732,10 @@ impl SendWindow for Effects {
     ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
         Box::pin(self.settle_run((run, state), by))
     }
+
+    fn active_bodies(&self, run: &RunId) -> ActiveEffects {
+        self.active_counter(run)
+    }
 }
 
 /// The operations `effect.open` and `effect.close`, on `effects`.
@@ -687,30 +788,16 @@ impl Shelf {
         };
         loop {
             let mut book = self.book.lock().await;
-            book.answered.retain(|answered| answered.owner.is_alive());
-            if book.answered.iter().any(|answered| {
-                answered.namespace == namespace && answered.key == key && answered.owner.is(owner)
-            }) {
-                return Err(reused());
-            }
-            let Some(at) = book
-                .bodies
-                .iter()
-                .position(|body| body.namespace == namespace && body.key == key)
-            else {
-                return Ok(book);
+            let other = match book.check_key(namespace, key, owner) {
+                KeyCheck::Free => return Ok(book),
+                KeyCheck::Reused => return Err(reused()),
+                KeyCheck::DroppedDead(gone) => {
+                    gone.end_effect();
+                    self.judged.notify_waiters();
+                    return Ok(book);
+                }
+                KeyCheck::Running(other) => other,
             };
-            let running = &book.bodies[at];
-            if running.owner.is(owner) {
-                return Err(reused());
-            }
-            if !running.owner.is_alive() {
-                let gone = book.bodies.swap_remove(at);
-                gone.owner.end_effect();
-                self.judged.notify_waiters();
-                return Ok(book);
-            }
-            let other = running.owner.client.clone();
             let judged = self.judged.notified();
             tokio::pin!(judged);
             judged.as_mut().enable();

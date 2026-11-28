@@ -705,7 +705,7 @@ pub const WALL_DOMAINS: Setting = Setting {
     authority: Authority::Narrowed,
     weakens: None,
     fixed_for_run: false,
-    unbuilt: Some("wall_reading"),
+    unbuilt: None,
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };

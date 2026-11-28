@@ -9,8 +9,8 @@ use goodfetch_protocol::run::RunId;
 use proptest::prelude::*;
 use rstest::rstest;
 
-use super::{Keeper, kept_in, read_from};
-use crate::response_cache::{CacheRequest, ResponseHead};
+use super::{Keeper, kept_in, read_from, shares};
+use crate::response_cache::{CacheRequest, Partition, ResponseHead};
 
 fn pairs(headers: &[(&str, &str)]) -> Vec<(String, String)> {
     headers
@@ -141,6 +141,24 @@ fn responses() -> impl Strategy<Value = ResponseHead> {
     .prop_map(|headers| head(&headers))
 }
 
+/// Any full Partition across keeper, person, exit country, language and device class.
+fn partitions() -> impl Strategy<Value = Partition> {
+    (
+        keepers(),
+        prop_oneof![Just("ada"), Just("bob"), Just("os_user")],
+        prop_oneof![Just(""), Just("US"), Just("DE"), Just("FR")],
+        prop_oneof![Just(""), Just("en-US"), Just("fr-FR"), Just("de-DE")],
+        prop_oneof![Just(""), Just("desktop"), Just("mobile")],
+    )
+        .prop_map(|(keeper, person, country, language, device)| Partition {
+            keeper,
+            person: person.to_owned(),
+            country: country.to_owned(),
+            language: language.to_owned(),
+            device: device.to_owned(),
+        })
+}
+
 proptest! {
     /// Covers: story:6-39
     #[test]
@@ -170,5 +188,26 @@ proptest! {
                 || read.as_ref().is_none_or(|read| !read.iter().any(|name| name == partition))),
             "{partition:?} read by {other:?} as {read:?}"
         );
+    }
+
+    /// Two partitions differing in person, proxy exit country, language or
+    /// device class never share any entry, even a public one.
+    /// Covers: story:6-39
+    #[test]
+    fn partitions_differing_in_person_country_language_or_device_never_share(
+        (stored, asked) in (partitions(), partitions()).prop_filter(
+            "different person, country, language or device",
+            |(one, two)| {
+                one.person != two.person
+                    || one.country != two.country
+                    || one.language != two.language
+                    || one.device != two.device
+            },
+        ),
+        stored_request in requests(),
+        response in responses(),
+        asked_request in requests(),
+    ) {
+        prop_assert!(!shares(&stored, &stored_request, &response, &asked, &asked_request));
     }
 }

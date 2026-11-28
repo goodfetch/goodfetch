@@ -2,10 +2,8 @@
 //! queue for both Products (ADRs 0049, 0061, 0069, 0076 and 0094; issue 206).
 
 use std::path::Path;
-#[cfg(unix)]
 use std::process::Command;
 
-#[cfg(unix)]
 use crate::workspace::{Workspace, write_executable};
 
 fn repo_root() -> &'static Path {
@@ -20,7 +18,6 @@ fn repo_root() -> &'static Path {
 /// `browser-host`) for both Products (`collie` and `foxhound`), emits JUnit
 /// feeding the Release suite, and fails the job whenever ANY target is skipped
 /// or fails.
-#[cfg(unix)]
 #[test]
 fn deploy_smoke_covers_all_targets_for_both_products_and_fails_on_skip_or_failure() {
     let workspace = Workspace::from_fixture("empty");

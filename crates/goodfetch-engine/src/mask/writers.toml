@@ -253,6 +253,11 @@ count = 5
 how = "holds no resolved value: the cache's index table, its bodies folder and each body file hold only public responses fetched with no cookie or credential, never a response a Secret was sent for; its `bodies` and `held` tables hold only each body's SHA-256, size and holder count, and the bytes the bodies hold"
 
 [[writer]]
+path = "crates/goodfetch-engine/src/response_recording/record.rs"
+count = 1
+how = "masked: `recording_exchanges` stages `mode: \"record\"` exchanges for crash-resume after dropping `Cookie`, `Authorization` and `Proxy-Authorization`, masking `Set-Cookie` values, and applying `Masks` at `Scope::Kept` to every URL, header and body before staging or writing the WARC"
+
+[[writer]]
 path = "crates/goodfetch-engine/src/robots_txt.rs"
 count = 1
 how = "holds no value: the robots.txt files sites published, read for a Run's own navigation, each by its origin's robots.txt URL without credentials, or the browser's or the engine's reason one never answered"

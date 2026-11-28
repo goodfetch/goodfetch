@@ -224,6 +224,7 @@ fn blank(
         body: Bytes::new(),
         unaccepted: None,
         certificate_exception: None,
+        origin: None,
         text: None,
         pass: None,
     };

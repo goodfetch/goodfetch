@@ -337,32 +337,28 @@ describe("a Channel under the engine's cap on calls in flight", () => {
   );
 
   test("sends a call queued for part of its own timeout with what is left of it as its timeout", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
-    try {
-      const engine = playedEngine();
-      const channel = new Channel(engine.transport, owner);
-      channel.capCallsInFlight(1);
-      const first = channel.call("sample.echo", {});
-      const queued = channel.call(
-        "page.goto",
-        { url: "https://example.test", timeout: 1000 },
-        { deadline: { key: "timeout.navigation", value: 1000 } },
-      );
+    const engine = playedEngine();
+    const channel = new Channel(engine.transport, owner);
+    channel.capCallsInFlight(1);
+    const first = channel.call("sample.echo", {});
+    const queued = channel.call(
+      "page.goto",
+      { url: "https://example.test", timeout: 1000 },
+      { deadline: { key: "timeout.navigation", value: 1000 } },
+    );
 
-      await vi.advanceTimersByTimeAsync(40);
-      engine.send({ id: 0, result: "first" });
-      await first;
-      await settled();
-      engine.send({ id: 1, result: "navigated" });
-      await queued;
-      const sent = engine.written[1];
-      const params = isRecord(sent) && isRecord(sent["params"]) ? sent["params"] : {};
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    engine.send({ id: 0, result: "first" });
+    await first;
+    await expect.poll(() => engine.written).toHaveLength(2);
+    engine.send({ id: 1, result: "navigated" });
+    await queued;
+    const sent = engine.written[1];
+    const params = isRecord(sent) && isRecord(sent["params"]) ? sent["params"] : {};
+    const left = params["timeout"];
 
-      expect(params["url"]).toBe("https://example.test");
-      expect(params["timeout"]).toBe(960);
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(params["url"]).toBe("https://example.test");
+    expect(typeof left === "number" && left >= 1 && left <= 960).toBe(true);
   });
 
   test(

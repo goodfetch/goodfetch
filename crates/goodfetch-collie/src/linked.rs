@@ -10,6 +10,11 @@
 //! Foxhound's crate with its own composition, which starts from Collie's
 //! (ADR 0087). It names no Product's entries, so Foxhound's stay out of
 //! this crate's API (ADR 0095).
+//!
+//! Size: one concern, opening and closing a Product's connection to its
+//! linked engine or a Daemon from `ConnectOptions` through `Opening` and
+//! `LinkedEngine`, kept together so the option-checking, runtime sizing,
+//! handover fallback and shutdown share one private state.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;

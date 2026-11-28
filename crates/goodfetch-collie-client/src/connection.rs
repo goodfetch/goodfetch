@@ -8,6 +8,11 @@
 //! engine the path, or writes the bytes the engine streams. A remote
 //! Daemon's Connection reaches its engine again by itself once the link
 //! drops, within `timeout.connect` (spec 606; see `relink`).
+//!
+//! Size: one concern, the `ClientConnection` lifecycle (opening over a
+//! transport, RPC call/stream/save builders, handler request streams, and
+//! bounded close), kept together because every method shares `Inner` and
+//! the Connection's runtime and task tracker.
 
 use std::fmt::Debug;
 use std::future::{Future, IntoFuture};

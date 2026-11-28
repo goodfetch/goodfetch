@@ -1,0 +1,25 @@
+{
+  "id": "D-run-state-and-admission",
+  "title": "Run-state durability (ADR 0002) and fair per-domain admission (ADR 0004)",
+  "question": "Does power-cut-safe run state or fair per-domain admission introduce a gap that reopens ADR 0002 or ADR 0004?",
+  "status": "evidence-pending",
+  "declared_at": "2026-11-28T00:00:00.000Z",
+  "options": [
+    {
+      "id": "foxhound-safe",
+      "description": "Foxhound power-cut-safe run state",
+      "adapter": "foxhound-safe"
+    },
+    { "id": "foxhound-fast", "description": "Foxhound fast run state", "adapter": "foxhound-fast" }
+  ],
+  "baseline": "foxhound-fast",
+  "primary_metric": "verified_tasks_per_second",
+  "secondary_metrics": ["task_p50_ms_verified"],
+  "contract_gates": ["oracle_exact", "false_success_count"],
+  "delta": 0.1,
+  "rule": { "kind": "non-inferiority", "alpha": 0.05, "power": 0.8, "noisy_blocks": "exclude" },
+  "host_class": { "decision": "local-controlled", "publication": "local-controlled" },
+  "evidence": [],
+  "depends_on": [],
+  "notes": "Could reopen ADR 0002 (run state) or ADR 0004 (fair per-domain admission); issue 188."
+}

@@ -1,13 +1,16 @@
 {
   "jobs": [
     {
-      "name": "current",
+      "name": "current-1",
       "version": null,
       "tag": null,
-      "minutes": 41,
+      "minutes": 45,
       "steps": [
         {
           "checks": [
+            "collie-sdk-typescript",
+            "collie-sdk-python",
+            "collie-sdk-rust",
             "collie-cli"
           ],
           "executable": "goodfetch-collie",
@@ -16,7 +19,50 @@
             "--product",
             "collie",
             "--surface",
+            "sdk-typescript",
+            "--surface",
+            "sdk-python",
+            "--surface",
+            "sdk-rust",
+            "--surface",
             "cli"
+          ]
+        },
+        {
+          "checks": [
+            "collie-sdk-typescript-stdio"
+          ],
+          "executable": "goodfetch-collie",
+          "stdio": true,
+          "journeys": [
+            "--product",
+            "collie",
+            "--surface",
+            "sdk-typescript"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "current-2",
+      "version": null,
+      "tag": null,
+      "minutes": 45,
+      "steps": [
+        {
+          "checks": [
+            "collie-sdk-python-stdio",
+            "collie-sdk-rust-stdio"
+          ],
+          "executable": "goodfetch-collie",
+          "stdio": true,
+          "journeys": [
+            "--product",
+            "collie",
+            "--surface",
+            "sdk-python",
+            "--surface",
+            "sdk-rust"
           ]
         },
         {
@@ -51,32 +97,8 @@
   ],
   "awaiting": [
     {
-      "check": "collie-sdk-typescript",
-      "issue": 688
-    },
-    {
-      "check": "collie-sdk-python",
-      "issue": 688
-    },
-    {
-      "check": "collie-sdk-rust",
-      "issue": 688
-    },
-    {
       "check": "collie-mcp",
       "issue": 1452
-    },
-    {
-      "check": "collie-sdk-typescript-stdio",
-      "issue": 688
-    },
-    {
-      "check": "collie-sdk-python-stdio",
-      "issue": 688
-    },
-    {
-      "check": "collie-sdk-rust-stdio",
-      "issue": 688
     },
     {
       "check": "foxhound-sdk-typescript",

@@ -19432,6 +19432,14 @@
           "arrived_in": "0.1",
           "description": "When the Saved identity was last written or replaced."
         },
+        "warnings": {
+          "arrived_in": "0.1",
+          "description": "Non-fatal warnings produced while importing this Saved identity (such as\nexcluded device-bound session cookies or browser-family differences, ADR 0056).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "was_lent": {
           "arrived_in": "0.1",
           "description": "Whether the Saved identity was saved from a Session that was lent via\n`page.lend()` (ADR 0089).",
@@ -20881,9 +20889,25 @@
               },
               "type": "array"
             },
+            "executable": {
+              "arrived_in": "0.1",
+              "description": "Optional explicit path to that installed browser's executable;\nwhen omitted, discovers the browser on standard OS install paths.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "kind": {
               "const": "installed_browser",
               "type": "string"
+            },
+            "path": {
+              "arrived_in": "0.1",
+              "description": "Optional non-default user data directory for the installed browser;\nwhen omitted, resolves the OS default user data directory.",
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           "required": [
@@ -38754,9 +38778,25 @@
                 },
                 "type": "array"
               },
+              "executable": {
+                "arrived_in": "0.1",
+                "description": "Optional explicit path to that installed browser's executable;\nwhen omitted, discovers the browser on standard OS install paths.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "kind": {
                 "const": "installed_browser",
                 "type": "string"
+              },
+              "path": {
+                "arrived_in": "0.1",
+                "description": "Optional non-default user data directory for the installed browser;\nwhen omitted, resolves the OS default user data directory.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "required": [
@@ -41194,6 +41234,20 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Refreshed cookies of device-bound sessions were left out of the import; such a login works only in its own browser (ADR 0056).",
+      "name": "device_bound_session_excluded",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The source browser did not support Network.enableDeviceBoundSessions, so device-bound sessions could not be checked during import (ADR 0056).",
+      "name": "device_bound_session_probe_unavailable",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "An uncertain Effect was reconciled.",
       "name": "effect_reconciled",
       "product": "collie",
@@ -41345,6 +41399,13 @@
       "name": "identity_cookie_expiry",
       "product": "collie",
       "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The running browser is not of the family that minted the imported cookies, so the Session presents a different browser identity (ADR 0056).",
+      "name": "imported_identity_family_differs",
+      "product": "collie",
+      "type": "run_warning_code"
     },
     {
       "arrived_in": "0.1",

@@ -1258,7 +1258,17 @@ export type SessionSource =
        * The registrable domains its data is read for.
        */
       domains: string[];
+      /**
+       * Optional explicit path to that installed browser's executable;
+       * when omitted, discovers the browser on standard OS install paths.
+       */
+      executable?: string | null;
       kind: "installed_browser";
+      /**
+       * Optional non-default user data directory for the installed browser;
+       * when omitted, resolves the OS default user data directory.
+       */
+      path?: string | null;
     }
   | {
       /**
@@ -5781,6 +5791,11 @@ export interface SavedIdentityInfo {
    * When the Saved identity was last written or replaced.
    */
   updatedAt: PointInTime;
+  /**
+   * Non-fatal warnings produced while importing this Saved identity (such as
+   * excluded device-bound session cookies or browser-family differences, ADR 0056).
+   */
+  warnings?: string[];
   /**
    * Whether the Saved identity was saved from a Session that was lent via
    * `page.lend()` (ADR 0089).

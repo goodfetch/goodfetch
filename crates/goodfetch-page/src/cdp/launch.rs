@@ -8,6 +8,9 @@
 //! and its end: when the Run stops, or the
 //! browser pool closes it, the browser is asked to close, then killed if it
 //! does not, its data folder removed and its build released.
+//!
+//! Size: owns every step of one browser process lifecycle (executable resolution,
+//! debugging pipe attachment, launch, supervision, and graceful shutdown).
 
 mod arguments;
 pub(crate) use arguments::wpt_base_arguments;
@@ -796,6 +799,55 @@ type Driving = std::pin::Pin<Box<dyn Future<Output = goodfetch_cdp::Ended> + Sen
 pub(crate) struct Process {
     child: Child,
     _group: Children,
+}
+
+/// Starts `command` over its debugging pipe for a short-lived browser reader
+/// (such as an `installed_browser` Chromium import, ADR 0056).
+pub(super) async fn start_pipe(
+    command: Command,
+    work: CountedWork,
+) -> std::io::Result<(Connection, Driving, Process)> {
+    start(command, work, None).await
+}
+
+/// Connects a short-lived scripted browser over an in-memory pipe for tests
+/// running under [`Launcher::Scripted`].
+pub(super) async fn start_scripted_pipe(
+    scripted: &Scripted,
+    work: CountedWork,
+) -> Result<(Connection, Driving), CallError> {
+    let executable = Path::new(SCRIPTED);
+    let (engine, browser) = tokio::io::duplex(SCRIPTED_PIPE);
+    scripted
+        .browsers
+        .send(browser)
+        .await
+        .map_err(|_| launch_failed(executable, None, "no one plays the scripted browser"))?;
+    let (reader, writer) = tokio::io::split(engine);
+    let (connection, driver) = Connection::new(reader, writer, work, None);
+    Ok((connection, Box::pin(driver.run())))
+}
+
+impl Process {
+    /// Asks the browser process to close cleanly via `Browser.close` and waits
+    /// up to `timeout` before killing it; never removes its user data folder.
+    pub(super) async fn close_gracefully(
+        mut self,
+        connection: &Connection,
+        timeout: std::time::Duration,
+    ) {
+        let exited = tokio::time::timeout(timeout, async {
+            let _ = connection
+                .send_raw("Browser.close", None, serde_json::json!({}), timeout)
+                .await;
+            self.child.wait().await
+        })
+        .await;
+        if exited.is_err() {
+            let _ = self.child.start_kill();
+            let _ = self.child.wait().await;
+        }
+    }
 }
 
 /// Starts `command` with its debugging pipe: the browser's connection,

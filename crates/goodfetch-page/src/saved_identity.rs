@@ -4,6 +4,9 @@
 //! binding consistency on reuse, audits save/reuse/delete/export/expiry events,
 //! and serves `identity.list`, `identity.import`, `identity.delete`,
 //! `identity.export`, and `identity.export_storage_state`.
+//!
+//! Size: keeps all Saved identity store validation, error mapping, reuse
+//! consistency checks, and `identity.*` handlers together in one boundary module.
 
 use std::time::SystemTime;
 
@@ -59,6 +62,7 @@ const MAX_NAME_LEN: usize = 128;
 pub(crate) struct LoadedForSession {
     pub(crate) name: String,
     pub(crate) access_mode: String,
+    pub(crate) browser_family: String,
     pub(crate) identity_seed: IdentitySeed,
     pub(crate) locale: Option<String>,
     pub(crate) timezone_id: Option<String>,
@@ -468,6 +472,7 @@ pub(crate) async fn load_for_session(
     Ok(LoadedForSession {
         name: loaded.info.name,
         access_mode: loaded.info.access_mode,
+        browser_family: loaded.info.browser_family,
         identity_seed: IdentitySeed(loaded.identity_seed),
         locale: loaded.info.locale,
         timezone_id: loaded.info.timezone_id,
@@ -537,9 +542,11 @@ pub(crate) async fn delete(
     Ok(IdentityDeleted { name, deleted })
 }
 
-/// Handles `identity.import` (`state_file` and `cookie_header`, ADRs 0035, 0056).
+/// Handles `identity.import` (`state_file`, `cookie_header`, `installed_browser`,
+/// and `profile_directory`, ADRs 0035, 0056).
 pub(crate) async fn import_identity(
     params: IdentityImportParams,
+    launcher: &crate::cdp::launch::Launcher,
     context: &CallContext,
 ) -> Result<SavedIdentityInfo, CallError> {
     let name = validate_name(&params.name)?;
@@ -557,9 +564,9 @@ pub(crate) async fn import_identity(
         ));
     }
     let source_kind = params.source.kind().to_owned();
-    let (imported, bundle_identity) = read_import_source(params.source, context).await?;
+    let read = read_import_source(params.source, launcher, context).await?;
 
-    let carried = Carried::from_imported(imported);
+    let carried = Carried::from_imported(read.state);
     let (cookie_count, origin_count) = carried.counts();
     let domains = carried.domains();
     let payload_bytes = carried.to_bytes().map_err(|error| {
@@ -573,10 +580,11 @@ pub(crate) async fn import_identity(
     // proxy binding, and machine binding unchanged (ADR 0056).
     let meta = resolve_import_meta(
         requested_mode,
-        bundle_identity,
+        read.bundle_identity,
         ImportOverrides {
-            locale: params.locale,
-            timezone_id: params.timezone_id,
+            browser_family: read.browser_family,
+            locale: params.locale.or(read.locale),
+            timezone_id: params.timezone_id.or(read.timezone_id),
             proxy_server: params.proxy_server,
             proxy_country: params.proxy_country,
             proxy_kind: params.proxy_kind,
@@ -592,7 +600,7 @@ pub(crate) async fn import_identity(
         .map_err(|error| secret_error(&error))?;
     let now = SystemTime::from(context.engine().clock().timestamp());
     let max_unused_age = context.runs().saved_identity_max_unused_age().await;
-    let info = context
+    let mut info = context
         .engine()
         .saved_identities()
         .save(
@@ -621,6 +629,8 @@ pub(crate) async fn import_identity(
         )
         .await
         .map_err(|error| store_error(&error))?;
+
+    info.warnings = read.warnings;
 
     audit(
         context,
@@ -655,11 +665,21 @@ struct ImportMeta {
 }
 
 struct ImportOverrides {
+    browser_family: Option<String>,
     locale: Option<String>,
     timezone_id: Option<String>,
     proxy_server: Option<String>,
     proxy_country: Option<String>,
     proxy_kind: Option<goodfetch_protocol::page::proxy::ProxyKind>,
+}
+
+struct ReadImportSource {
+    state: crate::state_import::ImportedState,
+    bundle_identity: Option<ExportedIdentity>,
+    browser_family: Option<String>,
+    locale: Option<String>,
+    timezone_id: Option<String>,
+    warnings: Vec<String>,
 }
 
 async fn resolve_import_meta(
@@ -682,6 +702,7 @@ async fn resolve_import_meta(
         });
     }
     let ImportOverrides {
+        browser_family,
         locale,
         timezone_id,
         proxy_server,
@@ -709,7 +730,7 @@ async fn resolve_import_meta(
     Ok(ImportMeta {
         access_mode: requested_mode.to_owned(),
         identity_seed: seed,
-        browser_family: "chromium".to_owned(),
+        browser_family: browser_family.unwrap_or_else(|| "chromium".to_owned()),
         user_agent: None,
         locale,
         timezone_id: tz,
@@ -721,8 +742,9 @@ async fn resolve_import_meta(
 
 async fn read_import_source(
     source: SessionSource,
+    launcher: &crate::cdp::launch::Launcher,
     context: &CallContext,
-) -> Result<(crate::state_import::ImportedState, Option<ExportedIdentity>), CallError> {
+) -> Result<ReadImportSource, CallError> {
     match source {
         SessionSource::StateFile {
             path,
@@ -730,66 +752,67 @@ async fn read_import_source(
             key,
             domains,
         } => {
-            let bytes = read_file_capped(&path, context).await?;
-            let detected = format.unwrap_or_else(|| crate::state_import::detect_format(&bytes));
-            let mut bundle_identity = None;
-            let state = match detected {
-                StateFileFormat::StorageState => crate::state_import::parse_storage_state(&bytes)
-                    .map_err(|e| {
-                    CallError::protocol(ProtocolFailure::InvalidParams, e.to_string())
-                })?,
-                StateFileFormat::CookiesTxt => crate::state_import::parse_cookies_txt(&bytes)
-                    .map_err(|e| {
-                        CallError::protocol(ProtocolFailure::InvalidParams, e.to_string())
-                    })?,
-                StateFileFormat::CdpCookies => crate::state_import::parse_cdp_cookies(&bytes)
-                    .map_err(|e| {
-                        CallError::protocol(ProtocolFailure::InvalidParams, e.to_string())
-                    })?,
-                StateFileFormat::SessionExport => {
-                    let Some(key_str) = key else {
-                        return Err(CallError::protocol(
-                            ProtocolFailure::InvalidParams,
-                            "importing a `session_export` bundle requires `key` naming the age identity or passphrase Secret reference",
-                        ));
-                    };
-                    let reference = SecretReference::parse(&key_str).map_err(|e| {
-                        CallError::protocol(
-                            ProtocolFailure::InvalidParams,
-                            format!("`key` is not a valid Secret reference: {e}"),
-                        )
-                    })?;
-                    let origin = Origin {
-                        actor: Actor::ClientSurface {
-                            surface: context.surface(),
-                        },
-                        surface: Some(context.surface()),
-                        layer: None,
-                        run_id: None,
-                    };
-                    let resolving = context.runs().outside_a_run_secrets();
-                    let exported = import(bytes, &reference, IMPORT_LIMITS, &origin, &resolving)
-                        .await
-                        .map_err(|error| transfer_error(&error))?;
-                    bundle_identity.clone_from(&exported.identity);
-                    crate::state_import::from_session_export(exported)
-                }
-            };
-            let filtered =
-                crate::state_import::filter_domains(state, domains.as_deref().unwrap_or(&[]));
-            Ok((filtered, bundle_identity))
+            read_state_file_source(&path, format, key.as_deref(), domains.as_deref(), context).await
         }
         SessionSource::CookieHeader { header, domain } => {
             let state = crate::state_import::parse_cookie_header(&header, &domain)
                 .map_err(|e| CallError::protocol(ProtocolFailure::InvalidParams, e.to_string()))?;
-            Ok((state, None))
+            Ok(ReadImportSource {
+                state,
+                bundle_identity: None,
+                browser_family: None,
+                locale: None,
+                timezone_id: None,
+                warnings: Vec::new(),
+            })
+        }
+        SessionSource::InstalledBrowser {
+            browser,
+            chromium_profile,
+            domains,
+            path,
+            executable,
+        } => {
+            read_chromium_import_source(
+                crate::cdp::import::ChromiumImportRequest {
+                    browser,
+                    path: path.map(std::path::PathBuf::from),
+                    chromium_profile,
+                    executable: executable.map(std::path::PathBuf::from),
+                    domains,
+                    layer: SettingsLayer::Run,
+                },
+                launcher,
+                context,
+            )
+            .await
+        }
+        SessionSource::ProfileDirectory {
+            path,
+            browser,
+            chromium_profile,
+            domains,
+        } => {
+            read_chromium_import_source(
+                crate::cdp::import::ChromiumImportRequest {
+                    browser,
+                    path: Some(std::path::PathBuf::from(path)),
+                    chromium_profile,
+                    executable: None,
+                    domains,
+                    layer: SettingsLayer::Run,
+                },
+                launcher,
+                context,
+            )
+            .await
         }
         other => {
             let kind = other.kind();
             Err(CallError::new(
                 &CAPABILITY_UNAVAILABLE,
                 format!(
-                    "This engine does not yet support `identity.import` from `{kind}`; use `state_file` or `cookie_header`."
+                    "This engine does not yet support `identity.import` from `{kind}`; use `state_file`, `cookie_header`, `installed_browser`, or `profile_directory`."
                 ),
                 &CapabilityUnavailableDetails {
                     key: SESSION_SOURCE.name.to_owned(),
@@ -800,6 +823,93 @@ async fn read_import_source(
             ))
         }
     }
+}
+
+async fn read_state_file_source(
+    path: &str,
+    format: Option<StateFileFormat>,
+    key: Option<&str>,
+    domains: Option<&[String]>,
+    context: &CallContext,
+) -> Result<ReadImportSource, CallError> {
+    let bytes = read_file_capped(path, context).await?;
+    let detected = format.unwrap_or_else(|| crate::state_import::detect_format(&bytes));
+    let mut bundle_identity = None;
+    let state = match detected {
+        StateFileFormat::StorageState => crate::state_import::parse_storage_state(&bytes)
+            .map_err(|e| CallError::protocol(ProtocolFailure::InvalidParams, e.to_string()))?,
+        StateFileFormat::CookiesTxt => crate::state_import::parse_cookies_txt(&bytes)
+            .map_err(|e| CallError::protocol(ProtocolFailure::InvalidParams, e.to_string()))?,
+        StateFileFormat::CdpCookies => crate::state_import::parse_cdp_cookies(&bytes)
+            .map_err(|e| CallError::protocol(ProtocolFailure::InvalidParams, e.to_string()))?,
+        StateFileFormat::SessionExport => {
+            let Some(key_str) = key else {
+                return Err(CallError::protocol(
+                    ProtocolFailure::InvalidParams,
+                    "importing a `session_export` bundle requires `key` naming the age identity or passphrase Secret reference",
+                ));
+            };
+            let reference = SecretReference::parse(key_str).map_err(|e| {
+                CallError::protocol(
+                    ProtocolFailure::InvalidParams,
+                    format!("`key` is not a valid Secret reference: {e}"),
+                )
+            })?;
+            let origin = Origin {
+                actor: Actor::ClientSurface {
+                    surface: context.surface(),
+                },
+                surface: Some(context.surface()),
+                layer: None,
+                run_id: None,
+            };
+            let resolving = context.runs().outside_a_run_secrets();
+            let exported = import(bytes, &reference, IMPORT_LIMITS, &origin, &resolving)
+                .await
+                .map_err(|error| transfer_error(&error))?;
+            bundle_identity.clone_from(&exported.identity);
+            crate::state_import::from_session_export(exported)
+        }
+    };
+    let filtered = crate::state_import::filter_domains(state, domains.unwrap_or(&[]));
+    Ok(ReadImportSource {
+        state: filtered,
+        bundle_identity,
+        browser_family: None,
+        locale: None,
+        timezone_id: None,
+        warnings: Vec::new(),
+    })
+}
+
+async fn read_chromium_import_source(
+    request: crate::cdp::import::ChromiumImportRequest,
+    launcher: &crate::cdp::launch::Launcher,
+    context: &CallContext,
+) -> Result<ReadImportSource, CallError> {
+    let outcome = crate::cdp::import::read_chromium_browser(
+        request,
+        launcher,
+        context.engine().tasks(),
+        goodfetch_counted_work::CountedWork::default(),
+        context.engine().host_zone(),
+    )
+    .await?;
+    let mut warnings: Vec<String> = outcome.warnings.into_iter().map(|w| w.message).collect();
+    if let Some(mismatch) = crate::cdp::import::family_mismatch_warning(
+        outcome.source_family,
+        crate::cdp::import::default_running_browser_family(),
+    ) {
+        warnings.push(mismatch.message);
+    }
+    Ok(ReadImportSource {
+        state: outcome.state,
+        bundle_identity: None,
+        browser_family: Some(outcome.source_family.to_owned()),
+        locale: outcome.locale,
+        timezone_id: outcome.timezone_id,
+        warnings,
+    })
 }
 
 /// Handles `identity.export`: encrypts the Saved identity into ADR 0015's

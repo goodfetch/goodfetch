@@ -4582,6 +4582,11 @@ class SavedIdentityInfo(BaseModel):
     """Its IANA time zone ID, when recorded."""
     updated_at: PointInTime
     """When the Saved identity was last written or replaced."""
+    warnings: list[str] | None = None
+    """
+    Non-fatal warnings produced while importing this Saved identity (such as
+    excluded device-bound session cookies or browser-family differences, ADR 0056).
+    """
     was_lent: bool
     """
     Whether the Saved identity was saved from a Session that was lent via
@@ -5136,7 +5141,17 @@ class SessionSource5(BaseModel):
     """A Chromium-family profile of it."""
     domains: list[str]
     """The registrable domains its data is read for."""
+    executable: str | None = None
+    """
+    Optional explicit path to that installed browser's executable;
+    when omitted, discovers the browser on standard OS install paths.
+    """
     kind: Literal["installed_browser"]
+    path: str | None = None
+    """
+    Optional non-default user data directory for the installed browser;
+    when omitted, resolves the OS default user data directory.
+    """
 
 
 class SessionSource6(BaseModel):

@@ -611,6 +611,7 @@ fn decode_sealed(
             updated_at,
             last_used_at,
             expires_at,
+            warnings: Vec::new(),
         },
         identity_seed,
         user_agent,
@@ -1018,6 +1019,7 @@ fn upsert_row(connection: &Connection, p: PreparedSave) -> rusqlite::Result<Save
         updated_at: p.now,
         last_used_at: p.now,
         expires_at: p.max_unused_age.and_then(|age| p.now.checked_add(age)),
+        warnings: Vec::new(),
     })
 }
 

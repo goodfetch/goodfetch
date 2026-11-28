@@ -63,6 +63,16 @@ pub const PLUGIN_FIGURES: &str = "plugin_figures";
 /// The engine stopped the Run while it stopped on a panic in a part every
 /// Run shares (ADR 0148).
 pub const ENGINE_PANICKED: &str = "engine_panicked";
+/// The browser running an imported Session is not of the browser family that
+/// minted the cookies, so the Session presents a different identity (ADR 0056).
+pub const IMPORTED_IDENTITY_FAMILY_DIFFERS: &str = "imported_identity_family_differs";
+/// Device-bound sessions were found during a live Chromium import; their
+/// refreshed cookies were left out because such a login works only in its own
+/// browser (ADR 0056).
+pub const DEVICE_BOUND_SESSION_EXCLUDED: &str = "device_bound_session_excluded";
+/// The source browser did not support `Network.enableDeviceBoundSessions`, so
+/// device-bound sessions could not be checked during import (ADR 0056).
+pub const DEVICE_BOUND_SESSION_PROBE_UNAVAILABLE: &str = "device_bound_session_probe_unavailable";
 
 const fn warning(name: &'static str, description: &'static str) -> SharedTypeValue {
     SharedTypeValue {
@@ -75,7 +85,7 @@ const fn warning(name: &'static str, description: &'static str) -> SharedTypeVal
 
 /// The warning codes both Products hand over to a Run's report (ADR
 /// 0102); Foxhound adds its own.
-pub const WARNING_CODES: [SharedTypeValue; 25] = [
+pub const WARNING_CODES: [SharedTypeValue; 28] = [
     warning(FINGERPRINT_NONE, "A Session ran with no fingerprint."),
     warning(
         FINGERPRINT_JS_INJECTION,
@@ -160,5 +170,17 @@ pub const WARNING_CODES: [SharedTypeValue; 25] = [
     warning(
         ENGINE_PANICKED,
         "The engine stopped the Run as it stopped on a bug in a part every Run shares; a start with its Run ID resumes it.",
+    ),
+    warning(
+        IMPORTED_IDENTITY_FAMILY_DIFFERS,
+        "The running browser is not of the family that minted the imported cookies, so the Session presents a different browser identity (ADR 0056).",
+    ),
+    warning(
+        DEVICE_BOUND_SESSION_EXCLUDED,
+        "Refreshed cookies of device-bound sessions were left out of the import; such a login works only in its own browser (ADR 0056).",
+    ),
+    warning(
+        DEVICE_BOUND_SESSION_PROBE_UNAVAILABLE,
+        "The source browser did not support Network.enableDeviceBoundSessions, so device-bound sessions could not be checked during import (ADR 0056).",
     ),
 ];

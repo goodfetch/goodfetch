@@ -81,6 +81,8 @@ mod human_output;
 mod identified;
 mod init;
 mod install_docs;
+#[cfg(unix)]
+mod installed_browser_import;
 mod invalid_calls;
 mod journeys;
 mod key_value_store;

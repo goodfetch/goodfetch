@@ -318,7 +318,7 @@ fn session_source_is_refused_in_a_sessions_own_settings_and_the_runs_is_the_defa
         "run.new_session",
         &json!({
             "run_id": "sourced",
-            "source": { "kind": "installed_browser", "browser": "chrome", "domains": ["scope.test"] },
+            "source": { "kind": "installed_browser", "browser": "safari", "domains": ["scope.test"] },
         }),
     );
     let fresh = session_of(&engine.ask(

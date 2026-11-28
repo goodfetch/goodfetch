@@ -266,7 +266,8 @@ pub fn contribution_with(
     let contribution = cdp_session::with_cdp_session_handlers(contribution, &pages);
     let contribution = lend::with_lend_handlers(contribution, &pages);
     let contribution = borrow::with_borrow_handlers(contribution, &pages);
-    let contribution = identity::with_identity_handlers(contribution);
+    let contribution =
+        identity::with_identity_handlers(contribution, pages.sessions.launcher().clone());
     let contribution = scroll_collect::with_scroll_collect_handler(contribution, &pages);
     let contribution = with_request_handler(contribution, &pages);
     pages.product.opened(Arc::new(Opener {

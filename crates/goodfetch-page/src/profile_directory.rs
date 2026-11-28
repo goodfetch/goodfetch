@@ -231,6 +231,45 @@ fn browser_name(browser: BrowserName) -> &'static str {
     }
 }
 
+/// Returns the OS default user data directory for `browser`, when known.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "reads HOME/LOCALAPPDATA purely for path lookup inside blocking inspection"
+)]
+pub(crate) fn default_user_data_dir(browser: BrowserName) -> Option<PathBuf> {
+    if cfg!(target_os = "macos") {
+        let home = PathBuf::from(std::env::var("HOME").ok()?);
+        let rel = match browser {
+            BrowserName::Chrome => "Library/Application Support/Google/Chrome",
+            BrowserName::Chromium => "Library/Application Support/Chromium",
+            BrowserName::Edge => "Library/Application Support/Microsoft Edge",
+            BrowserName::Brave => "Library/Application Support/BraveSoftware/Brave-Browser",
+            BrowserName::Firefox | BrowserName::Safari => return None,
+        };
+        Some(home.join(rel))
+    } else if cfg!(windows) {
+        let local = PathBuf::from(std::env::var("LOCALAPPDATA").ok()?);
+        let rel = match browser {
+            BrowserName::Chrome => "Google/Chrome/User Data",
+            BrowserName::Chromium => "Chromium/User Data",
+            BrowserName::Edge => "Microsoft/Edge/User Data",
+            BrowserName::Brave => "BraveSoftware/Brave-Browser/User Data",
+            BrowserName::Firefox | BrowserName::Safari => return None,
+        };
+        Some(local.join(rel))
+    } else {
+        let home = PathBuf::from(std::env::var("HOME").ok()?);
+        let rel = match browser {
+            BrowserName::Chrome => ".config/google-chrome",
+            BrowserName::Chromium => ".config/chromium",
+            BrowserName::Edge => ".config/microsoft-edge",
+            BrowserName::Brave => ".config/BraveSoftware/Brave-Browser",
+            BrowserName::Firefox | BrowserName::Safari => return None,
+        };
+        Some(home.join(rel))
+    }
+}
+
 /// Whether `path` matches a browser's OS default user data directory.
 #[expect(
     clippy::disallowed_methods,
@@ -298,7 +337,7 @@ fn parse_major(version: &str) -> Option<u32> {
     clippy::disallowed_methods,
     reason = "called inside blocking inspect()"
 )]
-fn read_profile_locale(path: &Path, chromium_profile: Option<&str>) -> Option<String> {
+pub(crate) fn read_profile_locale(path: &Path, chromium_profile: Option<&str>) -> Option<String> {
     let subdir = chromium_profile.unwrap_or("Default");
     if let Ok(text) = std::fs::read_to_string(path.join(subdir).join("Preferences"))
         && let Ok(json) = serde_json::from_str::<serde_json::Value>(&text)

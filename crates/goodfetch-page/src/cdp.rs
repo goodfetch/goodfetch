@@ -99,6 +99,7 @@ mod followed;
 mod functions;
 mod hiding;
 mod hop;
+pub(crate) mod import;
 mod init_scripts;
 mod input;
 pub(crate) mod keys;

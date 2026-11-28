@@ -399,6 +399,12 @@ impl EngineContext {
         &self.stores.owner
     }
 
+    /// Task starter for short-lived engine-level operations outside a Run
+    /// (such as `identity.import` reading an installed browser over CDP).
+    pub fn tasks(&self) -> &crate::tasks::TaskStarter {
+        &self.stores.owner
+    }
+
     /// The engine's "Needs you" (spec #592).
     pub(crate) fn needs_you(&self) -> &NeedsYou {
         &self.needs_you

@@ -120,6 +120,8 @@ export type NotificationEvent = "approval_requested" | "effect_reconciled" | "ef
  * - `clean_up_rules_fallback`: The Run holds to other Clean-up rules than `clean_up.update` or `clean_up.version` ask for, such as the embedded part when the daily channel cannot be reached; Provenance names both.
  * - `clean_up_rules_stale`: The Run's Clean-up rules are older than 14 days.
  * - `cpu_throttled`: The host throttled the engine's CPU.
+ * - `device_bound_session_excluded`: Refreshed cookies of device-bound sessions were left out of the import; such a login works only in its own browser (ADR 0056).
+ * - `device_bound_session_probe_unavailable`: The source browser did not support Network.enableDeviceBoundSessions, so device-bound sessions could not be checked during import (ADR 0056).
  * - `engine_panicked`: The engine stopped the Run as it stopped on a bug in a part every Run shares; a start with its Run ID resumes it.
  * - `file_write_failed`: A file the Run writes, such as a periodic Checkpoint, could not be written to its storage.
  * - `filter_vendor_flagged`: A filter list flags a vendor the Run used.
@@ -129,6 +131,7 @@ export type NotificationEvent = "approval_requested" | "effect_reconciled" | "ef
  * - `fingerprint_none`: A Session ran with no fingerprint.
  * - `gpc_forced`: A Session's `consent.gpc: on` forces Global Privacy Control on a browser identity that does not send it by default, or on a Borrowed browser where only the `Sec-GPC` header is sent without `navigator.globalPrivacyControl`.
  * - `human_input_fallback`: A Session's human input fell back to plain input.
+ * - `imported_identity_family_differs`: The running browser is not of the family that minted the imported cookies, so the Session presents a different browser identity (ADR 0056).
  * - `path_not_writable`: A file the Run writes at its end could not be written at its path.
  * - `plugin_figures`: Usage figures come from a Plugin.
  * - `plugin_quantity_above_maximum`: A Plugin reported a quantity above its declared maximum, recorded in full.
@@ -137,7 +140,7 @@ export type NotificationEvent = "approval_requested" | "effect_reconciled" | "ef
  * - `stealth_runtime_allowed`: A stealth Session's pages could turn on the Runtime domain, which a site can detect.
  * - `storage_low`: The Run met the `low` storage level: the folder, its free space and what was shed.
  */
-export type RunWarningCode = "baseline_unavailable" | "block_resources_visible" | "browser_build_firefox" | "browser_build_outdated" | "browser_build_plugin" | "browser_build_third_party" | "clean_up_rules_fallback" | "clean_up_rules_stale" | "cpu_throttled" | "engine_panicked" | "file_write_failed" | "filter_vendor_flagged" | "fingerprint_basic" | "fingerprint_basic_fallback" | "fingerprint_js_injection" | "fingerprint_none" | "gpc_forced" | "human_input_fallback" | "path_not_writable" | "plugin_figures" | "plugin_quantity_above_maximum" | "politeness_store_degraded" | "proxy_exit_may_change" | "stealth_runtime_allowed" | "storage_low" | (string & {});
+export type RunWarningCode = "baseline_unavailable" | "block_resources_visible" | "browser_build_firefox" | "browser_build_outdated" | "browser_build_plugin" | "browser_build_third_party" | "clean_up_rules_fallback" | "clean_up_rules_stale" | "cpu_throttled" | "device_bound_session_excluded" | "device_bound_session_probe_unavailable" | "engine_panicked" | "file_write_failed" | "filter_vendor_flagged" | "fingerprint_basic" | "fingerprint_basic_fallback" | "fingerprint_js_injection" | "fingerprint_none" | "gpc_forced" | "human_input_fallback" | "imported_identity_family_differs" | "path_not_writable" | "plugin_figures" | "plugin_quantity_above_maximum" | "politeness_store_degraded" | "proxy_exit_may_change" | "stealth_runtime_allowed" | "storage_low" | (string & {});
 
 /**
  * A `usage_kind`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).

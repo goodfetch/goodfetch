@@ -10,10 +10,14 @@ use goodfetch_protocol::page::identity::{
 };
 
 use super::in_call;
+use crate::cdp::launch::Launcher;
 use crate::saved_identity;
 
 /// Adds the `identity.*` handlers to `contribution`.
-pub(super) fn with_identity_handlers(contribution: Contribution) -> Contribution {
+pub(super) fn with_identity_handlers(
+    contribution: Contribution,
+    launcher: Launcher,
+) -> Contribution {
     contribution
         .with_handler(Handler::new(
             &IDENTITY_LIST,
@@ -25,9 +29,10 @@ pub(super) fn with_identity_handlers(contribution: Contribution) -> Contribution
         ))
         .with_handler(Handler::new(
             &IDENTITY_IMPORT,
-            |params: IdentityImportParams, context: CallContext| {
+            move |params: IdentityImportParams, context: CallContext| {
+                let launcher = launcher.clone();
                 in_call((IDENTITY_IMPORT.name, context.form()), async move {
-                    saved_identity::import_identity(params, &context).await
+                    saved_identity::import_identity(params, &launcher, &context).await
                 })
             },
         ))

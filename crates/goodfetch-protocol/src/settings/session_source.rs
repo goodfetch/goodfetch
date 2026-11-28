@@ -115,6 +115,16 @@ pub enum SessionSource {
         /// The registrable domains its data is read for.
         #[schemars(extend("arrived_in" = "0.1"))]
         domains: Vec<String>,
+        /// Optional non-default user data directory for the installed browser;
+        /// when omitted, resolves the OS default user data directory.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        path: Option<String>,
+        /// Optional explicit path to that installed browser's executable;
+        /// when omitted, discovers the browser on standard OS install paths.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        executable: Option<String>,
     },
     /// A browser the person runs, reached through its consented connection.
     RunningBrowser {
@@ -245,6 +255,14 @@ pub const SESSION_SOURCE_SHAPE: ValueShape = ValueShape {
                 "browser": "chrome",
                 "chromium_profile": "Default",
                 "domains": ["example.com"],
+            }),
+            json!({
+                "kind": "installed_browser",
+                "browser": "chrome",
+                "chromium_profile": "Default",
+                "domains": ["example.com"],
+                "path": "chrome-work-profile",
+                "executable": "/opt/google/chrome/chrome",
             }),
             json!({
                 "kind": "cdp_url",

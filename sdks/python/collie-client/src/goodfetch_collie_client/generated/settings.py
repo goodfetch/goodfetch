@@ -1166,7 +1166,17 @@ class SessionSourceInstalledBrowser(TypedDict):
     domains: list[str]
     """The registrable domains its data is read for."""
 
+    executable: NotRequired[str | None]
+    """Optional explicit path to that installed browser's executable;
+    when omitted, discovers the browser on standard OS install paths.
+    """
+
     kind: Literal["installed_browser"]
+
+    path: NotRequired[str | None]
+    """Optional non-default user data directory for the installed browser;
+    when omitted, resolves the OS default user data directory.
+    """
 
 
 class SessionSourceRunningBrowser(TypedDict):

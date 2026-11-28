@@ -110,6 +110,11 @@ pub struct SavedIdentityInfo {
     )]
     #[schemars(with = "Option<String>", extend("format" = "date-time", "arrived_in" = "0.1"))]
     pub expires_at: Option<SystemTime>,
+    /// Non-fatal warnings produced while importing this Saved identity (such as
+    /// excluded device-bound session cookies or browser-family differences, ADR 0056).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub warnings: Vec<String>,
 }
 
 /// What `identity.list` takes: nothing.

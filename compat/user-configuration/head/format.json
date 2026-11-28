@@ -4083,9 +4083,25 @@
                             },
                             "type": "array"
                           },
+                          "executable": {
+                            "arrived_in": "0.1",
+                            "description": "Optional explicit path to that installed browser's executable;\nwhen omitted, discovers the browser on standard OS install paths.",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "kind": {
                             "const": "installed_browser",
                             "type": "string"
+                          },
+                          "path": {
+                            "arrived_in": "0.1",
+                            "description": "Optional non-default user data directory for the installed browser;\nwhen omitted, resolves the OS default user data directory.",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
                           }
                         },
                         "required": [

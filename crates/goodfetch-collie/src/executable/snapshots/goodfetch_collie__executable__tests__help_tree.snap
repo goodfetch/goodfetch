@@ -238,23 +238,48 @@ Arguments:
   <NAME>  The name under which to keep the Saved identity
 
 Options:
-      --file <PATH>                    Path to a Playwright `storageState`, Netscape `cookies.txt`, CDP cookie JSON array, or `age`-encrypted `session-export` bundle
-      --format <FORMAT>                Overrides automatic format detection for `--file` [possible values: storage_state, cookies_txt, cdp_cookies, session_export]
-      --key <KEY>                      Secret reference of the `age` identity or passphrase opening a `session_export` bundle
-      --cookie-header <COOKIE_HEADER>  Raw `Cookie:` header value to import for `--domain`
-      --domain <DOMAINS>               Domain filter (or target domain for `--cookie-header`). Repeat to include several domains
-      --source <SOURCE>                Raw `session.source` JSON object, in place of `--file` / `--cookie-header`
-      --access-mode <ACCESS_MODE>      Access mode to bind (`standard` by default, or `stealth`) [possible values: standard, stealth]
-      --color <WHEN>                   When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-      --locale <LOCALE>                BCP 47 locale (language) of the imported identity
-      --timezone-id <TIMEZONE_ID>      IANA time zone ID of the imported identity
-      --proxy-server <PROXY_SERVER>    Proxy server (`scheme://host:port`, without credentials) to bind
-      --proxy-country <PROXY_COUNTRY>  ISO 3166-1 alpha-2 country code of the proxy binding
-      --proxy-kind <PROXY_KIND>        Proxy kind of the proxy binding (`datacenter`, `isp`, `residential`, `mobile`) [possible values: datacenter, isp, residential, mobile]
-      --json                           Prints the saved metadata as JSON
-      --attached                       Runs the call on an Attached engine in this process, even when a Daemon runs
-      --daemon                         Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
-  -h, --help                           Print help
+      --file <PATH>
+          Path to a Playwright `storageState`, Netscape `cookies.txt`, CDP cookie JSON array, or `age`-encrypted `session-export` bundle
+      --format <FORMAT>
+          Overrides automatic format detection for `--file` [possible values: storage_state, cookies_txt, cdp_cookies, session_export]
+      --key <KEY>
+          Secret reference of the `age` identity or passphrase opening a `session_export` bundle
+      --cookie-header <COOKIE_HEADER>
+          Raw `Cookie:` header value to import for `--domain`
+      --browser <BROWSER>
+          Installed browser family to import from (`chrome`, `edge`, `brave`, `chromium`, `firefox`, `safari`) [possible values: chrome, edge, brave, chromium, firefox, safari]
+      --profile-dir <DIR>
+          Non-default user data directory for `--browser`
+      --chromium-profile <CHROMIUM_PROFILE>
+          Chromium-family profile folder inside the user data directory (for example `Default` or `Profile 1`)
+      --color <WHEN>
+          When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --executable <PATH>
+          Explicit path to the installed browser executable for `--browser`
+      --domain <DOMAINS>
+          Domain filter (or target domain for `--cookie-header`). Repeat to include several domains
+      --source <SOURCE>
+          Raw `session.source` JSON object, in place of `--file` / `--cookie-header` / `--browser`
+      --access-mode <ACCESS_MODE>
+          Access mode to bind (`standard` by default, or `stealth`) [possible values: standard, stealth]
+      --locale <LOCALE>
+          BCP 47 locale (language) of the imported identity
+      --timezone-id <TIMEZONE_ID>
+          IANA time zone ID of the imported identity
+      --proxy-server <PROXY_SERVER>
+          Proxy server (`scheme://host:port`, without credentials) to bind
+      --proxy-country <PROXY_COUNTRY>
+          ISO 3166-1 alpha-2 country code of the proxy binding
+      --proxy-kind <PROXY_KIND>
+          Proxy kind of the proxy binding (`datacenter`, `isp`, `residential`, `mobile`) [possible values: datacenter, isp, residential, mobile]
+      --json
+          Prints the saved metadata as JSON
+      --attached
+          Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon
+          Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help
+          Print help
 
 $ goodfetch-collie identity delete --help
 Deletes the named Saved identity from this Product major's store, wiping its encrypted secret fields and recording the deletion in the Audit log

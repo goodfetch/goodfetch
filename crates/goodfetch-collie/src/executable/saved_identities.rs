@@ -21,7 +21,7 @@ use goodfetch_protocol::page::identity::{
     IdentityStorageStateExported, SavedIdentityInfo,
 };
 use goodfetch_protocol::page::proxy::ProxyKind;
-use goodfetch_protocol::settings::session_source::{SessionSource, StateFileFormat};
+use goodfetch_protocol::settings::session_source::{BrowserName, SessionSource, StateFileFormat};
 use serde_json::json;
 
 use super::catalog_commands::{Joined, Joining};
@@ -130,13 +130,31 @@ pub(super) struct ImportArgs {
     /// Raw `Cookie:` header value to import for `--domain`.
     #[arg(long, conflicts_with = "file")]
     cookie_header: Option<String>,
+    /// Installed browser family to import from (`chrome`, `edge`, `brave`,
+    /// `chromium`, `firefox`, `safari`).
+    #[arg(
+        long,
+        value_parser = ["chrome", "edge", "brave", "chromium", "firefox", "safari"],
+        conflicts_with_all = ["file", "cookie_header", "source"]
+    )]
+    browser: Option<String>,
+    /// Non-default user data directory for `--browser`.
+    #[arg(long, value_name = "DIR", requires = "browser")]
+    profile_dir: Option<PathBuf>,
+    /// Chromium-family profile folder inside the user data directory (for
+    /// example `Default` or `Profile 1`).
+    #[arg(long, requires = "browser")]
+    chromium_profile: Option<String>,
+    /// Explicit path to the installed browser executable for `--browser`.
+    #[arg(long, value_name = "PATH", requires = "browser")]
+    executable: Option<PathBuf>,
     /// Domain filter (or target domain for `--cookie-header`). Repeat to
     /// include several domains.
     #[arg(long = "domain")]
     domains: Vec<String>,
     /// Raw `session.source` JSON object, in place of `--file` /
-    /// `--cookie-header`.
-    #[arg(long, conflicts_with_all = ["file", "cookie_header"])]
+    /// `--cookie-header` / `--browser`.
+    #[arg(long, conflicts_with_all = ["file", "cookie_header", "browser"])]
     source: Option<String>,
     /// Access mode to bind (`standard` by default, or `stealth`).
     #[arg(long, value_parser = ["standard", "stealth"])]
@@ -188,51 +206,7 @@ pub(super) fn run(
             list(engine, dependencies, &reach, json, human)
         }
         IdentityCommand::Own(OwnIdentityCommand::Import(args)) => {
-            let ImportArgs {
-                name,
-                file,
-                format,
-                key,
-                cookie_header,
-                domains,
-                source,
-                access_mode,
-                locale,
-                timezone_id,
-                proxy_server,
-                proxy_country,
-                proxy_kind,
-                json,
-                engine: flags,
-            } = *args;
-            let warn = |text: &str| human.warning(text);
-            let reach = EngineChoice::passing(flags.choice(), machine, &warn);
-            let resolved_source = match build_import_source(
-                file,
-                format.as_deref(),
-                key,
-                cookie_header,
-                domains,
-                source.as_deref(),
-            ) {
-                Ok(src) => src,
-                Err(message) => {
-                    let error = CallError::protocol(ProtocolFailure::InvalidParams, message)
-                        .to_error_object();
-                    return output::fail(error, Some(IDENTITY_IMPORT.name), json, human);
-                }
-            };
-            let params = IdentityImportParams {
-                name,
-                source: resolved_source,
-                access_mode,
-                locale,
-                timezone_id,
-                proxy_server,
-                proxy_country,
-                proxy_kind: proxy_kind.as_deref().and_then(ProxyKind::named),
-            };
-            import_cmd(engine, dependencies, &reach, &params, json, human)
+            run_import(*args, engine, dependencies, machine, human)
         }
         IdentityCommand::Own(OwnIdentityCommand::Delete {
             name,
@@ -274,17 +248,111 @@ pub(super) fn run(
     }
 }
 
+fn run_import(
+    args: ImportArgs,
+    engine: &Engine,
+    dependencies: Dependencies,
+    machine: &Machine<'_>,
+    human: &Human,
+) -> ExitCode {
+    let ImportArgs {
+        name,
+        file,
+        format,
+        key,
+        cookie_header,
+        browser,
+        profile_dir,
+        chromium_profile,
+        executable,
+        domains,
+        source,
+        access_mode,
+        locale,
+        timezone_id,
+        proxy_server,
+        proxy_country,
+        proxy_kind,
+        json,
+        engine: flags,
+    } = args;
+    let warn = |text: &str| human.warning(text);
+    let reach = EngineChoice::passing(flags.choice(), machine, &warn);
+    let resolved_source = match build_import_source(
+        file,
+        format.as_deref(),
+        key,
+        cookie_header,
+        browser.as_deref(),
+        profile_dir,
+        chromium_profile,
+        executable,
+        domains,
+        source.as_deref(),
+    ) {
+        Ok(src) => src,
+        Err(message) => {
+            let error =
+                CallError::protocol(ProtocolFailure::InvalidParams, message).to_error_object();
+            return output::fail(error, Some(IDENTITY_IMPORT.name), json, human);
+        }
+    };
+    let params = IdentityImportParams {
+        name,
+        source: resolved_source,
+        access_mode,
+        locale,
+        timezone_id,
+        proxy_server,
+        proxy_country,
+        proxy_kind: proxy_kind.as_deref().and_then(ProxyKind::named),
+    };
+    import_cmd(engine, dependencies, &reach, &params, json, human)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "maps CLI import flags directly into one SessionSource variant"
+)]
 fn build_import_source(
     file: Option<PathBuf>,
     format: Option<&str>,
     key: Option<String>,
     cookie_header: Option<String>,
+    browser: Option<&str>,
+    profile_dir: Option<PathBuf>,
+    chromium_profile: Option<String>,
+    executable: Option<PathBuf>,
     domains: Vec<String>,
     source_json: Option<&str>,
 ) -> Result<SessionSource, String> {
     if let Some(raw) = source_json {
         return serde_json::from_str::<SessionSource>(raw)
             .map_err(|error| format!("invalid `--source` JSON: {error}"));
+    }
+    if let Some(browser_str) = browser {
+        let parsed = match browser_str {
+            "chrome" => BrowserName::Chrome,
+            "edge" => BrowserName::Edge,
+            "brave" => BrowserName::Brave,
+            "chromium" => BrowserName::Chromium,
+            "firefox" => BrowserName::Firefox,
+            "safari" => BrowserName::Safari,
+            other => return Err(format!("unknown `--browser` `{other}`")),
+        };
+        if domains.is_empty() {
+            return Err(
+                "`--browser` requires at least one `--domain <DOMAIN>` (or `--domain '*'`)"
+                    .to_owned(),
+            );
+        }
+        return Ok(SessionSource::InstalledBrowser {
+            browser: parsed,
+            chromium_profile,
+            domains,
+            path: profile_dir.map(|p| p.to_string_lossy().into_owned()),
+            executable: executable.map(|p| p.to_string_lossy().into_owned()),
+        });
     }
     if let Some(header) = cookie_header {
         let domain = domains
@@ -310,7 +378,7 @@ fn build_import_source(
         });
     }
     Err(
-        "give `--file <PATH>`, `--cookie-header <HEADER> --domain <DOMAIN>`, or `--source <JSON>`"
+        "give `--file <PATH>`, `--cookie-header <HEADER> --domain <DOMAIN>`, `--browser <NAME> --domain <DOMAIN>`, or `--source <JSON>`"
             .to_owned(),
     )
 }
@@ -388,6 +456,9 @@ fn import_cmd(
     }
     match serde_json::from_value::<SavedIdentityInfo>(answered) {
         Ok(info) => {
+            for warning in &info.warnings {
+                human.warning(warning);
+            }
             print_info(&info, human);
             ExitCode::from(exit_codes::SUCCESS)
         }

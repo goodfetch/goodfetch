@@ -640,6 +640,11 @@ impl Sessions {
         &self.page_owners
     }
 
+    /// How browsers are launched (executable or in-process scripted).
+    pub(crate) fn launcher(&self) -> &Launcher {
+        &self.launcher
+    }
+
     /// The request a Session's browser sends for a document, read from
     /// the build it would launch, pinned or installed, for `run`.
     pub(crate) async fn document_request(
@@ -676,7 +681,8 @@ impl Sessions {
         let browser_family = BrowserFamily::of(named.as_ref().map(|n| &n.source));
         let (identity, mut emulation) =
             session_plans(&settings, &run.identity, named.as_ref(), context)?;
-        let (opened, gpc) = opening_source_and_gpc(&settings, &run, named, context).await?;
+        let (opened, gpc) =
+            opening_source_and_gpc(&settings, &run, named, &self.launcher, context).await?;
         if let Some(saved) = opened.saved_identity() {
             crate::saved_identity::check_access_mode(saved, identity.mode)?;
             if emulation.locale.is_none() {
@@ -684,6 +690,14 @@ impl Sessions {
             }
             if emulation.timezone_id.is_none() {
                 emulation.timezone_id = saved.timezone_id.clone();
+            }
+        }
+        if let Some(imported) = opened.imported() {
+            if emulation.locale.is_none() {
+                emulation.locale = imported.locale.clone();
+            }
+            if emulation.timezone_id.is_none() {
+                emulation.timezone_id = imported.timezone_id.clone();
             }
         }
         let seed = match opened.saved_identity() {
@@ -729,9 +743,11 @@ impl Sessions {
             .timezone_id
             .clone()
             .or_else(|| Some(context.engine().host_zone().to_owned()));
-        let machine_binding = opened
-            .saved_identity()
-            .and_then(|saved| saved.machine_binding.clone());
+        let machine_binding = if proxy.is_none() {
+            opened.machine_binding().map(str::to_owned)
+        } else {
+            None
+        };
         // It goes into the table under the lock, while its Run is there:
         // once the Run stops, its clean-up has taken the Run out, and a
         // Session put in after it would hold the Run forever (#1763).
@@ -834,6 +850,7 @@ impl Sessions {
         self.record(run, row, settings, opened, context).await?;
         mark_opened_session(run, open, session).await;
         warn_gpc(run, session, gpc).await;
+        warn_import(run, session, opened).await;
         Ok(SessionOpened {
             session_id: session.clone(),
         })
@@ -852,7 +869,7 @@ impl Sessions {
         let named = named_source(&run, None, context);
         let (identity, emulation) =
             session_plans(&Values::default(), &run.identity, named.as_ref(), context)?;
-        let opened = opening_source(&run, named, context).await?;
+        let opened = opening_source(&run, named, &self.launcher, context).await?;
         self.reach(&run, context).await?;
         let default = Arc::clone(&reached(&mut *self.state.lock().await, &run.identity)?.default);
         let position = *default
@@ -914,6 +931,14 @@ impl Sessions {
                 emulation.timezone_id = saved.timezone_id.clone();
             }
         }
+        if let Some(imported) = source.imported() {
+            if emulation.locale.is_none() {
+                emulation.locale = imported.locale.clone();
+            }
+            if emulation.timezone_id.is_none() {
+                emulation.timezone_id = imported.timezone_id.clone();
+            }
+        }
         no_local_address_on(run, source_of(borrowed))?;
         let signing = open_signing(run, identity.signing.as_ref(), context).await?;
         let seed = match source.saved_identity() {
@@ -967,9 +992,11 @@ impl Sessions {
             .timezone_id
             .clone()
             .or_else(|| Some(context.engine().host_zone().to_owned()));
-        let machine_binding = source
-            .saved_identity()
-            .and_then(|saved| saved.machine_binding.clone());
+        let machine_binding = if proxy.is_none() {
+            source.machine_binding().map(str::to_owned)
+        } else {
+            None
+        };
         let seat = open_seat(
             &pool,
             borrowed,
@@ -1056,6 +1083,7 @@ impl Sessions {
             fingerprint.chosen(run, &session).await;
         }
         warn_gpc(run, &session, gpc).await;
+        warn_import(run, &session, source).await;
         if let Some(human_input) = &held.human_input {
             human_input.chosen(run, &session).await;
         }
@@ -1462,7 +1490,7 @@ impl Sessions {
         let named = named_source(&run, pooled.source.clone(), context);
         let (identity, emulation) =
             session_plans(&Values::default(), &run.identity, named.as_ref(), context)?;
-        let source = opening_source(&run, named, context).await?;
+        let source = opening_source(&run, named, &self.launcher, context).await?;
         self.reach(&run, context).await?;
         let cell = Arc::clone(
             reached(&mut *self.state.lock().await, &run.identity)?
@@ -2839,10 +2867,19 @@ async fn open_signing(
 /// builds its reader, and so does a `cdp_url` with `headers`, whose Secret
 /// references the `cdp_url` Session resolves (#743).
 /// What a Session's source resolved to when the Session opened (ADR 0056).
+struct ImportedSession {
+    carried: Carried,
+    locale: Option<String>,
+    timezone_id: Option<String>,
+    machine_binding: String,
+    warnings: Vec<crate::cdp::import::ImportWarning>,
+}
+
 enum OpenedSource {
     Fresh,
     Borrowed(CdpUrl),
     Carried(Carried),
+    Imported(Box<ImportedSession>),
     ProfileDirectory(crate::profile_directory::ProfileDirectory),
     SavedIdentity(Box<crate::saved_identity::LoadedForSession>),
 }
@@ -2851,31 +2888,76 @@ impl OpenedSource {
     fn borrowed(&self) -> Option<&CdpUrl> {
         match self {
             Self::Borrowed(cdp_url) => Some(cdp_url),
-            Self::Fresh | Self::Carried(_) | Self::ProfileDirectory(_) | Self::SavedIdentity(_) => {
-                None
-            }
+            Self::Fresh
+            | Self::Carried(_)
+            | Self::Imported(_)
+            | Self::ProfileDirectory(_)
+            | Self::SavedIdentity(_) => None,
         }
     }
 
     fn carried(&self) -> Option<&Carried> {
         match self {
             Self::Carried(carried) => Some(carried),
+            Self::Imported(imported) => Some(&imported.carried),
             Self::SavedIdentity(saved) => Some(&saved.carried),
             Self::Fresh | Self::Borrowed(_) | Self::ProfileDirectory(_) => None,
+        }
+    }
+
+    fn imported(&self) -> Option<&ImportedSession> {
+        match self {
+            Self::Imported(imported) => Some(imported),
+            Self::Fresh
+            | Self::Borrowed(_)
+            | Self::Carried(_)
+            | Self::ProfileDirectory(_)
+            | Self::SavedIdentity(_) => None,
         }
     }
 
     fn profile(&self) -> Option<&crate::profile_directory::ProfileDirectory> {
         match self {
             Self::ProfileDirectory(profile) => Some(profile),
-            Self::Fresh | Self::Borrowed(_) | Self::Carried(_) | Self::SavedIdentity(_) => None,
+            Self::Fresh
+            | Self::Borrowed(_)
+            | Self::Carried(_)
+            | Self::Imported(_)
+            | Self::SavedIdentity(_) => None,
         }
     }
 
     fn saved_identity(&self) -> Option<&crate::saved_identity::LoadedForSession> {
         match self {
             Self::SavedIdentity(saved) => Some(saved),
+            Self::Fresh
+            | Self::Borrowed(_)
+            | Self::Carried(_)
+            | Self::Imported(_)
+            | Self::ProfileDirectory(_) => None,
+        }
+    }
+
+    fn machine_binding(&self) -> Option<&str> {
+        match self {
+            Self::SavedIdentity(saved) => saved.machine_binding.as_deref(),
+            Self::Imported(imported) => Some(&imported.machine_binding),
             Self::Fresh | Self::Borrowed(_) | Self::Carried(_) | Self::ProfileDirectory(_) => None,
+        }
+    }
+
+    fn import_warnings(&self) -> Vec<crate::cdp::import::ImportWarning> {
+        match self {
+            Self::Imported(imported) => imported.warnings.clone(),
+            Self::SavedIdentity(saved) => crate::cdp::import::family_mismatch_warning(
+                &saved.browser_family,
+                crate::cdp::import::default_running_browser_family(),
+            )
+            .into_iter()
+            .collect(),
+            Self::Fresh | Self::Borrowed(_) | Self::Carried(_) | Self::ProfileDirectory(_) => {
+                Vec::new()
+            }
         }
     }
 }
@@ -2883,6 +2965,7 @@ impl OpenedSource {
 async fn opening_source(
     run: &Arc<BrowserRun>,
     named: Option<NamedSource>,
+    launcher: &Launcher,
     context: &CallContext,
 ) -> Result<OpenedSource, CallError> {
     let Some(NamedSource {
@@ -2925,6 +3008,28 @@ async fn opening_source(
                 })?;
             Ok(OpenedSource::Carried(Carried::from_imported(imported)))
         }
+        SessionSource::InstalledBrowser {
+            browser,
+            chromium_profile,
+            domains,
+            path,
+            executable,
+        } => {
+            open_installed_browser(
+                run,
+                crate::cdp::import::ChromiumImportRequest {
+                    browser,
+                    path: path.map(std::path::PathBuf::from),
+                    chromium_profile,
+                    executable: executable.map(std::path::PathBuf::from),
+                    domains,
+                    layer,
+                },
+                launcher,
+                context,
+            )
+            .await
+        }
         SessionSource::ProfileDirectory {
             path,
             browser,
@@ -2947,28 +3052,63 @@ async fn opening_source(
                 .await?;
             Ok(OpenedSource::ProfileDirectory(profile))
         }
-        source => {
-            let kind = source.kind();
-            let what = if matches!(source, SessionSource::CdpUrl { .. }) {
-                "a `cdp_url` Session source with `headers`".to_owned()
-            } else {
-                format!("a `{kind}` Session source")
-            };
-            Err(CallError::new(
-                &CAPABILITY_UNAVAILABLE,
-                format!(
-                    "This engine opens no Session from {what}, which `session.source` names in {}: open a fresh Session with `source: null`, or leave `session.source` unset.",
-                    layer.as_str()
-                ),
-                &CapabilityUnavailableDetails {
-                    key: SESSION_SOURCE.name.to_owned(),
-                    layer,
-                    kind: kind.to_owned(),
-                    fix: "`source: null`".to_owned(),
-                },
-            ))
-        }
+        source => Err(unsupported_session_source(&source, layer)),
     }
+}
+
+fn unsupported_session_source(source: &SessionSource, layer: SettingsLayer) -> CallError {
+    let kind = source.kind();
+    let what = if matches!(source, SessionSource::CdpUrl { .. }) {
+        "a `cdp_url` Session source with `headers`".to_owned()
+    } else {
+        format!("a `{kind}` Session source")
+    };
+    CallError::new(
+        &CAPABILITY_UNAVAILABLE,
+        format!(
+            "This engine opens no Session from {what}, which `session.source` names in {}: open a fresh Session with `source: null`, or leave `session.source` unset.",
+            layer.as_str()
+        ),
+        &CapabilityUnavailableDetails {
+            key: SESSION_SOURCE.name.to_owned(),
+            layer,
+            kind: kind.to_owned(),
+            fix: "`source: null`".to_owned(),
+        },
+    )
+}
+
+async fn open_installed_browser(
+    run: &Arc<BrowserRun>,
+    request: crate::cdp::import::ChromiumImportRequest,
+    launcher: &Launcher,
+    context: &CallContext,
+) -> Result<OpenedSource, CallError> {
+    let mut outcome = crate::cdp::import::read_chromium_browser(
+        request,
+        launcher,
+        run.identity.owner(),
+        run.identity.metrics().counted_work().clone(),
+        context.engine().host_zone(),
+    )
+    .await?;
+    if let Some(mismatch) = crate::cdp::import::family_mismatch_warning(
+        outcome.source_family,
+        crate::cdp::import::default_running_browser_family(),
+    ) {
+        outcome.warnings.push(mismatch);
+    }
+    let machine_binding =
+        context.runs().machine().await.map_err(|error| {
+            CallError::protocol(ProtocolFailure::InternalError, error.to_string())
+        })?;
+    Ok(OpenedSource::Imported(Box::new(ImportedSession {
+        carried: Carried::from_imported(outcome.state),
+        locale: outcome.locale,
+        timezone_id: outcome.timezone_id,
+        machine_binding,
+        warnings: outcome.warnings,
+    })))
 }
 
 /// Reads a `state_file` on the Run's blocking pool, enforcing the 32 MiB cap.
@@ -3352,10 +3492,11 @@ async fn opening_source_and_gpc(
     settings: &Values,
     run: &Arc<BrowserRun>,
     named: Option<NamedSource>,
+    launcher: &Launcher,
     context: &CallContext,
 ) -> Result<(OpenedSource, GpcPlan), CallError> {
     let source = named.as_ref().map(|named| named.source.clone());
-    let opened = opening_source(run, named, context).await?;
+    let opened = opening_source(run, named, launcher, context).await?;
     let gpc = GpcPlan::of(
         settings,
         run.identity.settings().map(RunSettings::resolved),
@@ -3363,6 +3504,21 @@ async fn opening_source_and_gpc(
         opened.borrowed().is_some(),
     );
     Ok((opened, gpc))
+}
+
+/// Records any ADR 0056 import warnings (device-bound sessions excluded,
+/// probe unavailable, or running browser family differing from the source) in
+/// `run`'s report.
+async fn warn_import(run: &BrowserRun, session: &SessionId, opened: &OpenedSource) {
+    for warning in opened.import_warnings() {
+        if let Err(error) = run
+            .warnings
+            .warn_once(warning.to_run_warning(session))
+            .await
+        {
+            tracing::warn!(%error, code = warning.code, "the import warning was not kept");
+        }
+    }
 }
 
 /// Records the `gpc_forced` warning in `run`'s report when `gpc` degrades

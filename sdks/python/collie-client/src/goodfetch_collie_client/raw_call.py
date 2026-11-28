@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
     from pydantic import JsonValue
 
+    from goodfetch_collie_client.generated.models import Form
     from goodfetch_collie_client.handle import AsyncHandleHost, HandleHost
 
 __all__ = ["AsyncHandle", "Handle", "carried_id", "raw_params"]
@@ -75,6 +76,8 @@ def raw_params(
     params: Mapping[str, JsonValue] | None,
     timeout: timedelta | NotGiven | None,
     value: tuple[Sequence[str], str, object] | None = None,
+    *,
+    form: Form | str | None = None,
 ) -> dict[str, object]:
     """The params `operation` is sent with, its `timeout` and raw mark among them.
 
@@ -120,8 +123,12 @@ def raw_params(
                 "Give the timeout once, as the argument.",
             )
         sent["timeout"] = _wire_timeout(timeout)
-    # The envelope's raw mark, `RequestMeta`'s `raw` (ADR 0099, ADR 0132).
-    sent[_META] = {"raw": True}
+    # The envelope's raw mark, `RequestMeta`'s `raw` (ADR 0099, ADR 0132),
+    # plus any per-call naming form override (e.g. `"tool"` for Framework adapters).
+    meta: dict[str, object] = {"raw": True}
+    if form is not None:
+        meta["form"] = str(form)
+    sent[_META] = meta
     return sent
 
 

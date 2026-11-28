@@ -12,6 +12,17 @@
       ]
     },
     {
+      "id": "adapter:langchain",
+      "kind": "adapter",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "block-cause:captcha",
       "kind": "block-cause",
       "area": 8,

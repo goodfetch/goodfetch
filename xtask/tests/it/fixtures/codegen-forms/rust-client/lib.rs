@@ -166,8 +166,8 @@ pub(crate) mod host {
             &self.id
         }
 
-        pub(crate) fn connection(&self) -> &Connection {
-            &self.connection
+        pub(crate) fn runtime(&self) -> Connection {
+            self.connection.clone()
         }
 
         pub(crate) fn child<C>(&self, id: C) -> Host<C> {
@@ -245,7 +245,7 @@ pub mod blocking {
     }
 
     impl<T, P> Call<T, P> {
-        pub(crate) fn new(call: crate::Call<T, P>, _connection: &Connection) -> Self {
+        pub(crate) fn new(call: crate::Call<T, P>, _runtime: Connection) -> Self {
             Self { call }
         }
 
@@ -282,7 +282,7 @@ pub mod blocking {
     }
 
     impl RawCall {
-        pub(crate) fn new(raw: crate::RawCall, _connection: &Connection) -> Self {
+        pub(crate) fn new(raw: crate::RawCall, _runtime: Connection) -> Self {
             Self { raw }
         }
     }
@@ -294,7 +294,7 @@ pub mod blocking {
     }
 
     impl<T, P> Query<T, P> {
-        pub(crate) fn new(query: crate::Query<T, P>, _connection: &Connection) -> Self {
+        pub(crate) fn new(query: crate::Query<T, P>, _runtime: Connection) -> Self {
             Self { query }
         }
 

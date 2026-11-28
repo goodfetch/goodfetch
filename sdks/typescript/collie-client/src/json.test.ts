@@ -93,6 +93,7 @@ function framingHost(): KeyValueStoreHost {
     getBytes: unused,
     setBytes: unused,
     delete: unused,
+    keys: unused,
   };
 }
 

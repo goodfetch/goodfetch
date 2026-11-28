@@ -35,6 +35,8 @@ use tokio_util::task::TaskTracker;
 use crate::dns::{DnsServer, Zone};
 use crate::forward_proxy::{Access, Context, Credentials, ForwardProxy, Proxy};
 use crate::observation::Observations;
+use crate::payments::chain::{Chain, ChainServer};
+use crate::payments::facilitator::{Facilitator, FacilitatorServer};
 
 /// The proxy kinds, cheapest first, each with its own authenticated proxy.
 const KINDS: [&str; 4] = ["datacenter", "isp", "residential", "mobile"];
@@ -60,6 +62,9 @@ pub(crate) struct NetworkFixtures {
     dns: DnsServer,
     target: TcpListener,
     udp: UdpSocket,
+    chain: ChainServer,
+    facilitator: FacilitatorServer,
+    chain_handle: Chain,
     context: Arc<Context>,
 }
 
@@ -71,6 +76,8 @@ impl NetworkFixtures {
         seed: u64,
         observations: Arc<Observations>,
         tls: Arc<rustls::ServerConfig>,
+        chain_handle: Chain,
+        facilitator_handle: Facilitator,
     ) -> Result<Self> {
         let host = reachable(site);
         let zone = Arc::new(Zone::new(observations.hosts().keys(), host));
@@ -101,12 +108,17 @@ impl NetworkFixtures {
         let udp = UdpSocket::bind((host, 0))
             .await
             .context("binding the UDP fixture")?;
+        let chain = ChainServer::bind(host, chain_handle.clone()).await?;
+        let facilitator = FacilitatorServer::bind(host, facilitator_handle).await?;
         Ok(Self {
             proxies,
             down,
             dns,
             target,
             udp,
+            chain,
+            facilitator,
+            chain_handle,
             context: Arc::new(Context {
                 observations,
                 zone,
@@ -131,6 +143,8 @@ impl NetworkFixtures {
             .udp
             .local_addr()
             .context("reading the UDP fixture's address")?;
+        let chain = self.chain.address()?;
+        let facilitator = self.facilitator.address()?;
         Ok(FixtureAddresses {
             proxies: proxies
                 .into_iter()
@@ -143,6 +157,9 @@ impl NetworkFixtures {
             dns: self.dns.address()?.to_string(),
             target: target.to_string(),
             udp: udp.to_string(),
+            chain: format!("http://{chain}"),
+            facilitator: format!("http://{facilitator}"),
+            chain_accounts: self.chain_handle.report_accounts(),
         })
     }
 
@@ -163,6 +180,8 @@ impl NetworkFixtures {
             tracker.clone(),
             stop.clone(),
         ));
+        tracker.spawn(self.chain.run(tracker.clone(), stop.clone()));
+        tracker.spawn(self.facilitator.run(tracker.clone(), stop.clone()));
         let _held_until_stopped = self.down;
         tokio::select! {
             () = self.dns.run() => {}

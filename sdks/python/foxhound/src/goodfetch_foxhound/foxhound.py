@@ -860,7 +860,7 @@ class Foxhound(Connection):
             view = self._loop.call(opening)
         except LoopStopped:
             raise closed_error("open_run") from None
-        return RunView(view)
+        return RunView(self._loop, view)
 
     def call(
         self,

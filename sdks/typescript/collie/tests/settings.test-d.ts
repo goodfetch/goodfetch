@@ -52,11 +52,47 @@ export async function startedWithAFoxhoundKey(collie: Collie): Promise<void> {
 }
 
 // Opening a Session or a page takes its own scope's settings.
+export const browserSetupSessionSettings: SessionSettings = {
+  browser: {
+    viewport: { width: 800, height: 600 },
+    deviceScaleFactor: 1.5,
+    locale: "fr-FR",
+    timezoneId: "Europe/Paris",
+    colorScheme: "dark",
+    javaScriptEnabled: false,
+    geolocation: { latitude: 48.8566, longitude: 2.3522, accuracy: 10.5 },
+    permissions: ["geolocation"],
+    headless: true,
+    blockResources: ["image"],
+    serviceWorkers: "block",
+  },
+  network: {
+    throttle: {
+      offline: false,
+      latency: 40,
+      downloadBytesPerSecond: 500_000,
+      uploadBytesPerSecond: 250_000,
+    },
+  },
+};
+// @ts-expect-error a Run-scope timeout is never set where a Session opens
+export const runScopeAtSession: SessionSettings = { timeout: { navigation: 30_000 } };
+// @ts-expect-error `session.source` is the call's own `source` argument, never `SessionSettings`
+export const sessionSourceAtSession: SessionSettings = { session: { source: null } };
+// @ts-expect-error browser setup settings are fixed per Session, never per page
+export const viewportOnPage: PageSettings = { browser: { viewport: { width: 800, height: 600 } } };
+// @ts-expect-error `network.throttle` is a Session setting, never per page
+export const throttleOnPage: PageSettings = { network: { throttle: { offline: true } } };
+
 export async function opened(): Promise<void> {
-  const session = await run.newSession({ settings: { browser: { accessMode: "standard" } } });
+  const session = await run.newSession({ settings: browserSetupSessionSettings });
   await session.newPage({ settings: { content: { extractor: "dom_smoothie" } } });
+  // @ts-expect-error a Run-scope key is refused where a Session opens
+  await run.newSession({ settings: { timeout: { navigation: 30_000 } } });
   // @ts-expect-error a Session's page takes no Access mode
   await session.newPage({ settings: { browser: { accessMode: "standard" } } });
+  // @ts-expect-error a Session's page takes no viewport
+  await session.newPage({ settings: { browser: { viewport: { width: 800, height: 600 } } } });
 }
 
 // `connect()` takes the connection's settings, and refuses a key no

@@ -11,12 +11,13 @@ use crate::{
     accounts, audit, block, browser_cache, checkpoint, connection, daemon, dns, download, effect,
     egress, engine, events, executables, foxhound, governor, hook, hostile_input, http_listener,
     key_value_store, live_view, log, model, needs_you, notifications, ops, page, plugin,
-    politeness, recipe, response_cache, response_limits, run, sample, schedule, schema_validator,
-    secrets, security, settings, site_preferences, skills, storage, tls, usage, versions,
+    politeness, recipe, response_cache, response_limits, run, run_trace, sample, schedule,
+    schema_validator, secrets, security, settings, site_preferences, skills, storage, tls, usage,
+    versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 72] = [
+pub const MODULES: [&Entries; 73] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &daemon::ENTRIES,
@@ -47,6 +48,7 @@ pub const MODULES: [&Entries; 72] = [
     &run::ENTRIES,
     &run::completeness::ENTRIES,
     &checkpoint::ENTRIES,
+    &run_trace::ENTRIES,
     &key_value_store::ENTRIES,
     &schema_validator::ENTRIES,
     &effect::ENTRIES,
@@ -382,7 +384,7 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 104] = [
+    const COLLIE: [&str; 110] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -458,10 +460,16 @@ mod tests {
         "run.list",
         "recipe.start",
         "catalog_run.start",
+        "recording.save_as",
         "run.checkpoint",
         "run.pause",
         "run.migrate",
         "run.resume",
+        "checkpoint.save_as",
+        "checkpoint.stream",
+        "run.trace",
+        "trace.save_as",
+        "trace.stream",
         "key_value_store.get",
         "key_value_store.set",
         "key_value_store.get_bytes",
@@ -533,5 +541,57 @@ mod tests {
             ]
             .concat()
         );
+    }
+
+    /// Response recording is strictly a per-Run option, never a Schedule,
+    /// Watch, setting, project-file or deployment-environment option
+    /// (ADR 0105; issue 1291).
+    /// Covers: story:11-158, story:11-162
+    #[test]
+    fn recording_is_absent_from_schedule_settings_project_file_and_env() {
+        let schedule_schema =
+            serde_json::to_value(schemars::schema_for!(crate::schedule::ScheduleDefinition))
+                .unwrap();
+        assert!(
+            schedule_schema["properties"].get("recording").is_none(),
+            "ScheduleDefinition must not expose `recording`"
+        );
+
+        let project_schema =
+            serde_json::to_value(schemars::schema_for!(crate::settings::ProjectSettings)).unwrap();
+        let project_text = serde_json::to_string(&project_schema).unwrap();
+        assert!(
+            !project_text.contains("\"recording\""),
+            "ProjectSettings must not expose `recording`"
+        );
+
+        let mut generator = schemars::SchemaGenerator::default();
+        for entries in MODULES {
+            for setting in entries.settings {
+                assert!(
+                    !setting.name.contains("recording"),
+                    "catalog setting `{}` must not configure Response recording",
+                    setting.name
+                );
+            }
+            for op in entries.operations {
+                if op.name.starts_with("watch.") || op.name.starts_with("schedule.") {
+                    let params_schema =
+                        serde_json::to_string(&(op.params)(&mut generator)).unwrap();
+                    assert!(
+                        !params_schema.contains("\"recording\""),
+                        "operation `{}` must not accept Response recording",
+                        op.name
+                    );
+                }
+            }
+        }
+
+        for var in crate::settings::DEPLOYMENT_VARIABLES {
+            assert!(
+                !var.to_ascii_lowercase().contains("recording"),
+                "deployment variable `{var}` must not configure Response recording"
+            );
+        }
     }
 }

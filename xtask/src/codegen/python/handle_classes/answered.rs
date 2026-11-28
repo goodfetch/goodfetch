@@ -7,7 +7,7 @@
 
 use anyhow::{Context as _, Result, bail};
 
-use super::super::super::handles::{Form, Member};
+use super::super::super::handles::{Form, Member, Wrapped};
 use super::super::super::layer::Layer;
 use super::{Imports, annotation, holders};
 
@@ -98,10 +98,35 @@ pub(super) fn returned(
             );
             match response {
                 None => format!("        return {answer}\n"),
-                Some(class) if returns.ends_with("None") => format!(
-                    "        response = {answer}\n        return None if response is None else {class}(self._host, response)\n"
-                ),
-                Some(class) => format!("        return {class}(self._host, {answer})\n"),
+                Some(class) => {
+                    let wrap = |value: &str| match (member.wrapped, awaits.is_empty()) {
+                        (Some(Wrapped::Checkpoint), false) => {
+                            format!("AsyncCheckpoint(self._host.connection, {value})")
+                        }
+                        (Some(Wrapped::Checkpoint), true) => {
+                            format!(
+                                "Checkpoint(self._host.loop, AsyncCheckpoint(self._host.connection, {value}))"
+                            )
+                        }
+                        (Some(Wrapped::RunTrace), false) => {
+                            format!("AsyncRunTrace(self._host.connection, {value})")
+                        }
+                        (Some(Wrapped::RunTrace), true) => {
+                            format!(
+                                "RunTrace(self._host.loop, AsyncRunTrace(self._host.connection, {value}))"
+                            )
+                        }
+                        _ => format!("{class}(self._host, {value})"),
+                    };
+                    if returns.ends_with("None") {
+                        format!(
+                            "        response = {answer}\n        return None if response is None else {}\n",
+                            wrap("response")
+                        )
+                    } else {
+                        format!("        return {}\n", wrap(&answer))
+                    }
+                }
             }
         }
         Form::Opens(opened) => format!(

@@ -18,7 +18,7 @@ use crate::host::Host;
 use crate::sync::Mutex;
 
 /// The reads of a Run's progress, which an [`crate::EventStream`] hands.
-pub(super) struct Following {
+pub(crate) struct Following {
     host: Host<RunId>,
     /// The position of the value read last, the next read's `after`.
     after: Option<u64>,
@@ -30,7 +30,7 @@ pub(super) struct Following {
 
 impl Following {
     /// The reads of the Run `host` names, from its progress now.
-    pub(super) fn new(host: Host<RunId>) -> Self {
+    pub(crate) fn new(host: Host<RunId>) -> Self {
         Self {
             host,
             after: None,

@@ -104,6 +104,16 @@ form = "read"
 [[member]]
 crate = "goodfetch-collie"
 receiver = "Collie"
+member = "secret_requests"
+entry = "none"
+reason = "The engine's `secrets.resolve` requests for `caller:<name>` Secret references opened by Runs on this connection (ADRs 0092 and 0104)."
+only = "TypeScript and Python pass `resolveSecret` / `resolve_secret` to `connect()` instead of reading an `EventStream`."
+words = ["secret", "requests"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "Collie"
 member = "explain_settings"
 entry = "config.explain"
 words = ["explain", "settings"]
@@ -207,6 +217,16 @@ member = "max_listener_queue"
 entry = "none"
 reason = "How many unread events each stream of a Session's events holds (ADR 0081), in place of 1,024: a stream left unread past it loses only its own events, hands those it held, then ends with `listener_events_lost`, while the other streams go on."
 words = ["max", "listener", "queue"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "ConnectOptions"
+member = "resolve_secret"
+entry = "none"
+reason = "Declares that this program answers `caller:<name>` Secret references through `secret_requests()` (ADRs 0092 and 0104)."
+only = "TypeScript and Python pass `resolveSecret` / `resolve_secret` to `connect()`."
+words = ["resolve", "secret"]
 form = "read"
 
 [[member]]
@@ -353,6 +373,16 @@ member = "schedules"
 entry = "none"
 reason = "The Schedules of the engine's major, reached without a round trip (spec 589); `blocking::Connection::schedules`'s member under the same name."
 words = ["schedules"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "blocking::Collie"
+member = "secret_requests"
+entry = "none"
+reason = "The engine's `secrets.resolve` requests as a blocking `EventIter<SecretRequest>` (ADRs 0092 and 0104)."
+only = "TypeScript and Python pass `resolveSecret` / `resolve_secret` to `connect()`."
+words = ["secret", "requests"]
 form = "read"
 
 [[member]]

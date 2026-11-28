@@ -2376,6 +2376,12 @@ class SessionBrowserSettings(TypedDict):
     `browser.has_touch`.
     """
 
+    headless: NotRequired[bool]
+    """Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.
+
+    `browser.headless`.
+    """
+
     is_mobile: NotRequired[bool]
     """Whether the Session's pages emulate a mobile viewport (`meta viewport` tag and mobile layout): `false` by default (Playwright's `isMobile`). Chromium only: `true` outside Chromium raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
 

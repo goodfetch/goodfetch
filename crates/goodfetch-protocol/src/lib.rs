@@ -65,6 +65,7 @@ pub mod response_limits;
 pub mod result_document;
 pub mod routing;
 pub mod run;
+pub mod run_trace;
 pub mod sample;
 pub mod schedule;
 pub mod schema_validator;

@@ -12,8 +12,10 @@
 // program registers on a value (ADR 0081) that throws is removed, and its
 // failure waits in the Run for the next call on that value, or the `close()`
 // that closes it, to raise `listener_failed`; a value released first logs it.
+import { basename } from "node:path";
 import type { CallOptions, Caller, OperationTypes } from "./caller.ts";
-import type { Stream } from "./client-connection.ts";
+import type { ClientConnection, Stream } from "./client-connection.ts";
+import { saveFile } from "./file-saving.ts";
 import {
   CallCancelledError,
   ClosedError,
@@ -23,6 +25,7 @@ import {
   type CollieOperationTypes,
   type KeyValueStoreAttempt,
   type PageId,
+  type RecordingSaved,
   type RunProgress,
   type RunStarted,
   type SessionId,
@@ -47,6 +50,8 @@ import { fromWire, toWire, type WirePath } from "./wire.ts";
 
 /** What a Run reaches its engine through: its Connection. */
 export interface RunHost {
+  /** The Connection the Run runs on, for `saveFile` and chunked streams. */
+  readonly connection: ClientConnection;
   /** The Connection's calls. */
   readonly calls: Caller<CollieOperationTypes>;
   /** The Connection's raw calls (ADR 0099), whose params and results it leaves as sent. */
@@ -65,8 +70,11 @@ export interface RunHost {
   readonly logger: Logger | undefined;
 }
 
-/** What the handles of a Run reach the engine through: its host's calls, streams, Subscription and logger. */
-type HandlesHost = Pick<RunHost, "calls" | "raw" | "stream" | "published" | "logger">;
+/** What the handles of a Run reach the engine through: its host's connection, calls, streams, Subscription and logger. */
+type HandlesHost = Pick<
+  RunHost,
+  "connection" | "calls" | "raw" | "stream" | "published" | "logger"
+>;
 
 /** A listener that threw, which `listener_failed` has not yet raised. */
 interface ListenerFailure {
@@ -82,6 +90,8 @@ interface RunScope {
   readonly operationNames: OperationNames;
   state: "running" | "ended" | "closed";
   readonly failures: ListenerFailure[];
+  /** Optional Daemon/remote recording save hook invoked when `run.finish`/`stop`/`abort` ends the Run. */
+  saveRecordingOnEnd?: ((signal: AbortSignal | undefined) => Promise<void>) | undefined;
 }
 
 /** A value a program holds under a Run: a Session, a page, or a Locator built on one. */
@@ -329,22 +339,49 @@ function hostIn<Id>(
     };
   };
   // The Run's own calls also read their answer, since a Run report says when the Run ended.
-  const sent = async <Result>(operation: string, send: () => Promise<Result>): Promise<Result> => {
+  const sent = async <Result>(
+    operation: string,
+    send: () => Promise<Result>,
+    signal?: AbortSignal,
+  ): Promise<Result> => {
     ensureCallable(operation);
-    const result = await send();
+    const isEnd =
+      value === undefined &&
+      (operation === "run.finish" || operation === "run.stop" || operation === "run.abort");
+    const saveOnEnd = isEnd ? run.saveRecordingOnEnd : undefined;
+    if (saveOnEnd !== undefined) {
+      run.saveRecordingOnEnd = undefined;
+    }
+    let result: Result;
+    try {
+      result = await send();
+    } catch (runError) {
+      if (saveOnEnd !== undefined) {
+        try {
+          await saveOnEnd(signal);
+        } catch {
+          // The Run's own error takes precedence (ADR 0105).
+        }
+      }
+      throw runError;
+    }
     if (value === undefined && run.state === "running" && saysEnded(result)) {
       run.state = "ended";
+    }
+    if (saveOnEnd !== undefined) {
+      await saveOnEnd(signal);
     }
     return result;
   };
   const host: HandleHost<Id, CollieOperationTypes> = {
     id,
+    connection: reach.connection,
     call<Name extends keyof CollieOperationTypes>(
       operation: Name,
       params: CollieOperationTypes[Name]["params"],
       options: CallOptions,
     ): Promise<CollieOperationTypes[Name]["result"]> {
-      return sent(operation, () => calls.call(operation, params, options));
+      return sent(operation, () => calls.call(operation, params, options), options.signal);
     },
     raw: (operation, params, options) =>
       sent(operation, () => reach.raw(operation, params, options)),
@@ -513,6 +550,7 @@ export class Run extends RunMembers implements AsyncDisposable {
     pageIn = (run, pageId, sessionId, signal) => {
       const sessionHost = hostIn(
         {
+          connection: run.#host.connection,
           calls: signalled(run.#host.calls, signal),
           raw: (operation, params, options) =>
             run.#host.raw(operation, params, { signal: alsoStoppedBy(options.signal, signal) }),
@@ -532,7 +570,11 @@ export class Run extends RunMembers implements AsyncDisposable {
     };
     attemptStoreIn = (run, attempt, signal) =>
       new KeyValueStore(
-        keyValueStoreHost(signalled(run.#host.calls, signal), attempt),
+        keyValueStoreHost(
+          signalled(run.#host.calls, signal),
+          (method, params, opened) => run.#host.stream(method, params, opened),
+          attempt,
+        ),
         run.#scope.id,
         (operation) => {
           signal.throwIfAborted();
@@ -558,26 +600,73 @@ export class Run extends RunMembers implements AsyncDisposable {
    * @internal The Connection's start opens a Run; a program never
    * constructs one. A `detached` start's Run outlives its program.
    */
-  constructor(host: RunHost, started: RunStarted, detached = false) {
+  constructor(host: RunHost, started: RunStarted, detached = false, recordPath?: string) {
     const scope: RunScope = {
       id: started.runId,
       operationNames: host.operationNames,
       state: started.lifecycle === "running" ? "running" : "ended",
       failures: [],
     };
-    super(hostIn(host, scope, undefined, started.runId), started);
+    const handleHost = hostIn(host, scope, undefined, started.runId);
+    super(handleHost, started);
     this.#host = host;
     this.#scope = scope;
     this.#detached = detached;
-    this.keyValueStore = new KeyValueStore(keyValueStoreHost(host.calls), scope.id, (operation) => {
-      ensureOpen(scope, operation);
-    });
+    if (recordPath !== undefined && host.connection.engine().kind !== "attached") {
+      scope.saveRecordingOnEnd = async (signal) => {
+        await saveFile<RecordingSaved>(
+          host.connection,
+          "recording.save_as",
+          { run_id: scope.id, filename: basename(recordPath) },
+          recordPath,
+          { call: "saveRecording", signal },
+        );
+      };
+    }
+    this.keyValueStore = new KeyValueStore(
+      keyValueStoreHost(host.calls, (method, params, opened) =>
+        host.stream(method, params, opened),
+      ),
+      scope.id,
+      (operation) => {
+        ensureOpen(scope, operation);
+      },
+    );
     holdInRealm(this);
   }
 
   /** The Run's ID, which names it for good. Read without a round trip. */
   id(): string {
     return this.#scope.id;
+  }
+
+  /**
+   * Saves a Run's recorded Response recording as a WARC 1.1 file, whole or not
+   * at all (ADRs 0105 and 0116). An Attached engine given the program's path
+   * writes it through a hidden temporary file beside it, synced and renamed
+   * over it, creating missing folders and replacing a file there; any other
+   * engine writes nothing on its own machine and sends the file in `$/chunk`
+   * notifications of at most 64 KiB, one per credit granted with `$/credit`,
+   * for the SDK to write. A Run that recorded no responses raises
+   * `recording_invalid`. A path that cannot be written raises
+   * `path_not_writable`, and full or failing storage `file_write_failed`,
+   * leaving the path as it was.
+   *
+   * @experimental
+   */
+  async saveRecording(
+    path: string,
+    options: { readonly signal?: AbortSignal | undefined } = {},
+  ): Promise<RecordingSaved> {
+    warnEntry(collieOperations, "recording.save_as");
+    ensureOpen(this.#scope, "recording.save_as");
+    return saveFile<RecordingSaved>(
+      this.#host.connection,
+      "recording.save_as",
+      { run_id: this.#scope.id, filename: basename(path) },
+      path,
+      { call: "saveRecording", signal: options.signal },
+    );
   }
 
   /**
@@ -692,9 +781,27 @@ export class Run extends RunMembers implements AsyncDisposable {
   async #close(): Promise<void> {
     const stops = this.#scope.state === "running" && !this.#detached;
     this.#scope.state = "closed";
+    const saveOnEnd = stops ? this.#scope.saveRecordingOnEnd : undefined;
+    if (saveOnEnd !== undefined) {
+      this.#scope.saveRecordingOnEnd = undefined;
+    }
     try {
       if (stops && this.#host.reachable()) {
-        await this.#host.calls.call("run.abort", { runId: this.#scope.id }, {});
+        try {
+          await this.#host.calls.call("run.abort", { runId: this.#scope.id }, {});
+        } catch (runError) {
+          if (saveOnEnd !== undefined) {
+            try {
+              await saveOnEnd(undefined);
+            } catch {
+              // The Run's own error takes precedence (ADR 0105).
+            }
+          }
+          throw runError;
+        }
+        if (saveOnEnd !== undefined) {
+          await saveOnEnd(undefined);
+        }
       }
     } finally {
       this.#host.forget(this);

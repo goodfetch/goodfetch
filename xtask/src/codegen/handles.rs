@@ -286,12 +286,9 @@ pub(super) struct Member<'a> {
     /// The one property of its result, which it answers in place of the
     /// result; none when the result has no property or several.
     pub(super) unwrapped: Option<Unwrapped>,
-    /// Whether what it answers is a page's response, a [`PAGE_RESPONSE`]
-    /// or its result's one property of that type, which each language's
-    /// handle wraps in its hand-written `Response`, holding the page that
-    /// reads its body (ADR 0085); an optional property answers none when
-    /// it is absent.
-    pub(super) responds: bool,
+    /// The hand-written class that wraps what this member answers, if any
+    /// (`Response`, `Checkpoint` or `RunTrace`).
+    pub(super) wrapped: Option<Wrapped>,
     /// Its deprecated forms, each an overload of its own; none when the
     /// member itself is deprecated, which marks every call.
     pub(super) deprecated_forms: Vec<DeprecatedForm>,
@@ -685,30 +682,47 @@ fn definition_name(property: &Value) -> Option<&str> {
     referenced(reference)
 }
 
+/// A hand-written handle class that wraps an operation's answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Wrapped {
+    /// A page's `Response` (ADR 0085).
+    Response,
+    /// A Run's `Checkpoint` with `saveAs` / `stream` (ADRs 0102 and 0116).
+    Checkpoint,
+    /// A Run's `RunTrace` with `saveAs` / `stream` (ADRs 0102 and 0116).
+    RunTrace,
+}
+
 /// The type of a page's response, which a member answering it wraps.
 pub(super) const PAGE_RESPONSE: &str = "PageResponse";
+/// The type of a Run's Checkpoint, which a member answering it wraps.
+pub(super) const RUN_CHECKPOINT: &str = "Checkpoint";
+/// The type of a Run's trace copy, which a member answering it wraps.
+pub(super) const RUN_TRACE: &str = "RunTrace";
 
-/// Whether `operation`'s member in `form` answers a page's response
-/// ([`Member::responds`]): its result is a [`PAGE_RESPONSE`], or the one
-/// property it answers in place of the result, `unwrapped`, is one.
-fn responds(
+/// What hand-written class `operation`'s member in `form` wraps its answer in,
+/// if any.
+fn wrapped_kind(
     layer: &Layer,
     operation: &Operation,
     form: &Form,
     unwrapped: Option<&Unwrapped>,
-) -> bool {
+) -> Option<Wrapped> {
     if !matches!(form, Form::RoundTrip | Form::Query | Form::Waiter) {
-        return false;
+        return None;
     }
-    match unwrapped {
-        None => operation.result.0 == PAGE_RESPONSE,
-        Some(unwrapped) => {
-            layer
-                .definitions
-                .get(&operation.result.0)
-                .and_then(|result| definition_name(&result["properties"][&unwrapped.property]))
-                == Some(PAGE_RESPONSE)
-        }
+    let name = match unwrapped {
+        None => Some(operation.result.0.as_str()),
+        Some(unwrapped) => layer
+            .definitions
+            .get(&operation.result.0)
+            .and_then(|result| definition_name(&result["properties"][&unwrapped.property])),
+    };
+    match name {
+        Some(PAGE_RESPONSE) => Some(Wrapped::Response),
+        Some(RUN_CHECKPOINT) => Some(Wrapped::Checkpoint),
+        Some(RUN_TRACE) => Some(Wrapped::RunTrace),
+        _ => None,
     }
 }
 
@@ -1077,11 +1091,11 @@ pub(super) fn handles(layer: &Layer) -> Result<Vec<Handle<'_>>> {
                 && parameters.named.is_empty();
             let form = if closes { Form::Closes } else { form };
             let unwrapped = unwrapped(layer, operation, &form, typed_by.as_ref())?;
-            let responds = responds(layer, operation, &form, unwrapped.as_ref());
+            let wrapped = wrapped_kind(layer, operation, &form, unwrapped.as_ref());
             let member = Member {
                 operation,
                 name,
-                responds,
+                wrapped,
                 form,
                 deprecated_forms: deprecated_forms(layer, operation, schema, &parameters)?,
                 parameters,

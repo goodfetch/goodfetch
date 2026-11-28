@@ -93,6 +93,36 @@ const judgement = parserOf<Judgement>({
   },
 });
 
+/** Server-side byte counts recorded by the Proving ground (`GET /observations`, #159). */
+export interface ByteCount {
+  readonly received: number;
+  readonly sent: number;
+}
+
+/** Server-side byte totals returned by `GET /observations`. */
+export interface ObservationsSummary {
+  readonly tasks: Readonly<Record<string, ByteCount>>;
+  readonly hosts: Readonly<Record<string, ByteCount>>;
+}
+
+const byteCountSchema = {
+  type: "object",
+  required: ["received", "sent"],
+  properties: {
+    received: { type: "integer", minimum: 0 },
+    sent: { type: "integer", minimum: 0 },
+  },
+};
+
+const observationsSummary = parserOf<ObservationsSummary>({
+  type: "object",
+  required: ["tasks", "hosts"],
+  properties: {
+    tasks: { type: "object", additionalProperties: byteCountSchema },
+    hosts: { type: "object", additionalProperties: byteCountSchema },
+  },
+});
+
 /** A running Proving ground. */
 export interface ProvingGround {
   /** The address it answers on, such as `127.0.0.1:51234`. */
@@ -101,6 +131,8 @@ export interface ProvingGround {
   tasks(): Promise<TaskList>;
   /** The oracle's judgement of `submission`. */
   judge(submission: Submission): Promise<Judgement>;
+  /** Server-side observations including wire bytes received and sent per task/host (#159). */
+  observations(): Promise<ObservationsSummary>;
 }
 
 async function exchange(url: string, init: RequestInit): Promise<unknown> {
@@ -133,6 +165,12 @@ export function provingGround(address: string): ProvingGround {
         body: JSON.stringify(submission),
       });
       return judgement.parse(answer, "oracle answer");
+    },
+    async observations() {
+      return observationsSummary.parse(
+        await exchange(`http://${address}/observations`, {}),
+        "observations",
+      );
     },
   };
 }

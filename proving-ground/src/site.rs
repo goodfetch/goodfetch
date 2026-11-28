@@ -52,6 +52,7 @@ use crate::observation::{self, Observations, Recorded, Report};
 use crate::online::{self, Online};
 use crate::oracle::{self, Finding, Submission};
 use crate::page_load;
+use crate::payments::{self, Payments};
 use crate::portal::{self, Portal};
 use crate::protection;
 use crate::push::Push;
@@ -88,6 +89,8 @@ pub(crate) struct Site {
     /// The online copy's vendors, which `challenges.test` carries; `None`
     /// on the local copy.
     online: Option<Online>,
+    /// Paid fetches state (local chain, facilitator, payment accounting).
+    payments: Payments,
 }
 
 /// The Proving ground's time step, as `PUT /time-step` sets it.
@@ -151,7 +154,23 @@ impl Site {
             crawl: Families::new(),
             builds,
             online,
+            payments: Payments::new(seed),
         }
+    }
+
+    /// Returns the local chain and facilitator handles used by the network fixtures.
+    pub(crate) fn payment_fixtures(
+        &self,
+    ) -> (
+        crate::payments::chain::Chain,
+        crate::payments::facilitator::Facilitator,
+    ) {
+        (self.payments.chain(), self.payments.facilitator())
+    }
+
+    /// Records the bound facilitator URL so x402 `402` challenges advertise it.
+    pub(crate) fn set_facilitator_url(&self, url: String) {
+        self.payments.set_facilitator_url(url);
     }
 
     /// Every host name the site serves, in order.
@@ -188,6 +207,7 @@ impl Site {
                 fonts::HOST,
                 codecs::HOST,
                 page_load::HOST,
+                payments::HOST,
                 online::HOST,
                 forward_proxy::TLS_HOST,
             ])
@@ -256,6 +276,7 @@ impl Site {
         tasks.extend(locales::tasks(seed, port));
         tasks.extend(search::tasks(seed, port));
         tasks.extend(site_tools::tasks(seed, port));
+        tasks.extend(payments::tasks(seed, port));
         tasks
     }
 
@@ -687,20 +708,27 @@ impl Site {
         self.model.answer(target, body, &subjects)
     }
 
-    /// The online copy's answer to a request on `challenges.test` to
-    /// `path`, recording the vendor's verdict it read; `None` on the local
-    /// copy, for another host or a path of no configured vendor, which
-    /// [`Self::respond`] answers.
-    pub(crate) async fn challenge(
+    /// Answers async routes (`paid.test` or online `challenges.test`) before
+    /// synchronous page dispatch.
+    pub(crate) async fn async_reply(
         &self,
         method: &Method,
         host: &str,
+        target: &str,
         path: &str,
         headers: &HeaderMap,
         body: &Bytes,
     ) -> Option<Reply> {
+        let host_name = observation::host_name(host);
+        if Payments::serves(&host_name) {
+            return Some(
+                self.payments
+                    .respond(method, &host_name, host, target, headers)
+                    .await,
+            );
+        }
         let online = self.online.as_ref()?;
-        if observation::host_name(host) != online::HOST {
+        if host_name != online::HOST {
             return None;
         }
         let (reply, verdict) = online.respond(method, path, headers, body).await?;
@@ -807,6 +835,10 @@ impl Site {
                 if task.entry.id == protection::TIER_MOVE_TASK {
                     let answer =
                         protection::judge_tier_move(answer, &submitted, &self.observations);
+                    return Reply::json(StatusCode::OK, &answer);
+                }
+                if task.entry.family == payments::FAMILY {
+                    let answer = self.payments.judge(&task.entry.id, answer);
                     return Reply::json(StatusCode::OK, &answer);
                 }
                 Reply::json(StatusCode::OK, &answer)

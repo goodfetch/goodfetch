@@ -27,26 +27,39 @@ import { BenchError, errorCode, statusFor, type AttemptStatus } from "./errors.t
 import {
   assessHost,
   blockNoisy,
+  calibrateNetworkProfile,
+  classifyForPublication,
   loadHostClasses,
   snapshotHost,
   type Gate,
   type GateResult,
   type HostClass,
   type HostSnapshot,
+  type NetworkProfileCalibration,
+  type PublishedHostClassification,
 } from "./host.ts";
+import {
+  runConcurrencySearch,
+  toGovernorCeilings,
+  type ConcurrencySearchResult,
+  type GovernorCeilings,
+} from "./load.ts";
 import {
   detectProbes,
   metricBook,
   type Availability,
   type MetricBook,
+  type MetricId,
   type Probe,
 } from "./metrics.ts";
-import { shuffle } from "./order.ts";
+import { quantile, shuffle } from "./order.ts";
+import { loadPriceTable } from "./prices.ts";
 import { captureProvenance, changedSources, type Provenance } from "./provenance.ts";
 import {
   provingGround,
   type Judgement,
   type ListedTask,
+  type ObservationsSummary,
   type ProvingGround,
   type Submission,
   type SubmittedError,
@@ -54,7 +67,14 @@ import {
 } from "./proving-ground.ts";
 import type { Declared } from "./registry.ts";
 import { sampleProcessTree, type TreeSampler, type TreeUsage } from "./resources.ts";
+import {
+  evaluateControlCost,
+  evaluateReopenDecision,
+  type ControlCostRow,
+  type ReopenDecisionReport,
+} from "./runtime-campaigns.ts";
 import { parserOf } from "./schema.ts";
+import { buildThreeViews, formatRawFigure, type ThreeViewReport } from "./views.ts";
 
 /** The repository's root, whose bench sources the provenance fingerprints. */
 const repository = fileURLToPath(new URL("../..", import.meta.url));
@@ -84,9 +104,11 @@ export interface RunRecord {
   readonly host: {
     readonly class_requested: HostClass;
     readonly class_granted: HostClass;
+    readonly publication: PublishedHostClassification;
     readonly preflight: { readonly snapshot: HostSnapshot; readonly gates: readonly GateResult[] };
     readonly postflight: { readonly snapshot: HostSnapshot };
   };
+  readonly network_calibration: NetworkProfileCalibration | null;
   readonly metric_availability: Readonly<Record<string, Availability>>;
   readonly blocks: readonly {
     readonly block: number;
@@ -97,6 +119,20 @@ export interface RunRecord {
   readonly adapters: readonly AdapterRow[];
   readonly cells: readonly Cell[];
   readonly totals: Counts;
+  /** ADR 0025 three views (raw with counts, per-verified, dollars/1k + human time) per (adapter, task). */
+  readonly views: readonly ThreeViewReport[];
+  /** Formatted raw figures paired with verified, false-success and `needs-review` counts. */
+  readonly raw_summaries: readonly {
+    readonly adapter: string;
+    readonly task: string;
+    readonly summary: string;
+  }[];
+  readonly concurrency_search: ConcurrencySearchResult | null;
+  readonly governor_ceilings: GovernorCeilings | null;
+  /** Server-side wire bytes observed by the Proving ground (`GET /observations`) per adapter (#159). */
+  readonly server_bytes_by_adapter: Readonly<Record<string, number>>;
+  readonly control_costs: readonly ControlCostRow[];
+  readonly reopen_decisions: readonly ReopenDecisionReport[];
 }
 
 /** One adapter as the run ran it: a matched row's marks are its settings (ADRs 0023 and 0025). */
@@ -142,7 +178,54 @@ const runAnswer = parserOf<RunAnswer>({
         metrics: {
           type: "object",
           additionalProperties: false,
-          properties: { cdp_commands: { type: "integer", minimum: 0 } },
+          properties: {
+            cdp_commands: { type: "integer", minimum: 0 },
+            cost_usage: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                model: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["id", "input_tokens", "output_tokens"],
+                  properties: {
+                    id: { type: "string", minLength: 1 },
+                    input_tokens: { type: "integer", minimum: 0 },
+                    output_tokens: { type: "integer", minimum: 0 },
+                  },
+                },
+                proxy: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["tier"],
+                  properties: {
+                    tier: { type: "string", minLength: 1 },
+                    bytes: { type: "number", minimum: 0 },
+                    requests: { type: "integer", minimum: 0 },
+                  },
+                },
+                captcha: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["kind", "solves"],
+                  properties: {
+                    kind: { type: "string", minLength: 1 },
+                    solves: { type: "integer", minimum: 0 },
+                  },
+                },
+                hosted_browser: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["vendor", "minutes"],
+                  properties: {
+                    vendor: { type: "string", minLength: 1 },
+                    minutes: { type: "number", minimum: 0 },
+                  },
+                },
+                human_seconds: { type: "number", minimum: 0 },
+              },
+            },
+          },
         },
       },
     },
@@ -303,6 +386,7 @@ async function attempt(input: {
   }
   return ended({
     status: judgement.outcome,
+    tool_status: answer.status,
     generation,
     judgement,
     adapter_metrics: metrics,
@@ -321,10 +405,13 @@ async function runCell(input: {
   readonly adapter: string;
   readonly task: ListedTask;
   readonly block: number;
+  readonly concurrency: number;
+  readonly cellSuffix?: string | undefined;
 }): Promise<CellRun> {
-  const { context, slot, adapter, task, block } = input;
+  const { context, slot, adapter, task, block, concurrency } = input;
   const { campaign } = context;
-  const cellId = `${adapter}:${task.id}:b${block}`;
+  const suffix = input.cellSuffix === undefined ? "" : `:${input.cellSuffix}`;
+  const cellId = `${adapter}:${task.id}:b${block}${suffix}`;
   const attempts: Attempt[] = [];
   const shellOf = (phase: Phase, index: number): Parameters<typeof attempt>[0]["shell"] => ({
     attempt_id: `${cellId}:${phase}:${index}`,
@@ -368,7 +455,7 @@ async function runCell(input: {
   if (passed) {
     windowMs = await closedLoop({
       iterations: campaign.iterations,
-      concurrency: campaign.concurrency,
+      concurrency,
       maxDurationMs: campaign.max_duration_ms,
       task: async (index) => {
         await run("measure", first + index);
@@ -403,26 +490,49 @@ function rowOf(context: RunContext, id: string): Row {
   return row;
 }
 
+function sumObservedBytes(obs: ObservationsSummary, taskIds: readonly string[]): number {
+  let total = 0;
+  for (const id of taskIds) {
+    const entry = obs.tasks[id];
+    if (entry !== undefined) {
+      total += entry.received + entry.sent;
+    }
+  }
+  return total;
+}
+
 /** Runs one adapter's cells in one block, on one adapter slot sampled for its whole life. */
 async function runAdapterBlock(input: {
   readonly context: RunContext;
   readonly adapter: CampaignAdapter;
   readonly tasks: readonly ListedTask[];
   readonly block: number;
+  readonly concurrency: number;
+  readonly cellSuffix?: string | undefined;
   readonly pids: number[];
-}): Promise<Cell[]> {
-  const { context, adapter, block } = input;
+}): Promise<{
+  readonly cells: Cell[];
+  readonly attempts: Attempt[];
+  readonly observedBytes: number;
+}> {
+  const { context, adapter, block, concurrency } = input;
   const { campaign } = context;
+  const adapterTasks =
+    adapter.tasks === undefined
+      ? input.tasks
+      : input.tasks.filter((task) => adapter.tasks?.includes(task.id));
+  const taskIds = adapterTasks.map((task) => task.id);
+  const beforeObs = await context.ground.observations().catch(() => null);
   const samplers: TreeSampler[] = [];
   const slot = new AdapterSlot({
     adapter: { command: adapter.command, cwd: context.folder, timeoutMs: campaign.timeout_ms },
     prepare: {
       proving_ground: { address: context.ground.address },
-      concurrency: campaign.concurrency,
+      concurrency,
       row: rowOf(context, adapter.id),
     },
     maxRestarts: campaign.max_restarts,
-    concurrency: campaign.concurrency,
+    concurrency,
     started: (pid) => {
       input.pids.push(pid);
       samplers.push(sampleProcessTree({ pid, probes: context.probes, intervalMs: 100 }));
@@ -431,8 +541,18 @@ async function runAdapterBlock(input: {
   const runs: CellRun[] = [];
   let usages: TreeUsage[];
   try {
-    for (const task of input.tasks) {
-      runs.push(await runCell({ context, slot, adapter: adapter.id, task, block }));
+    for (const task of adapterTasks) {
+      runs.push(
+        await runCell({
+          context,
+          slot,
+          adapter: adapter.id,
+          task,
+          block,
+          concurrency,
+          cellSuffix: input.cellSuffix,
+        }),
+      );
     }
   } finally {
     // The samplers stop before the adapter, so their last sample still sees its tree.
@@ -442,13 +562,46 @@ async function runAdapterBlock(input: {
       context.ran.set(adapter.id, { product: slot.product, settings: slot.settings });
     }
   }
+  const afterObs = await context.ground.observations().catch(() => null);
+  const observedBytes =
+    beforeObs !== null && afterObs !== null
+      ? Math.max(0, sumObservedBytes(afterObs, taskIds) - sumObservedBytes(beforeObs, taskIds))
+      : 0;
   const usage = mergeUsage(usages);
-  const verifiedInBlock = runs
-    .flatMap((run) => run.attempts)
-    .filter((one) => one.status === "verified").length;
-  return runs.map((run) =>
+  const blockAttempts = runs.flatMap((run) => run.attempts);
+  const verifiedInBlock = blockAttempts.filter((one) => one.status === "verified").length;
+  const cells = runs.map((run) =>
     summarize({ book: context.book, run, usage, verifiedInBlock, startupMs: slot.startupMs }),
   );
+  return { cells, attempts: blockAttempts, observedBytes };
+}
+
+const TIME_METRIC_IDS: readonly MetricId[] = [
+  "verified_tasks_per_second",
+  "task_p50_ms_verified",
+  "task_p95_ms_verified",
+  "startup_ms",
+];
+
+function invalidateCellTimeMetrics(cell: Cell, book: MetricBook): Cell {
+  const reason = "network profile calibration outside tolerance (ADR 0025)";
+  const metrics = { ...cell.metrics };
+  for (const id of TIME_METRIC_IDS) {
+    metrics[id] = book.measure(id, { value: null, reason });
+  }
+  return { ...cell, metrics };
+}
+
+function medianCellMetric(
+  cells: readonly Cell[],
+  adapter: string,
+  metric: MetricId,
+): number | null {
+  const values = cells
+    .filter((cell) => cell.adapter === adapter && cell.gate === "passed")
+    .map((cell) => cell.metrics[metric].value)
+    .filter((value): value is number => value !== null);
+  return quantile(values, 0.5);
 }
 
 /** Where a run reads its campaign and Proving ground, and writes its folder. */
@@ -458,6 +611,12 @@ export interface RunInput {
   readonly provingGround: string;
   /** The folder the run's own folder is made in. */
   readonly out: string;
+  /** Optional price-table machine ID for the cost view, overriding `campaign.host_machine_id`. */
+  readonly hostMachineId?: string | null | undefined;
+  /** Optional human-readable label for the host machine in publication classification. */
+  readonly machineLabel?: string | undefined;
+  /** Optional path to a versioned price table JSON file (defaults to `bench/prices/v1.json`). */
+  readonly priceTablePath?: string | undefined;
 }
 
 /** A finished run: its folder and its record. */
@@ -503,6 +662,20 @@ export async function runCampaign(input: RunInput): Promise<RunResult> {
     );
   }
   const granted = assessment.class_granted;
+  const machineLabel =
+    input.machineLabel ?? `${preflight.os}/${preflight.arch} (${preflight.cpu ?? "unknown"})`;
+  const publication = classifyForPublication({ assessment, machineLabel });
+  const networkCalibration =
+    campaign.network_profile === undefined
+      ? null
+      : calibrateNetworkProfile({
+          mechanism: campaign.network_profile.mechanism,
+          declaredRttMs: campaign.network_profile.declared_rtt_ms,
+          declaredLossPercent: campaign.network_profile.declared_loss_percent,
+          measuredRttMs: campaign.network_profile.measured_rtt_ms,
+          toleranceMs: campaign.network_profile.tolerance_ms,
+        });
+  const prices = loadPriceTable(input.priceTablePath);
   const gates: readonly Gate[] = classes.find((spec) => spec.class === granted)?.gates ?? [];
 
   const startedAt = new Date().toISOString();
@@ -530,30 +703,95 @@ export async function runCampaign(input: RunInput): Promise<RunResult> {
 
   const blocks: { block: number; order: string[]; noisy: boolean }[] = [];
   const cells: Cell[] = [];
-  for (let block = 0; block < campaign.blocks; block += 1) {
-    const order = shuffle(
-      campaign.adapters.map((adapter) => adapter.id),
-      campaign.order_seed + block,
-    );
-    const pids: number[] = [];
-    for (const id of order) {
-      const adapter = campaign.adapters.find((candidate) => candidate.id === id);
-      if (adapter === undefined) {
-        throw new Error(`invariant: the shuffled adapter ${id} is the campaign's`);
+  const serverBytesByAdapter: Record<string, number> = Object.fromEntries(
+    campaign.adapters.map((adapter) => [adapter.id, 0]),
+  );
+
+  const runSweepAt = async (
+    concurrency: number,
+    cellSuffix?: string,
+  ): Promise<{ readonly levelCells: Cell[]; readonly levelAttempts: Attempt[] }> => {
+    const levelCells: Cell[] = [];
+    const levelAttempts: Attempt[] = [];
+    for (let block = 0; block < campaign.blocks; block += 1) {
+      const order = shuffle(
+        campaign.adapters.map((adapter) => adapter.id),
+        campaign.order_seed + block,
+      );
+      const pids: number[] = [];
+      for (const id of order) {
+        const adapter = campaign.adapters.find((candidate) => candidate.id === id);
+        if (adapter === undefined) {
+          throw new Error(`invariant: the shuffled adapter ${id} is the campaign's`);
+        }
+        const ranBlock = await runAdapterBlock({
+          context,
+          adapter,
+          tasks,
+          block,
+          concurrency,
+          cellSuffix,
+          pids,
+        });
+        serverBytesByAdapter[id] = (serverBytesByAdapter[id] ?? 0) + ranBlock.observedBytes;
+        levelCells.push(...ranBlock.cells);
+        levelAttempts.push(...ranBlock.attempts);
       }
-      cells.push(...(await runAdapterBlock({ context, adapter, tasks, block, pids })));
+      // `local-dev` has no gates, so it never reads the host for a block.
+      const noisy =
+        gates.length > 0 &&
+        blockNoisy({
+          gates,
+          foreignCpuPercent: (await snapshotHost([process.pid, ...pids])).foreign_cpu_percent,
+        });
+      blocks.push({ block, order, noisy });
     }
-    // `local-dev` has no gates, so it never reads the host for a block.
-    const noisy =
-      gates.length > 0 &&
-      blockNoisy({
-        gates,
-        foreignCpuPercent: (await snapshotHost([process.pid, ...pids])).foreign_cpu_percent,
-      });
-    blocks.push({ block, order, noisy });
+    return { levelCells, levelAttempts };
+  };
+
+  let concurrencySearch: ConcurrencySearchResult | null = null;
+  if (campaign.concurrency_levels !== undefined && campaign.concurrency_levels.length > 0) {
+    concurrencySearch = await runConcurrencySearch({
+      levels: campaign.concurrency_levels,
+      measure: async (concurrency) => {
+        const { levelCells, levelAttempts } = await runSweepAt(concurrency, `c${concurrency}`);
+        cells.push(...levelCells);
+        const measured = levelAttempts.filter((one) => one.phase === "measure");
+        const tpsValues = levelCells
+          .filter((cell) => cell.gate === "passed")
+          .map((cell) => cell.metrics.verified_tasks_per_second.value)
+          .filter((value): value is number => value !== null);
+        const verified = measured.filter((one) => one.status === "verified").length;
+        const falseSuccess = measured.filter((one) => one.status === "false_success").length;
+        const failed = measured.filter(
+          (one) =>
+            one.status === "failed" ||
+            one.status === "incomplete" ||
+            one.status === "timeout" ||
+            one.status === "crashed",
+        ).length;
+        return {
+          concurrency,
+          verified_tasks_per_second: quantile(tpsValues, 0.5) ?? 0,
+          verified,
+          false_success: falseSuccess,
+          failed,
+          total_attempts: measured.length,
+        };
+      },
+    });
+  } else {
+    const { levelCells } = await runSweepAt(campaign.concurrency);
+    cells.push(...levelCells);
   }
   await writes;
 
+  const finalCells =
+    networkCalibration !== null && !networkCalibration.time_metrics_valid
+      ? cells.map((cell) => invalidateCellTimeMetrics(cell, context.book))
+      : cells;
+
+  const finishedAt = new Date().toISOString();
   const changed = changedSources(provenance, await captureProvenance({ repository, sources }));
   const postflight = await snapshotHost([process.pid]);
   const status: RunStatus =
@@ -562,11 +800,121 @@ export async function runCampaign(input: RunInput): Promise<RunResult> {
       : blocks.some((one) => one.noisy)
         ? "noisy_host"
         : "complete";
+
+  const hostMachineId =
+    input.hostMachineId !== undefined ? input.hostMachineId : (campaign.host_machine_id ?? null);
+  const views: ThreeViewReport[] = [];
+  for (const adapter of campaign.adapters) {
+    const adapterTaskIds = adapter.tasks ?? campaign.tasks;
+    for (const taskId of adapterTaskIds) {
+      const pairAttempts = attempts.filter(
+        (one) => one.adapter === adapter.id && one.task === taskId,
+      );
+      if (pairAttempts.length === 0) {
+        continue;
+      }
+      const pairCells = finalCells.filter(
+        (cell) => cell.adapter === adapter.id && cell.task === taskId,
+      );
+      views.push(
+        buildThreeViews({
+          adapter: adapter.id,
+          task: taskId,
+          attempts: pairAttempts,
+          cells: pairCells,
+          hostMachineId,
+          prices,
+          planOneTimeCost:
+            campaign.plan_one_time_usd !== undefined
+              ? {
+                  oneTimeUsd: campaign.plan_one_time_usd,
+                  declaredRunCounts: campaign.plan_amortization_runs,
+                }
+              : undefined,
+        }),
+      );
+    }
+  }
+  const rawSummaries = views.map((view) => ({
+    adapter: view.adapter,
+    task: view.task,
+    summary: formatRawFigure(view.raw),
+  }));
+
+  let governorCeilings: GovernorCeilings | null = null;
+  if (concurrencySearch !== null && concurrencySearch.highest_safe_concurrency !== null) {
+    const firstProduct = campaign.adapters
+      .map((adapter) => context.ran.get(adapter.id)?.product)
+      .find((value): value is "collie" | "foxhound" => value === "collie" || value === "foxhound");
+    governorCeilings = toGovernorCeilings({
+      product: firstProduct ?? "foxhound",
+      family: campaign.id,
+      search: concurrencySearch,
+      hostClass: granted,
+      measuredAt: finishedAt,
+      provenanceCommit: provenance.git?.sha ?? "uncommitted",
+    });
+    await writeFile(
+      join(directory, "governor-ceilings.json"),
+      `${JSON.stringify(governorCeilings, null, 2)}\n`,
+    );
+  }
+
+  const controlCosts: ControlCostRow[] = [];
+  for (const spec of campaign.control_cost_comparisons ?? []) {
+    const onMs = medianCellMetric(finalCells, spec.on_adapter, "task_p50_ms_verified");
+    const offMs = medianCellMetric(finalCells, spec.off_adapter, "task_p50_ms_verified");
+    if (onMs === null || offMs === null) {
+      continue;
+    }
+    controlCosts.push(
+      evaluateControlCost({
+        control: spec.control,
+        product: spec.product,
+        on_ms: onMs,
+        off_ms: offMs,
+        server_bytes_on: spec.measure_server_bytes
+          ? (serverBytesByAdapter[spec.on_adapter] ?? 0)
+          : undefined,
+        server_bytes_off: spec.measure_server_bytes
+          ? (serverBytesByAdapter[spec.off_adapter] ?? 0)
+          : undefined,
+        baseline_setting: spec.baseline_setting,
+      }),
+    );
+  }
+
+  const reopenDecisions: ReopenDecisionReport[] = [];
+  for (const spec of campaign.reopen_checks ?? []) {
+    const candTps = medianCellMetric(
+      finalCells,
+      spec.candidate_adapter,
+      "verified_tasks_per_second",
+    );
+    const baseTps = medianCellMetric(
+      finalCells,
+      spec.baseline_adapter,
+      "verified_tasks_per_second",
+    );
+    if (candTps === null || baseTps === null || baseTps <= 0) {
+      continue;
+    }
+    const gapPercent = ((baseTps - candTps) / baseTps) * 100;
+    reopenDecisions.push(
+      evaluateReopenDecision({
+        family: spec.family,
+        product: spec.product,
+        measured_gap_percent: gapPercent,
+        threshold_percent: spec.threshold_percent,
+      }),
+    );
+  }
+
   const record: RunRecord = {
     schema_version: 1,
     run_id: runId,
     started_at: startedAt,
-    finished_at: new Date().toISOString(),
+    finished_at: finishedAt,
     status,
     campaign: { id: campaign.id, sha256: loaded.sha256, document: campaign },
     declared: loaded.declared,
@@ -580,9 +928,11 @@ export async function runCampaign(input: RunInput): Promise<RunResult> {
     host: {
       class_requested: campaign.host_class.requested,
       class_granted: granted,
+      publication,
       preflight: { snapshot: preflight, gates: assessment.gates },
       postflight: { snapshot: postflight },
     },
+    network_calibration: networkCalibration,
     metric_availability: context.book.availability,
     blocks,
     adapters: campaign.adapters.map((adapter) => ({
@@ -591,8 +941,15 @@ export async function runCampaign(input: RunInput): Promise<RunResult> {
       row: rowOf(context, adapter.id),
       settings: context.ran.get(adapter.id)?.settings ?? null,
     })),
-    cells,
+    cells: finalCells,
     totals: countStatuses(attempts),
+    views,
+    raw_summaries: rawSummaries,
+    concurrency_search: concurrencySearch,
+    governor_ceilings: governorCeilings,
+    server_bytes_by_adapter: serverBytesByAdapter,
+    control_costs: controlCosts,
+    reopen_decisions: reopenDecisions,
   };
   await writeFile(join(directory, "run.json"), `${JSON.stringify(record, null, 2)}\n`);
   return { directory, record };

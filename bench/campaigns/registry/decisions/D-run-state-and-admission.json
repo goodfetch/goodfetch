@@ -1,0 +1,45 @@
+{
+  "id": "D-run-state-and-admission",
+  "title": "Run-state durability presets (ADR 0002 / ADR 0142) and fair per-domain admission (ADR 0004)",
+  "question": "Does run_state.durability batch vs full vs off or crawl.domain_order fewest_in_flight vs round_robin introduce a gap that reopens ADR 0002 or ADR 0004?",
+  "status": "evidence-pending",
+  "declared_at": "2026-11-28T00:00:00.000Z",
+  "options": [
+    {
+      "id": "foxhound-batch",
+      "description": "Foxhound default run_state.durability=batch preset (run_state.batch.*, ADR 0142)",
+      "adapter": "foxhound-batch"
+    },
+    {
+      "id": "foxhound-full",
+      "description": "Foxhound run_state.durability=full preset (per-attempt commit and sync)",
+      "adapter": "foxhound-full"
+    },
+    {
+      "id": "foxhound-off",
+      "description": "Foxhound run_state.durability=off preset (unsynced)",
+      "adapter": "foxhound-off"
+    },
+    {
+      "id": "foxhound-fewest-in-flight",
+      "description": "Foxhound default crawl.domain_order=fewest_in_flight (ADR 0004 note)",
+      "adapter": "foxhound-fewest-in-flight"
+    },
+    {
+      "id": "foxhound-round-robin",
+      "description": "Foxhound crawl.domain_order=round_robin baseline",
+      "adapter": "foxhound-round-robin"
+    }
+  ],
+  "baseline": "foxhound-off",
+  "primary_metric": "verified_tasks_per_second",
+  "secondary_metrics": ["task_p50_ms_verified"],
+  "contract_gates": ["oracle_exact", "false_success_count"],
+  "delta": 0.1,
+  "rule": { "kind": "non-inferiority", "alpha": 0.05, "power": 0.8, "noisy_blocks": "exclude" },
+  "host_class": { "decision": "local-controlled", "publication": "local-controlled" },
+  "plan_amortization_runs": [1, 10, 100, 1000],
+  "evidence": [],
+  "depends_on": [],
+  "notes": "Implements the Foxhound refactor amendment (run_state.batch.* presets batch vs full vs off; crawl.domain_order fewest_in_flight vs round_robin). Could reopen ADR 0002 or ADR 0004; issue 188."
+}

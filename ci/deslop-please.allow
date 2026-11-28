@@ -20,8 +20,6 @@ field-leak goodfetch_collie_client::call::Request::note
 field-leak goodfetch_collie_client::call::Request::params
 field-leak goodfetch_collie_client::call::Request::sender
 field-leak goodfetch_collie_client::call::Request::settled
-field-leak goodfetch_collie_client::generated::handles::Run::host
-field-leak goodfetch_collie_client::host::ConnectionHost::connection
 field-leak goodfetch_collie_client::host::Host::id
 field-leak goodfetch_collie_client::rpc::Calls::deadlines
 field-leak goodfetch_confinement::probes::CallCase::pid_namespace
@@ -343,7 +341,6 @@ shallow-module goodfetch_protocol::catalog
 shallow-module xtask::compare::trials
 tangle goodfetch_collie::executable::daemon::Machine,goodfetch_collie::executable::daemon::foreground::configured,goodfetch_collie::executable::daemon::foreground::reach
 tangle goodfetch_collie::linked::Opening,goodfetch_collie::linked::ProductConnection,goodfetch_collie::linked::refusable::Refusable
-tangle goodfetch_collie_client::connection::ClientConnection,goodfetch_collie_client::connection::SaveFile,goodfetch_collie_client::generated::events::PageEvent,goodfetch_collie_client::generated::events::SessionEvent,goodfetch_collie_client::generated::events::sealed::PageEvent,goodfetch_collie_client::generated::events::sealed::SessionEvent,goodfetch_collie_client::generated::handles::Locator,goodfetch_collie_client::generated::handles::Page,goodfetch_collie_client::generated::handles::Run,goodfetch_collie_client::generated::handles::Schedule,goodfetch_collie_client::generated::handles::Session,goodfetch_collie_client::handlerless::HandlerlessStart,goodfetch_collie_client::host::ConnectionHost,goodfetch_collie_client::host::HeldRun,goodfetch_collie_client::host::HeldValue,goodfetch_collie_client::host::Host,goodfetch_collie_client::host::closed,goodfetch_collie_client::key_value_store::KeyValueStore,goodfetch_collie_client::response::Exchange,goodfetch_collie_client::response::Response,goodfetch_collie_client::run::Start,goodfetch_collie_client::run::progress::Following,goodfetch_collie_client::schedules::CreatedSchedule,goodfetch_collie_client::schedules::Schedules,goodfetch_collie_client::schedules::schedule
 tangle goodfetch_crawl::delivery::attempt::On,goodfetch_crawl::delivery::attempt::hook_call::called,goodfetch_crawl::delivery::attempt::hook_call::ended_in_stage
 tangle goodfetch_engine::composition::params::Content,goodfetch_engine::composition::params::Items,goodfetch_engine::composition::params::Members,goodfetch_engine::composition::params::Object,goodfetch_engine::composition::params::Outer,goodfetch_engine::composition::params::Seed,goodfetch_engine::composition::params::Strict,goodfetch_engine::composition::params::Variant,goodfetch_engine::composition::params::Wrap,goodfetch_engine::composition::params::preamble::Noted
 tangle goodfetch_engine::politeness::Erased,goodfetch_engine::politeness::SharedRule,goodfetch_engine::politeness::Take,goodfetch_engine::politeness::memory::Store

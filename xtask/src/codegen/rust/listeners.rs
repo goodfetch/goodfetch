@@ -52,6 +52,8 @@ pub(super) struct ListenerModel {
     params: String,
     /// Its params' field the handle's ID goes in.
     id_field: String,
+    /// Its handle's ID type.
+    id_type: String,
     /// Its params' field the event goes in.
     event_field: String,
     /// The type of that field.
@@ -164,6 +166,7 @@ impl ListenerModel {
             method: operation.name.clone(),
             params: index.type_path(&operation.params.0)?,
             id_field: field(&fields, &handle.id.param, &owner)?.ident.clone(),
+            id_type: index.type_path(&handle.id.type_name)?,
             event_field: field(&fields, &listener.param, &owner)?.ident.clone(),
             event_type: index.type_path(&listener.event_type)?,
             doc: doc(
@@ -222,11 +225,11 @@ impl ListenerModel {
                 );
                 let body = if self.published.is_some() {
                     format!(
-                        "{warning}let handle = self.clone();\n        self.host.listen_published({:?}, {params}, {sealed}::NAME, {:?}, move |data| {sealed}::build(&handle, data))",
+                        "{warning}let host = self.host.clone();\n        self.host.listen_published({:?}, {params}, {sealed}::NAME, {:?}, move |data| {sealed}::build(&host, data))",
                         self.method, self.id_field
                     )
                 } else if self.opening.is_some() {
-                    format!("{warning}{sealed}::listen(self, {params})")
+                    format!("{warning}{sealed}::listen(&self.host, {params})")
                 } else {
                     format!(
                         "{warning}self.host.listen({:?}, {params}, {sealed}::NAME)",
@@ -237,15 +240,15 @@ impl ListenerModel {
             }
             Twin::Blocking if self.published.is_some() => (
                 "crate::blocking::EventIter<E::BlockingData>".to_owned(),
-                format!("crate::blocking::EventIter::new(self.inner.events(event).map({sealed}::blocking), self.inner.host.connection())"),
+                format!("crate::blocking::EventIter::new(self.inner.events(event).map({sealed}::blocking), self.inner.host.runtime())"),
             ),
             Twin::Blocking if self.opening.is_some() => (
                 "crate::blocking::EventIter<E::BlockingData>".to_owned(),
-                format!("let connection = self.inner.host.connection().clone();\n        crate::blocking::EventIter::new(self.inner.events(event).map(move |data| {sealed}::blocking(data, &connection)), self.inner.host.connection())"),
+                format!("let runtime = self.inner.host.runtime();\n        crate::blocking::EventIter::new(self.inner.events(event).map(move |data| {sealed}::blocking(data, &runtime)), self.inner.host.runtime())"),
             ),
             Twin::Blocking => (
                 "crate::blocking::EventIter<E::Data>".to_owned(),
-                "crate::blocking::EventIter::new(self.inner.events(event), self.inner.host.connection())".to_owned(),
+                "crate::blocking::EventIter::new(self.inner.events(event), self.inner.host.runtime())".to_owned(),
             ),
         };
         let event = match twin {
@@ -386,7 +389,7 @@ fn value_text(value: &OpenedValue, twin: Twin) -> String {
             text
         }
         Twin::Blocking => format!(
-            "\n/// The blocking twin of a [`crate::{name}`], whose own events a blocking\n/// iterator hands.\n#[derive(Debug)]\npub struct {name} {{\n{fields}    events: crate::blocking::EventIter<crate::{name}Event>,\n}}\n\nimpl {name} {{\n    /// The blocking twin of `value`, whose events are read on\n    /// `connection`'s runtime.\n    pub(crate) fn new(value: crate::{name}, connection: &crate::ClientConnection) -> Self {{\n        let crate::{name} {{ {idents}events }} = value;\n        Self {{ {idents}events: crate::blocking::EventIter::new(events, connection) }}\n    }}\n\n    /// Its own events, in order, each once, its close last, after which\n    /// the iterator ends; it also ends with the call that opened it.\n    /// Dropping the iterator passes over the events it has not read, and\n    /// the call's other streams go on. The call stays lossless: events\n    /// held unread keep their credits, so once the engine waits on them,\n    /// the call's other streams wait too.\n    pub fn events(self) -> crate::blocking::EventIter<crate::{name}Event> {{\n        self.events\n    }}\n}}\n"
+            "\n/// The blocking twin of a [`crate::{name}`], whose own events a blocking\n/// iterator hands.\n#[derive(Debug)]\npub struct {name} {{\n{fields}    events: crate::blocking::EventIter<crate::{name}Event>,\n}}\n\nimpl {name} {{\n    /// The blocking twin of `value`, whose events are read on `runtime`.\n    pub(crate) fn new(value: crate::{name}, runtime: &crate::connection::BlockingRuntime) -> Self {{\n        let crate::{name} {{ {idents}events }} = value;\n        Self {{ {idents}events: crate::blocking::EventIter::new(events, runtime.clone()) }}\n    }}\n\n    /// Its own events, in order, each once, its close last, after which\n    /// the iterator ends; it also ends with the call that opened it.\n    /// Dropping the iterator passes over the events it has not read, and\n    /// the call's other streams go on. The call stays lossless: events\n    /// held unread keep their credits, so once the engine waits on them,\n    /// the call's other streams wait too.\n    pub fn events(self) -> crate::blocking::EventIter<crate::{name}Event> {{\n        self.events\n    }}\n}}\n"
         ),
     }
 }
@@ -408,6 +411,9 @@ pub(super) fn module(header: &str, listeners: &[ListenerModel]) -> String {
         return text;
     }
     text.push_str(
+        "#![expect(\n    private_interfaces,\n    reason = \"sealed listener traits live in a pub(crate) module; Host and BlockingRuntime stay crate-internal\"\n)]\n",
+    );
+    text.push_str(
         "\n/// What the markers' traits build on, which only the crate implements:\n/// the value that names each event to the engine, its name in the\n/// engine's batches, and what a stream builds of an event the engine\n/// publishes.\npub(crate) mod sealed {\n",
     );
     for (index, listener) in listeners.iter().enumerate() {
@@ -420,17 +426,18 @@ pub(super) fn module(header: &str, listeners: &[ListenerModel]) -> String {
             "    /// What a `{trait_name}` names its event by.\n    pub trait {trait_name} {{\n        /// The value the call names it by.\n        const EVENT: {};\n        /// Its name in the engine's batches.\n        const NAME: &'static str;\n\n        /// Warns of its markers, once per process (ADR 0030).\n        fn warn() {{}}\n",
             listener.event_type
         );
-        if let Some(handle) = &listener.published {
+        if listener.published.is_some() {
             let _ = write!(
                 text,
-                "\n        /// What a stream of `handle`'s events hands of the event's\n        /// `data`.\n        ///\n        /// # Errors\n        ///\n        /// `internal` when `data` does not fit the event's payload.\n        fn build(\n            handle: &crate::{handle},\n            data: ::serde_json::Value,\n        ) -> Result<<Self as super::{trait_name}>::Data, crate::Error>\n        where\n            Self: super::{trait_name};\n\n        /// The blocking twin of what a stream hands.\n        fn blocking(\n            data: <Self as super::{trait_name}>::Data,\n        ) -> <Self as super::{trait_name}>::BlockingData\n        where\n            Self: super::{trait_name};\n"
+                "\n        /// What a stream hands of the event.\n        type Built: Send + 'static;\n        /// What a blocking iterator hands of it.\n        type BlockingBuilt: Send + 'static;\n\n        /// What a stream of `host`'s events hands of the event's\n        /// `data`.\n        ///\n        /// # Errors\n        ///\n        /// `internal` when `data` does not fit the event's payload.\n        fn build(\n            host: &crate::host::Host<{}>,\n            data: ::serde_json::Value,\n        ) -> Result<Self::Built, crate::Error>;\n\n        /// The blocking twin of what a stream hands.\n        fn blocking(data: Self::Built) -> Self::BlockingBuilt;\n",
+                listener.id_type
             );
         }
-        if let Some(handle) = &listener.opening {
+        if listener.opening.is_some() {
             let _ = write!(
                 text,
-                "\n        /// The stream of what `handle`'s call with `params`, sent now,\n        /// hands of the event.\n        fn listen(\n            handle: &crate::{handle},\n            params: {},\n        ) -> crate::EventStream<<Self as super::{trait_name}>::Data>\n        where\n            Self: super::{trait_name};\n\n        /// The blocking twin of what a stream hands, whose own events are\n        /// read on `connection`'s runtime.\n        fn blocking(\n            data: <Self as super::{trait_name}>::Data,\n            connection: &crate::ClientConnection,\n        ) -> <Self as super::{trait_name}>::BlockingData\n        where\n            Self: super::{trait_name};\n",
-                listener.params
+                "\n        /// What a stream hands of the event.\n        type Built: Send + 'static;\n        /// What a blocking iterator hands of it.\n        type BlockingBuilt: Send + 'static;\n\n        /// The stream of what `host`'s call with `params`, sent now,\n        /// hands of the event.\n        fn listen(\n            host: &crate::host::Host<{}>,\n            params: {},\n        ) -> crate::EventStream<Self::Built>;\n\n        /// The blocking twin of what a stream hands, whose own events are\n        /// read on `runtime`.\n        fn blocking(\n            data: Self::Built,\n            runtime: &crate::connection::BlockingRuntime,\n        ) -> Self::BlockingBuilt;\n",
+                listener.id_type, listener.params
             );
         }
         text.push_str("    }\n");
@@ -438,16 +445,29 @@ pub(super) fn module(header: &str, listeners: &[ListenerModel]) -> String {
     text.push_str("}\n");
     for listener in listeners {
         let trait_name = &listener.trait_name;
-        let carries = if listener.published.is_some() {
-            "    /// What a stream hands of the event: the handle it tells of, or\n    /// its payload.\n    type Data: Send + 'static;\n    /// What a blocking iterator hands of it.\n    type BlockingData: Send + 'static;\n"
+        let (sealed_bound, carries) = if listener.published.is_some() {
+            (
+                format!(
+                    "sealed::{trait_name}<Built = Self::Data, BlockingBuilt = Self::BlockingData>"
+                ),
+                "    /// What a stream hands of the event: the handle it tells of, or\n    /// its payload.\n    type Data: Send + 'static;\n    /// What a blocking iterator hands of it.\n    type BlockingData: Send + 'static;\n",
+            )
         } else if listener.opening.is_some() {
-            "    /// What a stream hands of the event: the value it opens, or its\n    /// payload.\n    type Data: Send + 'static;\n    /// What a blocking iterator hands of it.\n    type BlockingData: Send + 'static;\n"
+            (
+                format!(
+                    "sealed::{trait_name}<Built = Self::Data, BlockingBuilt = Self::BlockingData>"
+                ),
+                "    /// What a stream hands of the event: the value it opens, or its\n    /// payload.\n    type Data: Send + 'static;\n    /// What a blocking iterator hands of it.\n    type BlockingData: Send + 'static;\n",
+            )
         } else {
-            "    /// What the event carries.\n    type Data: ::serde::de::DeserializeOwned + Send + 'static;\n"
+            (
+                format!("sealed::{trait_name}"),
+                "    /// What the event carries.\n    type Data: ::serde::de::DeserializeOwned + Send + 'static;\n",
+            )
         };
         let _ = write!(
             text,
-            "\n/// An event a handle's `events` reads by its marker, such as\n/// [`{}`]; only this module's markers implement it.\npub trait {trait_name}: sealed::{trait_name} + Copy + Send + Sync + 'static {{\n{carries}}}\n",
+            "\n/// An event a handle's `events` reads by its marker, such as\n/// [`{}`]; only this module's markers implement it.\npub trait {trait_name}: {sealed_bound} + Copy + Send + Sync + 'static {{\n{carries}}}\n",
             listener
                 .markers
                 .first()
@@ -487,18 +507,21 @@ fn marker_text(listener: &ListenerModel, marker: &Marker) -> String {
         return text;
     };
     let payload = &marker.payload;
+    let id_type = &listener.id_type;
     let (data, blocking_data, build, blocking) = match &marker.builds {
         Some(built) => (
             format!("crate::{}", built.type_name),
             format!("crate::blocking::{}", built.type_name),
             format!(
-                "let payload: {payload} = ::serde_json::from_value(data).map_err(crate::Error::shape)?;\n        Ok(crate::{} {{ host: handle.host.reached(payload.{}){} }})",
+                "let payload: {payload} = ::serde_json::from_value(data).map_err(crate::Error::shape)?;\n        Ok(crate::{} {{ host: host.reached(payload.{}){} }})",
                 built.type_name,
                 built.id_field,
                 built
                     .holder
                     .as_ref()
-                    .map_or_else(String::new, |holder| format!(", {holder}: handle.clone()"))
+                    .map_or_else(String::new, |holder| format!(
+                        ", {holder}: crate::{handle} {{ host: host.clone() }}"
+                    ))
             ),
             format!("crate::blocking::{} {{ inner: data }}", built.type_name),
         ),
@@ -510,13 +533,13 @@ fn marker_text(listener: &ListenerModel, marker: &Marker) -> String {
         ),
     };
     let unused = if marker.builds.is_some() {
-        "handle"
+        "host"
     } else {
-        "_handle"
+        "_host"
     };
     let _ = write!(
         text,
-        "\nimpl {trait_name} for {name} {{\n    type Data = {data};\n    type BlockingData = {blocking_data};\n}}\n\nimpl sealed::{trait_name} for {name} {{\n{constants}\n    fn build({unused}: &crate::{handle}, data: ::serde_json::Value) -> Result<{data}, crate::Error> {{\n        {build}\n    }}\n\n    fn blocking(data: {data}) -> {blocking_data} {{\n        {blocking}\n    }}\n}}\n"
+        "\nimpl {trait_name} for {name} {{\n    type Data = {data};\n    type BlockingData = {blocking_data};\n}}\n\nimpl sealed::{trait_name} for {name} {{\n{constants}\n    type Built = {data};\n    type BlockingBuilt = {blocking_data};\n\n    fn build({unused}: &crate::host::Host<{id_type}>, data: ::serde_json::Value) -> Result<{data}, crate::Error> {{\n        {build}\n    }}\n\n    fn blocking(data: {data}) -> {blocking_data} {{\n        {blocking}\n    }}\n}}\n"
     );
     text
 }
@@ -527,12 +550,13 @@ fn marker_text(listener: &ListenerModel, marker: &Marker) -> String {
 fn opening_impls(
     listener: &ListenerModel,
     marker: &Marker,
-    handle: &str,
+    _handle: &str,
     constants: &str,
 ) -> String {
     let (trait_name, name, payload) = (&listener.trait_name, &marker.name, &marker.payload);
     let params = &listener.params;
     let method = &listener.method;
+    let id_type = &listener.id_type;
     let (data, blocking_data, listen, blocking) = match &marker.opens {
         Some(value) => {
             let value_name = &value.type_name;
@@ -548,26 +572,26 @@ fn opening_impls(
                 format!("crate::{value_name}"),
                 format!("crate::blocking::{value_name}"),
                 format!(
-                    "let opens = crate::event_stream::Opens {{ opener: Self::NAME, namespace: {:?}, id: {:?}, events: &[{own}] }};\n        handle.host.listen_opening({method:?}, params, opens, |opened: {payload}, events| crate::{value_name} {{ {idents}events }})",
+                    "let opens = crate::event_stream::Opens {{ opener: Self::NAME, namespace: {:?}, id: {:?}, events: &[{own}] }};\n        host.listen_opening({method:?}, params, opens, |opened: {payload}, events| crate::{value_name} {{ {idents}events }})",
                     value.namespace, value.id
                 ),
-                format!("crate::blocking::{value_name}::new(data, connection)"),
+                format!("crate::blocking::{value_name}::new(data, runtime)"),
             )
         }
         None => (
             payload.clone(),
             payload.clone(),
-            format!("handle.host.listen({method:?}, params, Self::NAME)"),
+            format!("host.listen({method:?}, params, Self::NAME)"),
             "data".to_owned(),
         ),
     };
-    let connection = if marker.opens.is_some() {
-        "connection"
+    let runtime = if marker.opens.is_some() {
+        "runtime"
     } else {
-        "_connection"
+        "_runtime"
     };
     format!(
-        "\nimpl {trait_name} for {name} {{\n    type Data = {data};\n    type BlockingData = {blocking_data};\n}}\n\nimpl sealed::{trait_name} for {name} {{\n{constants}\n    fn listen(handle: &crate::{handle}, params: {params}) -> crate::EventStream<{data}> {{\n        {listen}\n    }}\n\n    fn blocking(data: {data}, {connection}: &crate::ClientConnection) -> {blocking_data} {{\n        {blocking}\n    }}\n}}\n"
+        "\nimpl {trait_name} for {name} {{\n    type Data = {data};\n    type BlockingData = {blocking_data};\n}}\n\nimpl sealed::{trait_name} for {name} {{\n{constants}\n    type Built = {data};\n    type BlockingBuilt = {blocking_data};\n\n    fn listen(host: &crate::host::Host<{id_type}>, params: {params}) -> crate::EventStream<{data}> {{\n        {listen}\n    }}\n\n    fn blocking(data: {data}, {runtime}: &crate::connection::BlockingRuntime) -> {blocking_data} {{\n        {blocking}\n    }}\n}}\n"
     )
 }
 

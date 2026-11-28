@@ -115,6 +115,7 @@ pub mod browser {
         &[
             ::goodfetch_protocol::catalog::SettingScope::Connection,
             ::goodfetch_protocol::catalog::SettingScope::Run,
+            ::goodfetch_protocol::catalog::SettingScope::Session,
         ],
     );
 

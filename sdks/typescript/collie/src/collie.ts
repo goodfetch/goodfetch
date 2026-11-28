@@ -196,3 +196,15 @@ export async function connectOver(
 ): Promise<Collie> {
   return open(await openOver(collie, transport, options));
 }
+
+/**
+ * Opens a Collie Connection for `TestEngine` (ADR 0105): every Run that names
+ * no recording replays an empty one.
+ *
+ * @internal
+ */
+export async function connectTestEngine(options: ConnectOptions): Promise<Collie> {
+  const connection = await openEngine(collie, options);
+  connection.enableEmptyReplayByDefault();
+  return open(connection);
+}

@@ -1,0 +1,17 @@
+{
+  "id": "C-fair-admission-order",
+  "statement": "Default crawl.domain_order=fewest_in_flight stays within the declared delta on verified throughput against round_robin (ADR 0004).",
+  "decision": "D-run-state-and-admission",
+  "metric": "verified_tasks_per_second",
+  "comparator": {
+    "option": "foxhound-fewest-in-flight",
+    "against": ["foxhound-round-robin"]
+  },
+  "direction": "higher",
+  "delta": 0.1,
+  "publication_host_class": "local-controlled",
+  "status": "candidate",
+  "declared_at": "2026-11-28T00:00:00.000Z",
+  "evidence": [],
+  "notes": "Declared before measuring (ADR 0004, ADR 0025, issue 188)."
+}

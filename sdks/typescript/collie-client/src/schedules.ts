@@ -198,6 +198,9 @@ function scheduleHost(
 ): HandleHost<ScheduleId, CollieOperationTypes> {
   return {
     id,
+    get connection(): never {
+      return nothingHeld("carries no copy connection");
+    },
     call(operation, params, options) {
       host.ensureOpen(operation);
       return host.calls.call(operation, params, options);

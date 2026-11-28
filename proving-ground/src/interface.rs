@@ -139,6 +139,32 @@ pub struct FixtureAddresses {
     /// The UDP fixture's address, whose every datagram the connection
     /// record lists.
     pub udp: String,
+    /// The local chain's JSON-RPC HTTP address, started with `serve` (#1537).
+    pub chain: String,
+    /// The x402 facilitator stand-in's HTTP address, started with `serve` (#1537).
+    pub facilitator: String,
+    /// Deterministic seeded accounts and contract addresses on the local chain.
+    pub chain_accounts: ChainAccounts,
+}
+
+/// Seeded payment accounts and contract addresses on the local chain (#1537).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ChainAccounts {
+    /// EVM chain ID of the local chain (`31337`).
+    pub chain_id: u64,
+    /// CAIP-2 network identifier (`eip155:31337`).
+    pub network: String,
+    /// Mock USDC / EIP-3009 token contract address.
+    pub token: String,
+    /// Mock Permit2 contract address.
+    pub permit2: String,
+    /// Funded test payer address, derived from the seed.
+    pub payer_address: String,
+    /// Deterministic signing key (hex) for `payer_address`, derived from the seed.
+    pub payer_key: String,
+    /// Payee address receiving settled payments, derived from the seed.
+    pub payee_address: String,
 }
 
 /// A forward proxy's Basic credentials, derived from the seed.

@@ -47,6 +47,7 @@ mod counts;
 mod dco;
 mod deny_products;
 mod dependency_direction;
+mod deploy_templates;
 mod diagnostic;
 mod doc_obligations;
 mod docs_samples;

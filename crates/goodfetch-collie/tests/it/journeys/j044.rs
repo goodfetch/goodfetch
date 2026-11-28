@@ -66,18 +66,31 @@ struct ExposedDaemon {
 }
 
 impl ExposedDaemon {
-    fn start(env: &TestEnv, version: &ProductVersion, token: &str) -> (Self, String) {
+    fn start(
+        env: &TestEnv,
+        engine: &Path,
+        version: &ProductVersion,
+        token: &str,
+    ) -> (Self, String) {
         let daemon_home = env.folder().join("daemon-home");
         let major_dir = per_major(&daemon_home, version);
         std::fs::create_dir_all(&major_dir).unwrap();
+        let config_path = major_dir.join(USER_CONFIGURATION_FILE);
         std::fs::write(
-            major_dir.join(USER_CONFIGURATION_FILE),
+            &config_path,
             "version = \"0.1\"\n\n[settings]\ndaemon.address = \"127.0.0.1:0\"\n",
         )
         .unwrap();
-        std::fs::write(major_dir.join(DaemonFile::Token.name()), token).unwrap();
+        let token_path = major_dir.join(DaemonFile::Token.name());
+        std::fs::write(&token_path, token).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&config_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+            std::fs::set_permissions(&token_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
 
-        let mut command = env.process_command(COLLIE);
+        let mut command = env.process_command(engine);
         command
             .args(["daemon", "run"])
             .env("GOODFETCH_HOME", &daemon_home)
@@ -203,6 +216,25 @@ fn captured_text(log: &CapturedLog) -> String {
     String::from_utf8(log.written()).unwrap()
 }
 
+fn engine_version(env: &TestEnv, engine: &Path) -> ProductVersion {
+    let output = env
+        .process_command(engine)
+        .arg("--version")
+        .output()
+        .expect("run engine --version");
+    assert!(
+        output.status.success(),
+        "{} --version failed: {}",
+        engine.display(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("engine --version is UTF-8");
+    stdout
+        .split_whitespace()
+        .find_map(|token| ProductVersion::parse(token).ok())
+        .unwrap_or_else(|| panic!("no SemVer ProductVersion in `{stdout}`"))
+}
+
 /// Covers: story:14-62, story:14-63, row:CL-06
 #[test]
 #[expect(
@@ -218,7 +250,7 @@ fn sdk_rust() {
     )
     .expect("J-044's sdk-rust variant starts");
     run.surface_package("goodfetch-collie", env!("CARGO_PKG_VERSION"));
-    let version = ProductVersion::parse(env!("CARGO_PKG_VERSION")).unwrap();
+    let version = engine_version(run.env(), run.engine());
     let seed_url = run
         .proving_ground()
         .expect("J-044 has a Proving ground")
@@ -238,7 +270,7 @@ fn sdk_rust() {
     run.step(
         "Start an Exposed Daemon in a separate Goodfetch home on loopback port 0 with a planted Secret canary as its persistent token",
         |run| {
-            let (started, url) = ExposedDaemon::start(run.env(), &version, &token);
+            let (started, url) = ExposedDaemon::start(run.env(), run.engine(), &version, &token);
             daemon = Some(started);
             daemon_url = url;
         },

@@ -17,7 +17,10 @@ mod projects;
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use goodfetch_test_support::{Canaries, SecretKind, TestEnv, cli};
+use goodfetch_test_client::HomeLayout;
+use goodfetch_test_support::{
+    Canaries, SecretKind, SnapshotValues, TestEnv, cli, snapshot_settings,
+};
 use serde_json::json;
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -328,6 +331,50 @@ fn init_deploy_unknown_target_is_usage_error_naming_closest() {
     assert!(!env.folder().join("deploy-bad").exists());
 }
 
+fn assert_compose_properties(compose_text: &str) {
+    let compose: serde_json::Value = serde_saphyr::from_str(compose_text).unwrap();
+    let daemon = &compose["services"]["daemon"];
+    assert_eq!(daemon["command"], json!(["daemon", "run"]));
+    assert_eq!(daemon["user"], json!("10001:10001"));
+    assert_eq!(daemon["restart"], json!("unless-stopped"));
+    assert_eq!(daemon["stop_grace_period"], json!("120s"));
+    assert_eq!(daemon["shm_size"], json!("1g"));
+    assert_eq!(daemon["logging"]["driver"], json!("local"));
+    assert!(
+        daemon.get("init").is_none(),
+        "compose must not set init: true"
+    );
+    assert!(
+        daemon.get("environment").is_none(),
+        "compose must not pass settings via environment variables"
+    );
+    assert!(
+        daemon["security_opt"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v.as_str() == Some("seccomp=./seccomp-profile.json"))
+    );
+    assert!(
+        daemon["ports"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v.as_str().is_some_and(|p| p.starts_with("127.0.0.1:")))
+    );
+    assert!(
+        daemon["volumes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v.as_str() == Some("goodfetch-home:/home/goodfetch/.goodfetch"))
+    );
+    assert!(compose["volumes"].get("goodfetch-home").is_some());
+    let hc = daemon["healthcheck"]["test"].as_array().unwrap();
+    assert!(hc.iter().any(|v| v.as_str() == Some("daemon")));
+    assert!(hc.iter().any(|v| v.as_str() == Some("health")));
+}
+
 /// With a Secret canary in `GOODFETCH_TOKEN`, no written file and no CLI
 /// output contains the canary; rendered files name the installed executable,
 /// version and pinned image digest, pass YAML Compose validation (and
@@ -369,65 +416,60 @@ fn init_deploy_compose_redacts_canary_and_renders_valid_compose_and_policy() {
     );
     assert!(!compose_text.contains(":latest"), "{compose_text}");
     assert!(compose_text.contains("goodfetch-collie"), "{compose_text}");
+    assert_compose_properties(&compose_text);
 
-    // Parse compose.yaml as YAML and check every required property.
-    let compose: serde_json::Value = serde_saphyr::from_str(&compose_text).unwrap();
-    let daemon = &compose["services"]["daemon"];
-    assert_eq!(daemon["command"], json!(["daemon", "run"]));
-    assert_eq!(daemon["user"], json!("10001:10001"));
-    assert_eq!(daemon["restart"], json!("unless-stopped"));
-    assert_eq!(daemon["stop_grace_period"], json!("120s"));
-    assert_eq!(daemon["shm_size"], json!("1g"));
-    assert_eq!(daemon["logging"]["driver"], json!("local"));
-    assert!(
-        daemon.get("init").is_none(),
-        "compose must not set init: true"
-    );
-    assert!(
-        daemon.get("environment").is_none(),
-        "compose must not pass settings via environment variables"
-    );
-    assert!(
-        daemon["security_opt"]
-            .as_array()
-            .unwrap()
+    // Operator policy parses through Goodfetch's real settings parser and
+    // seccomp profile is valid JSON.
+    let layout = HomeLayout::of(env.home());
+    std::fs::create_dir_all(layout.per_major()).unwrap();
+    std::fs::write(layout.operator_policy(), &policy_text).unwrap();
+    let explained = cli(&env, COLLIE)
+        .args([
+            "config",
+            "explain",
+            "daemon.address",
+            "daemon.tls.upstream",
+            "ops.address",
+            "--json",
+        ])
+        .run()
+        .unwrap();
+    assert_eq!(explained.exit, Some(0), "{explained}");
+    let explained_json: serde_json::Value = serde_json::from_str(&explained.stdout).unwrap();
+    let settings_list = explained_json["settings"].as_array().unwrap();
+    for key in ["daemon.address", "daemon.tls.upstream", "ops.address"] {
+        let entry = settings_list
             .iter()
-            .any(|v| v.as_str() == Some("seccomp=./seccomp-profile.json"))
-    );
-    assert!(
-        daemon["ports"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|v| v.as_str().is_some_and(|p| p.starts_with("127.0.0.1:")))
-    );
-    assert!(
-        daemon["volumes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|v| v.as_str() == Some("goodfetch-home:/home/goodfetch/.goodfetch"))
-    );
-    assert!(compose["volumes"].get("goodfetch-home").is_some());
-    let hc = daemon["healthcheck"]["test"].as_array().unwrap();
-    assert!(hc.iter().any(|v| v.as_str() == Some("daemon")));
-    assert!(hc.iter().any(|v| v.as_str() == Some("health")));
-
-    // Operator policy parses cleanly and seccomp profile is valid JSON.
-    let policy_toml: toml::Table = toml::from_str(&policy_text).unwrap();
-    assert_eq!(policy_toml["version"].as_str(), Some("0.1"));
+            .find(|item| item["key"] == key)
+            .unwrap_or_else(|| panic!("missing `{key}` in config explain: {explained_json}"));
+        assert_eq!(
+            entry["layer"],
+            json!("operator_policy"),
+            "`{key}` should resolve from the rendered operator-policy.toml: {entry}"
+        );
+    }
     let seccomp_json: serde_json::Value = serde_json::from_str(&seccomp_text).unwrap();
     assert!(seccomp_json["syscalls"].is_array());
 
-    // Redacted snapshot check (ADR 0062): redacts version and digest.
-    let redacted_compose = regex::Regex::new(r"sha256:[0-9a-f]{64}")
-        .unwrap()
-        .replace_all(&compose_text, "sha256:<DIGEST>")
-        .replace(version, "<VERSION>");
-    assert!(
-        redacted_compose.contains("image: ghcr.io/goodfetch/collie:<VERSION>@sha256:<DIGEST>"),
-        "{redacted_compose}"
+    // Redacted snapshot (ADR 0062): redacts version and image digest without
+    // mangling `0.0.0.0:7600` when the workspace version is `0.0.0`.
+    let mut settings = snapshot_settings(&SnapshotValues::of(&env));
+    settings.add_filter(r"sha256:[0-9a-f]{64}", "sha256:[IMAGE_DIGEST]");
+    settings.add_filter(
+        &format!(
+            r"(Goodfetch Collie |ghcr\.io/goodfetch/collie:){}",
+            regex::escape(version)
+        ),
+        "${1}[PRODUCT_VERSION]",
     );
+    settings.bind(|| {
+        insta::assert_snapshot!(
+            "init_deploy_compose_rendered",
+            format!(
+                "=== compose.yaml ===\n{compose_text}\n=== operator-policy.toml ===\n{policy_text}"
+            )
+        );
+    });
 
     // When `docker compose` is available on the host, prove it accepts the file.
     if std::process::Command::new("docker")
@@ -447,5 +489,68 @@ fn init_deploy_compose_redacts_canary_and_renders_valid_compose_and_policy() {
             "docker compose config rejected rendered compose.yaml: {}",
             String::from_utf8_lossy(&config_check.stderr)
         );
+    } else if std::env::var_os("CI").is_some() {
+        panic!("docker compose is required under CI to validate rendered compose.yaml");
     }
+}
+
+/// Combining `--starter` with an unknown `--deploy` target fails as a usage
+/// error (exit `2`) before writing any starter files; combining `--starter`
+/// with a valid `--deploy compose` writes both sets of files.
+///
+/// Covers: story:13-9, command:init
+#[test]
+fn init_starter_with_unknown_deploy_writes_nothing_and_valid_deploy_writes_both() {
+    let env = TestEnv::new();
+    let bad_dir = env.folder().join("starter-bad-deploy");
+    let bad = cli(&env, COLLIE)
+        .args([
+            "init",
+            "starter-bad-deploy",
+            "--starter",
+            "browser",
+            "--lang",
+            "typescript",
+            "--deploy",
+            "nope",
+            "--json",
+        ])
+        .run()
+        .unwrap();
+    assert_eq!(bad.exit, Some(2), "{bad}");
+    assert!(bad.stderr.contains("compose"), "{bad}");
+    assert!(
+        !bad_dir.exists(),
+        "unknown --deploy target must fail before creating starter files"
+    );
+
+    let ok_dir = env.folder().join("starter-with-deploy");
+    let ok = cli(&env, COLLIE)
+        .args([
+            "init",
+            "starter-with-deploy",
+            "--starter",
+            "browser",
+            "--lang",
+            "typescript",
+            "--deploy",
+            "compose",
+            "--json",
+        ])
+        .run()
+        .unwrap();
+    assert_eq!(ok.exit, Some(0), "{ok}");
+    let body: serde_json::Value = serde_json::from_str(&ok.stdout).unwrap();
+    let written: Vec<&str> = body["written"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect();
+    assert!(written.contains(&"package.json"), "{written:?}");
+    assert!(written.contains(&"compose.yaml"), "{written:?}");
+    assert!(written.contains(&"operator-policy.toml"), "{written:?}");
+    assert!(written.contains(&"seccomp-profile.json"), "{written:?}");
+    assert!(ok_dir.join("package.json").is_file());
+    assert!(ok_dir.join("compose.yaml").is_file());
 }

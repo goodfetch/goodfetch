@@ -339,8 +339,7 @@ async def test_j044(run: JourneyRun) -> None:
             try:
                 await stop_conn.call("daemon.stop", {})
             finally:
-                with contextlib.suppress(Exception):
-                    await stop_conn.close()
+                await stop_conn.close()
             return await anyio.to_thread.run_sync(exposed.drain_after_stop)
 
         stopped = await run.step(

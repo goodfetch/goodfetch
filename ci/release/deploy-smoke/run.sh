@@ -97,6 +97,7 @@ services:
   daemon:
     image: ${image}
     network_mode: host
+    ports: !reset []
     environment:
       GOODFETCH_PROVING_GROUND_URL: "${pg_url}"
     command: ["--version"]

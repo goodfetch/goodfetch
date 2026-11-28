@@ -1,0 +1,120 @@
+---
+source: xtask/tests/it/deploy_templates.rs
+expression: combined
+---
+=== init (codegen embedded) ===
+# Rendered for Goodfetch Collie [PRODUCT_VERSION] (ADR 0049, ADR 0122).
+services:
+  daemon:
+    image: ghcr.io/goodfetch/collie:[PRODUCT_VERSION]@sha256:[IMAGE_DIGEST]
+    command: ["daemon", "run"]
+    user: "10001:10001"
+    restart: unless-stopped
+    stop_grace_period: 120s
+    shm_size: 1g
+    security_opt:
+      - seccomp=./seccomp-profile.json
+    ports:
+      - "127.0.0.1:7600:7600"
+    volumes:
+      - goodfetch-home:/home/goodfetch/.goodfetch
+      - ./operator-policy.toml:/home/goodfetch/.goodfetch/0.0/operator-policy.toml:ro
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/goodfetch-collie", "daemon", "health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: local
+
+volumes:
+  goodfetch-home:
+# template-marker-change
+
+=== smoke ===
+# Rendered for Goodfetch Collie [PRODUCT_VERSION] (ADR 0049, ADR 0122).
+services:
+  daemon:
+    image: ghcr.io/goodfetch/collie:[PRODUCT_VERSION]@sha256:[IMAGE_DIGEST]
+    command: ["daemon", "run"]
+    user: "10001:10001"
+    restart: unless-stopped
+    stop_grace_period: 120s
+    shm_size: 1g
+    security_opt:
+      - seccomp=./seccomp-profile.json
+    ports:
+      - "127.0.0.1:7600:7600"
+    volumes:
+      - goodfetch-home:/home/goodfetch/.goodfetch
+      - ./operator-policy.toml:/home/goodfetch/.goodfetch/0.0/operator-policy.toml:ro
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/goodfetch-collie", "daemon", "health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: local
+
+volumes:
+  goodfetch-home:
+# template-marker-change
+
+=== docs-site (collie) ===
+---
+title: Operations
+---
+
+# Operations
+
+### `compose.yaml`
+
+```yaml
+# Rendered for Goodfetch Collie [PRODUCT_VERSION] (ADR 0049, ADR 0122).
+services:
+  daemon:
+    image: ghcr.io/goodfetch/collie:[PRODUCT_VERSION]@sha256:[IMAGE_DIGEST]
+    command: ["daemon", "run"]
+    user: "10001:10001"
+    restart: unless-stopped
+    stop_grace_period: 120s
+    shm_size: 1g
+    security_opt:
+      - seccomp=./seccomp-profile.json
+    ports:
+      - "127.0.0.1:7600:7600"
+    volumes:
+      - goodfetch-home:/home/goodfetch/.goodfetch
+      - ./operator-policy.toml:/home/goodfetch/.goodfetch/0.0/operator-policy.toml:ro
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/goodfetch-collie", "daemon", "health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: local
+
+volumes:
+  goodfetch-home:
+# template-marker-change
+```
+
+### `operator-policy.toml`
+
+```toml
+# Managed Operator policy for Goodfetch Collie [PRODUCT_VERSION] (ADR 0049, ADR 0083).
+# Mounted read-only into the container by compose.yaml.
+version = "0.1"
+
+[settings.daemon]
+address = "0.0.0.0:7600"
+
+[settings.daemon.tls]
+upstream = true
+
+[settings.ops]
+address = "127.0.0.1:9464"
+```

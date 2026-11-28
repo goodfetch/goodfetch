@@ -40,11 +40,17 @@ What `daemon run` writes to stdout, and what a Lambda function's or a Cloud Run 
 
 | Target | Where stdout goes | What bounds it |
 |---|---|---|
-| Compose | Docker's `local` logging driver | Set `logging: driver: local` on the Daemon's service in your Compose file. The `local` driver rotates and compresses, keeping 100 MB per container by default. Docker's default driver, `json-file`, never rotates. This release writes no Compose file for you: `goodfetch-collie init --deploy compose`, which will write one with `local` already set, comes in a later release. Read the logs with `docker compose logs daemon`. |
+| Compose | Docker's `local` logging driver | Set `logging: driver: local` on the Daemon's service in your Compose file. The `local` driver rotates and compresses, keeping 100 MB per container by default. Docker's default driver, `json-file`, never rotates. Run `goodfetch-collie init --deploy compose` to write `compose.yaml`, `operator-policy.toml` and `seccomp-profile.json` with `local` already set (see [Docker Compose](#docker-compose) below). Read the logs with `docker compose logs daemon`. |
 | systemd | journald | A unit that runs `daemon run` sends its stdout to journald by default (`StandardOutput=journal`), which caps its files at 10 % of their filesystem and at most 4 GiB (`SystemMaxUse` in `journald.conf`). This release ships no system unit: write your own, or wait for `goodfetch-collie init --deploy systemd`, which will write one, in a later release. Read the logs with `journalctl -u <your unit>`. |
 | Kubernetes | The node's container log files | The kubelet rotates each container's log at 10 MiB and keeps 5 files by default (`containerLogMaxSize`, `containerLogMaxFiles`). This release ships no Helm chart: run `daemon run` in a pod of your own, whose stdout the kubelet rotates; the chart, which will rely on that rotation, comes in a later release. Read the logs with `kubectl logs`. |
 | Cloud Run | Cloud Logging | Cloud Logging keeps a log bucket's entries for its retention period, 30 days for the `_Default` bucket. Change the bucket's retention to keep less or more. |
 | Lambda | Amazon CloudWatch Logs | A function's log group keeps its entries forever unless you set its retention. Set a retention period on the log group. |
+
+## Docker Compose
+
+Run `goodfetch-collie init --deploy compose` to write `compose.yaml`, `operator-policy.toml` and `seccomp-profile.json` for your installed executable's version. The generated files below are rendered from the same deployment template set:
+
+{/* deploy: compose */}
 
 ## Chromium's sandbox on EKS on Fargate
 

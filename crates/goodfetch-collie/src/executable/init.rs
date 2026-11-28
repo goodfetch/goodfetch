@@ -187,6 +187,8 @@ pub(crate) enum Refused {
     /// The command line, or the answer to a question, names no starter or
     /// language the executable writes; the message says why.
     Usage(String),
+    /// An embedded template or invariant inside the executable failed.
+    Internal(String),
     /// This file or folder could not be written.
     Io { path: PathBuf, error: io::Error },
 }
@@ -313,25 +315,30 @@ fn write_new(target: &Path, contents: &[u8]) -> Result<bool, Refused> {
     }
 }
 
-/// Writes deployment files for `target_name` into `folder`, never overwriting
+/// Resolves a CLI `--deploy <target>` name, returning a usage error naming the
+/// closest Supported target when unknown.
+fn resolve_deploy_target(target_name: &str) -> Result<DeployTarget, Refused> {
+    DeployTarget::named(target_name).ok_or_else(|| {
+        let offered = DeployTarget::ALL.map(DeployTarget::as_str).join(", ");
+        let closest = DeployTarget::closest(target_name).as_str();
+        Refused::Usage(format!(
+            "`{target_name}` is no deployment target `init --deploy` knows: did you mean `{closest}`? Supported targets: {offered}"
+        ))
+    })
+}
+
+/// Writes deployment files for `target` into `folder`, never overwriting
 /// an existing path or following a link.
-pub(crate) fn write_deploy(
+fn write_deploy(
     templates: DeployTemplates,
     folder: &Path,
-    target_name: &str,
+    target: DeployTarget,
     language: Option<StarterLanguage>,
     version: &ProductVersion,
 ) -> Result<InitDeployResult, Refused> {
-    let offered = DeployTarget::ALL.map(DeployTarget::as_str).join(", ");
-    let Some(target) = DeployTarget::named(target_name) else {
-        let closest = DeployTarget::closest(target_name).as_str();
-        return Err(Refused::Usage(format!(
-            "`{target_name}` is no deployment target `init --deploy` knows: did you mean `{closest}`? Supported targets: {offered}"
-        )));
-    };
     let rendered = templates
         .render(target, language, version)
-        .map_err(|error| Refused::Usage(error.to_string()))?;
+        .map_err(|error| Refused::Internal(error.to_string()))?;
     let mut written = Vec::new();
     let mut skipped = Vec::new();
     for file in rendered {
@@ -373,13 +380,18 @@ pub(super) fn init(
     let folder = directory.map_or_else(|| working.clone(), |directory| working.join(directory));
     let language = language.map(StarterLanguage::from);
 
-    if let Some(target_name) = deploy.as_deref()
+    let deploy_target = match deploy.as_deref().map(resolve_deploy_target).transpose() {
+        Ok(target) => target,
+        Err(refused) => return report_refused(refused, json, human),
+    };
+
+    if let Some(target) = deploy_target
         && starter.is_none()
     {
         return match write_deploy(
             deploy_templates,
             &folder,
-            target_name,
+            target,
             language,
             &identity.product_version,
         ) {
@@ -411,11 +423,11 @@ pub(super) fn init(
         Ok(result) => result,
         Err(refused) => return report_refused(refused, json, human),
     };
-    if let Some(target_name) = deploy.as_deref() {
+    if let Some(target) = deploy_target {
         match write_deploy(
             deploy_templates,
             &folder,
-            target_name,
+            target,
             Some(result.language),
             &identity.product_version,
         ) {
@@ -444,6 +456,10 @@ fn report_refused(refused: Refused, json: bool, human: &Human) -> ExitCode {
         Refused::Usage(message) => {
             human.failure(&message, &[]);
             ExitCode::from(cli::USAGE.code)
+        }
+        Refused::Internal(message) => {
+            human.failure(&message, &[]);
+            ExitCode::FAILURE
         }
         Refused::Io { path, error } => {
             let failure = CallError::new(

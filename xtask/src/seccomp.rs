@@ -168,7 +168,7 @@ pub(crate) fn generate(root: &Path, arguments: &GenerateArguments) -> Result<()>
     let target_url = upstream_url(&target_version);
 
     let upstream_path = root.join(UPSTREAM_PATH);
-    let upstream_bytes = if let Some(local) = &arguments.upstream {
+    let (upstream_bytes, write_upstream) = if let Some(local) = &arguments.upstream {
         let local_path = if local.is_absolute() {
             local.clone()
         } else {
@@ -176,25 +176,25 @@ pub(crate) fn generate(root: &Path, arguments: &GenerateArguments) -> Result<()>
         };
         let bytes = std::fs::read(&local_path)
             .with_context(|| format!("reading {}", local_path.display()))?;
-        std::fs::write(&upstream_path, &bytes)
-            .with_context(|| format!("writing {}", upstream_path.display()))?;
-        bytes
+        (bytes, true)
     } else if !arguments.fetch
         && target_url == current.url
-        && upstream_path.is_file()
-        && std::fs::read(&upstream_path).is_ok_and(|bytes| sha256_hex(&bytes) == current.sha256)
+        && let Ok(cached) = std::fs::read(&upstream_path)
+        && sha256_hex(&cached) == current.sha256
     {
-        std::fs::read(&upstream_path)
-            .with_context(|| format!("reading {}", upstream_path.display()))?
+        (cached, false)
     } else {
         let bytes = download(&target_url)?;
-        std::fs::write(&upstream_path, &bytes)
-            .with_context(|| format!("writing {}", upstream_path.display()))?;
-        bytes
+        (bytes, true)
     };
 
     let digest = sha256_hex(&upstream_bytes);
     let rendered = render_profile(&upstream_bytes, &target_version)?;
+
+    if write_upstream {
+        std::fs::write(&upstream_path, &upstream_bytes)
+            .with_context(|| format!("writing {}", upstream_path.display()))?;
+    }
 
     doc["version"] = toml_edit::value(target_version.as_str());
     doc["url"] = toml_edit::value(target_url.as_str());
@@ -360,11 +360,14 @@ fn describe_profile_drift(actual: &str, expected: &str, moby_version: &str) -> F
 
 fn validate_version(version: &str) -> Result<()> {
     let valid = !version.is_empty()
-        && !version.contains(['/', '\\'])
-        && !version.chars().any(char::is_whitespace);
+        && version != "."
+        && version != ".."
+        && version
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'));
     if !valid {
         bail!(
-            "pinned moby version `{version}` must be a non-empty tag without slashes or whitespace"
+            "pinned moby version `{version}` must be a non-empty Git tag of ASCII alphanumerics, `.`, `-`, or `_`"
         );
     }
     Ok(())
@@ -456,7 +459,7 @@ mod tests {
         dir
     }
 
-    // Covers: story:13-55
+    /// Covers: story:13-55
     #[test]
     fn committed_seccomp_profile_matches_pinned_moby_default_plus_userns_rules() {
         let findings = check(repo_root());
@@ -470,7 +473,7 @@ mod tests {
         );
     }
 
-    // Covers: story:13-55
+    /// Covers: story:13-55
     #[test]
     fn generator_is_deterministic_across_repeated_runs() {
         let dir = fixture_workspace();
@@ -491,7 +494,7 @@ mod tests {
         );
     }
 
-    // Covers: story:13-55
+    /// Covers: story:13-55
     #[test]
     fn check_fails_when_a_rule_is_added_or_removed_by_hand() {
         let dir = fixture_workspace();
@@ -533,7 +536,7 @@ mod tests {
         );
     }
 
-    // Covers: story:13-55
+    /// Covers: story:13-55
     #[test]
     fn check_fails_when_pinned_moby_version_changes_without_regenerating_and_bump_regenerates() {
         let dir = fixture_workspace();
@@ -583,6 +586,52 @@ mod tests {
         assert!(
             summary.is_empty(),
             "check must pass after regenerating for bumped moby version: {summary:?}"
+        );
+    }
+
+    #[test]
+    fn validate_version_rejects_url_altering_and_traversal_tags() {
+        for bad in [
+            "", ".", "..", "../main", "v1?x=1", "v1#frag", "v1%2f2", "v 1",
+        ] {
+            assert!(
+                super::validate_version(bad).is_err(),
+                "expected `{bad}` to be rejected"
+            );
+        }
+        assert!(super::validate_version("v27.5.1").is_ok());
+        assert!(super::validate_version("docker-v28.0.0_rc1").is_ok());
+    }
+
+    #[test]
+    fn generate_leaves_upstream_untouched_when_input_is_invalid_json() {
+        let dir = fixture_workspace();
+        let original_upstream = std::fs::read(dir.path().join(UPSTREAM_PATH)).expect("read");
+        let original_pin = std::fs::read(dir.path().join(PIN_PATH)).expect("read");
+        let original_profile = std::fs::read(dir.path().join(PROFILE_PATH)).expect("read");
+
+        let bad_upstream = dir.path().join("bad-upstream.json");
+        std::fs::write(&bad_upstream, "{not valid json").expect("write bad");
+        let result = generate(
+            dir.path(),
+            &GenerateArguments {
+                version: Some("v28.0.0".to_owned()),
+                upstream: Some(bad_upstream),
+                fetch: false,
+            },
+        );
+        assert!(result.is_err(), "invalid upstream JSON must fail");
+        assert_eq!(
+            std::fs::read(dir.path().join(UPSTREAM_PATH)).expect("read"),
+            original_upstream
+        );
+        assert_eq!(
+            std::fs::read(dir.path().join(PIN_PATH)).expect("read"),
+            original_pin
+        );
+        assert_eq!(
+            std::fs::read(dir.path().join(PROFILE_PATH)).expect("read"),
+            original_profile
         );
     }
 }

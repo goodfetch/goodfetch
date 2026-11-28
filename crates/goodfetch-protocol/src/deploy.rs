@@ -56,15 +56,6 @@ impl DeployTarget {
             .min_by_key(|target| edit_distance(&lower, target.as_str()))
             .unwrap_or(Self::Compose)
     }
-
-    /// Whether this target requires a starter project language (`lambda`,
-    /// `cloud_run_job` do; `compose` does not).
-    #[must_use]
-    pub const fn needs_project(self) -> bool {
-        match self {
-            Self::Compose => false,
-        }
-    }
 }
 
 /// What `init --deploy <target> --json` prints (ADR 0069): the rendered
@@ -230,7 +221,7 @@ mod tests {
         }
     }
 
-    // Covers: story:13-11
+    /// Covers: story:13-11
     #[test]
     fn stable_and_nightly_versions_pin_by_digest_and_never_latest() {
         let templates = [DeployTemplateFile {
@@ -273,7 +264,7 @@ mod tests {
         assert!(!nightly_text.contains(":latest"));
     }
 
-    // Covers: story:13-9
+    /// Covers: story:13-9
     #[test]
     fn closest_target_suggests_compose_for_unknown_target() {
         assert_eq!(DeployTarget::named("compose-v1"), None);

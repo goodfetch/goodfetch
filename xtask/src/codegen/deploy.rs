@@ -21,14 +21,9 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use anyhow::{Context as _, Result};
-use serde::Deserialize;
 
+use crate::deploy_templates::{COMPOSE_SOURCES, DIGESTS_FILE, ProductDigests, load_digests};
 use crate::products;
-
-/// Pinned OCI image digests per Product.
-pub(crate) const DIGESTS_FILE: &str = "packaging/deploy/image-digests.toml";
-/// Committed container seccomp profile referenced by the Compose target.
-pub(crate) const SECCOMP_FILE: &str = "packaging/oci/seccomp-profile.json";
 
 /// Where Collie's executable embeds its compressed deployment templates.
 pub(super) const COLLIE_FOLDER: &str = concat!(products::collie_folder!(), "/generated/deploy");
@@ -42,41 +37,11 @@ const FOXHOUND_LIST: &str = concat!(products::foxhound_folder!(), "/generated/de
 /// and small (ADR 0057).
 const ZSTD_LEVEL: i32 = 19;
 
-/// Source files belonging to the `compose` deployment target, in output path
-/// order: `(output_path, repo_relative_source_path)`.
-pub(crate) const COMPOSE_SOURCES: [(&str, &str); 3] = [
-    ("compose.yaml", "packaging/deploy/compose/compose.yaml.tmpl"),
-    (
-        "operator-policy.toml",
-        "packaging/deploy/compose/operator-policy.toml.tmpl",
-    ),
-    ("seccomp-profile.json", SECCOMP_FILE),
-];
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ImageDigests {
-    collie: ProductDigests,
-    foxhound: ProductDigests,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ProductDigests {
-    repository: String,
-    default: String,
-    nightly: String,
-}
-
 pub(super) fn files(root: &Path) -> Result<BTreeMap<String, Vec<u8>>> {
-    let digests_path = root.join(DIGESTS_FILE);
-    if !digests_path.is_file() {
+    if !root.join(DIGESTS_FILE).is_file() {
         return Ok(BTreeMap::new());
     }
-    let digests_text = std::fs::read_to_string(&digests_path)
-        .with_context(|| format!("reading {}", digests_path.display()))?;
-    let digests: ImageDigests = toml::from_str(&digests_text)
-        .with_context(|| format!("parsing {}", digests_path.display()))?;
+    let digests = load_digests(root)?;
 
     let mut compressed = Vec::with_capacity(COMPOSE_SOURCES.len());
     for (output_path, source_rel) in COMPOSE_SOURCES {

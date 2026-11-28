@@ -24,10 +24,14 @@ use serde::Deserialize;
 
 use crate::{output, product_version};
 
-const DIGESTS_FILE: &str = "packaging/deploy/image-digests.toml";
-const SECCOMP_FILE: &str = "packaging/oci/seccomp-profile.json";
+/// Pinned OCI image digests per Product.
+pub(crate) const DIGESTS_FILE: &str = "packaging/deploy/image-digests.toml";
+/// Committed container seccomp profile referenced by the Compose target.
+pub(crate) const SECCOMP_FILE: &str = "packaging/oci/seccomp-profile.json";
 
-const COMPOSE_SOURCES: [(&str, &str); 3] = [
+/// Source files belonging to the `compose` deployment target, in output path
+/// order: `(output_path, repo_relative_source_path)`.
+pub(crate) const COMPOSE_SOURCES: [(&str, &str); 3] = [
     ("compose.yaml", "packaging/deploy/compose/compose.yaml.tmpl"),
     (
         "operator-policy.toml",
@@ -104,17 +108,17 @@ pub(crate) struct SmokeArguments {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ImageDigests {
-    collie: ProductDigests,
-    foxhound: ProductDigests,
+pub(crate) struct ImageDigests {
+    pub(crate) collie: ProductDigests,
+    pub(crate) foxhound: ProductDigests,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ProductDigests {
-    repository: String,
-    default: String,
-    nightly: String,
+pub(crate) struct ProductDigests {
+    pub(crate) repository: String,
+    pub(crate) default: String,
+    pub(crate) nightly: String,
 }
 
 pub(crate) fn run(command: Command, root: &Path) -> Result<ExitCode> {
@@ -150,6 +154,11 @@ pub(crate) fn run(command: Command, root: &Path) -> Result<ExitCode> {
     }
 }
 
+/// Parses the workspace's Product version for repository-side template readers.
+pub(crate) fn workspace_version(root: &Path) -> Result<ProductVersion> {
+    resolve_version(root, None)
+}
+
 fn resolve_version(root: &Path, explicit: Option<&str>) -> Result<ProductVersion> {
     if let Some(text) = explicit {
         ProductVersion::parse(text)
@@ -161,16 +170,20 @@ fn resolve_version(root: &Path, explicit: Option<&str>) -> Result<ProductVersion
     }
 }
 
+/// Loads `packaging/deploy/image-digests.toml` from `root`.
+pub(crate) fn load_digests(root: &Path) -> Result<ImageDigests> {
+    let path = root.join(DIGESTS_FILE);
+    let text =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
+}
+
 fn load_pin(
     root: &Path,
     product: Product,
     digest_override: Option<&str>,
 ) -> Result<DeployImagePin> {
-    let path = root.join(DIGESTS_FILE);
-    let text =
-        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    let all: ImageDigests =
-        toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+    let all = load_digests(root)?;
     let entry = match product {
         Product::Collie => all.collie,
         Product::Foxhound => all.foxhound,
@@ -283,7 +296,7 @@ mod tests {
     use goodfetch_protocol::connection::ProductVersion;
     use goodfetch_protocol::deploy::DeployTarget;
 
-    use super::{render_docs_blocks, render_from_repo, write_smoke_files};
+    use super::render_docs_blocks;
 
     fn repo_root() -> &'static Path {
         Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -291,89 +304,18 @@ mod tests {
             .expect("xtask lives under repo root")
     }
 
-    /// Covers: story:13-53
-    /// Changing the single template source changes `init --deploy`'s embedded
-    /// source, the docs generator's block and the smoke input together.
     #[test]
-    fn template_change_updates_init_docs_and_smoke_together() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        for rel in [
-            "packaging/deploy/image-digests.toml",
-            "packaging/deploy/compose/compose.yaml.tmpl",
-            "packaging/deploy/compose/operator-policy.toml.tmpl",
-            "packaging/oci/seccomp-profile.json",
-        ] {
-            let dest = dir.path().join(rel);
-            std::fs::create_dir_all(dest.parent().expect("parent")).expect("mkdir");
-            std::fs::copy(repo_root().join(rel), &dest).expect("copy source");
-        }
-
-        // Mutate the single template source.
-        let compose_tmpl = dir
-            .path()
-            .join("packaging/deploy/compose/compose.yaml.tmpl");
-        let updated = format!(
-            "{}# template-marker-change\n",
-            std::fs::read_to_string(&compose_tmpl).expect("read template")
-        );
-        std::fs::write(&compose_tmpl, updated).expect("write mutated template");
-
+    fn docs_blocks_emit_compose_and_operator_policy_without_seccomp_dump() {
         let version = ProductVersion::parse("1.0.0").expect("version");
-
-        // 1. Embedded/init source renderer:
-        let init_files = render_from_repo(
-            dir.path(),
+        let docs_md = render_docs_blocks(
+            repo_root(),
             Product::Collie,
             DeployTarget::Compose,
             &version,
-            None,
         )
-        .expect("render init");
-        let init_compose = std::str::from_utf8(&init_files[0].contents).expect("utf8");
-
-        // 2. Docs generator:
-        let docs_md =
-            render_docs_blocks(dir.path(), Product::Collie, DeployTarget::Compose, &version)
-                .expect("render docs");
-
-        // 3. Smoke-job renderer:
-        let smoke_dir = dir.path().join("smoke-out");
-        write_smoke_files(
-            dir.path(),
-            Product::Collie,
-            DeployTarget::Compose,
-            &version,
-            None,
-            &smoke_dir,
-        )
-        .expect("render smoke");
-        let smoke_compose =
-            std::fs::read_to_string(smoke_dir.join("compose.yaml")).expect("read smoke compose");
-
-        // All three reflect the exact same template bytes and mutation.
-        assert_eq!(init_compose, smoke_compose);
-        assert!(docs_md.contains(init_compose));
-        assert!(init_compose.contains("# template-marker-change"));
-        assert!(docs_md.contains("# template-marker-change"));
-        assert!(smoke_compose.contains("# template-marker-change"));
-
-        // Redacted snapshot of all three outputs together (ADR 0062).
-        let digest = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
-        let redact = |s: &str| {
-            s.replace(digest, "<IMAGE_DIGEST>")
-                .replace("1.0.0", "<VERSION>")
-        };
-        let combined = format!(
-            "=== init ===\n{}\n=== smoke ===\n{}\n=== docs ===\n{}",
-            redact(init_compose),
-            redact(&smoke_compose),
-            redact(&docs_md),
-        );
-        assert_eq!(
-            redact(init_compose),
-            redact(&smoke_compose),
-            "init and smoke must match identically"
-        );
-        assert!(combined.contains("ghcr.io/goodfetch/collie:<VERSION>@<IMAGE_DIGEST>"));
+        .expect("render docs");
+        assert!(docs_md.contains("### `compose.yaml`"));
+        assert!(docs_md.contains("### `operator-policy.toml`"));
+        assert!(!docs_md.contains("### `seccomp-profile.json`"));
     }
 }

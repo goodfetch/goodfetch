@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "72"
+version = "73"
 
 [[capability]]
 name = "lifecycle"
@@ -528,31 +528,43 @@ covers = ["story:11-35"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
 
-# Complete error details (ADRs 0092 and 0114; issues 3168 and 1273): each
-# failure carries every detail its code declares. A fill whose one-time
-# code never came raises `secret_unavailable` with `failure: "no_code"`;
+# Complete error details (ADRs 0035, 0079, 0092, 0101, 0106, 0114, 0115 and
+# 0118; issues 3167, 3168, 3169, 3603 and 1273): each failure carries every
+# detail its code declares. A fill whose one-time code never came raises
+# `secret_unavailable` with `failure: "no_code"`;
 # `page_navigated_during_call` raises its class, retryable, naming the
 # document the call read and the one that replaced it, which Rust reads as
-# `PageNavigatedDuringCallDetails`. Only an AI verb fails with that code,
-# and no call of this protocol has one yet (ADR 0114), so the script answers
-# it to a click: a Client reads a failure by its code, whatever call it
-# answers. A navigation a site rate-limits raises `blocked` with the Block
-# cause's wire value, `rate_limit`, and `retryAfter` the point in time the
-# site asked for, read in UTC (`Date`, `datetime`, `SystemTime`); a cause no
-# catalog names is kept as received (ADRs 0035, 0079 and 0118). Played by
-# the Scripted engine in TypeScript and Python (asyncio, Trio and the sync
-# API), attached and as a Daemon, and as the Daemon Rust's client crate
-# reaches.
+# `PageNavigatedDuringCallDetails`. Only an AI verb fails with that code or
+# with `model_unavailable`, and no call of this protocol has one yet (ADR
+# 0114), so the script answers them to a click: a Client reads a failure by
+# its code, whatever call it answers. A navigation a site rate-limits raises
+# `blocked` with the Block cause's wire value, `rate_limit`, and `retryAfter`
+# the point in time the site asked for, read in UTC (`Date`, `datetime`,
+# `SystemTime`); a cause no catalog names is kept as received. A Model
+# provider rate-limiting raises `model_unavailable` with `retryAfter` as a
+# duration (`number` ms, `timedelta`, `Duration`). `effect_uncertain` carries
+# `UncertainEffect` with `request: null` on a Collie Run;
+# `artifact_unavailable_offline` carries `pinnedBy` as a typed list of
+# product and plugin pinners; `too_many_redirects` carries `hops` and
+# `limit` (`{ kind: "browser", count: 20 }`). Played by the Scripted engine
+# in TypeScript and Python (asyncio, Trio and the sync API), attached and as
+# a Daemon, and as the Daemon Rust's client crate reaches.
 [[capability.case]]
 id = "complete-error-details"
 covers = [
+  "story:11-38",
+  "story:11-39",
+  "story:11-191",
   "error:secret_unavailable",
   "error:page_navigated_during_call",
   "error:blocked",
+  "error:model_unavailable",
+  "error:effect_uncertain",
+  "error:artifact_unavailable_offline",
+  "error:too_many_redirects",
   "block-cause:rate_limit",
 ]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
-modes = { sdk-rust = ["daemon"] }
 
 # Unknown values from a newer engine (ADR 0079; issue 3011): each value a
 # Client reads that no catalog of its package has is kept as received and

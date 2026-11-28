@@ -443,3 +443,15 @@ reason = "`ResponseOrigin::ResponseCache` carries the optional `runId` of the Ru
 [[announced]]
 entry = "typescript @goodfetch/foxhound/generated ResponseOrigin"
 reason = "`ResponseOrigin::ResponseCache` carries the optional `runId` of the Run that originally fetched the cached entry (ADR 0046, issue 803)."
+
+[[announced]]
+entry = "python goodfetch_collie_client.generated.models UncertainEffect"
+reason = "`UncertainEffect.crawl_request` becomes `request: CrawlRequestRef | None`, carrying the crawl request's `id`, `url` and `label` or `None` on a Collie Run (ADR 0106, issue 3168)."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated UncertainEffect"
+reason = "`UncertainEffect.crawlRequest` becomes `request: CrawlRequestRef | null`, carrying the crawl request's `id`, `url` and `label` or `null` on a Collie Run (ADR 0106, issue 3168)."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated/types UncertainEffect"
+reason = "`UncertainEffect.crawlRequest` becomes `request: CrawlRequestRef | null`, carrying the crawl request's `id`, `url` and `label` or `null` on a Collie Run (ADR 0106, issue 3168)."

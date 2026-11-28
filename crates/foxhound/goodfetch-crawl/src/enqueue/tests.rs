@@ -160,7 +160,14 @@ fn a_staged_enqueue_is_checked_once_and_its_commit_adds_it_with_its_payload() {
     .unwrap();
     let payload = Arc::new(Payload::of(json!({ "sku": 7 }), &work));
     let staging = Staging::default();
-    staging.open("1", lease_epoch);
+    staging.open(
+        goodfetch_protocol::run::CrawlRequestRef {
+            id: "1".to_owned(),
+            url: "http://shop.test/a".to_owned(),
+            label: "page".to_owned(),
+        },
+        lease_epoch,
+    );
 
     let answered = staging
         .admit(&connection, "1", lease_epoch, |connection, positions| {

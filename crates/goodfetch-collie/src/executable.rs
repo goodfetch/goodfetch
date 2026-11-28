@@ -869,7 +869,9 @@ fn run(
         Command::Daemon { command, .. } => {
             daemon_command(command, engine, dependencies, &machine, human)
         }
-        Command::Mcp { arguments, .. } => mcp::run(&arguments, engine, dependencies, &machine),
+        Command::Mcp { arguments, .. } => {
+            mcp::run(&arguments, engine, dependencies, &machine, start.skills)
+        }
         Command::Runs {
             command: RunsCommand::Reindex { paths, json },
             ..

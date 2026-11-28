@@ -11,13 +11,62 @@ use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_mcp::engine::{EngineLink, EngineLinkConfig};
 use goodfetch_mcp::profiles::{ProfileName, ResolvedProfile};
+use goodfetch_mcp::resources::{EmbeddedDoc, EmbeddedSkillFile, ResourceStore};
 use goodfetch_mcp::server::{McpServer, ServerOptions};
 use goodfetch_mcp::transports;
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::mcp::PROFILE;
 
 use super::daemon::Machine;
 use super::engine_choice::{Choice, EngineFlags};
+use super::skills::Skills;
 use crate::runtime::{self, Threads};
+
+/// Product documentation pages embedded into the executable and served as
+/// `goodfetch://docs/<page>` resources (ADRs 0070, 0097; issue 1371).
+const EMBEDDED_DOC_PAGES: &[(&str, &str)] = &[
+    ("cache.md", include_str!("../../../../docs/cache.md")),
+    ("install.md", include_str!("../../../../docs/install.md")),
+    (
+        "operations.md",
+        include_str!("../../../../docs/operations.md"),
+    ),
+    ("recipes.md", include_str!("../../../../docs/recipes.md")),
+    ("runs.md", include_str!("../../../../docs/runs.md")),
+    (
+        "start-a-project.md",
+        include_str!("../../../../docs/start-a-project.md"),
+    ),
+    (
+        "throughput.md",
+        include_str!("../../../../docs/throughput.md"),
+    ),
+];
+
+fn embedded_docs(product: Product) -> Vec<EmbeddedDoc> {
+    let executable = product.executable_name();
+    let product_name = product.name();
+    EMBEDDED_DOC_PAGES
+        .iter()
+        .map(|&(page, raw)| {
+            let markdown = raw
+                .replace("{{executable}}", executable)
+                .replace("{{product}}", product_name);
+            let title = markdown
+                .lines()
+                .find_map(|line| line.strip_prefix("# "))
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .unwrap_or(page)
+                .to_owned();
+            EmbeddedDoc {
+                page: page.to_owned(),
+                title,
+                markdown,
+            }
+        })
+        .collect()
+}
 
 /// Arguments for the `mcp` command.
 #[derive(Clone, Debug, clap::Args)]
@@ -41,22 +90,52 @@ fn resolve_profile(
     })
 }
 
+fn build_resources(product: Product, version: &str, skills: Skills) -> ResourceStore {
+    let skill_files = skills
+        .files()
+        .iter()
+        .map(|file| EmbeddedSkillFile {
+            path: file.path.to_owned(),
+            contents: file.contents.to_vec(),
+        })
+        .collect();
+    ResourceStore::from_embedded(product, version, embedded_docs(product), skill_files)
+}
+
+fn build_server_options(
+    arguments: &Arguments,
+    engine: &Engine,
+    settings: Option<&goodfetch_engine::settings::Resolved>,
+    skills: Skills,
+) -> ServerOptions {
+    let product = engine.identity().product;
+    let version = engine.identity().product_version.to_string();
+    let profile = ResolvedProfile::for_product(
+        product,
+        resolve_profile(arguments.profile.as_deref(), settings),
+    );
+    let resources = build_resources(product, &version, skills);
+    ServerOptions {
+        product,
+        version,
+        profile,
+        resources,
+    }
+}
+
 /// Runs the MCP server over stdio until the client closes stdin or fails.
 pub(super) fn run(
     arguments: &Arguments,
     engine: &Engine,
     dependencies: Dependencies,
     machine: &Machine<'_>,
+    skills: Skills,
 ) -> ExitCode {
     let settings = machine.settings().ok();
     let choice = arguments.engine.choice();
     let product = engine.identity().product;
     let product_version = engine.identity().product_version.clone();
-    let version = product_version.to_string();
-    let profile = ResolvedProfile::for_product(
-        product,
-        resolve_profile(arguments.profile.as_deref(), settings),
-    );
+    let server_options = build_server_options(arguments, engine, settings, skills);
 
     let daemon = match choice {
         Choice::Attached => None,
@@ -72,11 +151,6 @@ pub(super) fn run(
     };
 
     let rt = runtime::multi_thread(Threads::of(settings));
-    let server_options = ServerOptions {
-        product,
-        version,
-        profile,
-    };
 
     let served = rt.block_on(async {
         if let Some((endpoint, token)) = daemon {

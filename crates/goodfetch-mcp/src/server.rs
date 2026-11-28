@@ -15,9 +15,10 @@ use goodfetch_protocol::jsonrpc::TraceContext;
 use rmcp::ErrorData as McpError;
 use rmcp::ServerHandler;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, Implementation, ListToolsResult,
-    PaginatedRequestParams, ProgressNotificationParam, ProtocolVersion, ServerCapabilities,
-    ServerConfig, Tool,
+    CallToolRequestParams, CallToolResponse, GetSkillRequestParams, GetSkillResult, Implementation,
+    ListResourcesResult, ListSkillsResult, ListToolsResult, PaginatedRequestParams,
+    ProgressNotificationParam, ProtocolVersion, ReadResourceRequestParams, ReadResourceResponse,
+    ServerCapabilities, ServerConfig, Tool,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use tokio::sync::mpsc;
@@ -26,6 +27,7 @@ use tokio_util::task::TaskTracker;
 use crate::engine::{EngineLink, ProgressUpdate};
 use crate::profiles::ResolvedProfile;
 use crate::projection::{error_tool_result, success_tool_result};
+use crate::resources::ResourceStore;
 use crate::revisions;
 
 /// Bounded queue for forwarding engine progress updates to MCP notifications.
@@ -40,6 +42,8 @@ pub struct ServerOptions {
     pub version: String,
     /// The resolved tool profile to serve.
     pub profile: ResolvedProfile,
+    /// Embedded docs resources and rendered skills served over MCP (#1371).
+    pub resources: ResourceStore,
 }
 
 /// The Goodfetch MCP server handler, backed by one [`EngineLink`] per session.
@@ -85,7 +89,12 @@ impl McpServer {
 
 impl ServerHandler for McpServer {
     fn get_info(&self) -> ServerConfig {
-        let mut info = ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
+        let capabilities = ServerCapabilities::builder()
+            .enable_tools()
+            .enable_resources()
+            .enable_skills()
+            .build();
+        let mut info = ServerConfig::new(capabilities)
             .with_protocol_version(revisions::DEFAULT_HANDSHAKE_VERSION)
             .with_server_info(Implementation::new(
                 self.options.product.executable_name(),
@@ -97,6 +106,56 @@ impl ServerHandler for McpServer {
 
     fn supported_protocol_versions(&self) -> Cow<'static, [ProtocolVersion]> {
         Cow::Borrowed(revisions::SUPPORTED)
+    }
+
+    fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> impl std::future::Future<Output = Result<ListResourcesResult, McpError>> + Send + '_ {
+        std::future::ready(Ok(ListResourcesResult::with_all_items(
+            self.options.resources.list_resources(),
+        )))
+    }
+
+    fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> impl std::future::Future<Output = Result<ReadResourceResponse, McpError>> + Send + '_ {
+        let outcome = match self.options.resources.read_resource(&request.uri) {
+            Some(result) => Ok(ReadResourceResponse::from(result)),
+            None => Err(McpError::resource_not_found(
+                format!("unknown resource `{}`", request.uri),
+                None,
+            )),
+        };
+        std::future::ready(outcome)
+    }
+
+    fn list_skills(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> impl std::future::Future<Output = Result<ListSkillsResult, McpError>> + Send + '_ {
+        std::future::ready(Ok(ListSkillsResult::with_all_items(
+            self.options.resources.list_skills(),
+        )))
+    }
+
+    fn get_skill(
+        &self,
+        request: GetSkillRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> impl std::future::Future<Output = Result<GetSkillResult, McpError>> + Send + '_ {
+        let outcome = match self.options.resources.get_skill(&request.uri) {
+            Some(skill) => Ok(GetSkillResult::new(skill)),
+            None => Err(McpError::invalid_params(
+                format!("unknown skill `{}`", request.uri),
+                None,
+            )),
+        };
+        std::future::ready(outcome)
     }
 
     fn list_tools(

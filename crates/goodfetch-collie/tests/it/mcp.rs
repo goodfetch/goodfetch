@@ -310,3 +310,109 @@ fn mcp_stdio_profile_flag_and_setting_select_profile() {
         let _ = client_code.cancel().await;
     });
 }
+
+/// Covers: story:11-234
+#[test]
+fn mcp_stdio_serves_embedded_docs_and_skills_matching_skill_install_digests() {
+    use std::collections::BTreeMap;
+
+    use goodfetch_mcp::resources::{LLMS_TXT_URI, SKILL_TREE_DIGEST_META_KEY};
+    use rmcp::model::{
+        GetSkillRequestParams, ReadResourceRequestParams, ResourceContents, SkillResources,
+    };
+
+    let env = TestEnv::new();
+    let installed = goodfetch_test_support::cli(&env, COLLIE)
+        .args(["skill", "install", "--json"])
+        .json("SkillsInstalled")
+        .unwrap();
+    let installed_digests: BTreeMap<String, String> = installed.documents[0]["installed"]
+        .as_array()
+        .expect("installed array")
+        .iter()
+        .map(|entry| {
+            (
+                entry["name"].as_str().unwrap().to_owned(),
+                entry["digest"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    assert_ne!(installed_digests.len(), 0);
+
+    let rt = goodfetch_runtime::multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let mut cmd = tokio::process::Command::new(COLLIE);
+        cmd.env_clear()
+            .envs(env.env_os())
+            .args(["mcp", "--attached", "--profile", "code"]);
+        let client =
+            ().serve(TokioChildProcess::new(cmd).expect("spawn mcp --profile code"))
+                .await
+                .expect("rmcp initialized");
+
+        assert_eq!(
+            client.list_all_tools().await.expect("list_all_tools").len(),
+            0
+        );
+
+        let resources = client.list_resources(None).await.expect("list_resources");
+        assert!(resources.resources.iter().any(|r| r.uri == LLMS_TXT_URI));
+        assert!(
+            resources
+                .resources
+                .iter()
+                .any(|r| r.uri == "goodfetch://docs/runs.md")
+        );
+
+        let llms = client
+            .read_resource(ReadResourceRequestParams::new(LLMS_TXT_URI))
+            .await
+            .expect("read llms.txt");
+        let ResourceContents::TextResourceContents { text, .. } = &llms.contents[0] else {
+            panic!("expected text llms.txt");
+        };
+        assert!(text.contains("goodfetch://docs/runs.md"));
+
+        let listed = client.list_skills(None).await.expect("list_skills");
+        let mut served_digests = BTreeMap::new();
+        for skill in &listed.skills {
+            skill.validate().expect("SEP-2640 skill validation");
+            let fetched = client
+                .get_skill(GetSkillRequestParams::new(skill.uri.clone()))
+                .await
+                .expect("get_skill");
+            assert_eq!(fetched.skill, *skill);
+
+            let tree_digest = skill
+                .meta
+                .as_ref()
+                .and_then(|m| m.get(SKILL_TREE_DIGEST_META_KEY))
+                .and_then(Value::as_str)
+                .expect("goodfetch_digest metadata")
+                .to_owned();
+            served_digests.insert(skill.name().to_owned(), tree_digest);
+
+            let SkillResources::Files(ref files) = skill.resources else {
+                panic!("expected static skill files with digests");
+            };
+            for file in files {
+                let read = client
+                    .read_resource(ReadResourceRequestParams::new(file.uri.clone()))
+                    .await
+                    .expect("read skill file");
+                let ResourceContents::TextResourceContents { text, .. } = &read.contents[0] else {
+                    panic!("expected text skill resource");
+                };
+                file.verify(text.as_bytes())
+                    .expect("skill file digest verification");
+            }
+        }
+        assert_eq!(served_digests, installed_digests);
+
+        let _ = client.cancel().await;
+    });
+}

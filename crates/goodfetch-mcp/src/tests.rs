@@ -160,6 +160,33 @@ where
     F: FnOnce(tokio::io::DuplexStream) -> Fut + Send + 'static,
     Fut: std::future::Future<Output = ()> + Send + 'static,
 {
+    start_in_memory_with_options(
+        product,
+        profile,
+        crate::resources::ResourceStore::default(),
+        live_view_base_url,
+        engine_fn,
+    )
+    .await
+}
+
+/// Spawns an in-memory MCP server with a chosen [`Product`], [`ResolvedProfile`]
+/// and [`crate::resources::ResourceStore`].
+async fn start_in_memory_with_options<F, Fut>(
+    product: Product,
+    profile: ResolvedProfile,
+    resources: crate::resources::ResourceStore,
+    live_view_base_url: Option<String>,
+    engine_fn: F,
+) -> (
+    rmcp::service::RunningService<RoleClient, RecordingClient>,
+    RecordingClient,
+    TaskTracker,
+)
+where
+    F: FnOnce(tokio::io::DuplexStream) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
     let tasks = TaskTracker::new();
     let (mcp_engine_side, fake_engine_side) = tokio::io::duplex(64 * 1024);
     tasks.spawn(engine_fn(fake_engine_side));
@@ -179,6 +206,7 @@ where
             product,
             version: "0.1.0".to_owned(),
             profile,
+            resources,
         },
         link,
     );
@@ -1248,4 +1276,115 @@ fn no_kept_off_or_foxhound_operation_appears_and_classes_match_catalog() {
             }
         }
     }
+}
+
+async fn read_text_resource(
+    client: &rmcp::service::RunningService<RoleClient, RecordingClient>,
+    uri: &str,
+) -> (String, Option<String>) {
+    let read = client
+        .read_resource(rmcp::model::ReadResourceRequestParams::new(uri.to_owned()))
+        .await
+        .expect("read_resource");
+    match &read.contents[0] {
+        rmcp::model::ResourceContents::TextResourceContents {
+            text, mime_type, ..
+        } => (text.clone(), mime_type.clone()),
+        other => panic!("expected text resource for `{uri}`, got {other:?}"),
+    }
+}
+
+/// Covers: story:11-234
+#[test]
+fn resources_and_skills_served_over_mcp_with_verified_digests() {
+    use rmcp::model::{GetSkillRequestParams, SkillResources};
+
+    use crate::resources::{
+        EmbeddedDoc, EmbeddedSkillFile, LLMS_TXT_URI, ResourceStore, SKILL_TREE_DIGEST_META_KEY,
+        skill_tree_digest,
+    };
+
+    let skill_md = b"---\nname: goodfetch-collie\ndescription: \"Drive a real browser with goodfetch-collie.\"\n---\n# goodfetch-collie\n\nStart a Run.\n";
+    let expected_tree_digest = skill_tree_digest([("SKILL.md", skill_md.as_slice())].into_iter());
+    let store = ResourceStore::from_embedded(
+        Product::Collie,
+        "0.1.0",
+        vec![EmbeddedDoc {
+            page: "runs.md".to_owned(),
+            title: "Runs".to_owned(),
+            markdown: "# Runs\n\nEvery action runs inside a Run.\n".to_owned(),
+        }],
+        vec![EmbeddedSkillFile {
+            path: "goodfetch-collie/SKILL.md".to_owned(),
+            contents: skill_md.to_vec(),
+        }],
+    );
+
+    test_runtime().block_on(async {
+        let (client, _recorder, tasks) = start_in_memory_with_options(
+            Product::Collie,
+            ResolvedProfile::for_product(Product::Collie, ProfileName::Code),
+            store,
+            None,
+            hello_only_engine,
+        )
+        .await;
+
+        let tools = client.list_tools(None).await.expect("list_tools");
+        assert_eq!(tools.tools.len(), 0);
+
+        let resources = client.list_resources(None).await.expect("list_resources");
+        assert!(
+            resources
+                .resources
+                .iter()
+                .any(|r| r.uri == LLMS_TXT_URI && r.mime_type.as_deref() == Some("text/markdown"))
+        );
+        assert!(resources.resources.iter().any(|r| {
+            r.uri == "goodfetch://docs/runs.md" && r.mime_type.as_deref() == Some("text/markdown")
+        }));
+
+        let (llms_text, _) = read_text_resource(&client, LLMS_TXT_URI).await;
+        assert!(llms_text.contains("0.1.0") && llms_text.contains("goodfetch://docs/runs.md"));
+
+        let (runs_text, runs_mime) = read_text_resource(&client, "goodfetch://docs/runs.md").await;
+        assert_eq!(runs_mime.as_deref(), Some("text/markdown"));
+        assert!(runs_text.contains("Every action runs inside a Run."));
+
+        let skills = client.list_skills(None).await.expect("list_skills");
+        assert_eq!(skills.skills.len(), 1);
+        let listed = &skills.skills[0];
+        listed.validate().expect("SEP-2640 skill validation");
+        assert_eq!(listed.name(), "goodfetch-collie");
+        assert_eq!(
+            listed
+                .meta
+                .as_ref()
+                .and_then(|m| m.get(SKILL_TREE_DIGEST_META_KEY))
+                .and_then(Value::as_str),
+            Some(expected_tree_digest.as_str())
+        );
+
+        let fetched = client
+            .get_skill(GetSkillRequestParams::new(listed.uri.clone()))
+            .await
+            .expect("get_skill");
+        assert_eq!(fetched.skill, *listed);
+
+        let SkillResources::Files(ref manifest_files) = fetched.skill.resources else {
+            panic!("expected static file manifest with digests");
+        };
+        assert_ne!(manifest_files.len(), 0);
+        for entry in manifest_files {
+            assert!(entry.digest.starts_with("sha256:"));
+            let (text, _) = read_text_resource(&client, &entry.uri).await;
+            entry
+                .verify(text.as_bytes())
+                .expect("skill file bytes must match manifest digest");
+        }
+
+        let _ = client.cancel().await;
+        tasks.close();
+        tasks.wait().await;
+    });
 }

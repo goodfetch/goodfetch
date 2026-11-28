@@ -299,18 +299,18 @@ fn a_refused_start_is_the_failure_it_reads_as(
 /// The failures no browser's message words read by their kind.
 #[rstest]
 #[case::no_answer_in_time(
-    Failure::TimedOut { method: "Page.screencastFrameAck" },
+    Failure::TimedOut { method: std::borrow::Cow::Borrowed("Page.screencastFrameAck") },
     WatchFailure::CaptureTimedOut
 )]
 #[case::the_browser_is_gone(Failure::Disconnected, WatchFailure::BrowserGone)]
 #[case::the_lease_ended(
-    Failure::Withheld { method: "Page.startScreencast" },
+    Failure::Withheld { method: std::borrow::Cow::Borrowed("Page.startScreencast") },
     WatchFailure::CaptureRefused(Diagnosis::new(
         "`Page.startScreencast` was withheld: the lease of the page's work item ended"
     ))
 )]
 #[case::an_answer_too_long(
-    Failure::TooLarge { method: "Page.screencastFrameAck" },
+    Failure::TooLarge { method: std::borrow::Cow::Borrowed("Page.screencastFrameAck") },
     WatchFailure::Unrecognized(Diagnosis::new(
         "the browser's answer to `Page.screencastFrameAck` is longer than one message the connection reads"
     ))

@@ -90,7 +90,14 @@ use super::naming;
 
 /// The namespaces whose handles the generators write so far; each other
 /// one joins with the ticket that builds its value.
-pub(super) const HANDLES: [&str; 5] = ["run", "session", "page", "locator", "schedule"];
+pub(super) const HANDLES: [&str; 6] = [
+    "run",
+    "session",
+    "page",
+    "locator",
+    "schedule",
+    "cdp_session",
+];
 
 /// The namespaces whose values the Connection holds rather than a Run, such
 /// as a Schedule (spec 589): Rust's handle reaches its engine through the

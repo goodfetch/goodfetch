@@ -733,6 +733,27 @@ impl Page {
         )
     }
 
+    /// Opens a raw CDP session on the page over the program's own connection, reaching only its page's target (ADR 0085). Marks results unguarded, records the attach in the Audit log, stops Secret typing while open, holds the page for the browser pool, and binds to a handler's lease check. Raises `capability_unavailable` on Firefox and WebKit.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn new_cdp_session(
+        &self,
+    ) -> crate::blocking::Call<
+        CdpSession,
+        ::goodfetch_protocol::page::cdp_session::PageNewCdpSessionParams,
+    > {
+        crate::blocking::Call::new(
+            self.inner
+                .new_cdp_session()
+                .map(|inner| CdpSession { inner }),
+            self.inner.host.connection(),
+        )
+    }
+
     /// Waits for a person in the headful window or the Live view, stopping every enclosing clock while Limits keep counting, holding the page's later Gestures while reads and waits run, and ending when `until` holds or a person answers `page.pause_answer` (ADRs 0092 and 0113). Closing the page's window or quitting the browser ends the pause with `call_cancelled` naming what closed, never `human_pause_declined`.
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
@@ -1214,12 +1235,68 @@ impl Schedule {
     }
 }
 
+/// A `cdp_session` a program holds: the members the catalog gives it (ADR 0099).
+#[derive(Clone, Debug)]
+pub struct CdpSession {
+    pub(crate) inner: crate::generated::handles::CdpSession,
+}
+
+impl CdpSession {
+    /// Its ID, which names it to the engine.
+    #[must_use]
+    pub fn id(&self) -> &::goodfetch_protocol::page::cdp_session::CdpSessionId {
+        self.inner.id()
+    }
+
+    /// The raw call of `operation`, an operation of `cdp_session` the SDK may not
+    /// generate (ADR 0099), its params and its result the wire's JSON in
+    /// snake case: its ID fills `cdp_session_id`. An operation of another namespace
+    /// fails with `invalid_params` before it is sent, as a call on a
+    /// closed value does with `closed`. It is never retried.
+    pub fn call(&self, operation: &str) -> crate::blocking::RawCall {
+        crate::blocking::RawCall::new(self.inner.call(operation), self.inner.host.connection())
+    }
+
+    /// Closes the raw CDP session, releasing its page hold and external-reader mark; closing an already-closed CDP session succeeds.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn close(
+        &self,
+    ) -> crate::blocking::Call<
+        crate::Answer<::goodfetch_protocol::page::cdp_session::CdpSessionClosed>,
+        ::goodfetch_protocol::page::cdp_session::CdpSessionCloseParams,
+    > {
+        crate::blocking::Call::new(self.inner.close(), self.inner.host.connection())
+    }
+
+    /// Sends a raw CDP command on the CDP session's page target without queuing behind a Collie call (ADR 0085). Refuses commands that attach or close other targets, close the target, or close a Borrowed browser with `cdp_command_refused`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn send(
+        &self,
+        method: impl Into<String>,
+    ) -> crate::blocking::Call<
+        ::serde_json::Value,
+        ::goodfetch_protocol::page::cdp_session::CdpSessionSendParams,
+    > {
+        crate::blocking::Call::new(self.inner.send(method), self.inner.host.connection())
+    }
+}
+
 impl<T> crate::blocking::Call<T, ::goodfetch_protocol::checkpoint::RunMigrateParams> {
     /// Where to write the Checkpoint the Run is resumed from, a path on the
     /// engine's machine; by default where the engine keeps the Run's
     /// Checkpoints, its own folder.
     pub fn location(self, location: impl Into<String>) -> Self {
-        self.edit(move |params| params.location = Some(location.into()))
+        self.edit(move |request| request.location = Some(location.into()))
     }
 }
 
@@ -1228,14 +1305,14 @@ impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::FillParams> {
     /// resolved at the moment of use only when the target field's frame is on
     /// the placeholder's bound domains and no other code may read the browser.
     pub fn secret(self, secret: impl Into<String>) -> Self {
-        self.edit(move |params| params.secret = Some(secret.into()))
+        self.edit(move |request| request.secret = Some(secret.into()))
     }
 }
 
 impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::GotoParams> {
     /// When the navigation answers; `load` when absent.
     pub fn wait_until(self, wait_until: ::goodfetch_protocol::page::WaitUntil) -> Self {
-        self.edit(move |params| params.wait_until = Some(wait_until))
+        self.edit(move |request| request.wait_until = Some(wait_until))
     }
 }
 
@@ -1248,39 +1325,47 @@ impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::NewPageParams> {
     ///
     /// A key of [`crate::settings`] this scope does not set fails the call before it is sent.
     pub fn settings(self, settings: crate::settings::Settings) -> Self {
-        self.try_edit(move |params| {
-            params.settings = settings.within(::goodfetch_protocol::catalog::SettingScope::Page)?;
+        self.try_edit(move |request| {
+            request.settings =
+                settings.within(::goodfetch_protocol::catalog::SettingScope::Page)?;
             Ok(())
         })
+    }
+}
+
+impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::cdp_session::CdpSessionSendParams> {
+    /// The command's JSON parameters; omitted or `null` sends an empty object.
+    pub fn params(self, params: ::serde_json::Value) -> Self {
+        self.edit(move |request| request.params = Some(params))
     }
 }
 
 impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::events::WaitForRequestFinishedParams> {
     /// The URLs it waits for.
     pub fn url(self, url: ::goodfetch_protocol::page::route::UrlMatcher) -> Self {
-        self.edit(move |params| params.url = Some(url))
+        self.edit(move |request| request.url = Some(url))
     }
 }
 
 impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::functions::EvaluateParams> {
     /// Its one argument, JSON; absent for none.
     pub fn arg(self, arg: ::serde_json::Value) -> Self {
-        self.edit(move |params| params.arg = Some(arg))
+        self.edit(move |request| request.arg = Some(arg))
     }
     /// Where it runs; the main world when absent.
     pub fn world(self, world: ::goodfetch_protocol::page::functions::World) -> Self {
-        self.edit(move |params| params.world = Some(world))
+        self.edit(move |request| request.world = Some(world))
     }
 }
 
 impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::functions::LocatorEvaluateAllParams> {
     /// Its one argument, JSON; absent for none.
     pub fn arg(self, arg: ::serde_json::Value) -> Self {
-        self.edit(move |params| params.arg = Some(arg))
+        self.edit(move |request| request.arg = Some(arg))
     }
     /// Where it runs; the main world when absent.
     pub fn world(self, world: ::goodfetch_protocol::page::functions::World) -> Self {
-        self.edit(move |params| params.world = Some(world))
+        self.edit(move |request| request.world = Some(world))
     }
 }
 
@@ -1289,26 +1374,26 @@ impl<T>
 {
     /// Its one argument, JSON; absent for none.
     pub fn arg(self, arg: ::serde_json::Value) -> Self {
-        self.edit(move |params| params.arg = Some(arg))
+        self.edit(move |request| request.arg = Some(arg))
     }
     /// The steps in a row without a new key at which it ends
     /// `end_of_list`, at least 1; 3 when absent.
     pub fn idle_steps(self, idle_steps: u64) -> Self {
-        self.edit(move |params| params.idle_steps = Some(idle_steps))
+        self.edit(move |request| request.idle_steps = Some(idle_steps))
     }
     /// The rows at which the collection ends `max_rows`, at least 1;
     /// 10,000 when absent.
     pub fn max_rows(self, max_rows: u64) -> Self {
-        self.edit(move |params| params.max_rows = Some(max_rows))
+        self.edit(move |request| request.max_rows = Some(max_rows))
     }
     /// How long a step waits for an element with a new key after its
     /// scroll, in milliseconds, at least 1; 2,000 when absent.
     pub fn step_wait(self, step_wait: u64) -> Self {
-        self.edit(move |params| params.step_wait = Some(step_wait))
+        self.edit(move |request| request.step_wait = Some(step_wait))
     }
     /// Where it runs; the isolated world when absent.
     pub fn world(self, world: ::goodfetch_protocol::page::functions::World) -> Self {
-        self.edit(move |params| params.world = Some(world))
+        self.edit(move |request| request.world = Some(world))
     }
 }
 
@@ -1316,7 +1401,7 @@ impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::input::KeyboardPres
     /// The milliseconds between its keys going down and coming up; none
     /// for no wait.
     pub fn delay(self, delay: u64) -> Self {
-        self.edit(move |params| params.delay = Some(delay))
+        self.edit(move |request| request.delay = Some(delay))
     }
 }
 
@@ -1324,47 +1409,47 @@ impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::input::KeyboardType
     /// The milliseconds each key stays down, or a character with no key
     /// waits before it is inserted; none for no wait.
     pub fn delay(self, delay: u64) -> Self {
-        self.edit(move |params| params.delay = Some(delay))
+        self.edit(move |request| request.delay = Some(delay))
     }
 }
 
 impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::input::MouseButtonParams> {
     /// The button; none for the left one.
     pub fn button(self, button: ::goodfetch_protocol::page::input::MouseButton) -> Self {
-        self.edit(move |params| params.button = Some(button))
+        self.edit(move |request| request.button = Some(button))
     }
     /// Which of a run of clicks it is, from 1, as `UIEvent.detail`; none
     /// for 1.
     pub fn click_count(self, click_count: u32) -> Self {
-        self.edit(move |params| params.click_count = Some(click_count))
+        self.edit(move |request| request.click_count = Some(click_count))
     }
 }
 
 impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::input::MouseClickParams> {
     /// The button; none for the left one.
     pub fn button(self, button: ::goodfetch_protocol::page::input::MouseButton) -> Self {
-        self.edit(move |params| params.button = Some(button))
+        self.edit(move |request| request.button = Some(button))
     }
     /// How many clicks, one after the other; none for 1. At most 10.
     pub fn click_count(self, click_count: u32) -> Self {
-        self.edit(move |params| params.click_count = Some(click_count))
+        self.edit(move |request| request.click_count = Some(click_count))
     }
     /// The milliseconds the button stays down at each click, and between
     /// two clicks; none for no wait.
     pub fn delay(self, delay: u64) -> Self {
-        self.edit(move |params| params.delay = Some(delay))
+        self.edit(move |request| request.delay = Some(delay))
     }
 }
 
 impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::input::MouseDblclickParams> {
     /// The button; none for the left one.
     pub fn button(self, button: ::goodfetch_protocol::page::input::MouseButton) -> Self {
-        self.edit(move |params| params.button = Some(button))
+        self.edit(move |request| request.button = Some(button))
     }
     /// The milliseconds the button stays down at each click, and between
     /// the two; none for no wait.
     pub fn delay(self, delay: u64) -> Self {
-        self.edit(move |params| params.delay = Some(delay))
+        self.edit(move |request| request.delay = Some(delay))
     }
 }
 
@@ -1372,19 +1457,19 @@ impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::input::MouseMovePar
     /// The moves, evenly spaced from where the mouse is to the point, the
     /// last on the point; none for one, as `0` is. At most 1000.
     pub fn steps(self, steps: u32) -> Self {
-        self.edit(move |params| params.steps = Some(steps))
+        self.edit(move |request| request.steps = Some(steps))
     }
 }
 
 impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::pause::PagePauseParams> {
     /// Why the program paused, shown to the person.
     pub fn reason(self, reason: impl Into<String>) -> Self {
-        self.edit(move |params| params.reason = Some(reason.into()))
+        self.edit(move |request| request.reason = Some(reason.into()))
     }
     /// The condition that ends the pause by itself; a person's "Done" or
     /// "Hand back" is accepted only while it holds.
     pub fn until(self, until: ::goodfetch_protocol::page::pause::PauseUntil) -> Self {
-        self.edit(move |params| params.until = Some(until))
+        self.edit(move |request| request.until = Some(until))
     }
 }
 
@@ -1392,7 +1477,7 @@ impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::request::PageReques
     /// Headers set over those the browser sends, each name matched without
     /// regard to case.
     pub fn headers(self, headers: ::std::collections::BTreeMap<String, String>) -> Self {
-        self.edit(move |params| params.headers = Some(headers))
+        self.edit(move |request| request.headers = Some(headers))
     }
     /// Strings of its body, which is then JSON, that hold a Secret
     /// placeholder's value, each set at its JSON Pointer by the engine at
@@ -1402,21 +1487,21 @@ impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::request::PageReques
         self,
         json_secrets: Vec<::goodfetch_protocol::page::request::JsonSecret>,
     ) -> Self {
-        self.edit(move |params| params.json_secrets = Some(json_secrets))
+        self.edit(move |request| request.json_secrets = Some(json_secrets))
     }
     /// How many redirects it follows, from 0, which answers the 3xx itself,
     /// to 19, the default; past its count it raises `too_many_redirects`,
     /// and a count above 19 is refused with `setting_invalid`.
     pub fn max_redirects(self, max_redirects: u32) -> Self {
-        self.edit(move |params| params.max_redirects = Some(max_redirects))
+        self.edit(move |request| request.max_redirects = Some(max_redirects))
     }
     /// Its method; `GET` when absent.
     pub fn method(self, method: impl Into<String>) -> Self {
-        self.edit(move |params| params.method = Some(method.into()))
+        self.edit(move |request| request.method = Some(method.into()))
     }
     /// Its body, in Base64.
     pub fn post_data(self, post_data: impl Into<String>) -> Self {
-        self.edit(move |params| params.post_data = Some(post_data.into()))
+        self.edit(move |request| request.post_data = Some(post_data.into()))
     }
     /// Headers whose value holds a Secret placeholder, set over the
     /// browser's own and named in none of `headers`: the engine adds each
@@ -1430,7 +1515,7 @@ impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::request::PageReques
             ::goodfetch_protocol::page::request::SecretHeader,
         >,
     ) -> Self {
-        self.edit(move |params| params.secret_headers = Some(secret_headers))
+        self.edit(move |request| request.secret_headers = Some(secret_headers))
     }
 }
 
@@ -1444,8 +1529,9 @@ impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::session::NewSession
     ///
     /// A key of [`crate::settings`] this scope does not set fails the call before it is sent.
     pub fn settings(self, settings: crate::settings::Settings) -> Self {
-        self.try_edit(move |params| {
-            params.settings = settings.within(::goodfetch_protocol::catalog::SettingScope::Page)?;
+        self.try_edit(move |request| {
+            request.settings =
+                settings.within(::goodfetch_protocol::catalog::SettingScope::Page)?;
             Ok(())
         })
     }
@@ -1467,8 +1553,8 @@ impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::session::NewSession
     ///
     /// A key of [`crate::settings`] this scope does not set fails the call before it is sent.
     pub fn settings(self, settings: crate::settings::Settings) -> Self {
-        self.try_edit(move |params| {
-            params.settings =
+        self.try_edit(move |request| {
+            request.settings =
                 settings.within(::goodfetch_protocol::catalog::SettingScope::Session)?;
             Ok(())
         })
@@ -1480,7 +1566,7 @@ impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::session::NewSession
         self,
         source: Option<::goodfetch_protocol::settings::session_source::SessionSource>,
     ) -> Self {
-        self.edit(move |params| params.source = Some(source))
+        self.edit(move |request| request.source = Some(source))
     }
 }
 
@@ -1488,60 +1574,60 @@ impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::session_pages::Page
     /// Runs the page's `beforeunload` handlers first, whose dialog goes to
     /// the page's dialog handlers; false when absent.
     pub fn run_before_unload(self, run_before_unload: bool) -> Self {
-        self.edit(move |params| params.run_before_unload = Some(run_before_unload))
+        self.edit(move |request| request.run_before_unload = Some(run_before_unload))
     }
 }
 
 impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::waits::LocatorWaitForFunctionParams> {
     /// Its one argument, JSON; absent for none.
     pub fn arg(self, arg: ::serde_json::Value) -> Self {
-        self.edit(move |params| params.arg = Some(arg))
+        self.edit(move |request| request.arg = Some(arg))
     }
     /// The milliseconds between two checks, at least 1; absent, about one
     /// frame's, 16.
     pub fn polling_interval(self, polling_interval: u64) -> Self {
-        self.edit(move |params| params.polling_interval = Some(polling_interval))
+        self.edit(move |request| request.polling_interval = Some(polling_interval))
     }
     /// Where it runs; the main world when absent.
     pub fn world(self, world: ::goodfetch_protocol::page::functions::World) -> Self {
-        self.edit(move |params| params.world = Some(world))
+        self.edit(move |request| request.world = Some(world))
     }
 }
 
 impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::waits::LocatorWaitForParams> {
     /// The state; `visible` when absent.
     pub fn state(self, state: ::goodfetch_protocol::page::waits::ElementState) -> Self {
-        self.edit(move |params| params.state = Some(state))
+        self.edit(move |request| request.state = Some(state))
     }
 }
 
 impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::waits::WaitForExchangeParams> {
     /// The URLs it waits for.
     pub fn url(self, url: ::goodfetch_protocol::page::route::UrlMatcher) -> Self {
-        self.edit(move |params| params.url = Some(url))
+        self.edit(move |request| request.url = Some(url))
     }
 }
 
 impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::waits::WaitForFunctionParams> {
     /// Its one argument, JSON; absent for none.
     pub fn arg(self, arg: ::serde_json::Value) -> Self {
-        self.edit(move |params| params.arg = Some(arg))
+        self.edit(move |request| request.arg = Some(arg))
     }
     /// The milliseconds between two checks, at least 1; absent, about one
     /// frame's, 16.
     pub fn polling_interval(self, polling_interval: u64) -> Self {
-        self.edit(move |params| params.polling_interval = Some(polling_interval))
+        self.edit(move |request| request.polling_interval = Some(polling_interval))
     }
     /// Where it runs; the main world when absent.
     pub fn world(self, world: ::goodfetch_protocol::page::functions::World) -> Self {
-        self.edit(move |params| params.world = Some(world))
+        self.edit(move |request| request.world = Some(world))
     }
 }
 
 impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::waits::WaitForLoadStateParams> {
     /// The state; `load` when absent.
     pub fn state(self, state: ::goodfetch_protocol::page::waits::LoadState) -> Self {
-        self.edit(move |params| params.state = Some(state))
+        self.edit(move |request| request.state = Some(state))
     }
 }
 
@@ -1549,7 +1635,7 @@ impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::waits::WaitForUrlPa
     /// The state a new document at that URL must reach; `load` when
     /// absent. A change within the document waits for none.
     pub fn wait_until(self, wait_until: ::goodfetch_protocol::page::waits::LoadState) -> Self {
-        self.edit(move |params| params.wait_until = Some(wait_until))
+        self.edit(move |request| request.wait_until = Some(wait_until))
     }
 }
 
@@ -1558,6 +1644,6 @@ impl<T> crate::blocking::Call<T, ::goodfetch_protocol::run::RunAbortParams> {
     /// names (ADR 0031): an engine that does not own the Run then answers
     /// `run_not_owned` instead of taking its writer role.
     pub fn forwarded(self, forwarded: bool) -> Self {
-        self.edit(move |params| params.forwarded = forwarded)
+        self.edit(move |request| request.forwarded = forwarded)
     }
 }

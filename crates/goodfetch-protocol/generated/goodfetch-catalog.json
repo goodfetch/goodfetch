@@ -1578,6 +1578,163 @@
         }
       ]
     },
+    "CdpCommandRefusedDetails": {
+      "description": "What `cdp_command_refused` details: the refused CDP method and why the\nengine refused it.",
+      "properties": {
+        "method": {
+          "arrived_in": "0.1",
+          "description": "The refused CDP method name.",
+          "type": "string"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "Why the command was refused.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "CdpSessionAnswer": {
+      "description": "What `cdp_session.send` answers: the browser's raw JSON result.",
+      "properties": {
+        "result": {
+          "arrived_in": "0.1",
+          "description": "The browser's JSON result."
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "type": "object"
+    },
+    "CdpSessionCloseParams": {
+      "additionalProperties": false,
+      "description": "What `cdp_session.close` takes: the CDP session to close.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "cdp_session_id": {
+          "$ref": "#/$defs/CdpSessionId",
+          "arrived_in": "0.1",
+          "description": "The CDP session."
+        }
+      },
+      "required": [
+        "cdp_session_id"
+      ],
+      "type": "object"
+    },
+    "CdpSessionClosed": {
+      "description": "What `cdp_session.close` answers once the CDP session is closed.",
+      "type": "object"
+    },
+    "CdpSessionEvent": {
+      "description": "What `cdp_session.event` carries: one raw CDP event from the page's target.",
+      "properties": {
+        "cdp_session_id": {
+          "$ref": "#/$defs/CdpSessionId",
+          "arrived_in": "0.1",
+          "description": "The CDP session."
+        },
+        "method": {
+          "arrived_in": "0.1",
+          "description": "The CDP event method name.",
+          "type": "string"
+        },
+        "params": {
+          "arrived_in": "0.1",
+          "description": "The event's raw JSON parameters."
+        }
+      },
+      "required": [
+        "cdp_session_id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "CdpSessionId": {
+      "description": "A raw CDP session opened on a page via `page.new_cdp_session`.",
+      "type": "string"
+    },
+    "CdpSessionOnEnded": {
+      "description": "What `cdp_session.on` answers when the CDP session or its page ends.",
+      "type": "object"
+    },
+    "CdpSessionOnParams": {
+      "additionalProperties": false,
+      "description": "What `cdp_session.on` takes: the CDP session and the CDP event method name\nto listen to (such as `Network.requestWillBeSent`).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "cdp_session_id": {
+          "$ref": "#/$defs/CdpSessionId",
+          "arrived_in": "0.1",
+          "description": "The CDP session."
+        },
+        "event": {
+          "arrived_in": "0.1",
+          "description": "The CDP event method name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cdp_session_id",
+        "event"
+      ],
+      "type": "object"
+    },
+    "CdpSessionOpened": {
+      "description": "What `page.new_cdp_session` answers: the opened CDP session's ID.",
+      "properties": {
+        "cdp_session_id": {
+          "$ref": "#/$defs/CdpSessionId",
+          "arrived_in": "0.1",
+          "description": "The opened CDP session."
+        }
+      },
+      "required": [
+        "cdp_session_id"
+      ],
+      "type": "object"
+    },
+    "CdpSessionSendParams": {
+      "additionalProperties": false,
+      "description": "What `cdp_session.send` takes: the CDP session, the raw CDP method name,\nand its optional JSON parameters.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "cdp_session_id": {
+          "$ref": "#/$defs/CdpSessionId",
+          "arrived_in": "0.1",
+          "description": "The CDP session."
+        },
+        "method": {
+          "arrived_in": "0.1",
+          "description": "The CDP method, such as `Emulation.setCPUThrottlingRate` or\n`Runtime.evaluate`.",
+          "type": "string"
+        },
+        "params": {
+          "arrived_in": "0.1",
+          "description": "The command's JSON parameters; omitted or `null` sends an empty object."
+        }
+      },
+      "required": [
+        "cdp_session_id",
+        "method"
+      ],
+      "type": "object"
+    },
     "CdpUrlConnectFailure": {
       "description": "Why nothing at a `cdp_url`'s address answered.",
       "oneOf": [
@@ -12433,6 +12590,25 @@
       "required": [
         "url",
         "navigated_to"
+      ],
+      "type": "object"
+    },
+    "PageNewCdpSessionParams": {
+      "additionalProperties": false,
+      "description": "What `page.new_cdp_session` takes: the page to attach to.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        }
+      },
+      "required": [
+        "page_id"
       ],
       "type": "object"
     },
@@ -23800,6 +23976,19 @@
       },
       {
         "arrived_in": "0.1",
+        "description": "The engine refused a raw CDP command sent through a CDP session or a Lent page: commands that attach or close other targets, close the target, or on a Borrowed browser close or crash the browser are refused. The details name the `method` and `reason`.",
+        "details": {
+          "$ref": "#/$defs/CdpCommandRefusedDetails"
+        },
+        "exit_code": null,
+        "group": "refused",
+        "json_rpc_class": -32002,
+        "name": "cdp_command_refused",
+        "product": "collie",
+        "retryable": false
+      },
+      {
+        "arrived_in": "0.1",
         "description": "A `cdp_url` Session source names an address ADR 0056's rules refuse, before any connection: a private address from a value that is not Operator-configured, loopback from a Client acting for a model (its project configuration included) or a Recipe, or from any Client of an Exposed Daemon, or a private address under `egress.no_private_endpoints`. The details name the address without its query or credentials, the settings layer that gave it, the rule, the address it resolved to and the fix: set the address in Operator policy or in user configuration, or give a public address.",
         "details": {
           "$ref": "#/$defs/CdpUrlNotAllowedDetails"
@@ -25746,6 +25935,18 @@
       },
       {
         "arrived_in": "0.1",
+        "class": "lossless",
+        "deprecated": null,
+        "description": "A raw CDP event emitted by the page's target on an open CDP session.",
+        "name": "cdp_session.event",
+        "payload": {
+          "$ref": "#/$defs/CdpSessionEvent"
+        },
+        "product": "collie",
+        "stability": "experimental"
+      },
+      {
+        "arrived_in": "0.1",
         "class": "telemetry",
         "deprecated": null,
         "description": "The engine's Resource governor sampled: its Memory allowance and what set it, the memory the engine and its children use, the host's pressure, CPU and Tokio saturation, its level and what holds it there, and each kind's concurrency. Telemetry: a newer sample replaces an unsent one.",
@@ -26945,6 +27146,65 @@
         "reach": "all_surfaces",
         "result": {
           "$ref": "#/$defs/RunStarted"
+        },
+        "stability": "experimental"
+      },
+      {
+        "arrived_in": "0.1",
+        "cancellable": true,
+        "class": "idempotent_write",
+        "deprecated": null,
+        "description": "Closes the raw CDP session, releasing its page hold and external-reader mark; closing an already-closed CDP session succeeds.",
+        "events": [],
+        "kind": "round_trip",
+        "name": "cdp_session.close",
+        "params": {
+          "$ref": "#/$defs/CdpSessionCloseParams"
+        },
+        "product": "collie",
+        "reach": "sdk_only",
+        "result": {
+          "$ref": "#/$defs/CdpSessionClosed"
+        },
+        "stability": "experimental"
+      },
+      {
+        "arrived_in": "0.1",
+        "cancellable": true,
+        "class": "read",
+        "deprecated": null,
+        "description": "Subscribes to a raw CDP event on the CDP session's page target until cancelled or the session, page or lease ends.",
+        "events": [
+          "cdp_session.event"
+        ],
+        "kind": "event",
+        "name": "cdp_session.on",
+        "params": {
+          "$ref": "#/$defs/CdpSessionOnParams"
+        },
+        "product": "collie",
+        "reach": "sdk_only",
+        "result": {
+          "$ref": "#/$defs/CdpSessionOnEnded"
+        },
+        "stability": "experimental"
+      },
+      {
+        "arrived_in": "0.1",
+        "cancellable": true,
+        "class": "effect",
+        "deprecated": null,
+        "description": "Sends a raw CDP command on the CDP session's page target without queuing behind a Collie call (ADR 0085). Refuses commands that attach or close other targets, close the target, or close a Borrowed browser with `cdp_command_refused`.",
+        "events": [],
+        "kind": "round_trip",
+        "name": "cdp_session.send",
+        "params": {
+          "$ref": "#/$defs/CdpSessionSendParams"
+        },
+        "product": "collie",
+        "reach": "sdk_only",
+        "result": {
+          "$ref": "#/$defs/CdpSessionAnswer"
         },
         "stability": "experimental"
       },
@@ -28271,6 +28531,25 @@
         "reach": "all_surfaces",
         "result": {
           "$ref": "#/$defs/Acted"
+        },
+        "stability": "experimental"
+      },
+      {
+        "arrived_in": "0.1",
+        "cancellable": true,
+        "class": "effect",
+        "deprecated": null,
+        "description": "Opens a raw CDP session on the page over the program's own connection, reaching only its page's target (ADR 0085). Marks results unguarded, records the attach in the Audit log, stops Secret typing while open, holds the page for the browser pool, and binds to a handler's lease check. Raises `capability_unavailable` on Firefox and WebKit.",
+        "events": [],
+        "kind": "round_trip",
+        "name": "page.new_cdp_session",
+        "params": {
+          "$ref": "#/$defs/PageNewCdpSessionParams"
+        },
+        "product": "collie",
+        "reach": "sdk_only",
+        "result": {
+          "$ref": "#/$defs/CdpSessionOpened"
         },
         "stability": "experimental"
       },
@@ -39686,6 +39965,13 @@
         "name": "captcha",
         "product": "collie",
         "type": "block_cause"
+      },
+      {
+        "arrived_in": "0.1",
+        "description": "A raw CDP session attached to a page through `page.new_cdp_session` (ADR 0085).",
+        "name": "cdp_session_attached",
+        "product": "collie",
+        "type": "audit_kind"
       },
       {
         "arrived_in": "0.1",

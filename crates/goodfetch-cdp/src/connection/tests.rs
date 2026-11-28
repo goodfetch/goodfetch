@@ -252,7 +252,7 @@ fn an_answer_past_the_framing_limit_fails_its_command_and_the_connection_goes_on
             (large.err(), next.map(|version| version.product), ended),
             (
                 Some(Failure::TooLarge {
-                    method: "Browser.getVersion"
+                    method: std::borrow::Cow::Borrowed("Browser.getVersion")
                 }),
                 Ok("Chrome/156.0.8078.4".to_owned()),
                 Ended::Dropped
@@ -318,7 +318,7 @@ fn a_command_queued_as_the_connection_ends_still_fails() {
                 tokio::task::yield_now().await;
             }
             place.send(Request {
-                method: "Browser.getVersion",
+                method: std::borrow::Cow::Borrowed("Browser.getVersion"),
                 session: None,
                 params: json!({}),
                 answer,
@@ -346,7 +346,7 @@ fn a_command_the_browser_never_answers_times_out() {
         assert_eq!(
             answer.err(),
             Some(Failure::TimedOut {
-                method: "Browser.getVersion"
+                method: std::borrow::Cow::Borrowed("Browser.getVersion")
             })
         );
     });
@@ -397,7 +397,7 @@ fn a_command_ends_at_its_timeout_while_the_browser_reads_nothing() {
                 matches!(
                     answer,
                     Ok(Err(Failure::TimedOut {
-                        method: "Browser.getVersion"
+                        method: std::borrow::Cow::Borrowed("Browser.getVersion")
                     }))
                 )
             })
@@ -491,7 +491,7 @@ fn a_command_on_a_session_the_browser_detached_fails_at_once() {
             matches!(
                 failed,
                 Ok(Err(Failure::Refused {
-                    method: "Browser.getVersion",
+                    method: std::borrow::Cow::Borrowed("Browser.getVersion"),
                     refusal: crate::Refusal::TargetGone,
                     ..
                 }))
@@ -881,7 +881,7 @@ fn a_command_whose_caller_timed_out_leaves_the_pending_map() {
         assert_eq!(
             answer.err(),
             Some(Failure::TimedOut {
-                method: "Browser.getVersion"
+                method: std::borrow::Cow::Borrowed("Browser.getVersion")
             })
         );
     });
@@ -949,7 +949,7 @@ fn an_answer_to_a_command_whose_caller_had_gone_is_dropped() {
             (late.err(), next.map(|version| version.product), unread),
             (
                 Some(Failure::TimedOut {
-                    method: "Browser.getVersion"
+                    method: std::borrow::Cow::Borrowed("Browser.getVersion")
                 }),
                 Ok("Chrome/156.0.8078.4".to_owned()),
                 true
@@ -1240,13 +1240,13 @@ fn a_burst_is_written_whole_before_its_first_answer() {
 /// succeed, and within its one timeout however many answers are late.
 #[rstest]
 #[case::a_command_the_browser_refuses(Some(1), Failure::Refused {
-    method: "Input.insertText",
+    method: std::borrow::Cow::Borrowed("Input.insertText"),
     refusal: Refusal::Unrecognized,
     code: -32000,
     message: PartyText::new("refused"),
 })]
 #[case::a_command_the_browser_never_answers(None, Failure::TimedOut {
-    method: "Input.insertText",
+    method: std::borrow::Cow::Borrowed("Input.insertText"),
 })]
 fn a_burst_fails_as_its_first_command_that_does(
     #[case] refused: Option<usize>,

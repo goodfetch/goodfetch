@@ -23,6 +23,11 @@ export type CollieWireType =
   | "CacheVerified"
   | "CatalogRunStartParams"
   | "CatalogTarget"
+  | "CdpSessionCloseParams"
+  | "CdpSessionEvent"
+  | "CdpSessionOnParams"
+  | "CdpSessionOpened"
+  | "CdpSessionSendParams"
   | "CdpUrlNotBrowserDetails"
   | "CertificateChangedDetails"
   | "CertificateExceptionMark"
@@ -135,6 +140,7 @@ export type CollieWireType =
   | "PageFormats"
   | "PageMemoryExceededDetails"
   | "PageNavigatedDuringCallDetails"
+  | "PageNewCdpSessionParams"
   | "PageOnDialogParams"
   | "PageOnParams"
   | "PageOpened"
@@ -275,6 +281,11 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "CacheVerified": { fields: { "damaged": ["damaged", { items: { type: "CacheDamage" } }] } },
     "CatalogRunStartParams": { fields: { "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId", "target": ["target", { type: "CatalogTarget" }] } },
     "CatalogTarget": { fields: { "max_steps": "maxSteps" } },
+    "CdpSessionCloseParams": { fields: { "cdp_session_id": "cdpSessionId" } },
+    "CdpSessionEvent": { fields: { "cdp_session_id": "cdpSessionId" } },
+    "CdpSessionOnParams": { fields: { "cdp_session_id": "cdpSessionId" } },
+    "CdpSessionOpened": { fields: { "cdp_session_id": "cdpSessionId" } },
+    "CdpSessionSendParams": { fields: { "cdp_session_id": "cdpSessionId" } },
     "CdpUrlNotBrowserDetails": { fields: { "browser_url": "browserURL" } },
     "CertificateChangedDetails": { fields: { "pinned_spki_sha256": "pinnedSpkiSha256", "presented_spki_sha256": "presentedSpkiSha256" } },
     "CertificateExceptionMark": { fields: { "spki_sha256": "spkiSha256" } },
@@ -387,6 +398,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "PageFormats": { fields: { "base_url": "baseURL", "main_content": "mainContent", "metadata": ["metadata", { type: "Metadata" }], "tables": ["tables", { items: { type: "Table" } }] } },
     "PageMemoryExceededDetails": { fields: { "page_id": "pageId" } },
     "PageNavigatedDuringCallDetails": { fields: { "navigated_to": "navigatedTo" } },
+    "PageNewCdpSessionParams": { fields: { "page_id": "pageId" } },
     "PageOnDialogParams": { fields: { "page_id": "pageId" } },
     "PageOnParams": { fields: { "page_id": "pageId" } },
     "PageOpened": { fields: { "page_id": "pageId", "session_id": "sessionId" } },
@@ -510,6 +522,9 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
   params: {
     "cache.clear": { type: "CacheClearParams" },
     "catalog_run.start": { type: "CatalogRunStartParams" },
+    "cdp_session.close": { type: "CdpSessionCloseParams" },
+    "cdp_session.on": { type: "CdpSessionOnParams" },
+    "cdp_session.send": { type: "CdpSessionSendParams" },
     "config.explain": { type: "ConfigExplainParams" },
     "connection.set_log_level": { type: "SetLogLevelParams" },
     "dialog.accept": { type: "DialogAcceptParams" },
@@ -551,6 +566,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "page.mouse.move": { type: "MouseMoveParams" },
     "page.mouse.up": { type: "MouseButtonParams" },
     "page.mouse.wheel": { type: "MouseWheelParams" },
+    "page.new_cdp_session": { type: "PageNewCdpSessionParams" },
     "page.on": { type: "PageOnParams" },
     "page.on_dialog": { type: "PageOnDialogParams" },
     "page.pause": { type: "PagePauseParams" },
@@ -622,6 +638,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "page.go_back": { type: "Navigated" },
     "page.go_forward": { type: "Navigated" },
     "page.goto": { type: "Navigated" },
+    "page.new_cdp_session": { type: "CdpSessionOpened" },
     "page.pause": { type: "HumanPauseResult" },
     "page.reload": { type: "Navigated" },
     "page.request": { type: "PageResponse" },
@@ -661,6 +678,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
   },
   events: {
     "browser_cache.download_progress": { type: "DownloadProgress" },
+    "cdp_session.event": { type: "CdpSessionEvent" },
     "engine.system_info": { type: "SystemInfo" },
     "events.resync": { type: "Resync" },
     "needs_you.changed": { type: "NeedsYouChange" },

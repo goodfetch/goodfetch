@@ -519,6 +519,15 @@ class AsyncPage(AsyncHandle):
         response = result_of(models.Navigated, await self._host.call("page.goto", params, timeout_setting="timeout.navigation")).response
         return None if response is None else AsyncResponse(self._host, response)
 
+    async def new_cdp_session(self) -> AsyncCDPSession:
+        """Opens a raw CDP session on the page over the program's own connection, reaching only its page's target (ADR 0085). Marks results unguarded, records the attach in the Audit log, stops Secret typing while open, holds the page for the browser pool, and binds to a handler's lease check. Raises `capability_unavailable` on Firefox and WebKit.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.new_cdp_session")
+        opened = result_of(models.CdpSessionOpened, await self._host.call("page.new_cdp_session", models.PageNewCdpSessionParams(page_id=self._host.id)))
+        return AsyncCDPSession(self._host.child(opened.cdp_session_id))
+
     async def pause(self, *, reason: str | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given, until: models.PauseUntil | None | NotGiven = not_given) -> models.HumanPauseResult:
         """Waits for a person in the headful window or the Live view, stopping every enclosing clock while Limits keep counting, holding the page's later Gestures while reads and waits run, and ending when `until` holds or a person answers `page.pause_answer` (ADRs 0092 and 0113). Closing the page's window or quitting the browser ends the pause with `call_cancelled` naming what closed, never `human_pause_declined`.
 
@@ -891,6 +900,34 @@ class AsyncSchedule(AsyncHandle):
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.wait")
         return result_of(models.ScheduleInfo, await self._host.call("schedule.info", params, timeout_setting="timeout.wait"))
+
+
+class AsyncCDPSession(AsyncHandle):
+    """A `cdp_session` a program holds: the members the catalog gives it (ADR 0099)."""
+
+    def __init__(self, host: AsyncHandleHost[models.CdpSessionId]) -> None:
+        """Takes what it reaches its engine through; a program never constructs one."""
+        self._host = host
+        super().__init__(host, "cdp_session", "cdp_session_id")
+
+    async def close(self) -> models.CdpSessionClosed:
+        """Closes the raw CDP session, releasing its page hold and external-reader mark; closing an already-closed CDP session succeeds.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("cdp_session.close")
+        return result_of(models.CdpSessionClosed, await self._host.call("cdp_session.close", models.CdpSessionCloseParams(cdp_session_id=self._host.id)))
+
+    async def send(self, method: str, *, params: Any | NotGiven = not_given) -> Any:
+        """Sends a raw CDP command on the CDP session's page target without queuing behind a Collie call (ADR 0085). Refuses commands that attach or close other targets, close the target, or close a Borrowed browser with `cdp_command_refused`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("cdp_session.send")
+        params = models.CdpSessionSendParams(cdp_session_id=self._host.id, method=method)
+        if not isinstance(params, NotGiven):
+            params.params = params
+        return result_of(models.CdpSessionAnswer, await self._host.call("cdp_session.send", params)).result
 
 
 class Run(Handle):
@@ -1373,6 +1410,15 @@ class Page(Handle):
         response = result_of(models.Navigated, self._host.call("page.goto", params, timeout_setting="timeout.navigation")).response
         return None if response is None else Response(self._host, response)
 
+    def new_cdp_session(self) -> CDPSession:
+        """Opens a raw CDP session on the page over the program's own connection, reaching only its page's target (ADR 0085). Marks results unguarded, records the attach in the Audit log, stops Secret typing while open, holds the page for the browser pool, and binds to a handler's lease check. Raises `capability_unavailable` on Firefox and WebKit.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.new_cdp_session")
+        opened = result_of(models.CdpSessionOpened, self._host.call("page.new_cdp_session", models.PageNewCdpSessionParams(page_id=self._host.id)))
+        return CDPSession(self._host.child(opened.cdp_session_id))
+
     def pause(self, *, reason: str | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given, until: models.PauseUntil | None | NotGiven = not_given) -> models.HumanPauseResult:
         """Waits for a person in the headful window or the Live view, stopping every enclosing clock while Limits keep counting, holding the page's later Gestures while reads and waits run, and ending when `until` holds or a person answers `page.pause_answer` (ADRs 0092 and 0113). Closing the page's window or quitting the browser ends the pause with `call_cancelled` naming what closed, never `human_pause_declined`.
 
@@ -1745,3 +1791,31 @@ class Schedule(Handle):
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.wait")
         return result_of(models.ScheduleInfo, self._host.call("schedule.info", params, timeout_setting="timeout.wait"))
+
+
+class CDPSession(Handle):
+    """A `cdp_session` a program holds: the members the catalog gives it (ADR 0099)."""
+
+    def __init__(self, host: HandleHost[models.CdpSessionId]) -> None:
+        """Takes what it reaches its engine through; a program never constructs one."""
+        self._host = host
+        super().__init__(host, "cdp_session", "cdp_session_id")
+
+    def close(self) -> models.CdpSessionClosed:
+        """Closes the raw CDP session, releasing its page hold and external-reader mark; closing an already-closed CDP session succeeds.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("cdp_session.close")
+        return result_of(models.CdpSessionClosed, self._host.call("cdp_session.close", models.CdpSessionCloseParams(cdp_session_id=self._host.id)))
+
+    def send(self, method: str, *, params: Any | NotGiven = not_given) -> Any:
+        """Sends a raw CDP command on the CDP session's page target without queuing behind a Collie call (ADR 0085). Refuses commands that attach or close other targets, close the target, or close a Borrowed browser with `cdp_command_refused`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("cdp_session.send")
+        params = models.CdpSessionSendParams(cdp_session_id=self._host.id, method=method)
+        if not isinstance(params, NotGiven):
+            params.params = params
+        return result_of(models.CdpSessionAnswer, self._host.call("cdp_session.send", params)).result

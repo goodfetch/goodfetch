@@ -289,6 +289,8 @@ struct Session {
     /// (ADR 0056; ticket #737): `session.save_identity` refuses it with
     /// `session_not_savable`.
     is_profile_directory: bool,
+    /// The browser family this Session runs on (Chromium, Firefox, WebKit).
+    browser_family: BrowserFamily,
     /// The cookies and `localStorage` last persisted to `page_sessions.state`,
     /// serialized per Session so concurrent navigations cannot overwrite newer
     /// state with older state.
@@ -374,6 +376,8 @@ pub(crate) struct OpenPage {
     /// Its human-like input state when its Session is `stealth` with
     /// `stealth.human_input` on (ADR 0035).
     pub(crate) human_input: Option<human_input::PageHumanInput>,
+    /// The browser family this page's Session runs on.
+    pub(crate) browser_family: BrowserFamily,
     /// Its admission of the governor's `browser_page` kind, given back once
     /// the page leaves and no call holds it.
     _admission: Arc<Permit>,
@@ -628,6 +632,10 @@ impl Sessions {
     /// Opens a Session of the live Run `params` names, from its own source,
     /// else the Run's, under its own settings: its browser context is made
     /// now, launching the Run's browser when no Session has.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "opens a Session across settings, access mode, emulation, egress, proxy, relay, and pool seating"
+    )]
     pub(crate) async fn new_session(
         &self,
         params: NewSessionParams,
@@ -645,6 +653,7 @@ impl Sessions {
                 .map_err(|error| settings_error(&error, context))?;
         }
         let settings = extractor_installed(settings, &run, context).await?;
+        let browser_family = BrowserFamily::of(named.as_ref().map(|n| &n.source));
         let (identity, emulation) =
             session_plans(&settings, &run.identity, named.as_ref(), context)?;
         let seed = IdentitySeed(run.entropy.fork().await.next_u64());
@@ -725,6 +734,7 @@ impl Sessions {
                 page_listeners: session_pages::PageListeners::default(),
                 run_index: context.engine().run_index().clone(),
                 is_profile_directory: opened.profile().is_some(),
+                browser_family,
                 saved_state,
             });
             self.index.opened(&session, Arc::clone(&open));
@@ -821,6 +831,10 @@ impl Sessions {
     /// `stealth`; and answers its position: its signing key is resolved,
     /// and its proxy and the default Session's record in run state are
     /// opened and written, outside the table's lock.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "opens a held default or pool Session across identity, egress, proxy, relay, and pool seating"
+    )]
     async fn open_held(
         &self,
         run: &Arc<BrowserRun>,
@@ -924,6 +938,7 @@ impl Sessions {
             page_listeners: session_pages::PageListeners::default(),
             run_index: context.engine().run_index().clone(),
             is_profile_directory: source.profile().is_some(),
+            browser_family: BrowserFamily::Chromium,
             saved_state: Arc::default(),
         });
         {
@@ -2099,6 +2114,10 @@ fn recorded_settings(
 /// into its next browser context, under an owner of its own, a child of the
 /// Run's. A proxy or signing key it cannot reopen is kept as its
 /// `reopen_failed`, which each page it is asked for raises.
+#[expect(
+    clippy::too_many_lines,
+    reason = "reopens a recorded Session across source, state import, egress, identity, and pool seating"
+)]
 async fn reopened_session(
     (run, pool, human_cell): (&Arc<BrowserRun>, &Pool, &OnceCell<human_input::Plan>),
     position: u32,
@@ -2212,6 +2231,7 @@ async fn reopened_session(
         page_listeners: session_pages::PageListeners::default(),
         run_index: context.engine().run_index().clone(),
         is_profile_directory: false,
+        browser_family: BrowserFamily::Chromium,
         saved_state,
     })
 }

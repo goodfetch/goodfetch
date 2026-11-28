@@ -876,10 +876,10 @@ impl Module {
                 own.entry(name.clone()).or_insert_with(|| {
                     let body = match &setter.scope {
                         Some(scope) => format!(
-                            "self.try_edit(move |params| {{\n            params.{name} = {}.within(::goodfetch_protocol::catalog::SettingScope::{scope})?;\n            Ok(())\n        }})",
+                            "self.try_edit(move |request| {{\n            request.{name} = {}.within(::goodfetch_protocol::catalog::SettingScope::{scope})?;\n            Ok(())\n        }})",
                             setter.set
                         ),
-                        None => format!("self.edit(move |params| params.{name} = {})", setter.set),
+                        None => format!("self.edit(move |request| request.{name} = {})", setter.set),
                     };
                     format!(
                         "{}    pub fn {name}(self, {name}: {}) -> Self {{\n        {body}\n    }}\n",

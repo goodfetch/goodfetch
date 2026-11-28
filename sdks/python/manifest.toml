@@ -3400,6 +3400,10 @@ reason = "Issue 1494 adds `seeds`, `add_seed` and `add_seeds` to a running crawl
 entries = ["run.outcomes", "run.failed_requests", "run.retry_failed"]
 reason = "Issue 1495 adds `outcomes`, `failed_requests` and `retry_failed`."
 
+[[unreached]]
+entries = ["cdp_session.on"]
+reason = "Issue 1304 adds `CDPSession.on` event streaming to the Python SDK."
+
 [[logger]]
 package = "goodfetch-collie-client"
 name = "goodfetch"

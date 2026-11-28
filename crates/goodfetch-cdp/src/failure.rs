@@ -4,6 +4,7 @@
 //! a browser that is gone. The browser's own message is kept for diagnosis
 //! in [`PartyText`], which has no accessor and formats redacted.
 
+use std::borrow::Cow;
 use std::fmt;
 
 /// The browser's own text, never matched on outside this module and
@@ -57,7 +58,7 @@ pub enum Failure {
     #[error("the browser refused `{method}` ({code}): {message}")]
     Refused {
         /// The command's method.
-        method: &'static str,
+        method: Cow<'static, str>,
         /// What the refusal says.
         refusal: Refusal,
         /// The error's JSON-RPC code.
@@ -69,7 +70,7 @@ pub enum Failure {
     #[error("the browser did not answer `{method}` in time")]
     TimedOut {
         /// The command's method.
-        method: &'static str,
+        method: Cow<'static, str>,
     },
     /// The connection to the browser ended: its process exited or closed
     /// its end of the pipe.
@@ -80,7 +81,7 @@ pub enum Failure {
     #[error("`{method}` was withheld: the lease of the page's work item ended")]
     Withheld {
         /// The command's method.
-        method: &'static str,
+        method: Cow<'static, str>,
     },
     /// The browser's answer was longer than the connection reads in one
     /// message ([`crate::MAX_FRAME`]): it was dropped, and the connection
@@ -88,13 +89,13 @@ pub enum Failure {
     #[error("the browser's answer to `{method}` is longer than one message the connection reads")]
     TooLarge {
         /// The command's method.
-        method: &'static str,
+        method: Cow<'static, str>,
     },
     /// The browser's answer is not what the command returns.
     #[error("the browser's answer to `{method}` is not what it returns: {message}")]
     Unreadable {
         /// The command's method.
-        method: &'static str,
+        method: Cow<'static, str>,
         /// What did not read.
         message: PartyText,
     },
@@ -118,7 +119,8 @@ const REFUSALS: [(&str, Refusal); 8] = [
 
 impl Failure {
     /// The failure an error object of the browser's answer to `method` is.
-    pub(crate) fn refused(method: &'static str, error: &serde_json::Value) -> Self {
+    pub(crate) fn refused(method: impl Into<Cow<'static, str>>, error: &serde_json::Value) -> Self {
+        let method = method.into();
         let code = error
             .get("code")
             .and_then(serde_json::Value::as_i64)
@@ -133,7 +135,7 @@ impl Failure {
             .map_or(Refusal::Unrecognized, |(_, refusal)| *refusal);
         if refusal == Refusal::Unrecognized {
             tracing::warn!(
-                method,
+                method = method.as_ref(),
                 code,
                 message,
                 "an unrecognized refusal of the browser's"

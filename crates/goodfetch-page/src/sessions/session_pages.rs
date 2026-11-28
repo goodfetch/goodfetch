@@ -398,6 +398,7 @@ impl Sessions {
             page_check,
             injections: open.injections.clone(),
             human_input,
+            browser_family: open.browser_family,
             _admission: Arc::new(admission),
             in_browser: Arc::new(in_browser),
         };

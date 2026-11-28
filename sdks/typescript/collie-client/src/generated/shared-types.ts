@@ -5,6 +5,7 @@
  *
  * - `audit_log_anchor`: The first entry of a pruned Audit log, in place of the entries `audit.retention` pruned: the last pruned sequence, its hash, from which the rest chains, and the time and layer of the pruning that left it.
  * - `audit_log_pruned`: `audit.retention` pruned the Audit log's beginning: the last pruned sequence and its hash, which the anchor carries, and the retention, with the layer that set it.
+ * - `cdp_session_attached`: A raw CDP session attached to a page through `page.new_cdp_session` (ADR 0085).
  * - `certificate_any_used`: A run reached a host whose domain accepts any certificate, `any` (ADR 0042).
  * - `certificate_change_accepted`: A person accepted a pinned host's changed certificate, with both hashes (ADR 0042).
  * - `certificate_exceptions_used`: The certificate exceptions a run used, once per run, by host and kind (ADR 0042).
@@ -33,7 +34,7 @@
  * - `wall_allowance_used`: A Run used the Wall allowance on a domain in `wall.domains`, recorded once per Run and domain (ADR 0052); `details` give the `domain`, the Wall `kind`, and the `actions` taken.
  * - `wall_domain_denied`: A person added a domain to `wall.denied_domains` in the Operator policy, so no run reads past its Walls or refetches its pages (ADR 0052); `details` give the `domain` and the `reason`.
  */
-export type AuditKind = "audit_log_anchor" | "audit_log_pruned" | "certificate_any_used" | "certificate_change_accepted" | "certificate_exceptions_used" | "certificate_pin_forgotten" | "certificate_pinned" | "consent_domain_allowed" | "effect_reconciled" | "endpoint_authentication_failed" | "endpoint_refusals_folded" | "exposed_daemon_set_up" | "fingerprint_method_chosen" | "human_pause_ended" | "lent_page_attached" | "operator_policy_written" | "pressing_harder_value_set" | "private_addresses_allowed" | "raw_cdp_attached" | "refetch_domain_removed" | "run_rolled_back" | "secret_reference_used" | "security_switch_turned_off" | "session_exported" | "session_imported" | "tls_terminated_upstream" | "user_configuration_written" | "wall_allowance_used" | "wall_domain_denied" | (string & {});
+export type AuditKind = "audit_log_anchor" | "audit_log_pruned" | "cdp_session_attached" | "certificate_any_used" | "certificate_change_accepted" | "certificate_exceptions_used" | "certificate_pin_forgotten" | "certificate_pinned" | "consent_domain_allowed" | "effect_reconciled" | "endpoint_authentication_failed" | "endpoint_refusals_folded" | "exposed_daemon_set_up" | "fingerprint_method_chosen" | "human_pause_ended" | "lent_page_attached" | "operator_policy_written" | "pressing_harder_value_set" | "private_addresses_allowed" | "raw_cdp_attached" | "refetch_domain_removed" | "run_rolled_back" | "secret_reference_used" | "security_switch_turned_off" | "session_exported" | "session_imported" | "tls_terminated_upstream" | "user_configuration_written" | "wall_allowance_used" | "wall_domain_denied" | (string & {});
 
 /**
  * A `block_cause`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).

@@ -3462,3 +3462,7 @@ reason = "Issue 1494 adds `seeds()`, `addSeed` and `addSeeds` to a running crawl
 [[unreached]]
 entries = ["run.outcomes", "run.failed_requests", "run.retry_failed"]
 reason = "Issue 1495 adds `outcomes`, `failedRequests` and `retryFailed`."
+
+[[unreached]]
+entries = ["cdp_session.on"]
+reason = "Issue 1304 adds `CDPSession.on` event streaming to the TypeScript SDK."

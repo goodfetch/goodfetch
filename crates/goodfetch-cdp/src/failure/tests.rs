@@ -51,7 +51,7 @@ fn an_error_with_no_message_is_unrecognized() {
     &json!({ "code": -32000, "message": "bad cookie session=hunter2" })
 ))]
 #[case::unreadable(Failure::Unreadable {
-    method: "Network.getCookies",
+    method: std::borrow::Cow::Borrowed("Network.getCookies"),
     message: PartyText::new(r#"invalid type: string "session=hunter2""#),
 })]
 fn a_failure_formats_the_browsers_own_text_redacted(#[case] failure: Failure) {

@@ -10,10 +10,11 @@ from typing import Final
 
 from pydantic import BaseModel
 
-from .models import ConsoleMessage, DownloadProgress, NeedsYouChange, PageDownload, PageExchange, PageFired, PageOpened, PagePopup, PageRequest, PageWebSocket, Resync, RunAborting, RunAxes, RunCheckpointing, RunMigrating, RunProgress, RunStopping, SampleEchoed, SystemInfo, WebError, WebSocketClosed, WebSocketFrame
+from .models import CdpSessionEvent, ConsoleMessage, DownloadProgress, NeedsYouChange, PageDownload, PageExchange, PageFired, PageOpened, PagePopup, PageRequest, PageWebSocket, Resync, RunAborting, RunAxes, RunCheckpointing, RunMigrating, RunProgress, RunStopping, SampleEchoed, SystemInfo, WebError, WebSocketClosed, WebSocketFrame
 
 EVENTS: Final[Mapping[str, type[BaseModel]]] = {
     "browser_cache.download_progress": DownloadProgress,
+    "cdp_session.event": CdpSessionEvent,
     "engine.system_info": SystemInfo,
     "events.resync": Resync,
     "needs_you.changed": NeedsYouChange,
@@ -45,6 +46,7 @@ EVENTS: Final[Mapping[str, type[BaseModel]]] = {
 """The payload type of each event:
 
 - `browser_cache.download_progress`: A Pinned artifact the call needs is downloading into the Browser cache: the bytes received so far, out of those announced.
+- `cdp_session.event`: A raw CDP event emitted by the page's target on an open CDP session.
 - `engine.system_info`: The engine's Resource governor sampled: its Memory allowance and what set it, the memory the engine and its children use, the host's pressure, CPU and Tokio saturation, its level and what holds it there, and each kind's concurrency. Telemetry: a newer sample replaces an unsent one.
 - `events.resync`: The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, every live Run's axes and every item of "Needs you", from which the stream continues.
 - `needs_you.changed`: An item of "Needs you" appeared, changed or left the list: resolved, by a person or by its Run, or dismissed. Lossless: a subscription that falls behind next takes `events.resync`, which holds every item.
@@ -75,6 +77,7 @@ EVENTS: Final[Mapping[str, type[BaseModel]]] = {
 """
 
 EXPERIMENTAL_EVENTS: Final[frozenset[str]] = frozenset({
+    "cdp_session.event",
     "engine.system_info",
     "events.resync",
     "needs_you.changed",

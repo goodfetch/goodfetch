@@ -391,10 +391,42 @@ impl Browser {
         self.connection.burst(session, commands, limit).await
     }
 
+    /// Sends a raw CDP command `method` with `params` on `session` within the
+    /// deadline of `call`, checking the page's in-memory lease before sending
+    /// (ADR 0085, ADR 0140, ticket #751).
+    async fn send_raw(
+        &self,
+        session: Option<&TargetSession>,
+        method: String,
+        params: serde_json::Value,
+        call: &Call,
+    ) -> Result<serde_json::Value, CallError> {
+        let limit = self.deadlines.command_limit(call);
+        let method: Cow<'static, str> = Cow::Owned(method);
+        let result = match self.leased_method(method.clone()) {
+            Ok(()) => {
+                self.counted();
+                self.connection
+                    .send_raw(method, session, params, limit)
+                    .await
+            }
+            Err(failure) => Err(failure),
+        };
+        match result {
+            Ok(returned) => Ok(returned),
+            Err(failure) => Err(self.failed(call, &failure).await),
+        }
+    }
+
     /// Withholds the command `C` once the page's work item's lease ended.
     fn leased<C: Command>(&self) -> Result<(), Failure> {
+        self.leased_method(Cow::Borrowed(C::METHOD))
+    }
+
+    /// Withholds `method` once the page's work item's lease ended.
+    fn leased_method(&self, method: Cow<'static, str>) -> Result<(), Failure> {
         match self.request.as_ref().and_then(RequestValue::lease) {
-            Some(lease) if lease.check().is_err() => Err(Failure::Withheld { method: C::METHOD }),
+            Some(lease) if lease.check().is_err() => Err(Failure::Withheld { method }),
             _ => Ok(()),
         }
     }
@@ -1441,13 +1473,6 @@ pub(crate) struct NavigationCall<'page>(&'page watch::Sender<u32>);
 
 /// Marks a page as readable by external code (an open CDP session or a Lent
 /// page) until dropped (ADR 0092, ticket #733).
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "used by #751 (page.newCDPSession) and #749 (page.lend), and tested by #733"
-    )
-)]
 pub(crate) struct OtherCodeGuard {
     counter: Arc<watch::Sender<usize>>,
 }
@@ -1516,20 +1541,33 @@ impl PageDriver {
         !self.browser.launched || *self.other_code.borrow() > 0
     }
 
+    /// Whether this page's browser is a Borrowed browser (not launched by the
+    /// engine).
+    pub(crate) fn is_borrowed(&self) -> bool {
+        !self.browser.launched
+    }
+
     /// Marks this page as readable by other code until the returned guard is
     /// dropped (for an open CDP session or a Lent page).
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "used by #751 (page.newCDPSession) and #749 (page.lend), and tested by #733"
-        )
-    )]
     pub(crate) fn attach_other_code(&self) -> OtherCodeGuard {
         self.other_code.send_modify(|n| *n += 1);
         OtherCodeGuard {
             counter: Arc::clone(&self.other_code),
         }
+    }
+
+    /// Sends a raw CDP command on the page's target session without acquiring
+    /// the page's gesture turn (ADR 0085, ticket #751). Checks the page's
+    /// in-memory lease before sending.
+    pub(crate) async fn send_raw_cdp(
+        &self,
+        method: String,
+        params: serde_json::Value,
+        call: &Call,
+    ) -> Result<serde_json::Value, CallError> {
+        self.browser
+            .send_raw(Some(&self.session), method, params, call)
+            .await
     }
 
     /// Whether the browser asks the engine for authentication credentials:

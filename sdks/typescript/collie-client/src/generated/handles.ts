@@ -662,6 +662,17 @@ export class Page extends Handle implements AsyncDisposable {
   }
 
   /**
+   * Opens a raw CDP session on the page over the program's own connection, reaching only its page's target (ADR 0085). Marks results unguarded, records the attach in the Audit log, stops Secret typing while open, holds the page for the browser pool, and binds to a handler's lease check. Raises `capability_unavailable` on Firefox and WebKit.
+   *
+   * @experimental
+   */
+  async newCDPSession(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<CDPSession> {
+    warnExperimental("page.new_cdp_session");
+    const opened = await this.#host.call("page.new_cdp_session", { pageId: this.#host.id }, { signal: options.signal });
+    return new CDPSession(this.#host.child(opened.cdpSessionId));
+  }
+
+  /**
    * Waits for a person in the headful window or the Live view, stopping every enclosing clock while Limits keep counting, holding the page's later Gestures while reads and waits run, and ending when `until` holds or a person answers `page.pause_answer` (ADRs 0092 and 0113). Closing the page's window or quitting the browser ends the pause with `call_cancelled` naming what closed, never `human_pause_declined`.
    *
    * @experimental
@@ -933,5 +944,47 @@ export class Schedule extends Handle {
   async info(options: { readonly timeout?: types.ScheduleParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.ScheduleInfo> {
     warnExperimental("schedule.info");
     return this.#host.call("schedule.info", defined({ scheduleId: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.wait") }), { signal: options.signal, deadline: { key: "timeout.wait", value: options.timeout } });
+  }
+}
+
+let idInCDPSession: (handle: CDPSession) => types.CdpSessionId;
+
+/** @internal The ID `handle`'s calls carry, for a Product's package whose own calls name it (ADR 0093); never for programs. */
+export function idOfCDPSession(handle: CDPSession): types.CdpSessionId {
+  return idInCDPSession(handle);
+}
+
+/** A `cdp_session` a program holds: the members the catalog gives it (ADR 0099). */
+export class CDPSession extends Handle {
+  static {
+    idInCDPSession = (handle) => handle.#host.id;
+  }
+
+  readonly #host: HandleHost<types.CdpSessionId, CollieOperationTypes>;
+
+  /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
+  constructor(host: HandleHost<types.CdpSessionId, CollieOperationTypes>) {
+    super(host, "cdp_session", "cdp_session_id", { type: "CdpSessionId" });
+    this.#host = host;
+  }
+
+  /**
+   * Closes the raw CDP session, releasing its page hold and external-reader mark; closing an already-closed CDP session succeeds.
+   *
+   * @experimental
+   */
+  async close(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<types.CdpSessionClosed> {
+    warnExperimental("cdp_session.close");
+    return this.#host.call("cdp_session.close", { cdpSessionId: this.#host.id }, { signal: options.signal });
+  }
+
+  /**
+   * Sends a raw CDP command on the CDP session's page target without queuing behind a Collie call (ADR 0085). Refuses commands that attach or close other targets, close the target, or close a Borrowed browser with `cdp_command_refused`.
+   *
+   * @experimental
+   */
+  async send(method: types.CdpSessionSendParams["method"], options: { readonly params?: types.CdpSessionSendParams["params"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.CdpSessionAnswer["result"]> {
+    warnExperimental("cdp_session.send");
+    return (await this.#host.call("cdp_session.send", defined({ cdpSessionId: this.#host.id, method, params: options.params }), { signal: options.signal })).result;
   }
 }

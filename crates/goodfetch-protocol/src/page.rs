@@ -54,6 +54,7 @@ use crate::settings::SettingLimit;
 
 pub mod access_mode;
 pub mod ai_work;
+pub mod cdp_session;
 pub mod cdp_url;
 pub mod dialog;
 pub mod emulation;
@@ -2040,6 +2041,10 @@ pub const ENTRIES: Entries = Entries {
         pause::PAGE_PAUSE,
         pause::PAGE_PAUSE_ANSWER,
         session::SESSION_SAVE_IDENTITY,
+        cdp_session::PAGE_NEW_CDP_SESSION,
+        cdp_session::CDP_SESSION_SEND,
+        cdp_session::CDP_SESSION_CLOSE,
+        cdp_session::CDP_SESSION_ON,
     ],
     events: &[
         PAGE_DOWNLOAD,
@@ -2059,6 +2064,7 @@ pub const ENTRIES: Entries = Entries {
         PAGE_CLOSE,
         PAGE_POPUP,
         SESSION_PAGE,
+        cdp_session::CDP_SESSION_EVENT,
     ],
     handler_requests: &[ROUTE_HANDLE, DIALOG_HANDLE],
     error_codes: &[
@@ -2094,6 +2100,7 @@ pub const ENTRIES: Entries = Entries {
         session::PROFILE_DIRECTORY_BROWSER_MISMATCH,
         session::PROFILE_DIRECTORY_NEWER_THAN_BROWSER,
         session::SESSION_NOT_SAVABLE,
+        cdp_session::CDP_COMMAND_REFUSED,
     ],
     plugin_kinds: &[],
     metrics: &[],
@@ -2109,7 +2116,7 @@ pub const ENTRIES: Entries = Entries {
         EXTRACTION_READABILITY,
     ],
     hook_stages: &[],
-    shared_type_values: &[],
+    shared_type_values: &[cdp_session::CDP_SESSION_ATTACHED],
 };
 
 #[cfg(test)]

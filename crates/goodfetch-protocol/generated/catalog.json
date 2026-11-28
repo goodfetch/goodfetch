@@ -201,6 +201,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The engine refused a raw CDP command sent through a CDP session or a Lent page: commands that attach or close other targets, close the target, or on a Borrowed browser close or crash the browser are refused. The details name the `method` and `reason`.",
+      "details": {
+        "$ref": "#/$defs/CdpCommandRefusedDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "cdp_command_refused",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A `cdp_url` Session source names an address ADR 0056's rules refuse, before any connection: a private address from a value that is not Operator-configured, loopback from a Client acting for a model (its project configuration included) or a Recipe, or from any Client of an Exposed Daemon, or a private address under `egress.no_private_endpoints`. The details name the address without its query or credentials, the settings layer that gave it, the rule, the address it resolved to and the fix: set the address in Operator policy or in user configuration, or give a public address.",
       "details": {
         "$ref": "#/$defs/CdpUrlNotAllowedDetails"
@@ -2147,6 +2160,18 @@
     },
     {
       "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
+      "description": "A raw CDP event emitted by the page's target on an open CDP session.",
+      "name": "cdp_session.event",
+      "payload": {
+        "$ref": "#/$defs/CdpSessionEvent"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "class": "telemetry",
       "deprecated": null,
       "description": "The engine's Resource governor sampled: its Memory allowance and what set it, the memory the engine and its children use, the host's pressure, CPU and Tokio saturation, its level and what holds it there, and each kind's concurrency. Telemetry: a newer sample replaces an unsent one.",
@@ -3346,6 +3371,65 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunStarted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Closes the raw CDP session, releasing its page hold and external-reader mark; closing an already-closed CDP session succeeds.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "cdp_session.close",
+      "params": {
+        "$ref": "#/$defs/CdpSessionCloseParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/CdpSessionClosed"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Subscribes to a raw CDP event on the CDP session's page target until cancelled or the session, page or lease ends.",
+      "events": [
+        "cdp_session.event"
+      ],
+      "kind": "event",
+      "name": "cdp_session.on",
+      "params": {
+        "$ref": "#/$defs/CdpSessionOnParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/CdpSessionOnEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Sends a raw CDP command on the CDP session's page target without queuing behind a Collie call (ADR 0085). Refuses commands that attach or close other targets, close the target, or close a Borrowed browser with `cdp_command_refused`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "cdp_session.send",
+      "params": {
+        "$ref": "#/$defs/CdpSessionSendParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/CdpSessionAnswer"
       },
       "stability": "experimental"
     },
@@ -4672,6 +4756,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Opens a raw CDP session on the page over the program's own connection, reaching only its page's target (ADR 0085). Marks results unguarded, records the attach in the Audit log, stops Secret typing while open, holds the page for the browser pool, and binds to a handler's lease check. Raises `capability_unavailable` on Firefox and WebKit.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.new_cdp_session",
+      "params": {
+        "$ref": "#/$defs/PageNewCdpSessionParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/CdpSessionOpened"
       },
       "stability": "experimental"
     },
@@ -16087,6 +16190,13 @@
       "name": "captcha",
       "product": "collie",
       "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A raw CDP session attached to a page through `page.new_cdp_session` (ADR 0085).",
+      "name": "cdp_session_attached",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

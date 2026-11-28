@@ -1499,6 +1499,17 @@
       ]
     },
     {
+      "id": "error:cdp_command_refused",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:cdp_url_not_allowed",
       "kind": "error",
       "area": 4,
@@ -3176,6 +3187,17 @@
       ]
     },
     {
+      "id": "event:cdp_session.event",
+      "kind": "event",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "event:engine.system_info",
       "kind": "event",
       "area": 3,
@@ -4011,6 +4033,39 @@
       ]
     },
     {
+      "id": "operation:cdp_session.close",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:cdp_session.on",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:cdp_session.send",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:certs.accept",
       "kind": "operation",
       "area": 4,
@@ -4747,6 +4802,17 @@
     },
     {
       "id": "operation:page.mouse.wheel",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:page.new_cdp_session",
       "kind": "operation",
       "area": 5,
       "milestone": null,

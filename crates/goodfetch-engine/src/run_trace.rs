@@ -326,11 +326,11 @@ impl RunTrace {
     /// # Cancel safety
     ///
     /// Dropping the future may lose the line.
-    pub async fn cdp_command(&self, method: &'static str) {
+    pub async fn cdp_command(&self, method: &str) {
         /// A line of the CDP command log, encoded as it is.
         #[derive(Serialize)]
-        struct Command {
-            method: &'static str,
+        struct Command<'a> {
+            method: &'a str,
         }
         let mut line = Vec::with_capacity(method.len() + 14);
         if let Err(error) = serde_json::to_writer(&mut line, &Command { method }) {

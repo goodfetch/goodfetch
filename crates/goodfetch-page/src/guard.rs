@@ -273,6 +273,10 @@ pub(crate) async fn act(
 
 /// Performs `request` on `page` through the guard, as [`act`] does, until
 /// it lands, fails or its deadline passes between two checks.
+#[expect(
+    clippy::too_many_lines,
+    reason = "actionability check-and-act state loop across scroll, armed, focused, and waiting states"
+)]
 async fn attempt(
     page: &PageDriver,
     request: Request<'_>,
@@ -329,8 +333,15 @@ async fn attempt(
                 human_scrolled = true;
                 if let Some(input) = &request.human_input {
                     request.sent.mark(request.operation).await?;
-                    let viewport = Viewport { width, height };
-                    human::scroll(page, &turn, input, (dx, dy), viewport, (clock, end)).await?;
+                    human::scroll(
+                        page,
+                        &turn,
+                        input,
+                        (dx, dy),
+                        Viewport { width, height },
+                        (clock, end),
+                    )
+                    .await?;
                 }
             }
             Seen::Armed {
@@ -339,8 +350,7 @@ async fn attempt(
                 width,
                 height,
             } => {
-                let target = Point { x, y };
-                let viewport = Viewport { width, height };
+                let (target, viewport) = (Point { x, y }, Viewport { width, height });
                 match perform_pointer(page, &mut turn, &request, (target, viewport), (clock, end))
                     .await?
                 {
@@ -378,8 +388,6 @@ async fn attempt(
                     }
                 }
             }
-            // The check scrolled the last match into view itself: the
-            // scroll is the gesture, and no input follows it.
             Seen::Scrolled if matches!(request.action, Action::Scroll) => {
                 return Ok(Acted::default());
             }

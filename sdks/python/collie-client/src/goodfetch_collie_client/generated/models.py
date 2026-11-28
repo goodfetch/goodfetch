@@ -473,6 +473,97 @@ class CatalogTarget(RootModel[CatalogTarget1 | CatalogTarget2 | CatalogTarget3])
     """
 
 
+class CdpCommandRefusedDetails(BaseModel):
+    """
+    What `cdp_command_refused` details: the refused CDP method and why the
+    engine refused it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    method: str
+    """The refused CDP method name."""
+    reason: str
+    """Why the command was refused."""
+
+
+class CdpSessionAnswer(BaseModel):
+    """What `cdp_session.send` answers: the browser's raw JSON result."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    result: Any
+    """The browser's JSON result."""
+
+
+class CdpSessionClosed(BaseModel):
+    """What `cdp_session.close` answers once the CDP session is closed."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class CdpSessionId(RootModel[str]):
+    root: str
+    """A raw CDP session opened on a page via `page.new_cdp_session`."""
+
+
+class CdpSessionOnEnded(BaseModel):
+    """What `cdp_session.on` answers when the CDP session or its page ends."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class CdpSessionOnParams(BaseModel):
+    """
+    What `cdp_session.on` takes: the CDP session and the CDP event method name
+    to listen to (such as `Network.requestWillBeSent`).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cdp_session_id: CdpSessionId
+    """The CDP session."""
+    event: str
+    """The CDP event method name."""
+
+
+class CdpSessionOpened(BaseModel):
+    """What `page.new_cdp_session` answers: the opened CDP session's ID."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    cdp_session_id: CdpSessionId
+    """The opened CDP session."""
+
+
+class CdpSessionSendParams(BaseModel):
+    """
+    What `cdp_session.send` takes: the CDP session, the raw CDP method name,
+    and its optional JSON parameters.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cdp_session_id: CdpSessionId
+    """The CDP session."""
+    method: str
+    """
+    The CDP method, such as `Emulation.setCPUThrottlingRate` or
+    `Runtime.evaluate`.
+    """
+    params: Any | None = None
+    """The command's JSON parameters; omitted or `null` sends an empty object."""
+
+
 class CdpUrlConnectFailure(StrEnum):
     """Why nothing at a `cdp_url`'s address answered."""
 
@@ -2495,6 +2586,16 @@ class PageNavigatedDuringCallDetails(BaseModel):
     )
     navigated_to: str
     """The document that replaced it."""
+
+
+class PageNewCdpSessionParams(BaseModel):
+    """What `page.new_cdp_session` takes: the page to attach to."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
 
 
 class PageOnDialogParams(BaseModel):
@@ -6275,6 +6376,30 @@ class CapabilityUnavailableDetails(BaseModel):
     """What it asks for, such as a Session source's kind."""
     layer: SettingsLayer
     """The layer that set it."""
+
+
+class CdpSessionCloseParams(BaseModel):
+    """What `cdp_session.close` takes: the CDP session to close."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cdp_session_id: CdpSessionId
+    """The CDP session."""
+
+
+class CdpSessionEvent(BaseModel):
+    """What `cdp_session.event` carries: one raw CDP event from the page's target."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    cdp_session_id: CdpSessionId
+    """The CDP session."""
+    method: str
+    """The CDP event method name."""
+    params: Any
+    """The event's raw JSON parameters."""
 
 
 class CdpUrlNotAllowedDetails(BaseModel):

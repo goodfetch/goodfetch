@@ -12,6 +12,7 @@
 //! (issue 3264).
 
 mod browser_recycle;
+mod cdp_session;
 mod effect_window;
 mod gesture_input;
 mod gesture_navigation;

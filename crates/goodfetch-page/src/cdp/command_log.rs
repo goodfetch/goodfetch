@@ -20,7 +20,7 @@ use goodfetch_protocol::page::BROWSER_CDP_COMMAND_LOG;
 struct CommandLog(RunTrace);
 
 impl goodfetch_cdp::CommandLogImpl for CommandLog {
-    fn record(&self, method: &'static str) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+    fn record<'a>(&'a self, method: &'a str) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
         Box::pin(self.0.cdp_command(method))
     }
 }

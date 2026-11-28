@@ -11,6 +11,9 @@ use std::pin::Pin;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, PoisonError};
 
+use goodfetch_protocol::page::cdp_session::{
+    CDP_SESSION_CLOSE, CdpSessionCloseParams, CdpSessionId,
+};
 use goodfetch_protocol::page::session::{SESSION_CLOSE, SessionParams};
 use goodfetch_protocol::page::session_pages::{PAGE_CLOSE, PageCloseParams};
 use goodfetch_protocol::page::{Locator, PageId, SessionId};
@@ -458,6 +461,20 @@ impl Held for PageId {
 impl Held for Locator {
     fn dropped(&self) -> Option<Dropped> {
         None
+    }
+}
+
+impl Held for CdpSessionId {
+    fn dropped(&self) -> Option<Dropped> {
+        let params = CdpSessionCloseParams {
+            cdp_session_id: self.clone(),
+        };
+        Some(Dropped::new(
+            "CDP session",
+            self.0.clone(),
+            CDP_SESSION_CLOSE.name,
+            &params,
+        ))
     }
 }
 

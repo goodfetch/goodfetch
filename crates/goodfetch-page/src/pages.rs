@@ -132,6 +132,7 @@ use crate::url_pattern::UrlPattern;
 mod arrival;
 mod blocked;
 mod blocking_off;
+mod cdp_session;
 mod clean_up;
 mod input;
 mod pause;
@@ -182,6 +183,7 @@ pub fn contribution_with(
         interception,
         dialogs,
         pauses: pause::ActivePauses::default(),
+        cdp_sessions: cdp_session::CdpSessions::default(),
         product: handler_pages,
         blocks,
     };
@@ -205,6 +207,7 @@ pub fn contribution_with(
     let contribution = with_function_handlers(contribution, &pages);
     let contribution = waits::with_wait_handlers(contribution, &pages);
     let contribution = pause::with_pause_handlers(contribution, &pages);
+    let contribution = cdp_session::with_cdp_session_handlers(contribution, &pages);
     let contribution = scroll_collect::with_scroll_collect_handler(contribution, &pages);
     let contribution = with_request_handler(contribution, &pages);
     pages.product.opened(Arc::new(Opener {
@@ -487,6 +490,17 @@ async fn gesture(
         return Err(failure);
     }
     acted
+}
+
+/// Records a `page.formats` Provenance entry, marking it unguarded while
+/// external code (raw CDP session or Lent page) may read the page (ADR 0085).
+async fn record_formats_provenance(page: &OpenPage, mut entry: Value) {
+    if page.driver.other_code_may_read()
+        && let Some(object) = entry.as_object_mut()
+    {
+        object.insert("unguarded".to_owned(), serde_json::json!(true));
+    }
+    trace::provenance(&page.run.trace, entry).await;
 }
 
 /// The engine's matcher for `matcher`.
@@ -1283,6 +1297,8 @@ struct Pages {
     dialogs: Dialogs,
     /// The waiting Human pauses' slots, which `page.pause_answer` reaches.
     pauses: pause::ActivePauses,
+    /// The open raw CDP sessions (`page.new_cdp_session`).
+    cdp_sessions: cdp_session::CdpSessions,
     /// The Product's seam that sets what its handlers' pages carry, which
     /// also serves the pages its fetch tiers opened from a document.
     product: Arc<dyn HandlerPages>,
@@ -1964,11 +1980,8 @@ impl Pages {
             })
             .await;
         if let Some(read) = read {
-            trace::provenance(
-                &page.run.trace,
-                read.entry(&params.page_id, Some(&page.session)),
-            )
-            .await;
+            record_formats_provenance(&page, read.entry(&params.page_id, Some(&page.session)))
+                .await;
         }
         plugin_extractor::answered(&page.run, plugin.as_deref(), request, formats, raw).await
     }

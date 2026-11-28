@@ -13,7 +13,7 @@ from typing_extensions import deprecated
 from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 from goodfetch_collie_client.markers import warn_deprecated, warn_deprecated_settings, warn_experimental
 
-from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, HumanPauseResult, IdentitySaved, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, KeyboardInsertTextParams, KeyboardKeyParams, KeyboardPressParams, KeyboardTypeParams, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, MouseButtonParams, MouseClickParams, MouseDblclickParams, MouseMoveParams, MouseWheelParams, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PagePauseParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SaveIdentityParams, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScrollCollected, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TouchscreenTapParams, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
+from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CdpSessionAnswer, CdpSessionCloseParams, CdpSessionClosed, CdpSessionOnEnded, CdpSessionOnParams, CdpSessionOpened, CdpSessionSendParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, HumanPauseResult, IdentitySaved, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, KeyboardInsertTextParams, KeyboardKeyParams, KeyboardPressParams, KeyboardTypeParams, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, MouseButtonParams, MouseClickParams, MouseDblclickParams, MouseMoveParams, MouseWheelParams, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageNewCdpSessionParams, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PagePauseParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SaveIdentityParams, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScrollCollected, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TouchscreenTapParams, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
 from .settings import DEPRECATED_SETTINGS
 
 
@@ -72,6 +72,30 @@ class AsyncCollieOperations:
         warn_experimental("catalog_run.start")
         warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(RunStarted, await self._caller.call("catalog_run.start", params))
+
+    async def cdp_session_close(self, params: CdpSessionCloseParams) -> CdpSessionClosed:
+        """Closes the raw CDP session, releasing its page hold and external-reader mark; closing an already-closed CDP session succeeds.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("cdp_session.close")
+        return result_of(CdpSessionClosed, await self._caller.call("cdp_session.close", params))
+
+    async def cdp_session_on(self, params: CdpSessionOnParams) -> CdpSessionOnEnded:
+        """Subscribes to a raw CDP event on the CDP session's page target until cancelled or the session, page or lease ends.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("cdp_session.on")
+        return result_of(CdpSessionOnEnded, await self._caller.call("cdp_session.on", params))
+
+    async def cdp_session_send(self, params: CdpSessionSendParams) -> CdpSessionAnswer:
+        """Sends a raw CDP command on the CDP session's page target without queuing behind a Collie call (ADR 0085). Refuses commands that attach or close other targets, close the target, or close a Borrowed browser with `cdp_command_refused`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("cdp_session.send")
+        return result_of(CdpSessionAnswer, await self._caller.call("cdp_session.send", params))
 
     async def certs_list(self, params: CertsListParams) -> CertsListed:
         """Lists the caller's pins in the known-certificates store: each host whose invalid certificate was accepted on first use, the SHA-256 of its public key, when and by which Run. Another person's pins on a shared Daemon are never listed. A row the engine cannot read is listed without its hash; it stops its host as a changed key.
@@ -437,6 +461,14 @@ class AsyncCollieOperations:
         """
         warn_experimental("page.mouse.wheel")
         return result_of(Acted, await self._caller.call("page.mouse.wheel", params))
+
+    async def page_new_cdp_session(self, params: PageNewCdpSessionParams) -> CdpSessionOpened:
+        """Opens a raw CDP session on the page over the program's own connection, reaching only its page's target (ADR 0085). Marks results unguarded, records the attach in the Audit log, stops Secret typing while open, holds the page for the browser pool, and binds to a handler's lease check. Raises `capability_unavailable` on Firefox and WebKit.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.new_cdp_session")
+        return result_of(CdpSessionOpened, await self._caller.call("page.new_cdp_session", params))
 
     async def page_on(self, params: PageOnParams) -> PageOnEnded:
         """Listens to one of the page's events, armed when the call arrives: the call stays in flight, and the engine sends that event of the page on the call itself, in `$/events` batches naming it, never more than the credits granted it with `$/credit`, its positions counting the call's own events from 1. Only the Connection that armed it gets them, never the engine's shared event stream. Lossless: past 1,024 events unsent, as when its Client grants too few credits, the call raises `page_events_lost` once it sent those. Cancelling the call, as closing its `Subscription` does, removes the listener; it answers when the page closes or its Run ends, once it sent the events it holds. The page's console and uncaught exceptions, its out-of-process frames' included, are read only while a call listens to `console` or `page_error`.
@@ -937,6 +969,30 @@ class CollieOperations:
         warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
         return result_of(RunStarted, self._caller.call("catalog_run.start", params))
 
+    def cdp_session_close(self, params: CdpSessionCloseParams) -> CdpSessionClosed:
+        """Closes the raw CDP session, releasing its page hold and external-reader mark; closing an already-closed CDP session succeeds.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("cdp_session.close")
+        return result_of(CdpSessionClosed, self._caller.call("cdp_session.close", params))
+
+    def cdp_session_on(self, params: CdpSessionOnParams) -> CdpSessionOnEnded:
+        """Subscribes to a raw CDP event on the CDP session's page target until cancelled or the session, page or lease ends.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("cdp_session.on")
+        return result_of(CdpSessionOnEnded, self._caller.call("cdp_session.on", params))
+
+    def cdp_session_send(self, params: CdpSessionSendParams) -> CdpSessionAnswer:
+        """Sends a raw CDP command on the CDP session's page target without queuing behind a Collie call (ADR 0085). Refuses commands that attach or close other targets, close the target, or close a Borrowed browser with `cdp_command_refused`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("cdp_session.send")
+        return result_of(CdpSessionAnswer, self._caller.call("cdp_session.send", params))
+
     def certs_list(self, params: CertsListParams) -> CertsListed:
         """Lists the caller's pins in the known-certificates store: each host whose invalid certificate was accepted on first use, the SHA-256 of its public key, when and by which Run. Another person's pins on a shared Daemon are never listed. A row the engine cannot read is listed without its hash; it stops its host as a changed key.
 
@@ -1301,6 +1357,14 @@ class CollieOperations:
         """
         warn_experimental("page.mouse.wheel")
         return result_of(Acted, self._caller.call("page.mouse.wheel", params))
+
+    def page_new_cdp_session(self, params: PageNewCdpSessionParams) -> CdpSessionOpened:
+        """Opens a raw CDP session on the page over the program's own connection, reaching only its page's target (ADR 0085). Marks results unguarded, records the attach in the Audit log, stops Secret typing while open, holds the page for the browser pool, and binds to a handler's lease check. Raises `capability_unavailable` on Firefox and WebKit.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.new_cdp_session")
+        return result_of(CdpSessionOpened, self._caller.call("page.new_cdp_session", params))
 
     def page_on(self, params: PageOnParams) -> PageOnEnded:
         """Listens to one of the page's events, armed when the call arrives: the call stays in flight, and the engine sends that event of the page on the call itself, in `$/events` batches naming it, never more than the credits granted it with `$/credit`, its positions counting the call's own events from 1. Only the Connection that armed it gets them, never the engine's shared event stream. Lossless: past 1,024 events unsent, as when its Client grants too few credits, the call raises `page_events_lost` once it sent those. Cancelling the call, as closing its `Subscription` does, removes the listener; it answers when the page closes or its Run ends, once it sent the events it holds. The page's console and uncaught exceptions, its out-of-process frames' included, are read only while a call listens to `console` or `page_error`.
@@ -1751,6 +1815,9 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "cache.stats",
     "cache.verify",
     "catalog_run.start",
+    "cdp_session.close",
+    "cdp_session.on",
+    "cdp_session.send",
     "certs.list",
     "connection.set_log_level",
     "dialog.accept",
@@ -1794,6 +1861,7 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "page.mouse.move",
     "page.mouse.up",
     "page.mouse.wheel",
+    "page.new_cdp_session",
     "page.on",
     "page.on_dialog",
     "page.pause",
@@ -1864,6 +1932,9 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "cache.stats": "read",
     "cache.verify": "read",
     "catalog_run.start": "idempotent_write",
+    "cdp_session.close": "idempotent_write",
+    "cdp_session.on": "read",
+    "cdp_session.send": "effect",
     "certs.list": "read",
     "config.explain": "read",
     "connection.set_log_level": "idempotent_write",
@@ -1912,6 +1983,7 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "page.mouse.move": "effect",
     "page.mouse.up": "effect",
     "page.mouse.wheel": "effect",
+    "page.new_cdp_session": "effect",
     "page.on": "read",
     "page.on_dialog": "idempotent_write",
     "page.pause": "effect",

@@ -95,6 +95,13 @@ impl Event {
             .map_or(b"null".as_slice(), |params| &self.message[params])
     }
 
+    /// Its params decoded as a raw JSON value (`Value::Null` when absent),
+    /// for a raw CDP session's event stream (ADR 0085, ticket #751).
+    pub fn raw_params(&self) -> Value {
+        self.work.count(Row::CdpEventDecodes);
+        serde_json::from_slice(self.params()).unwrap_or(Value::Null)
+    }
+
     /// The bytes it holds, which count against its readers' quota.
     pub(super) fn bytes(&self) -> usize {
         self.message.len()

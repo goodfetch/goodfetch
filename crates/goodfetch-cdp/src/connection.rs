@@ -63,6 +63,7 @@
 //! A task that waits for the connection's end awaits
 //! [`Connection::closed`], reading no event.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::pin::Pin;
@@ -129,7 +130,7 @@ fn count_interception(work: &CountedWork, method: &str) {
 pub struct SessionId(pub String);
 
 struct Request {
-    method: &'static str,
+    method: Cow<'static, str>,
     session: Option<SessionId>,
     params: Value,
     answer: oneshot::Sender<Result<Value, Failure>>,
@@ -156,7 +157,7 @@ pub trait CommandLogImpl: Debug + Send + Sync {
     /// # Cancel safety
     ///
     /// Dropping the future may lose the record.
-    fn record(&self, method: &'static str) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
+    fn record<'a>(&'a self, method: &'a str) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 }
 
 /// A handle to the browser's connection, which any task may clone.
@@ -286,15 +287,17 @@ impl Connection {
     /// # Cancel safety
     ///
     /// As [`Connection::send`].
-    #[tracing::instrument(name = "cdp_command", level = "trace", skip_all, fields(cdp.method = method))]
+    #[tracing::instrument(name = "cdp_command", level = "trace", skip_all, fields(cdp.method = tracing::field::Empty))]
     pub async fn send_raw(
         &self,
-        method: &'static str,
+        method: impl Into<Cow<'static, str>>,
         session: Option<&SessionId>,
         params: Value,
         timeout: Duration,
     ) -> Result<Value, Failure> {
-        let (request, mut waiting) = self.request(method, session, params);
+        let method = method.into();
+        tracing::Span::current().record("cdp.method", method.as_ref());
+        let (request, mut waiting) = self.request(method.clone(), session, params);
         let sent = async {
             self.queue(request).await?;
             waiting.answer().await
@@ -343,7 +346,7 @@ impl Connection {
                 self.work.count(Row::CdpEncodes);
                 let params =
                     serde_json::to_value(params).expect("invariant: a command's params serialize");
-                self.request(method, session, params)
+                self.request(Cow::Borrowed(method), session, params)
             })
             .unzip();
         let sent = async {
@@ -366,7 +369,9 @@ impl Connection {
         };
         tokio::time::timeout(timeout, sent)
             .await
-            .unwrap_or(Err(Failure::TimedOut { method }))
+            .unwrap_or(Err(Failure::TimedOut {
+                method: Cow::Borrowed(method),
+            }))
     }
 
     /// Starts `C` on `session` (the browser's own when `None`) without
@@ -393,7 +398,7 @@ impl Connection {
         // A serialization of its own before the frame's, as `send`'s.
         self.work.count(Row::CdpEncodes);
         let params = serde_json::to_value(params).expect("invariant: a command's params serialize");
-        let (request, mut waiting) = self.request(method, session, params);
+        let (request, mut waiting) = self.request(Cow::Borrowed(method), session, params);
         let unqueued = if self.log.is_some() {
             Some(request)
         } else {
@@ -415,7 +420,9 @@ impl Connection {
         let answer = async move {
             answered
                 .await
-                .unwrap_or(Err(Failure::TimedOut { method }))
+                .unwrap_or(Err(Failure::TimedOut {
+                    method: Cow::Borrowed(method),
+                }))
                 .and_then(|answer| read(method, answer))
         };
         Answer::new(answer.instrument(tracing::trace_span!("cdp_command", cdp.method = method)))
@@ -425,7 +432,7 @@ impl Connection {
     /// wait for its answer.
     fn request(
         &self,
-        method: &'static str,
+        method: Cow<'static, str>,
         session: Option<&SessionId>,
         params: Value,
     ) -> (Request, Waiting) {
@@ -453,7 +460,7 @@ impl Connection {
     async fn record(&self, request: &Request) {
         if let Some(log) = &self.log {
             self.work.count(Row::CdpLogSendsOff);
-            log.0.record(request.method).await;
+            log.0.record(&request.method).await;
         }
     }
 
@@ -496,13 +503,13 @@ impl Connection {
 
 fn read<T: DeserializeOwned>(method: &'static str, answer: Value) -> Result<T, Failure> {
     serde_json::from_value(answer).map_err(|error| Failure::Unreadable {
-        method,
+        method: Cow::Borrowed(method),
         message: PartyText::new(error.to_string()),
     })
 }
 
 struct Pending {
-    method: &'static str,
+    method: Cow<'static, str>,
     /// The target's session it was sent on, if any.
     session: Option<SessionId>,
     answer: oneshot::Sender<Result<Value, Failure>>,
@@ -565,11 +572,11 @@ where
                     if let Some(session) = &session {
                         message["sessionId"] = Value::String(session.0.clone());
                     }
-                    tracing::trace!(target: "goodfetch::cdp::command", method, id, "sending");
+                    tracing::trace!(target: "goodfetch::cdp::command", method = method.as_ref(), id, "sending");
                     self.work.count(Row::CdpEncodes);
                     let bytes = frame(&message);
                     self.work.count(Row::CdpSends);
-                    count_interception(&self.work, method);
+                    count_interception(&self.work, &method);
                     if let Err(error) = self.writer.write_all(&bytes).await {
                         let _ = answer.send(Err(Failure::Disconnected));
                         break Ended::Broken(error.kind());
@@ -633,7 +640,7 @@ fn dropped(answering: Option<u64>, pending: &mut BTreeMap<u64, Pending>) {
     match answering.and_then(|id| pending.remove(&id)) {
         Some(Pending { method, answer, .. }) => {
             tracing::warn!(
-                method,
+                method = method.as_ref(),
                 "the browser's answer was past the framing's limit and was dropped"
             );
             let _ = answer.send(Err(Failure::TooLarge { method }));
@@ -716,7 +723,7 @@ fn dispatch(
 
 /// What a command's answer says: the browser's refusal, or what it returned,
 /// decoded from the browser's message.
-fn answered(method: &'static str, envelope: Envelope<'_>) -> Result<Value, Failure> {
+fn answered(method: Cow<'static, str>, envelope: Envelope<'_>) -> Result<Value, Failure> {
     if let Some(error) = envelope.error {
         let error = serde_json::from_str::<Value>(error.get()).unwrap_or(Value::Null);
         return Err(Failure::refused(method, &error));
@@ -786,7 +793,7 @@ pub fn fuzz_pipe(data: &[u8]) {
         pending.insert(
             id,
             Pending {
-                method: "Browser.getVersion",
+                method: Cow::Borrowed("Browser.getVersion"),
                 session: on,
                 answer,
             },

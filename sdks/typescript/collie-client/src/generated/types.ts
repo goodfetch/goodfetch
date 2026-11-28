@@ -437,6 +437,13 @@ export type CatalogTarget =
       plan: string;
     };
 /**
+ * A raw CDP session opened on a page via `page.new_cdp_session`.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CdpSessionId".
+ */
+export type CdpSessionId = string;
+/**
  * Why nothing at a `cdp_url`'s address answered.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -2903,6 +2910,138 @@ export interface Recording {
    * directory.
    */
   path: string;
+}
+/**
+ * What `cdp_command_refused` details: the refused CDP method and why the
+ * engine refused it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CdpCommandRefusedDetails".
+ */
+export interface CdpCommandRefusedDetails {
+  /**
+   * The refused CDP method name.
+   */
+  method: string;
+  /**
+   * Why the command was refused.
+   */
+  reason: string;
+}
+/**
+ * What `cdp_session.send` answers: the browser's raw JSON result.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CdpSessionAnswer".
+ */
+export interface CdpSessionAnswer {
+  /**
+   * The browser's JSON result.
+   */
+  result: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * What `cdp_session.close` takes: the CDP session to close.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CdpSessionCloseParams".
+ */
+export interface CdpSessionCloseParams {
+  /**
+   * The CDP session.
+   */
+  cdpSessionId: CdpSessionId;
+}
+/**
+ * What `cdp_session.close` answers once the CDP session is closed.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CdpSessionClosed".
+ */
+export interface CdpSessionClosed {}
+/**
+ * What `cdp_session.event` carries: one raw CDP event from the page's target.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CdpSessionEvent".
+ */
+export interface CdpSessionEvent {
+  /**
+   * The CDP session.
+   */
+  cdpSessionId: CdpSessionId;
+  /**
+   * The CDP event method name.
+   */
+  method: string;
+  /**
+   * The event's raw JSON parameters.
+   */
+  params: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * What `cdp_session.on` answers when the CDP session or its page ends.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CdpSessionOnEnded".
+ */
+export interface CdpSessionOnEnded {}
+/**
+ * What `cdp_session.on` takes: the CDP session and the CDP event method name
+ * to listen to (such as `Network.requestWillBeSent`).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CdpSessionOnParams".
+ */
+export interface CdpSessionOnParams {
+  /**
+   * The CDP session.
+   */
+  cdpSessionId: CdpSessionId;
+  /**
+   * The CDP event method name.
+   */
+  event: string;
+}
+/**
+ * What `page.new_cdp_session` answers: the opened CDP session's ID.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CdpSessionOpened".
+ */
+export interface CdpSessionOpened {
+  /**
+   * The opened CDP session.
+   */
+  cdpSessionId: CdpSessionId;
+}
+/**
+ * What `cdp_session.send` takes: the CDP session, the raw CDP method name,
+ * and its optional JSON parameters.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CdpSessionSendParams".
+ */
+export interface CdpSessionSendParams {
+  /**
+   * The CDP session.
+   */
+  cdpSessionId: CdpSessionId;
+  /**
+   * The CDP method, such as `Emulation.setCPUThrottlingRate` or
+   * `Runtime.evaluate`.
+   */
+  method: string;
+  /**
+   * The command's JSON parameters; omitted or `null` sends an empty object.
+   */
+  params?: {
+    [k: string]: unknown;
+  };
 }
 /**
  * What `cdp_url_not_allowed` details.
@@ -7603,6 +7742,18 @@ export interface PageNavigatedDuringCallDetails {
    * The document that replaced it.
    */
   navigatedTo: string;
+}
+/**
+ * What `page.new_cdp_session` takes: the page to attach to.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageNewCdpSessionParams".
+ */
+export interface PageNewCdpSessionParams {
+  /**
+   * The page.
+   */
+  pageId: PageId;
 }
 /**
  * What `page.on_dialog` takes: the page whose dialogs its handler

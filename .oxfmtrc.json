@@ -30,6 +30,7 @@
     "ci/proofs/**",
     "**/*.md",
     "**/*.toml",
-    "pnpm-lock.yaml"
+    "pnpm-lock.yaml",
+    "integrations/collie/n8n/eslint.config.mjs"
   ]
 }

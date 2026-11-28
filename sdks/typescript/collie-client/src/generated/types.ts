@@ -6996,6 +6996,76 @@ export interface NotificationPayload {
   type: string;
 }
 /**
+ * What `notification.subscribe` takes (ADR 0027; spec #608, issue 1403):
+ * registers a `webhook` channel named for an Integration's trigger with a
+ * thin payload and a signing secret returned once.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotificationSubscribeParams".
+ */
+export interface NotificationSubscribeParams {
+  /**
+   * The webhook channel name (named for the Integration's trigger).
+   */
+  channel: string;
+  /**
+   * The Notification events this subscription receives; attention set when omitted.
+   */
+  events?: NotificationEvent[] | null;
+  /**
+   * The webhook destination URL; checked against ADR 0017's endpoint rule.
+   */
+  url: string;
+}
+/**
+ * What `notification.subscribe` answers (ADR 0027; spec #608, issue 1403).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotificationSubscribeResult".
+ */
+export interface NotificationSubscribeResult {
+  /**
+   * The subscribed channel name.
+   */
+  channel: string;
+  /**
+   * Whether this call created a new subscription (`false` on idempotent repeat).
+   */
+  created: boolean;
+  /**
+   * The Standard Webhooks `whsec_` signing secret, returned once when `created` is `true`.
+   */
+  secret?: string | null;
+}
+/**
+ * What `notification.unsubscribe` takes (ADR 0027; spec #608, issue 1403).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotificationUnsubscribeParams".
+ */
+export interface NotificationUnsubscribeParams {
+  /**
+   * The webhook channel name to remove.
+   */
+  channel: string;
+}
+/**
+ * What `notification.unsubscribe` answers (ADR 0027; spec #608, issue 1403).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotificationUnsubscribeResult".
+ */
+export interface NotificationUnsubscribeResult {
+  /**
+   * The channel name.
+   */
+  channel: string;
+  /**
+   * Whether a subscription was removed (`false` when already absent).
+   */
+  removed: boolean;
+}
+/**
  * The Operator policy as `config.policy_read` reads it.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema

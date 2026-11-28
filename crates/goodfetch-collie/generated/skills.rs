@@ -7,6 +7,10 @@
         contents: include_bytes!("skills/goodfetch-collie-cli/SKILL.md"),
     },
     SkillFile {
+        path: "goodfetch-collie-mcp/SKILL.md",
+        contents: include_bytes!("skills/goodfetch-collie-mcp/SKILL.md"),
+    },
+    SkillFile {
         path: "goodfetch-collie/SKILL.md",
         contents: include_bytes!("skills/goodfetch-collie/SKILL.md"),
     },

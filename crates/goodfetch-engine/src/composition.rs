@@ -51,7 +51,9 @@ use crate::needs_you::NeedsYouSource;
 use crate::politeness::PolitenessTables;
 use crate::product::Identity;
 use crate::run_state::RunStateTables;
-use crate::runs::{CleanUpVersions, Driving, ProgressPart, ReportPart, RunParts, Runs, SendWindow};
+use crate::runs::{
+    CleanUpVersions, Driving, ProgressPart, ReportPart, RunEndObserver, RunParts, Runs, SendWindow,
+};
 use crate::secrets::ProviderFactory;
 use crate::settings::RunSettings;
 use crate::staging::{AttemptStaging, AttemptWrites};
@@ -679,6 +681,7 @@ pub struct Contribution {
     watched_sessions: Vec<Arc<dyn WatchedSessions>>,
     user_stores: Vec<&'static UserStoreKind>,
     attempt_stagings: Vec<Arc<dyn AttemptStaging>>,
+    run_end_observers: Vec<RunEndObserver>,
 }
 
 impl Contribution {
@@ -690,6 +693,7 @@ impl Contribution {
             runs_of_calls: Vec::new(),
             watched_sessions: Vec::new(),
             attempt_stagings: Vec::new(),
+            run_end_observers: Vec::new(),
             name,
             handlers: Vec::new(),
             run_state_tables: Vec::new(),
@@ -902,6 +906,14 @@ impl Contribution {
         self
     }
 
+    /// The same, adding `observer` notified when a Run's end is recorded and
+    /// while its run state is still open (ADR 0027).
+    #[must_use]
+    pub fn with_run_end_observer(mut self, observer: RunEndObserver) -> Self {
+        self.run_end_observers.push(observer);
+        self
+    }
+
     /// Who contributes it.
     pub fn name(&self) -> &'static str {
         self.name
@@ -1044,6 +1056,14 @@ impl Composition {
         self.contributions
             .iter()
             .flat_map(|contribution| contribution.progress_parts.iter().cloned())
+            .collect()
+    }
+
+    /// Every contribution's run-end observers, in order.
+    pub(crate) fn run_end_observers(&self) -> Vec<RunEndObserver> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.run_end_observers.iter().cloned())
             .collect()
     }
 

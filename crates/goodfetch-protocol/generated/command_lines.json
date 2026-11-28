@@ -119,6 +119,10 @@
         "name": "daemon"
       },
       {
+        "commands": [],
+        "name": "mcp"
+      },
+      {
         "commands": [
           {
             "commands": [],
@@ -221,6 +225,19 @@
           }
         ],
         "name": "events"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "subscribe"
+          },
+          {
+            "commands": [],
+            "name": "unsubscribe"
+          }
+        ],
+        "name": "notification"
       },
       {
         "commands": [
@@ -575,6 +592,10 @@
         "name": "daemon"
       },
       {
+        "commands": [],
+        "name": "mcp"
+      },
+      {
         "commands": [
           {
             "commands": [],
@@ -677,6 +698,19 @@
           }
         ],
         "name": "events"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "subscribe"
+          },
+          {
+            "commands": [],
+            "name": "unsubscribe"
+          }
+        ],
+        "name": "notification"
       },
       {
         "commands": [

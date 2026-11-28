@@ -317,6 +317,8 @@ pub enum Listener {
     OpsListener,
     /// The Daemon's HTTP JSON-RPC listener (ADR 0027).
     HttpListener,
+    /// The MCP server's Streamable HTTP listener (`mcp --http`, ADRs 0017 and 0070).
+    McpHttp,
     /// A Session's egress relay.
     EgressRelay,
     /// A Session's upstream proxy relay.
@@ -325,7 +327,7 @@ pub enum Listener {
 
 impl Listener {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::Stdio,
         Self::DaemonSocket,
         Self::ExposedDaemon,
@@ -334,6 +336,7 @@ impl Listener {
         Self::LiveView,
         Self::OpsListener,
         Self::HttpListener,
+        Self::McpHttp,
         Self::EgressRelay,
         Self::ProxyRelay,
     ];

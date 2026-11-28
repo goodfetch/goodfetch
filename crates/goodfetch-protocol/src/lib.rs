@@ -45,6 +45,8 @@ pub mod jsonrpc;
 pub mod key_value_store;
 pub mod live_view;
 pub mod log;
+pub mod mcp;
+pub mod mcp_projection;
 pub mod milliseconds;
 pub mod model;
 pub mod naming;

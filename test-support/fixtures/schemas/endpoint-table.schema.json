@@ -125,6 +125,11 @@
           "const": "live_view",
           "description": "A Daemon's Live view channels (ADR 0031): a WebSocket at the\nchannel's path of `daemon.address`, its handshake held to the\nDaemon's `Host` and `Origin`, opened by an `open` carrying the\nDaemon's token.",
           "type": "string"
+        },
+        {
+          "const": "mcp_http",
+          "description": "The MCP server's Streamable HTTP listener (`POST /mcp`, ADRs 0017 and\n0070): loopback by default, checked for `Host`, `Origin` and a\nper-launch bearer token.",
+          "type": "string"
         }
       ]
     },

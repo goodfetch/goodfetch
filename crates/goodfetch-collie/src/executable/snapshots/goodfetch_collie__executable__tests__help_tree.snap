@@ -15,6 +15,7 @@ Commands:
   doctor           Checks the installation: Goodfetch home, the installed executables, the Daemon, the version it runs and the browser build a Run launches, with a fix for each finding not in order, and writes a bug-report file to attach to an issue, which it sends nowhere. Exits 0 whatever it finds
   init             Writes a starter project this executable carries, which runs and tests itself, in TypeScript, Python or Rust, or deployment files for a Supported target with `--deploy`, never replacing a file already there
   daemon           Starts, stops and shows the Daemon of this executable's major, which both Products share
+  mcp              Arguments for the `mcp` command
   needs-you        Lists what waits for a person, and takes them through it
   recipe           Starts a Recipe and prints the digest that names a version of one
   runs             Works on the runs of this executable's major, of both Products
@@ -24,6 +25,7 @@ Commands:
   cache            Calls the catalog's `cache` operations
   engine           Calls the catalog's `engine` operations
   events           Calls the catalog's `events` operations
+  notification     Calls the catalog's `notification` operations
   run              Calls the catalog's `run` operations
   session          Calls the catalog's `session` operations
   page             Calls the catalog's `page` operations
@@ -382,6 +384,19 @@ Options:
       --color <WHEN>              When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help                      Print help
 
+$ goodfetch-collie mcp --help
+Arguments for the `mcp` command
+
+Usage: goodfetch-collie mcp [OPTIONS]
+
+Options:
+      --profile <NAME>    Tool profile to serve (`browser`, `agent`, `run`, `code` or `full`). Overrides `mcp.profile` (`browser` by default) [possible values: browser, agent, run, code, full]
+      --http [<ADDRESS>]  Serve MCP over Streamable HTTP instead of stdio, binding `ADDRESS` (`127.0.0.1:0` by default). Prints one `{ address, token }` JSON record on stdout before serving
+      --attached          Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon            Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>      When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help              Print help
+
 $ goodfetch-collie needs-you --help
 Lists what waits for a person, and takes them through it
 
@@ -732,6 +747,47 @@ Options:
       --daemon         Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>   When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help           Print help
+
+$ goodfetch-collie notification --help
+Calls the catalog's `notification` operations
+
+Usage: goodfetch-collie notification [OPTIONS] <COMMAND>
+
+Commands:
+  subscribe    Registers a `webhook` Notification channel named for an Integration's trigger with a thin payload and a Standard Webhooks signing secret returned once on creation. Idempotent when called again for the same channel; the destination URL passes ADR 0017's endpoint rule, so `egress.no_private_endpoints` refuses a private address. Offered on the HTTP listener and the CLI, and kept off every agent surface
+  unsubscribe  Removes a `webhook` Notification channel registered by `notification.subscribe`. Idempotent when the channel is already absent. Offered on the HTTP listener and the CLI, and kept off every agent surface
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie notification subscribe --help
+Registers a `webhook` Notification channel named for an Integration's trigger with a thin payload and a Standard Webhooks signing secret returned once on creation. Idempotent when called again for the same channel; the destination URL passes ADR 0017's endpoint rule, so `egress.no_private_endpoints` refuses a private address. Offered on the HTTP listener and the CLI, and kept off every agent surface
+
+Usage: goodfetch-collie notification subscribe [OPTIONS] --channel <CHANNEL> --url <URL>
+
+Options:
+      --channel <CHANNEL>  The webhook channel name (named for the Integration's trigger)
+      --events <EVENTS>    The Notification events this subscription receives; attention set when omitted
+      --url <URL>          The webhook destination URL; checked against ADR 0017's endpoint rule
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-collie notification unsubscribe --help
+Removes a `webhook` Notification channel registered by `notification.subscribe`. Idempotent when the channel is already absent. Offered on the HTTP listener and the CLI, and kept off every agent surface
+
+Usage: goodfetch-collie notification unsubscribe [OPTIONS] --channel <CHANNEL>
+
+Options:
+      --channel <CHANNEL>  The webhook channel name to remove
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
 
 $ goodfetch-collie run --help
 Calls the catalog's `run` operations

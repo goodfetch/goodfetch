@@ -320,15 +320,17 @@ fn the_http_listener_port_default_follows_the_product_version(
     );
 }
 
-/// Every `http_listener.*` key is configuration-only and refused from code
-/// with `setting_not_applicable`, naming both the user configuration and
-/// Operator policy files (ADRs 0027 and 0098).
+/// Every `http_listener.*` and `mcp.oauth.*` key is configuration-only and
+/// refused from code with `setting_not_applicable`, naming both the user
+/// configuration and Operator policy files (ADRs 0017, 0027, 0028, 0067, 0098).
 ///
-/// Covers: story:11-258, error:setting_not_applicable
+/// Covers: story:11-258, story:11-221, setting:mcp.oauth.issuer, setting:mcp.oauth.audience, error:setting_not_applicable
 #[rstest]
 #[case::enabled("http_listener.enabled", serde_json::json!(true))]
 #[case::address("http_listener.address", serde_json::json!("127.0.0.1"))]
 #[case::port("http_listener.port", serde_json::json!(7801))]
+#[case::mcp_oauth_issuer("mcp.oauth.issuer", serde_json::json!("https://auth.example.test"))]
+#[case::mcp_oauth_audience("mcp.oauth.audience", serde_json::json!("https://mcp.example.test/mcp"))]
 fn http_listener_settings_from_code_are_refused_naming_the_files(
     #[case] key: &str,
     #[case] value: serde_json::Value,

@@ -3772,6 +3772,9 @@ reason = "Issue 1087 builds the engine operation; Foxhound's SDK surface adds `e
 [[unreached]]
 entries = ["dataset.list", "dataset.page", "dataset.query", "dataset.search", "record.search"]
 reason = "No member reads a Run's Datasets yet."
+[[unreached]]
+entries = ["notification.subscribe", "notification.unsubscribe"]
+reason = "Offered on the HTTP listener and the CLI for Integration triggers, not as an SDK method (ADR 0027; issue 1403)."
 
 [[member]]
 package = "@goodfetch/collie-client"

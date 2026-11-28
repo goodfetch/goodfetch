@@ -12,6 +12,7 @@
 // since no catalog entry shapes it.
 import type { CallOptions } from "./caller.ts";
 import { ProgramError } from "./generated/errors.ts";
+import type { Form } from "./generated/types.ts";
 import type { JSONValue } from "./json.ts";
 import { META } from "./framing.ts";
 import { collieWire } from "./generated/wire.ts";
@@ -28,6 +29,11 @@ export interface RawCallOptions {
   readonly timeout?: number | null | undefined;
   /** Stops the call: it is cancelled and fails with the signal's reason. */
   readonly signal?: AbortSignal | undefined;
+  /**
+   * Optional per-call naming form override (ADR 0099): Framework adapters pass
+   * `"tool"` so the engine renders error messages and `fix` hints in tool form.
+   */
+  readonly form?: Form | undefined;
 }
 
 /** What sends a raw call, as the main path sends a generated one. */
@@ -141,8 +147,9 @@ export async function rawCall(
     }
     sent["timeout"] = options.timeout;
   }
-  // The envelope's raw mark, `RequestMeta`'s `raw` (ADR 0099, ADR 0132).
-  sent[META] = { raw: true };
+  // The envelope's raw mark, `RequestMeta`'s `raw` (ADR 0099, ADR 0132),
+  // plus any per-call naming form override (e.g. `"tool"` for Framework adapters).
+  sent[META] = options.form === undefined ? { raw: true } : { raw: true, form: options.form };
   const result = await send(operation, sent, {
     signal: options.signal,
     deadline: { key: "timeout", value: options.timeout },

@@ -252,6 +252,7 @@ impl ToOwner {
                 traceparent,
                 tracestate,
                 raw,
+                form: None,
             };
             members.insert(
                 META.to_owned(),

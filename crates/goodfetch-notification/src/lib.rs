@@ -24,4 +24,7 @@ pub mod message;
 pub mod plugin_channel;
 pub mod rate_limit;
 pub mod sns;
+pub mod subscriptions;
 pub mod webhook;
+
+pub use subscriptions::contribution;

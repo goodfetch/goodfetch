@@ -54,6 +54,7 @@ use crate::{base_console, git, metadata, output};
 
 use super::budget;
 use super::gungraun;
+use super::protocol;
 use super::reference;
 
 /// The output folder, under the workspace's `target/`.
@@ -115,8 +116,11 @@ pub(crate) struct Reports {
     pub(crate) admission: Option<PathBuf>,
     pub(crate) size_base: Option<PathBuf>,
     pub(crate) size_head: Option<PathBuf>,
+    pub(crate) protocol_base: Option<PathBuf>,
+    pub(crate) protocol_head: Option<PathBuf>,
     pub(crate) reference: Option<PathBuf>,
     pub(crate) size_reference: Option<PathBuf>,
+    pub(crate) protocol_reference: Option<PathBuf>,
 }
 
 fn out(root: &Path) -> PathBuf {
@@ -471,6 +475,26 @@ pub(crate) fn run(cargo: &OsStr, root: &Path) -> Result<Reports> {
     } else {
         (None, None)
     };
+    let protocol_reference = if plan.reference.is_some()
+        && protocol::has_snapshots(root)
+        && protocol::has_snapshots(&reference_tree(root))
+    {
+        Some(protocol::extract_tree(
+            &reference_tree(root),
+            &out.join("protocol-reference.json"),
+        )?)
+    } else {
+        None
+    };
+    let (protocol_base, protocol_head) = if protocol::has_snapshots(root) {
+        let protocol_base = protocol::has_snapshots(&tree)
+            .then(|| protocol::extract_tree(&tree, &out.join("protocol-base.json")))
+            .transpose()?;
+        let protocol_head = protocol::extract_tree(root, &out.join("protocol-head.json"))?;
+        (protocol_base, Some(protocol_head))
+    } else {
+        (None, None)
+    };
     copy_reports(root)?;
     remove_reference_tree(root)?;
     let relative = |path: &Path| path.strip_prefix(root).unwrap_or(path).to_path_buf();
@@ -480,8 +504,11 @@ pub(crate) fn run(cargo: &OsStr, root: &Path) -> Result<Reports> {
         admission: admission.as_deref().map(relative),
         size_base: size_base.as_deref().map(relative),
         size_head: size_head.as_deref().map(relative),
+        protocol_base: protocol_base.as_deref().map(relative),
+        protocol_head: protocol_head.as_deref().map(relative),
         reference: reference_report.as_deref().map(relative),
         size_reference: size_reference.as_deref().map(relative),
+        protocol_reference: protocol_reference.as_deref().map(relative),
     })
 }
 
@@ -672,8 +699,11 @@ fn copy_reports(root: &Path) -> Result<()> {
         "head.jsonl",
         "size-base.json",
         "size-head.json",
+        "protocol-base.json",
+        "protocol-head.json",
         "reference.jsonl",
         "size-reference.json",
+        "protocol-reference.json",
     ] {
         let from = out.join(name);
         if from.is_file() {

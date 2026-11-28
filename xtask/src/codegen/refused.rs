@@ -107,9 +107,26 @@ const BUILT_IN_ERRORS: [&str; 56] = [
 /// the base class, and each Product's union of its errors (ADR 0079).
 const SDK_ERRORS: [&str; 3] = ["CollieError", "FoxhoundError", "GoodfetchError"];
 
+/// Maximum length of an MCP tool name (ADR 0099, issue 1360).
+const MCP_MAX_TOOL_NAME_CHARS: usize = 39;
+
+/// Maximum length of an MCP tool description (ADR 0065, issue 1360).
+const MCP_MAX_DESCRIPTION_CHARS: usize = 2048;
+
 #[derive(Deserialize)]
 struct Named {
     name: String,
+}
+
+#[derive(Deserialize)]
+struct OperationEntry {
+    name: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    reach: Option<String>,
+    #[serde(default)]
+    kind: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -127,7 +144,7 @@ struct PluginKind {
 /// The sections of a projection whose names become members and classes.
 #[derive(Deserialize)]
 struct Names {
-    operations: Vec<Named>,
+    operations: Vec<OperationEntry>,
     events: Vec<Named>,
     error_groups: Vec<Named>,
     error_codes: Vec<ErrorCode>,
@@ -272,7 +289,51 @@ fn refusals(names: &Names) -> BTreeSet<String> {
             ));
         }
     }
+    mcp_projection_refusals(&names.operations, &mut refused);
     refused
+}
+
+/// MCP projection rules (ADRs 0065, 0070, 0099; issues 1360 and 1014):
+/// every all-surfaces non-streaming operation must project to a tool name
+/// of at most 39 chars in `[a-z0-9_]`, have a description of at most 2,048
+/// chars, and never be a Live view grant entry.
+fn mcp_projection_refusals(operations: &[OperationEntry], refused: &mut BTreeSet<String>) {
+    for op in operations {
+        let is_mcp_candidate = op.reach.as_deref() == Some("all_surfaces")
+            && matches!(
+                op.kind.as_deref(),
+                None | Some("round_trip" | "query" | "opener" | "followed")
+            );
+        if !is_mcp_candidate {
+            continue;
+        }
+        if op.name.starts_with("live_view.") {
+            refused.insert(format!(
+                "operation `{}`: Live view grant entries are refused on the MCP surface (issue 1014)",
+                op.name
+            ));
+        }
+        let mcp_name = op.name.replace('.', "_");
+        let valid_chars = !mcp_name.is_empty()
+            && mcp_name
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
+        if mcp_name.chars().count() > MCP_MAX_TOOL_NAME_CHARS || !valid_chars {
+            refused.insert(format!(
+                "operation `{}`: MCP tool name `{mcp_name}` must be 1..={MCP_MAX_TOOL_NAME_CHARS} chars in [a-z0-9_]",
+                op.name
+            ));
+        }
+        if let Some(desc) = &op.description {
+            let chars = desc.trim().chars().count();
+            if chars > MCP_MAX_DESCRIPTION_CHARS {
+                refused.insert(format!(
+                    "operation `{}`: MCP description is {chars} chars (max {MCP_MAX_DESCRIPTION_CHARS})",
+                    op.name
+                ));
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -374,6 +435,68 @@ mod tests {
                 "error group `timeout`: its class `TimeoutError` would shadow the built-in `TimeoutError`"
                     .to_owned()
             ]
+        );
+    }
+
+    /// Covers: story:11-183, story:11-226
+    #[test]
+    fn mcp_projection_refuses_long_name_bad_chars_long_description_and_live_view_grant() {
+        let too_long_desc = "a".repeat(2049);
+        let names = Names::deserialize(json!({
+            "operations": [
+                {
+                    "name": "very_long_namespace.very_long_member_name_exceeding_39",
+                    "description": "ok",
+                    "reach": "all_surfaces",
+                    "kind": "round_trip"
+                },
+                {
+                    "name": "page.BadName",
+                    "description": "ok",
+                    "reach": "all_surfaces",
+                    "kind": "round_trip"
+                },
+                {
+                    "name": "page.verbose",
+                    "description": too_long_desc,
+                    "reach": "all_surfaces",
+                    "kind": "round_trip"
+                },
+                {
+                    "name": "live_view.grant",
+                    "description": "Grant live view",
+                    "reach": "all_surfaces",
+                    "kind": "round_trip"
+                }
+            ],
+            "events": [],
+            "error_groups": [],
+            "error_codes": [],
+            "plugin_kinds": [],
+        }))
+        .unwrap();
+
+        let got = refusals(&names);
+        assert!(
+            got.iter().any(|line| line
+                .contains("very_long_namespace.very_long_member_name_exceeding_39")
+                && line.contains("1..=39")),
+            "expected >39 char tool name refusal, got: {got:?}"
+        );
+        assert!(
+            got.iter()
+                .any(|line| line.contains("page.BadName") && line.contains("[a-z0-9_]")),
+            "expected non-[a-z0-9_] tool name refusal, got: {got:?}"
+        );
+        assert!(
+            got.iter()
+                .any(|line| line.contains("page.verbose") && line.contains("2049 chars")),
+            "expected >2048 char description refusal, got: {got:?}"
+        );
+        assert!(
+            got.iter()
+                .any(|line| line.contains("live_view.grant") && line.contains("Live view grant")),
+            "expected live_view.grant refusal, got: {got:?}"
         );
     }
 }

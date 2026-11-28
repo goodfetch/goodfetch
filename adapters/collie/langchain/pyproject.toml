@@ -1,0 +1,20 @@
+[project]
+name = "goodfetch-collie-langchain"
+version = "0.0.0"
+description = "Collie's LangChain and LangGraph framework adapter for Python (ADRs 0011, 0070, 0095 and 0099)."
+requires-python = ">=3.11"
+dependencies = [
+  "goodfetch-collie==0.0.0",
+  "goodfetch-collie-client==0.0.0",
+  "langchain-core>=1.0.0,<2",
+]
+# Nothing is published before the first release (AGENTS.md, Release status).
+classifiers = ["Private :: Do Not Upload"]
+
+[tool.uv.sources]
+goodfetch-collie = { workspace = true }
+goodfetch-collie-client = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.10"]
+build-backend = "uv_build"

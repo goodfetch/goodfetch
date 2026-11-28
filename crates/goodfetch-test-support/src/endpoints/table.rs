@@ -53,11 +53,15 @@ pub enum ListenerKind {
     /// Daemon's `Host` and `Origin`, opened by an `open` carrying the
     /// Daemon's token.
     LiveView,
+    /// The MCP server's Streamable HTTP listener (`POST /mcp`, ADRs 0017 and
+    /// 0070): loopback by default, checked for `Host`, `Origin` and a
+    /// per-launch bearer token.
+    McpHttp,
 }
 
 impl ListenerKind {
     /// Every listener, each of which must have a row.
-    pub(super) const ALL: [Self; 8] = [
+    pub(super) const ALL: [Self; 9] = [
         Self::DaemonSocket,
         Self::PrivateEndpoint,
         Self::OpsListener,
@@ -66,6 +70,7 @@ impl ListenerKind {
         Self::ExposedDaemon,
         Self::ProxyRelay,
         Self::LiveView,
+        Self::McpHttp,
     ];
 
     /// How the runner reaches this listener.
@@ -81,6 +86,7 @@ impl ListenerKind {
             Self::DaemonWebsocket => Transport::WebSocket,
             Self::ProxyRelay => Transport::HttpProxy,
             Self::LiveView => Transport::LiveViewChannel,
+            Self::McpHttp => Transport::McpHttp { path: "/mcp" },
         }
     }
 }
@@ -96,6 +102,9 @@ pub(super) enum Transport {
     /// HTTP/1.1 JSON-RPC (`POST /v1/rpc`), with `hello` fields in headers
     /// and the token as a bearer token (ADR 0027).
     HttpRpc { path: &'static str },
+    /// MCP Streamable HTTP (`POST /mcp`), with the per-launch token as a
+    /// bearer token (ADRs 0017 and 0070).
+    McpHttp { path: &'static str },
     /// JSON-RPC over WebSocket, one message per WebSocket message, that
     /// opens with a `hello` carrying the token once its handshake is
     /// accepted (ADR 0049).
@@ -174,9 +183,12 @@ impl Rule {
     fn tried_over(self, transport: Transport) -> bool {
         let http = matches!(
             transport,
-            Transport::Http { .. } | Transport::HttpRpc { .. }
+            Transport::Http { .. } | Transport::HttpRpc { .. } | Transport::McpHttp { .. }
         );
-        let http_rpc = matches!(transport, Transport::HttpRpc { .. });
+        let http_rpc = matches!(
+            transport,
+            Transport::HttpRpc { .. } | Transport::McpHttp { .. }
+        );
         let websocket = transport.is_websocket();
         let proxy = transport == Transport::HttpProxy;
         match self {
@@ -251,9 +263,15 @@ impl Expected {
     fn fits(self, rule: Rule, transport: Transport) -> bool {
         let http = matches!(
             transport,
-            Transport::Http { .. } | Transport::HttpRpc { .. } | Transport::HttpProxy
+            Transport::Http { .. }
+                | Transport::HttpRpc { .. }
+                | Transport::McpHttp { .. }
+                | Transport::HttpProxy
         );
-        let http_rpc = matches!(transport, Transport::HttpRpc { .. });
+        let http_rpc = matches!(
+            transport,
+            Transport::HttpRpc { .. } | Transport::McpHttp { .. }
+        );
         let websocket = transport.is_websocket();
         let at_the_handshake = rule.at_the_handshake();
         rule.tried_over(transport)
@@ -275,7 +293,9 @@ impl Expected {
                 Self::Accepted => {
                     matches!(
                         transport,
-                        Transport::Http { .. } | Transport::HttpRpc { .. }
+                        Transport::Http { .. }
+                            | Transport::HttpRpc { .. }
+                            | Transport::McpHttp { .. }
                     ) && rule == Rule::OriginMissing
                 }
                 Self::Challenge => transport == Transport::HttpProxy && rule == Rule::TokenMissing,

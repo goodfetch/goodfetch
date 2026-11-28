@@ -1,0 +1,36 @@
+{
+  "name": "goodfetch-collie",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Activepieces piece `goodfetch-collie` for Goodfetch Collie (ADRs 0027, 0070, 0090, 0095; spec #608, issue 1409).",
+  "license": "Apache-2.0",
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "node scripts/activepieces-lint.ts",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@goodfetch/collie-integrations-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@activepieces/pieces-framework": "0.32.0",
+    "@goodfetch/test-support": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "@activepieces/pieces-framework": "^0.32.0"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

@@ -77,6 +77,7 @@ fn listener_name(kind: ListenerKind) -> &'static str {
         ListenerKind::HttpListener => "http_listener",
         ListenerKind::ProxyRelay => "proxy_relay",
         ListenerKind::LiveView => "live_view",
+        ListenerKind::McpHttp => "mcp_http",
     }
 }
 

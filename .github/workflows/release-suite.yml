@@ -258,11 +258,15 @@ jobs:
       # (goodfetch_test_support.install), pulled by its digest before the deny.
       - name: Pull the install harness's Alpine image
         run: ci/alpine/fetch.sh
-      # The clean container goodfetch-collie's `source_build` builds the
-      # crate in, from Debian's packages, before the deny.
+      # Build the source build's clean container
       - name: Build the source build's clean container
         if: matrix.cell == 'linux-x64-gnu'
         run: ci/source-build/fetch.sh
+      # Adapter lowest-direct Python wheelhouse (ADR 0070; issue 1382),
+      # downloaded before ADR 0043's deny for the offline peer-range step.
+      - name: Fetch adapter lowest-version wheelhouse
+        if: matrix.cell == 'linux-x64-gnu'
+        run: ci/release/cell.sh adapters-fetch
       # The Pre-merge suite's units a batch's hosted run passed on this
       # tree, which the Rust step skips (#3384): on linux-x64-gnu, the
       # target of the hosted Pre-merge jobs.
@@ -284,6 +288,9 @@ jobs:
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
+      - name: "Test: adapter peer ranges"
+        if: matrix.cell == 'linux-x64-gnu'
+        run: ci/egress/under-deny.sh ci/release/cell.sh adapters
       # ADR 0072's exercise audit over the Rust tests the cell ran: every
       # test but the quarantined ones (ADR 0064), those that cannot run on
       # the cell and those of the crates the reuse step skips, which leave

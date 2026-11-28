@@ -4304,3 +4304,7 @@ package = "goodfetch-collie-client"
 name = "goodfetch.engine.<area>"
 constant = "none"
 reason = "Each `$/log` event of the engine, at its level (`trace` at 5), with `target`, `fields` and `dropped` as the record's attributes."
+
+[[unreached]]
+entries = ["notification.subscribe", "notification.unsubscribe"]
+reason = "Offered on the HTTP listener and the CLI for Integration triggers, not as an SDK method (ADR 0027; issue 1403)."

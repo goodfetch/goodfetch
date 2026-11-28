@@ -2368,6 +2368,61 @@ class NothingDone3(BaseModel):
     reason: Literal["nothing_pending"]
 
 
+class NotificationSubscribeParams(BaseModel):
+    """
+    What `notification.subscribe` takes (ADR 0027; spec #608, issue 1403):
+    registers a `webhook` channel named for an Integration's trigger with a
+    thin payload and a signing secret returned once.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    channel: str
+    """The webhook channel name (named for the Integration's trigger)."""
+    events: list[NotificationEvent] | None = None
+    """The Notification events this subscription receives; attention set when omitted."""
+    url: str
+    """The webhook destination URL; checked against ADR 0017's endpoint rule."""
+
+
+class NotificationSubscribeResult(BaseModel):
+    """What `notification.subscribe` answers (ADR 0027; spec #608, issue 1403)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    channel: str
+    """The subscribed channel name."""
+    created: bool
+    """Whether this call created a new subscription (`false` on idempotent repeat)."""
+    secret: str | None = None
+    """The Standard Webhooks `whsec_` signing secret, returned once when `created` is `true`."""
+
+
+class NotificationUnsubscribeParams(BaseModel):
+    """What `notification.unsubscribe` takes (ADR 0027; spec #608, issue 1403)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    channel: str
+    """The webhook channel name to remove."""
+
+
+class NotificationUnsubscribeResult(BaseModel):
+    """What `notification.unsubscribe` answers (ADR 0027; spec #608, issue 1403)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    channel: str
+    """The channel name."""
+    removed: bool
+    """Whether a subscription was removed (`false` when already absent)."""
+
+
 class OverloadedBound(StrEnum):
     """
     A Connection's own bound on what it holds, as `connection_overloaded`

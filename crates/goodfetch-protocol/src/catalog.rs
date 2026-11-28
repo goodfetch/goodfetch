@@ -842,5 +842,42 @@ pub struct Entries {
     pub shared_type_values: &'static [SharedTypeValue],
 }
 
+/// The form a Client's user writes names in (ADR 0099), which the engine
+/// renders the names and targets of its messages in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Form {
+    /// The TypeScript SDK, and Code mode.
+    Typescript,
+    /// The Python SDK.
+    Python,
+    /// A Rust program.
+    Rust,
+    /// The CLI.
+    Cli,
+    /// The MCP server and the Framework adapters.
+    Tool,
+    /// The catalog's own names: Integrations and the HTTP
+    /// listener.
+    Catalog,
+}
+
+impl Form {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 6] = [
+        Self::Typescript,
+        Self::Python,
+        Self::Rust,
+        Self::Cli,
+        Self::Tool,
+        Self::Catalog,
+    ];
+
+    /// Its name on the wire.
+    pub fn as_str(self) -> &'static str {
+        crate::wire_name::of(&self)
+    }
+}
+
 #[cfg(test)]
 mod tests;
